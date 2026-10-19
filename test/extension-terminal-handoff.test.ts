@@ -89,6 +89,43 @@ async function fixture(
 }
 
 describe('extension terminal handoff authority', () => {
+  it.each(['unchanged', 'retarget', 'off'] as const)(
+    'pins a session-trusted terminal command through %s consent',
+    async (fence) => {
+      const f = await fixture()
+      const approval = f.f.approvals.get(f.f.activation, 'tool', 'local')!
+      f.f.host.realpath.mockResolvedValue(localPath('/versions/B/tool'))
+      const prepared = await f.f.approvals.prepare(
+        approval,
+        () => undefined,
+        undefined,
+        true,
+      )
+      await f.f.approvals.approve(prepared.token)
+      f.confirm.mockImplementationOnce(() => {
+        if (fence === 'retarget')
+          f.f.host.realpath.mockResolvedValue(localPath('/versions/C/tool'))
+        if (fence === 'off') f.f.approvals.endSession(approval)
+        return Promise.resolve(true)
+      })
+      const result = f.start()
+      if (fence !== 'unchanged') {
+        expect(await result).toMatchObject({ outcome: 'not-started' })
+        expect(f.published).not.toHaveBeenCalled()
+        return
+      }
+      await vi.waitFor(() => expect(f.published).toHaveBeenCalledOnce())
+      const lease = f.consume()
+      expect(lease.command.executable).toBe('/versions/B/tool')
+      expect(f.confirm.mock.calls[0]?.[0].details).toContain('/versions/B/tool')
+      await lease.prepareDispatch()
+      lease.dispatched()
+      lease.finish(true)
+      expect(await result).toMatchObject({ outcome: 'handed-off' })
+      f.f.approvals.endSession(approval)
+      expect(lease.command.executable).toBe('/versions/B/tool')
+    },
+  )
   it('selects local terminal approval after the same connector gains an independent SSH binding', async () => {
     const f = await fixture()
     const hosts = f.f.hosts,

@@ -15,10 +15,7 @@ import {
 } from '../../shared/extensions/connectors'
 import type { ExtensionActivation } from './activation'
 import type { AdmittedExtensionContext } from './context-owner'
-import {
-  canonicalExecutablePath,
-  type ExtensionConnectorApprovalOwner,
-} from './connector-approval'
+import type { ExtensionConnectorApprovalOwner } from './connector-approval'
 
 export interface ConnectorCaller {
   readonly authorizeHost?: (host: string, workspace?: string) => void
@@ -106,6 +103,7 @@ export class ExtensionConnectorExecutionOwner {
     if (!host.finiteExec) return unavailable('unavailable')
     if (!this.consumerCapacity(caller.activation, approval.declaration.outputBytes))
       return unavailable('capacity')
+    let target: { executable: string; current: () => boolean } | undefined
     let context: AdmittedExtensionContext | undefined
     const prepared = await this.admit(caller, approval, workspace, async (signal) => {
       try {
@@ -130,11 +128,9 @@ export class ExtensionConnectorExecutionOwner {
         }
         if (!caller.action && !caller.demand(workspace))
           return unavailable('context-ended')
-        if (
-          (await canonicalExecutablePath(host, approval.executable)) !==
-          approval.canonicalExecutable
-        )
-          return unavailable('unapproved')
+        const resolved = await this.approvals.resolve(caller.activation, approval)
+        if ('reason' in resolved) return unavailable(resolved.reason)
+        target = resolved
         caller.current()
         signal.throwIfAborted()
         if (
@@ -149,10 +145,17 @@ export class ExtensionConnectorExecutionOwner {
       return undefined
     })
     if (prepared) return prepared
+    if (!target?.current()) return unavailable('context-ended')
     const cwd = context?.root ?? this.scratch
     const source = caller.action
       ? undefined
-      : JSON.stringify([caller.activation.generation, approval, cwd, args])
+      : JSON.stringify([
+          caller.activation.generation,
+          approval,
+          target.executable,
+          cwd,
+          args,
+        ])
     this.pruneSources()
     const existing = source ? this.sources.get(source) : undefined
     if (!this.consumerCapacity(caller.activation, approval.declaration.outputBytes))
@@ -172,7 +175,7 @@ export class ExtensionConnectorExecutionOwner {
       return unavailable('capacity')
     const controller = new AbortController()
     const task = host.finiteExec.tryExec(
-      approval.canonicalExecutable,
+      target.executable,
       [...approval.configuration.args, ...args],
       {
         cwd,

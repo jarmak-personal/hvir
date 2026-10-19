@@ -5,7 +5,6 @@ import type { ExtensionActivation } from './activation'
 import type { ExtensionGuestAuthority } from './guest-authority'
 import type { AdmittedExtensionContext } from './context-owner'
 import type { ExtensionConnectorApprovalOwner } from './connector-approval'
-import { canonicalExecutablePath } from './connector-approval'
 import { connectorArguments } from '../../shared/extensions/connectors'
 import { extensionObject, extensionText } from '../../shared/extensions/validation'
 import {
@@ -123,17 +122,23 @@ export class ExtensionTerminalHandoff {
         .forAction(invocation.action)
         ?.assertCapability('terminal.start', approval.host, workspace)
     }
-    const host = this.approvals.hosts.hostById(approval.host)
-    if (!host) throw new Error('Terminal host is unavailable')
+    const target = await this.approvals.resolve(caller.activation, approval)
+    if ('reason' in target)
+      throw new Error(`Terminal program is unavailable: ${target.reason}`)
+    assert()
+    const pinned = () => {
+      assert()
+      if (!target.current()) throw new Error('Terminal program trust ended')
+    }
     const revalidate = async () => {
-      assert()
-      const canonical = await canonicalExecutablePath(host, approval.executable)
-      assert()
-      if (canonical !== approval.canonicalExecutable)
+      pinned()
+      const resolved = await this.approvals.resolve(caller.activation, approval)
+      pinned()
+      if ('reason' in resolved || resolved.executable !== target.executable)
         throw new Error('Installed terminal command changed; approve it again')
     }
     const command = {
-      executable: approval.canonicalExecutable,
+      executable: target.executable,
       args: [...approval.configuration.args, ...args],
       environment: { ...approval.configuration.env },
     }
@@ -142,7 +147,7 @@ export class ExtensionTerminalHandoff {
       workspaceId: workspace,
       root,
       command,
-      current: assert,
+      current: pinned,
       revalidate,
       signal,
       decisionTimeoutMs:

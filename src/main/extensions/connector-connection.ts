@@ -1,20 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { extensionRequestIdentity } from '../../shared/extensions/validation'
 import type { ExtensionActivation, ExtensionActivationOwner } from './activation'
-import {
-  canonicalExecutablePath,
-  type ExtensionConnectorApprovalOwner,
-} from './connector-approval'
+import type { ExtensionConnectorApprovalOwner } from './connector-approval'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 import type {
   ExtensionConnectionResult,
   ExtensionConnectionProposal,
   ExtensionConnectorApproval,
 } from '../../shared/extensions/connectors'
-import {
-  discoverConnectorExecutables,
-  absentExecutableMetadata,
-} from './connector-discovery'
+import { discoverConnectorExecutables } from './connector-discovery'
 import type { PinnedWorkspaceConnectionContext } from './context-owner'
 
 export interface ExtensionConnectionDialog {
@@ -181,36 +175,42 @@ export class ExtensionConnectorConnectionOwner {
       for (const declaration of declarations) {
         assertCurrent()
         const existing = this.approvals.get(activation, declaration.id, host.hostId)
-        let complete = true
-        if (
-          existing?.host === host.hostId &&
-          this.approvals.current(activation, existing)
-        ) {
-          try {
-            if (
-              (await connectionWait(
-                canonicalExecutablePath(host, existing.executable),
-                lifetime,
-              )) === existing.canonicalExecutable
-            ) {
-              assertCurrent()
-              connections.push({ connector: declaration.id, outcome: 'connected' })
-              continue
-            }
-          } catch (reason) {
-            assertCurrent()
-            if (!absentExecutableMetadata(reason)) complete = false
+        let changed = false,
+          complete = true
+        if (existing) {
+          const resolved = await connectionWait(
+            this.approvals.resolve(activation, existing),
+            lifetime,
+          )
+          assertCurrent()
+          if ('executable' in resolved) {
+            connections.push({ connector: declaration.id, outcome: 'connected' })
+            continue
+          }
+          if (resolved.reason === 'executable-changed') changed = true
+          else if (resolved.reason === 'unavailable') complete = !!resolved.absent
+          else {
+            connections.push({
+              connector: declaration.id,
+              outcome: 'unavailable',
+              explanation:
+                'The saved program could not be checked. Review its path in Settings → Extensions.',
+            })
+            continue
           }
         }
-        const discovered = await connectionWait(
-          discoverConnectorExecutables(
-            host,
-            declaration.setup!.executable,
-            this.dialog.folders,
-            assertCurrent,
-          ),
-          lifetime,
-        )
+        const discovered =
+          changed && existing
+            ? { candidates: [existing.executable], complete: true }
+            : await connectionWait(
+                discoverConnectorExecutables(
+                  host,
+                  declaration.setup!.executable,
+                  this.dialog.folders,
+                  assertCurrent,
+                ),
+                lifetime,
+              )
         assertCurrent()
         const candidates = discovered.candidates
         complete &&= discovered.complete
@@ -273,7 +273,7 @@ export class ExtensionConnectorConnectionOwner {
             connector: declaration.id,
             host: host.hostId,
             executable,
-            configuration: { args: [], env: {} },
+            configuration: existing?.configuration ?? { args: [], env: {} },
           },
           assertCurrent,
           existing ? { approval: existing } : undefined,

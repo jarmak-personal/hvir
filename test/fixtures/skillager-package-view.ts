@@ -31,7 +31,7 @@ export function createSkillagerPackageView(view = 'library') {
     holdOn: string | undefined,
     expiredCursors = false,
     frequency = false,
-    unapproved = false,
+    unapproved = undefined as 'unapproved' | 'executable-changed' | undefined,
     projectApproved = true,
     libraryApproved = true,
     version = '0.9.3',
@@ -97,8 +97,8 @@ export function createSkillagerPackageView(view = 'library') {
         (message.input.connector === 'project-cli' && !projectApproved) ||
         (message.input.connector === 'library-cli' && !libraryApproved)
       ) {
-        unapproved = false
-        value = { outcome: 'not-started', reason: 'unapproved' }
+        value = { outcome: 'not-started', reason: unapproved ?? 'unapproved' }
+        unapproved = undefined
       } else if (frequency) {
         frequency = false
         value = { outcome: 'not-started', reason: 'frequency' }
@@ -331,8 +331,8 @@ export function createSkillagerPackageView(view = 'library') {
     button,
     flush,
     calls,
-    unapproved: () => {
-      unapproved = true
+    unapproved: (reason: 'unapproved' | 'executable-changed' = 'unapproved') => {
+      unapproved = reason
     },
     fail: (command?: string) => {
       fail = true

@@ -385,7 +385,7 @@ describe('passive program connection', () => {
     },
   )
   it.each(['ENOENT', 'NOT_EXECUTABLE'])(
-    'a saved executable now %s reaches fresh discovery and new consent',
+    'a saved executable now %s falls through to fresh discovery and consent',
     async (code) => {
       const data = fixture()
       try {

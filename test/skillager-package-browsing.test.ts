@@ -210,38 +210,46 @@ it('retries only explicit completed-source frequency refusal once and cancels th
   expect(vi.getTimerCount()).toBe(0)
 })
 
-it('makes native approval refusal actionable while retaining last-known observations and exact search options', async () => {
-  const f = packageView()
-  f.context()
-  await f.flush()
-  const before = document.getElementById('skills')!.textContent
-  f.unapproved()
-  f.button('refresh').click()
-  await f.flush()
-  expect(document.getElementById('state')!.textContent).toContain(
-    'choose Connect Skillager',
-  )
-  expect(document.getElementById('state')!.textContent).toContain(
-    'Last-known rows retained',
-  )
-  expect(document.getElementById('state')!.textContent).not.toContain(
-    'not-started: unapproved',
-  )
-  expect(document.getElementById('skills')!.textContent).toBe(before)
-  expect(document.getElementById('installed-note')!.textContent).toContain(
-    'Installed copies are unknown',
-  )
-  expect(
-    (document.getElementById('include-installed') as HTMLInputElement).disabled,
-  ).toBe(true)
-  expect((document.getElementById('include-installed') as HTMLInputElement).checked).toBe(
-    false,
-  )
-  const options = document.querySelector<HTMLDetailsElement>('.search-options')!
-  expect(options.open).toBe(false)
-  options.querySelector('summary')!.click()
-  expect(options.open).toBe(true)
-})
+it.each(['unapproved', 'executable-changed'] as const)(
+  'makes native %s refusal actionable while retaining last-known observations and exact search options',
+  async (reason) => {
+    const f = packageView()
+    f.context()
+    await f.flush()
+    const before = document.getElementById('skills')!.textContent
+    f.unapproved(reason)
+    f.button('refresh').click()
+    await f.flush()
+    expect(document.getElementById('state')!.textContent).toContain(
+      reason === 'unapproved' ? 'choose Connect Skillager' : 'Choose Connect Skillager',
+    )
+    expect(document.getElementById('state')!.textContent).toContain(
+      'Last-known rows retained',
+    )
+    expect(document.getElementById('state')!.textContent).not.toContain(
+      'not-started: unapproved',
+    )
+    expect(document.getElementById('skills')!.textContent).toBe(before)
+    expect(f.button('connect-program').hidden).toBe(false)
+    if (reason === 'executable-changed')
+      expect(document.getElementById('state')!.textContent).toContain(
+        'Skillager was updated',
+      )
+    expect(document.getElementById('installed-note')!.textContent).toContain(
+      'Installed copies are unknown',
+    )
+    expect(
+      (document.getElementById('include-installed') as HTMLInputElement).disabled,
+    ).toBe(true)
+    expect(
+      (document.getElementById('include-installed') as HTMLInputElement).checked,
+    ).toBe(false)
+    const options = document.querySelector<HTMLDetailsElement>('.search-options')!
+    expect(options.open).toBe(false)
+    options.querySelector('summary')!.click()
+    expect(options.open).toBe(true)
+  },
+)
 
 it('delivers the current Connect result after picker context focus loss without confusing the browse generation', async () => {
   const f = packageView()

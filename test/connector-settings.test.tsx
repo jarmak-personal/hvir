@@ -486,3 +486,232 @@ it.each([
     }
   },
 )
+
+it.each([false, true])(
+  'prefills exact repair, requires session consent and preserves truthful Off state (failure=%s)',
+  async (offFails) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+    const configuration = { args: ['--custom'], env: { TOOL_HOME: '/private/library' } }
+    let trusted = false
+    const approval = {
+      installationId: 'installed',
+      connector: 'tool',
+      host: 'local',
+      executable: '/custom/tool',
+      canonicalExecutable: '/versions/B/tool',
+      configuration,
+    }
+    const invoke = vi.fn((channel: string, input: Record<string, unknown>) => {
+      if (channel === 'extensions:connector-prepare')
+        return Promise.resolve({
+          token: 'review',
+          approval,
+          trustUpdates: input.trustUpdates,
+          preservesBaseline: true,
+        })
+      if (channel === 'extensions:connector-approve') trusted = true
+      if (channel === 'extensions:connector-session-end') {
+        if (offFails) return Promise.reject(new Error('Off was not applied'))
+        trusted = false
+      }
+      return Promise.resolve({
+        hosts: [{ hostId: 'local', label: 'Local', kind: 'local' }],
+        connectors: [
+          {
+            connector: 'tool',
+            host: 'local',
+            selectedExecutable: '/custom/tool',
+            executable: '/versions/A/tool',
+            currentExecutable: '/versions/B/tool',
+            configuration,
+            trustUpdates: trusted,
+            availability: trusted ? 'supported' : 'unavailable',
+            ...(trusted ? {} : { reason: 'executable-changed' }),
+          },
+        ],
+      })
+    })
+    Object.defineProperty(window, 'hvir', { configurable: true, value: { invoke } })
+    const element = document.createElement('div')
+    document.body.append(element)
+    const root = createRoot(element)
+    const manifest = validateExtensionManifest(
+      exampleManifest({
+        connectors: [
+          {
+            id: 'tool',
+            description: 'Read observations',
+            context: 'application',
+            timeoutMs: 1000,
+            outputBytes: 1000,
+            environment: ['TOOL_HOME'],
+          },
+        ],
+      }),
+    ).manifest
+    const click = async (label: string) =>
+      act(async () => {
+        const button = [...element.querySelectorAll('button')].find(
+          (button) => button.textContent === label,
+        )
+        expect(button).toBeDefined()
+        button!.click()
+        await Promise.resolve()
+      })
+    try {
+      await act(async () => {
+        root.render(
+          <ConnectorSettings
+            installation={{
+              source: 'package',
+              installationId: 'installed',
+              enabled: true,
+              warnings: [],
+              manifest,
+            }}
+          />,
+        )
+        await Promise.resolve()
+      })
+      expect(invoke).toHaveBeenCalledWith('extensions:connector-settings', {
+        installationId: 'installed',
+        connector: 'tool',
+        host: 'local',
+      })
+      expect(element.textContent).toContain('Program updated · review access')
+      expect(element.textContent).toContain('/versions/A/tool')
+      expect(element.textContent).toContain('/versions/B/tool')
+      expect(
+        element.querySelector<HTMLInputElement>('[aria-label="Executable for tool"]')
+          ?.value,
+      ).toBe('/custom/tool')
+      expect(
+        JSON.parse(element.querySelector<HTMLTextAreaElement>('textarea')!.value),
+      ).toEqual(configuration)
+      await click('Trust updates at this launcher until hvir quits')
+      expect(trusted).toBe(false)
+      await click('Cancel')
+      expect(trusted).toBe(false)
+      expect(invoke).toHaveBeenCalledWith('extensions:connector-cancel-prepared', {
+        token: 'review',
+      })
+      await click('Trust updates at this launcher until hvir quits')
+      expect(invoke).toHaveBeenCalledWith('extensions:connector-prepare', {
+        installationId: 'installed',
+        connector: 'tool',
+        host: 'local',
+        executable: '/custom/tool',
+        configuration,
+        trustUpdates: true,
+      })
+      expect(element.textContent).toContain('Saved approval stays unchanged')
+      await click('Trust launcher updates for this session')
+      expect(trusted).toBe(true)
+      expect(element.textContent).toContain('Updates trusted for this session')
+      await click('Stop trusting launcher updates')
+      expect(invoke).toHaveBeenCalledWith('extensions:connector-session-end', {
+        installationId: 'installed',
+        connector: 'tool',
+        host: 'local',
+      })
+      expect(trusted).toBe(offFails)
+      expect(
+        [...element.querySelectorAll('button')].some(
+          (button) => button.textContent === 'Stop trusting launcher updates',
+        ),
+      ).toBe(offFails)
+      expect(element.textContent).toContain(
+        offFails ? 'Updates trusted for this session' : 'Program updated · review access',
+      )
+      if (offFails)
+        expect(element.querySelector('[role="alert"]')?.textContent).toBe(
+          'Off was not applied',
+        )
+    } finally {
+      act(() => root.unmount())
+      element.remove()
+      vi.unstubAllGlobals()
+    }
+  },
+)
+
+it.each(['unavailable', 'error'] as const)(
+  'distinguishes pending inspection and %s metadata from missing approval',
+  async (outcome) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+    let finish!: (value: unknown) => void, fail!: () => void
+    const pending = new Promise((resolve, reject) => {
+      finish = resolve
+      fail = () => reject(new Error('Unavailable'))
+    })
+    Object.defineProperty(window, 'hvir', {
+      configurable: true,
+      value: { invoke: vi.fn(() => pending) },
+    })
+    const element = document.createElement('div')
+    document.body.append(element)
+    const root = createRoot(element)
+    const manifest = validateExtensionManifest(
+      exampleManifest({
+        connectors: [
+          {
+            id: 'tool',
+            description: 'Read observations',
+            context: 'application',
+            timeoutMs: 1000,
+            outputBytes: 1000,
+            environment: [],
+          },
+        ],
+      }),
+    ).manifest
+    try {
+      await act(async () => {
+        root.render(
+          <ConnectorSettings
+            installation={{
+              source: 'package',
+              installationId: 'installed',
+              enabled: true,
+              warnings: [],
+              manifest,
+            }}
+          />,
+        )
+        await Promise.resolve()
+      })
+      expect(element.querySelector('[role="status"]')?.textContent).toBe(
+        'Checking program…',
+      )
+      expect(element.textContent).not.toContain('Not approved')
+      await act(async () => {
+        if (outcome === 'error') fail()
+        else
+          finish({
+            hosts: [],
+            connectors: [
+              {
+                connector: 'tool',
+                host: 'local',
+                availability: 'unavailable',
+                reason: 'unavailable',
+                selectedExecutable: '/tool',
+                executable: '/A/tool',
+                configuration: { args: [], env: {} },
+              },
+            ],
+          })
+        await Promise.resolve()
+      })
+      expect(element.querySelector('[role="status"]')?.textContent).toBe(
+        outcome === 'error' ? 'Couldn’t check program' : 'Program unavailable',
+      )
+      expect(element.textContent).not.toContain('Not approved')
+      expect(element.textContent).not.toContain('Needs approval')
+    } finally {
+      act(() => root.unmount())
+      element.remove()
+      vi.unstubAllGlobals()
+    }
+  },
+)

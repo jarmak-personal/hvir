@@ -67,7 +67,11 @@ export const extensionsIpc = {
       void
     >(),
     'extensions:connector-settings': invoke<
-      { readonly installationId: string },
+      {
+        readonly installationId: string
+        readonly connector?: string
+        readonly host?: string
+      },
       {
         readonly hosts: readonly ProjectHostOption[]
         readonly connectors: readonly ExtensionConnectorSetting[]
@@ -91,11 +95,24 @@ export const extensionsIpc = {
       import('../extensions/connectors').ExtensionConnectionResult
     >(),
     'extensions:connector-prepare': invoke<
-      ExtensionConnectorSelection,
-      { readonly token: string; readonly approval: ExtensionConnectorApproval }
+      ExtensionConnectorSelection & { readonly trustUpdates?: boolean },
+      {
+        readonly token: string
+        readonly approval: ExtensionConnectorApproval
+        readonly trustUpdates: boolean
+        readonly preservesBaseline: boolean
+      }
     >(),
     'extensions:connector-approve': invoke<{ readonly token: string }, void>(),
     'extensions:connector-cancel-prepared': invoke<{ readonly token: string }, void>(),
+    'extensions:connector-session-end': invoke<
+      {
+        readonly installationId: string
+        readonly connector: string
+        readonly host: string
+      },
+      void
+    >(),
     'extensions:connector-revoke': invoke<
       {
         readonly installationId: string

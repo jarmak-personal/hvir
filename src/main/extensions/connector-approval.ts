@@ -10,6 +10,7 @@ import {
   connectorConfiguration,
   validateConnectorDeclarations,
   type ExtensionConnectorApproval,
+  type ExtensionConnectorDeclaration,
   type ExtensionConnectorSelection,
   type ExtensionConnectorStatus,
   type ExtensionConnectorSetting,
@@ -21,7 +22,12 @@ import type { ExtensionActivationOwner, ExtensionActivation } from './activation
 export type ConnectorHostPort = Pick<
   ProjectHost,
   'hostId' | 'connectionState' | 'realpath' | 'stat' | 'finiteExec' | 'connect'
->
+> & {
+  readonly streamLocal?: Pick<
+    NonNullable<ProjectHost['streamLocal']>,
+    'generation' | 'signal' | 'assertCurrent'
+  >
+}
 
 export interface ConnectorHostCatalog {
   readonly local: Pick<ProjectHost, 'hostId'>
@@ -33,6 +39,8 @@ export interface ConnectorHostCatalog {
 interface PreparedApproval {
   readonly approval: ExtensionConnectorApproval
   readonly activation: ExtensionActivation
+  readonly trustUpdates: boolean
+  readonly hostCurrent: () => boolean
   readonly expires: number
   readonly current: () => void
   readonly decision: ApprovalDecision
@@ -45,6 +53,24 @@ interface ApprovalDecision {
   readonly controller: AbortController
 }
 
+interface SessionTrust {
+  readonly approval: ExtensionConnectorApproval
+  readonly current: () => boolean
+  readonly stop: () => void
+}
+export type ConnectorExecutableResolution =
+  | { readonly executable: string; readonly current: () => boolean }
+  | {
+      readonly reason:
+        | 'executable-changed'
+        | 'disconnected'
+        | 'unavailable'
+        | 'context-ended'
+        | 'capacity'
+      readonly observed?: string
+      readonly absent?: boolean
+    }
+
 /** Durable native trust, separate from package/UI enablement and transport mechanics. */
 export class ExtensionConnectorApprovalOwner {
   private approvals: ExtensionConnectorApproval[] = []
@@ -53,6 +79,9 @@ export class ExtensionConnectorApprovalOwner {
   private pending: Promise<unknown> = Promise.resolve()
   private failure?: string
   private disposed = false
+  private readonly sessions = new Map<string, SessionTrust>()
+  private readonly inspections = new Set<{ readonly installation: string }>()
+  private readonly stopHosts: () => void
   constructor(
     readonly hosts: ConnectorHostCatalog,
     private readonly activations: Pick<
@@ -64,7 +93,12 @@ export class ExtensionConnectorApprovalOwner {
       connector?: string,
       host?: string,
     ) => void,
-  ) {}
+  ) {
+    this.stopHosts = hosts.onHostStateChange(() => {
+      for (const session of this.sessions.values())
+        if (!session.current()) this.endSession(session.approval)
+    })
+  }
 
   async start(): Promise<void> {
     try {
@@ -112,7 +146,15 @@ export class ExtensionConnectorApprovalOwner {
     selection: ExtensionConnectorSelection,
     current: () => void,
     prior?: { readonly approval: ExtensionConnectorApproval | undefined },
-  ): Promise<{ token: string; approval: ExtensionConnectorApproval }> {
+    trustUpdates = false,
+  ): Promise<{
+    token: string
+    approval: ExtensionConnectorApproval
+    trustUpdates: boolean
+    preservesBaseline: boolean
+  }> {
+    if (typeof trustUpdates !== 'boolean')
+      throw new Error('Choose session update trust explicitly')
     this.prune()
     const expected = prior ?? {
       approval: this.approvals.find((entry) => key(entry) === key(selection)),
@@ -158,7 +200,11 @@ export class ExtensionConnectorApprovalOwner {
       const configuration = connectorConfiguration(selection.configuration, declaration)
       const host = await this.hosts.materializeHost(selection.host)
       await host.connect()
+      const hostCurrent = this.hostLifetime(host)
+      if (trustUpdates && host.hostId !== this.hosts.local.hostId && !host.streamLocal)
+        throw new Error('This host has no current connection lifetime')
       const canonicalExecutable = await canonicalExecutablePath(host, executable)
+      if (!hostCurrent()) throw new Error('Native setup host changed')
       await this.assertWritable()
       decision.controller.signal.throwIfAborted()
       if (this.activations.active.get(selection.installationId) !== activation)
@@ -177,13 +223,23 @@ export class ExtensionConnectorApprovalOwner {
       this.prepared.set(token, {
         approval,
         activation,
+        trustUpdates,
+        hostCurrent,
         expires: Date.now() + 60_000,
         current,
         decision,
         prior: expected,
       })
       retained = true
-      return { token, approval }
+      return {
+        token,
+        approval,
+        trustUpdates,
+        preservesBaseline:
+          trustUpdates &&
+          !!expected.approval &&
+          sameLauncherBinding(expected.approval, approval),
+      }
     } finally {
       if (!retained) this.decisions.delete(decision)
     }
@@ -205,11 +261,13 @@ export class ExtensionConnectorApprovalOwner {
             approval.canonicalExecutable
         )
           throw new Error('Executable target changed; inspect it again')
+        await this.assertWritable()
         const current = () => {
           prepared.decision.controller.signal.throwIfAborted()
           prepared.current()
           if (
             this.disposed ||
+            !prepared.hostCurrent() ||
             this.activations.active.get(activation.installationId) !== activation
           )
             throw new Error('Native approval context ended')
@@ -222,6 +280,13 @@ export class ExtensionConnectorApprovalOwner {
           throw new Error(
             'Saved connector access changed; connect again to review its replacement',
           )
+        const prior = prepared.prior.approval
+        if (prepared.trustUpdates && prior && sameLauncherBinding(prior, approval)) {
+          this.dropSession(prior)
+          this.revoked(prior.installationId, prior.connector, prior.host)
+          this.trustSession(prior, prepared.hostCurrent)
+          return
+        }
         const next = [
           ...this.approvals.filter((entry) => key(entry) !== key(approval)),
           approval,
@@ -233,6 +298,7 @@ export class ExtensionConnectorApprovalOwner {
           throw new Error(
             'Connector approval state exceeds its bound; revoke unused host bindings first',
           )
+        this.dropSession(approval)
         this.revoked(approval.installationId, approval.connector, approval.host)
         this.approvals = this.approvals.filter((entry) => key(entry) !== key(approval))
         await this.activations.saveConnectorApprovals(next, current)
@@ -242,6 +308,7 @@ export class ExtensionConnectorApprovalOwner {
           ...this.approvals.filter((entry) => key(entry) !== key(approval)),
           approval,
         ]
+        if (prepared.trustUpdates) this.trustSession(approval, prepared.hostCurrent)
       } finally {
         this.prepared.delete(token)
         this.decisions.delete(prepared.decision)
@@ -250,6 +317,7 @@ export class ExtensionConnectorApprovalOwner {
   }
 
   revoke(installation: string, connector?: string, host?: string): Promise<void> {
+    this.clearSessions(installation, connector, host)
     this.revoked(installation, connector, host)
     this.discardPrepared(installation, connector, host)
     this.approvals = this.approvals.filter(
@@ -308,6 +376,7 @@ export class ExtensionConnectorApprovalOwner {
   }
 
   forget(installation: string): readonly ExtensionConnectorApproval[] | undefined {
+    this.clearSessions(installation)
     this.revoked(installation)
     this.discardPrepared(installation)
     if (this.failure) return undefined
@@ -348,6 +417,221 @@ export class ExtensionConnectorApprovalOwner {
       this.hosts.hostById(approval.host)?.connectionState === 'connected'
     )
   }
+  /** Resolve only through an already connected host; the returned target is immutable. */
+  async resolve(
+    activation: ExtensionActivation,
+    approval: ExtensionConnectorApproval,
+  ): Promise<ConnectorExecutableResolution> {
+    const host = this.hosts.hostById(approval.host)
+    if (!host || host.connectionState !== 'connected') return { reason: 'disconnected' }
+    const hostCurrent = this.hostLifetime(host)
+    const session = this.session(approval)
+    const current = (): boolean =>
+      this.current(activation, approval) &&
+      hostCurrent() &&
+      this.session(approval) === session
+    if (!current()) return { reason: 'context-ended' }
+    if (
+      this.inspections.size >= CONNECTOR_LIMITS.concurrent ||
+      [...this.inspections].filter(
+        (entry) => entry.installation === approval.installationId,
+      ).length >= CONNECTOR_LIMITS.perExtension
+    )
+      return { reason: 'capacity' }
+    const inspection = { installation: approval.installationId }
+    this.inspections.add(inspection)
+    try {
+      const executable = await canonicalExecutablePath(host, approval.executable)
+      if (!current()) return { reason: 'context-ended' }
+      if (!session && executable !== approval.canonicalExecutable)
+        return { reason: 'executable-changed', observed: executable }
+      return { executable, current }
+    } catch (reason) {
+      return current()
+        ? { reason: 'unavailable', absent: absentExecutableMetadata(reason) }
+        : { reason: 'context-ended' }
+    } finally {
+      this.inspections.delete(inspection)
+    }
+  }
+
+  async inspectStatus(
+    activation: ExtensionActivation,
+    workspaceHost?: string,
+  ): Promise<readonly ExtensionConnectorStatus[]> {
+    const statuses: { status: ExtensionConnectorStatus; current: () => boolean }[] = []
+    for (const entry of this.status(activation, workspaceHost)) {
+      const approval = entry.host && this.get(activation, entry.connector, entry.host)
+      const host = entry.host && this.hosts.hostById(entry.host)
+      const session = approval ? this.session(approval) : undefined
+      const hostCurrent =
+        host && host.connectionState === 'connected'
+          ? this.hostLifetime(host)
+          : () => true
+      statuses.push({
+        status: approval
+          ? { ...entry, ...(await this.inspect(activation, approval)) }
+          : entry,
+        current: () =>
+          !approval ||
+          (this.get(activation, approval.connector, approval.host) === approval &&
+            this.session(approval) === session &&
+            hostCurrent()),
+      })
+    }
+    return statuses.map(({ status, current }) =>
+      current()
+        ? status
+        : {
+            connector: status.connector,
+            host: status.host,
+            availability: 'unavailable',
+            reason: 'unavailable',
+            explanation: 'Program access changed; check again',
+          },
+    )
+  }
+
+  async inspectSettings(
+    activation: ExtensionActivation,
+    connector: string,
+    host: string,
+  ) {
+    const approval = this.get(activation, connector, host)
+    const session = approval ? this.session(approval) : undefined
+    const selectedHost = this.hosts.hostById(host)
+    const hostCurrent =
+      selectedHost?.connectionState === 'connected'
+        ? this.hostLifetime(selectedHost)
+        : () => true
+    const observed = approval ? await this.inspect(activation, approval) : undefined
+    const snapshot = this.settings(activation)
+    return {
+      ...snapshot,
+      connectors: snapshot.connectors.map((entry) =>
+        observed && entry.connector === connector && entry.host === host
+          ? this.get(activation, connector, host) === approval &&
+            this.session(approval!) === session &&
+            hostCurrent()
+            ? { ...entry, ...observed }
+            : {
+                ...entry,
+                availability: 'unavailable' as const,
+                reason: 'unavailable' as const,
+                explanation: 'Program access changed; check again',
+              }
+          : entry,
+      ),
+    }
+  }
+
+  private async inspect(
+    activation: ExtensionActivation,
+    approval: ExtensionConnectorApproval,
+  ) {
+    const result = await this.resolve(activation, approval)
+    if ('executable' in result)
+      return { availability: 'supported' as const, currentExecutable: result.executable }
+    const reason =
+      result.reason === 'context-ended' || result.reason === 'capacity'
+        ? 'unavailable'
+        : result.reason
+    return {
+      availability:
+        reason === 'disconnected' ? ('disconnected' as const) : ('unavailable' as const),
+      reason,
+      ...(result.observed ? { currentExecutable: result.observed } : {}),
+      explanation:
+        reason === 'executable-changed'
+          ? 'Program target changed. Review its update in Settings → Extensions.'
+          : reason === 'disconnected'
+            ? 'Host disconnected'
+            : 'Program metadata is unavailable',
+    }
+  }
+
+  /** Reload preserves only the exact unchanged declaration; all old work is still revoked. */
+  activationEnded(
+    installation: string,
+    reloading?: readonly ExtensionConnectorDeclaration[],
+  ): void {
+    this.discardPrepared(installation)
+    for (const session of this.sessions.values())
+      if (
+        session.approval.installationId === installation &&
+        !reloading?.some(
+          (entry) =>
+            JSON.stringify(entry) === JSON.stringify(session.approval.declaration),
+        )
+      )
+        this.endSession(session.approval)
+  }
+
+  endSession(
+    selection: Pick<ExtensionConnectorSelection, 'installationId' | 'connector' | 'host'>,
+  ): void {
+    this.discardPrepared(selection.installationId, selection.connector, selection.host)
+    this.dropSession(selection)
+  }
+  private dropSession(
+    selection: Pick<ExtensionConnectorSelection, 'installationId' | 'connector' | 'host'>,
+  ): void {
+    const session = this.sessions.get(key(selection))
+    if (!session) return
+    this.sessions.delete(key(selection))
+    session.stop()
+    this.revoked(selection.installationId, selection.connector, selection.host)
+  }
+
+  private clearSessions(installation: string, connector?: string, host?: string): void {
+    for (const session of this.sessions.values())
+      if (
+        session.approval.installationId === installation &&
+        (!connector || session.approval.connector === connector) &&
+        (!host || session.approval.host === host)
+      )
+        this.endSession(session.approval)
+  }
+  private session(approval: ExtensionConnectorApproval): SessionTrust | undefined {
+    const session = this.sessions.get(key(approval))
+    if (session && (session.approval !== approval || !session.current())) {
+      this.endSession(approval)
+      return undefined
+    }
+    return session
+  }
+  private trustSession(
+    approval: ExtensionConnectorApproval,
+    current: () => boolean,
+  ): void {
+    const signal = this.hosts.hostById(approval.host)?.streamLocal?.signal
+    const abort = (): void => this.endSession(approval)
+    const session = {
+      approval,
+      current,
+      stop: () => signal?.removeEventListener('abort', abort),
+    }
+    if (!current()) throw new Error('Session connection ended')
+    this.sessions.set(key(approval), session)
+    signal?.addEventListener('abort', abort, { once: true })
+  }
+  private hostLifetime(host: ConnectorHostPort): () => boolean {
+    const binding = host.streamLocal
+    return () => {
+      try {
+        binding?.assertCurrent()
+        return (
+          !this.disposed &&
+          this.hosts.hostById(host.hostId) === host &&
+          host.connectionState === 'connected' &&
+          (!binding || !binding.signal.aborted)
+        )
+      } catch {
+        return false
+      }
+    }
+  }
+
   status(
     activation: ExtensionActivation,
     workspaceHost?: string,
@@ -386,6 +670,7 @@ export class ExtensionConnectorApprovalOwner {
           executable: entry.canonicalExecutable,
           selectedExecutable: entry.executable,
           configuration: entry.configuration,
+          trustUpdates: !!this.session(entry),
           ...this.availability(this.get(activation, entry.connector, entry.host)),
         })),
     }
@@ -403,6 +688,8 @@ export class ExtensionConnectorApprovalOwner {
   }
   dispose(): void {
     this.disposed = true
+    this.stopHosts()
+    for (const session of this.sessions.values()) this.endSession(session.approval)
     for (const decision of this.decisions) decision.controller.abort()
     this.prepared.clear()
     this.approvals = []
@@ -452,4 +739,28 @@ function key(
   approval: Pick<ExtensionConnectorSelection, 'installationId' | 'connector' | 'host'>,
 ): string {
   return JSON.stringify([approval.installationId, approval.connector, approval.host])
+}
+
+function sameLauncherBinding(
+  a: ExtensionConnectorApproval,
+  b: ExtensionConnectorApproval,
+): boolean {
+  return (
+    a.installationId === b.installationId &&
+    a.connector === b.connector &&
+    a.host === b.host &&
+    a.executable === b.executable &&
+    JSON.stringify(a.declaration) === JSON.stringify(b.declaration) &&
+    JSON.stringify(a.configuration) === JSON.stringify(b.configuration)
+  )
+}
+
+/** Only specific absence is known; unreadable or unresolved metadata remains incomplete. */
+export function absentExecutableMetadata(reason: unknown): boolean {
+  return (
+    !!reason &&
+    typeof reason === 'object' &&
+    'code' in reason &&
+    ['ENOENT', 'ENOTDIR', 'NOT_EXECUTABLE'].includes(String(reason.code))
+  )
 }

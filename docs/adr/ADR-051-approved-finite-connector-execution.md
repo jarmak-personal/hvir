@@ -1,6 +1,7 @@
 # ADR-051: Approved finite connector execution
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-075](ADR-075-session-launcher-update-trust.md) | partial | Mandatory canonical-target reapproval only for an explicit session-bound decision to trust updates at one exact launcher.
 > Superseded by: [ADR-070](ADR-070-explicit-local-workspace-program-connection.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for explicit ordinary-human local-workspace connections only.
 > Superseded by: [ADR-065](ADR-065-passive-extension-program-connection.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for application-local first-use connections only.
 > Supersedes: [ADR-010](ADR-010-project-host-remote-boundary.md) | partial | Registered-root requirement for explicit approved connector execution and its application-local working context only.

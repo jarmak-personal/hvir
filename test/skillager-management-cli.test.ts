@@ -260,3 +260,13 @@ it('retains descriptor when completed native output is malformed, oversized, or 
   ).rejects.toThrow(/no longer/)
   expect(f.io.pending).toMatchObject({ action: 'initialize-library' })
 })
+
+it('reports changed-program refusal as actionable without retrying or retaining a submitted mutation', async () => {
+  const f = fixture()
+  f.execution({ outcome: 'not-started', reason: 'executable-changed' })
+  await expect(f.io.run(['library', 'init'], { action: 'initialize-library' })).rejects.toMatchObject({
+    setupState: 'program-updated', message: 'Skillager was updated. Review its program access before running it again.',
+  })
+  expect(f.io.pending).toBeUndefined()
+  expect(f.calls).toHaveLength(1)
+})

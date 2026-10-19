@@ -61,7 +61,10 @@ export class ExtensionActivationOwner {
     readonly directory: HostPath,
     private readonly stateFile: HostPath,
     readonly packages: ExtensionPackageStore,
-    private readonly revoke: (installationId: string) => void,
+    private readonly revoke: (
+      installationId: string,
+      reloading?: ExtensionActivation['revision']['manifest']['connectors'],
+    ) => void,
     private readonly changed: (state: ExtensionPlatformState) => void,
     private readonly forgotten: (
       installationId: string,
@@ -449,13 +452,22 @@ export class ExtensionActivationOwner {
       enabled: true,
       agentAccess: prior?.agentAccess ?? false,
     }
-    if (prior) this.revokeActivation(prior.installationId)
+    if (prior)
+      this.revokeActivation(
+        prior.installationId,
+        replacing && prior.source === source
+          ? (current.manifest.connectors ?? [])
+          : undefined,
+      )
     await this.save(
       [...this.accepted.filter((entry) => entry !== prior), record],
       this.removals,
       currentIntent,
       signal,
-    )
+    ).catch((reason: unknown) => {
+      this.revokeActivation(record.installationId)
+      throw reason
+    })
     this.discovered.set(source, current)
     this.installations = this.installations.map((entry) =>
       entry.source === source
@@ -968,11 +980,14 @@ export class ExtensionActivationOwner {
       this.releaseTask = this.pending.catch(() => undefined).then(() => writer.release())
   }
 
-  private revokeActivation(id: string): void {
+  private revokeActivation(
+    id: string,
+    reloading?: ExtensionActivation['revision']['manifest']['connectors'],
+  ): void {
     this.agentLifetimes.get(id)?.abort()
     this.agentLifetimes.delete(id)
     this.active.delete(id)
-    this.revoke(id)
+    this.revoke(id, reloading)
   }
   private publish(): void {
     this.changed(this.snapshot())

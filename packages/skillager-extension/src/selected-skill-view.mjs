@@ -251,9 +251,11 @@ export function bindSelectedSkill(document, client, ports) {
       projectReady = true
     } catch (error) {
       if (!current(revision)) return
-      if (error.setupState === 'missing-program') {
+      if (['missing-program', 'program-updated'].includes(error.setupState)) {
         el('task-connect').dataset.needed = 'true'
-        return 'Connect Skillager for this project to see and manage its installed copies.'
+        return error.setupState === 'program-updated'
+          ? 'Skillager was updated. Choose Connect Skillager to review its program access.'
+          : 'Connect Skillager for this project to see and manage its installed copies.'
       }
       return error.message
     }

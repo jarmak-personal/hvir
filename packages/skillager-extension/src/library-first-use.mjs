@@ -5,6 +5,18 @@ export class SkillagerSetupError extends Error {
     this.setupState = state
   }
 }
+export function connectorSetupError(reason, message) {
+  return new SkillagerSetupError(
+    reason === 'executable-changed'
+      ? 'program-updated'
+      : reason === 'unapproved'
+        ? 'missing-program'
+        : 'failed-observation',
+    reason === 'executable-changed'
+      ? 'Skillager was updated. Review its program access before running it again.'
+      : message,
+  )
+}
 export const projectInventoryRequirement =
   'Project inventory requires Skillager 0.9.7 or a supported source build.'
 export const projectQueryRequirement =
@@ -33,8 +45,8 @@ export function firstUseFailure(
   const project = destination === 'project'
   return {
     state: retained ? 'stale' : state,
-    setup: ['missing-program', 'update-required'].includes(state),
-    message: `${state === 'missing-program' ? (project ? (canConnect ? 'Skillager is not connected for this project. Choose Connect Skillager here to discover its skills.' : 'Skillager is not connected for this project. Open Settings → Extensions → Project program access to choose and approve its program.') : canConnect ? 'Skillager is not connected. Set it up, then choose Connect Skillager.' : 'Skillager is not connected. Open Settings → Extensions → Program access to choose and approve its program.') : state === 'update-required' ? (project ? 'Update Skillager to load project skills.' : 'Update Skillager to a supported current public contract.') : project ? (retained ? 'Could not refresh project skills. Showing the last result.' : 'Could not load skills in this project.') : 'Skillager could not observe your library.'}${retained && (!project || state !== 'failed-observation') ? ' Last-known rows retained; freshness unavailable.' : ''}`,
+    setup: ['missing-program', 'program-updated', 'update-required'].includes(state),
+    message: `${state === 'program-updated' ? (canConnect ? 'Skillager was updated. Choose Connect Skillager to review its program access.' : 'Skillager was updated. Review its program access in Settings → Extensions.') : state === 'missing-program' ? (project ? (canConnect ? 'Skillager is not connected for this project. Choose Connect Skillager here to discover its skills.' : 'Skillager is not connected for this project. Open Settings → Extensions → Project program access to choose and approve its program.') : canConnect ? 'Skillager is not connected. Set it up, then choose Connect Skillager.' : 'Skillager is not connected. Open Settings → Extensions → Program access to choose and approve its program.') : state === 'update-required' ? (project ? 'Update Skillager to load project skills.' : 'Update Skillager to a supported current public contract.') : project ? (retained ? 'Could not refresh project skills. Showing the last result.' : 'Could not load skills in this project.') : 'Skillager could not observe your library.'}${retained && (!project || state !== 'failed-observation') ? ' Last-known rows retained; freshness unavailable.' : ''}`,
     detail: error.message,
   }
 }

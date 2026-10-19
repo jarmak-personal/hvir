@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import type { ProjectHost } from '../project-host/project-host'
-import { canonicalExecutablePath } from './connector-approval'
+import { absentExecutableMetadata, canonicalExecutablePath } from './connector-approval'
 import { connectorExecutableBasename } from '../../shared/extensions/connectors'
 
 /** Passive local metadata only; canonical aliases denote a single installed program. */
@@ -28,14 +28,4 @@ export async function discoverConnectorExecutables(
     candidates.add(canonical)
   }
   return { candidates: [...candidates], complete }
-}
-
-/** Only specific absence is known; unreadable or unresolved metadata remains incomplete. */
-export function absentExecutableMetadata(reason: unknown): boolean {
-  return (
-    !!reason &&
-    typeof reason === 'object' &&
-    'code' in reason &&
-    ['ENOENT', 'ENOTDIR', 'NOT_EXECUTABLE'].includes(String(reason.code))
-  )
 }

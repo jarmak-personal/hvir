@@ -397,6 +397,25 @@ new approval. hvir never hashes interpreted-tool contents. Explicit Reload or Re
 unchanged declaration/path/configuration binding and pins every execution to the new activation.
 Forget saved setup removes native grants and platform identity while preserving tool/domain data.
 
+A changed resolved target reports `reason: 'executable-changed'` in contextual status and
+`not-started` execution. Settings shows approved/current targets and **Review update** prefills
+the exact host, selected launcher and configuration. A further target change during consent
+requires fresh review. Status checks only metadata on already connected hosts; unavailable
+metadata does not prove a replacement and never triggers connection or execution.
+
+Under **Advanced configuration**, an ordinary human can choose **Trust updates at this launcher
+until hvir quits**, inspect the current target and explicitly confirm. This trusts future targets
+of only that exact launcher, declaration, configuration, connector and host for this application
+session. On SSH it also ends when the current connection disconnects. Existing saved canonical
+approval stays unchanged; each execution resolves afresh and pins its actual target. **Stop
+trusting launcher updates** immediately ends dependent work and receipts and restores normal
+canonical checking. Unchanged Reload preserves the choice while revoking old activation work.
+Disable, removal, changed declaration/configuration/path, writer loss, disconnect and quitting
+end it. A failed Reload before replacement leaves the accepted activation and choice intact;
+failure after replacement ends preserved trust. Restart and reconnect do not restore it. No
+agent, source or file permission is added, and already completed effects or handed-off user
+terminals are not rolled back.
+
 For a declared workspace connector with a setup hint, that same explicit `{ connector: 'tool-id' }`
 request uses only the current ordinary human view's main-admitted registered local project.
 The guest cannot supply a host, workspace ID or replacement root. Main pins the registration and

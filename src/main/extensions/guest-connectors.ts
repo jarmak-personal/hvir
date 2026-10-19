@@ -164,9 +164,13 @@ export async function requestGuestConnector(
     } catch {
       // An absent or withdrawn workspace has no native status authority.
     }
-    return connectors.approvals.status(record.activation, host).map((entry) => ({
+    const statuses = await connectors.approvals.inspectStatus(record.activation, host)
+    caller.current()
+    caller.signal.throwIfAborted()
+    return statuses.map((entry) => ({
       connector: entry.connector,
       availability: entry.availability,
+      ...(entry.reason ? { reason: entry.reason } : {}),
       ...(entry.host ? { host: entry.host } : {}),
       ...(entry.explanation ? { explanation: entry.explanation } : {}),
     }))

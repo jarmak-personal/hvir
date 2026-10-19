@@ -1,5 +1,5 @@
 /* global AbortController */
-import { SkillagerSetupError } from './library-first-use.mjs'
+import { connectorSetupError } from './library-first-use.mjs'
 /** A guest-local lifetime over the public bridge; no private workbench imports. */
 export function guestClient(bridge, clock = globalThis) {
   let alive = true,
@@ -253,10 +253,8 @@ export async function runCli(client, args, context, retryFrequency = true) {
     }
     if (result.outcome !== 'completed' || result.code !== 0 || result.truncated)
       throw Object.assign(
-        new SkillagerSetupError(
-          result.outcome === 'not-started' && result.reason === 'unapproved'
-            ? 'missing-program'
-            : 'failed-observation',
+        connectorSetupError(
+          result.outcome === 'not-started' ? result.reason : undefined,
           result.outcome === 'not-started' && result.reason === 'unapproved'
             ? 'Connect the installed Skillager CLI to browse skills. Program approval is separate from file reading.'
             : result.outcome === 'not-started' &&

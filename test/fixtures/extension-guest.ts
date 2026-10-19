@@ -37,7 +37,7 @@ export function guestTestPorts(
     sourceRequests: { request: vi.fn(unavailable), revalidate: vi.fn() },
     connections: { request: vi.fn(unavailable), revalidate: vi.fn() },
     connectors: {
-      approvals: { status: vi.fn(() => []) },
+      approvals: { inspectStatus: vi.fn(() => Promise.resolve([])) },
       execute: vi.fn(unavailable),
       output: vi.fn(unavailable),
       revalidate: vi.fn(),

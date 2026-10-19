@@ -34,7 +34,7 @@ describe('explicit package revision and removal lifetime', () => {
       const current = [...owner.active.values()][0]!
       expect(current.installationId).toBe(previous.installationId)
       expect(current.generation).not.toBe(previous.generation)
-      expect(data.revoke).toHaveBeenCalledWith(previous.installationId)
+      expect(data.revoke).toHaveBeenCalledWith(previous.installationId, expect.any(Array))
       expect(Buffer.from(current.revision.files.get('index.html')!).toString()).toBe(
         'edited',
       )

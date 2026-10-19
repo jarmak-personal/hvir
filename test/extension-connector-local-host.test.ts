@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, writeFile, symlink, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -24,6 +24,45 @@ describe('connector execution through real local process mechanics', () => {
     fixture.dispose()
     await host.dispose()
     await rm(root, { recursive: true, force: true })
+  })
+  it('inspects real symlink updates and executes the newly pinned target only with session trust', async () => {
+    const launcher = join(root, 'tool'),
+      a = join(root, 'A'),
+      b = join(root, 'B')
+    await writeFile(a, '#!/bin/sh\nprintf A', { mode: 0o755 })
+    await writeFile(b, '#!/bin/sh\nprintf B', { mode: 0o755 })
+    await symlink(a, launcher)
+    const approval = await fixture.approve(launcher, { args: [], env: {} })
+    await unlink(launcher)
+    await symlink(b, launcher)
+    expect(await fixture.approvals.inspectStatus(fixture.activation)).toMatchObject([
+      { reason: 'executable-changed' },
+    ])
+    expect(await fixture.execution.execute(fixture.caller, fixture.input)).toMatchObject({
+      outcome: 'not-started',
+      reason: 'executable-changed',
+    })
+    const prepared = await fixture.approvals.prepare(
+      approval,
+      () => undefined,
+      undefined,
+      true,
+    )
+    await fixture.approvals.approve(prepared.token)
+    const result = await fixture.execution.execute(fixture.caller, fixture.input)
+    expect(result.outcome).toBe('completed')
+    expect(fixture.finiteExec.tryExec.mock.calls[0]?.[0]).toBe(b)
+    expect(
+      fixture.execution.output(fixture.caller, {
+        receipt: result.receipt,
+        stream: 'stdout',
+        offset: 0,
+      })?.data,
+    ).toBe('B')
+    fixture.approvals.endSession(approval)
+    expect(await fixture.execution.execute(fixture.caller, fixture.input)).toMatchObject({
+      reason: 'executable-changed',
+    })
   })
   it('passes literal argv without shell interpretation and uses application context without a project', async () => {
     await fixture.approve(process.execPath, { args: [], env: {} })
