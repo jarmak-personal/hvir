@@ -44,6 +44,10 @@ interface PreparedSource {
   readonly current: () => void
   readonly expires: number
   readonly intent: number
+  readonly prior?: SourceApprovalPrior
+}
+export interface SourceApprovalPrior {
+  readonly grants: readonly ExtensionSourceGrant[]
 }
 /** Trusted root decisions; native executable admission and reported paths confer no scope. */
 export class ExtensionSourceApprovalOwner {
@@ -104,6 +108,7 @@ export class ExtensionSourceApprovalOwner {
   async prepare(
     selection: ExtensionSourceSelection,
     current: () => void,
+    prior?: SourceApprovalPrior,
   ): Promise<{ token: string; grant: ExtensionSourceGrant }> {
     this.prune()
     const intent = this.intent
@@ -185,6 +190,7 @@ export class ExtensionSourceApprovalOwner {
         throw new Error('Source root changed; inspect it again')
       assertIntent()
       if (!this.scopeCurrent(grant)) throw new Error('Registered workspace changed')
+      if (prior) this.assertPrior(grant, prior)
       const token = randomUUID()
       this.prepared.set(token, {
         lifetime,
@@ -193,12 +199,64 @@ export class ExtensionSourceApprovalOwner {
         current: assertIntent,
         intent,
         expires: Date.now() + SOURCE_LIMITS.decisionMs,
+        prior,
       })
       retained = true
       return { token, grant }
     } finally {
       if (!retained) this.decisions.delete(lifetime)
     }
+  }
+  /** Capture only the bindings this selection replaces, including old declarations. */
+  capturePrior(selection: ExtensionSourceSelection): SourceApprovalPrior {
+    const declaration = this.activations.active
+      .get(selection.installationId)
+      ?.revision.manifest.access.find((entry) => entry.id === selection.source)
+    if (!declaration) throw new Error('Source declaration is unavailable')
+    const root =
+      declaration.context === 'workspace'
+        ? this.contexts?.workspaces().find((entry) => entry.id === selection.workspaceId)
+            ?.root
+        : selection.root
+    const grant = {
+      installationId: selection.installationId,
+      declaration,
+      root,
+      ...(declaration.context === 'workspace'
+        ? { workspaceId: selection.workspaceId }
+        : {}),
+    }
+    return { grants: this.grants.filter((entry) => replacedBy(entry, grant)) }
+  }
+  private assertPrior(grant: ExtensionSourceGrant, prior: SourceApprovalPrior): void {
+    const current = this.grants.filter((entry) => replacedBy(entry, grant))
+    if (
+      current.length !== prior.grants.length ||
+      current.some((entry, index) => entry !== prior.grants[index])
+    )
+      throw new Error('Saved file access changed; review setup again')
+  }
+  /** Reuse replacement identity across a complete proposal, including unselected bindings. */
+  assertDistinct(grants: readonly ExtensionSourceGrant[]): void {
+    if (
+      grants.some((grant, index) =>
+        grants
+          .slice(0, index)
+          .some((previous) => replacedBy(previous, grant) || replacedBy(grant, previous)),
+      )
+    )
+      throw new Error('Duplicate source setup binding')
+  }
+  /** Same full-store replacement/count/serialization policy used by approve. */
+  project(grants: readonly ExtensionSourceGrant[]): { records: number; bytes: number } {
+    if (this.disposed || this.failure)
+      throw new Error(this.failure ?? 'Source grants ended')
+    this.assertDistinct(grants)
+    const next = grants.reduce<ExtensionSourceGrant[]>(
+      (state, grant) => [...state.filter((entry) => !replacedBy(entry, grant)), grant],
+      this.grants,
+    )
+    return sourceCapacity(next)
   }
   /** Share the canonical decision lifetime even before a prepared token exists. */
   decisionCurrent(current: () => void): () => void {
@@ -356,15 +414,10 @@ export class ExtensionSourceApprovalOwner {
             throw new Error('Source root changed; inspect it again')
         }
         current()
+        if (decision.prior) this.assertPrior(grant, decision.prior)
         const remaining = this.grants.filter((entry) => !replacedBy(entry, grant))
         const next = [...remaining, grant]
-        if (
-          next.length > SOURCE_LIMITS.grants ||
-          Buffer.byteLength(JSON.stringify(next)) > SOURCE_LIMITS.stateBytes
-        )
-          throw new Error(
-            'Source grant capacity reached; revoke an unused binding in Settings',
-          )
+        sourceCapacity(next)
         this.revoked(
           grant.installationId,
           grant.declaration.id,
@@ -600,4 +653,13 @@ function replacedBy(previous: ExtensionSourceGrant, next: ExtensionSourceGrant):
       !retainsWorkspaceBindings(previous) ||
       key(previous) === key(next))
   )
+}
+function sourceCapacity(state: readonly ExtensionSourceGrant[]): {
+  records: number
+  bytes: number
+} {
+  const bytes = Buffer.byteLength(JSON.stringify(state))
+  if (state.length > SOURCE_LIMITS.grants || bytes > SOURCE_LIMITS.stateBytes)
+    throw new Error('Source grant capacity reached; revoke an unused binding in Settings')
+  return { records: state.length, bytes }
 }

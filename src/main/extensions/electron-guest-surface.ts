@@ -445,6 +445,13 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
   }
 
   /** Native window/guest visibility propagation invalidates earlier engine state. */
+  private readonly foregroundObservers = new Set<() => void>()
+  observeForeground(listener: () => void): () => void {
+    this.foregroundObservers.add(listener)
+    return () => {
+      this.foregroundObservers.delete(listener)
+    }
+  }
   foreground(owner: RendererOwner): boolean {
     const contents = webContents.fromId(owner.id)
     const window =
@@ -486,6 +493,7 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
     win.on('resize', reapply)
     const foreground = (): void => {
       this.owner?.foregroundChanged(owner())
+      for (const listener of this.foregroundObservers) listener()
       sendRendererEvent(
         win.webContents,
         'extensions:foreground-changed',

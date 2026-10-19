@@ -12,6 +12,7 @@ export type RendererResourceQualifier =
         | 'extension-views'
         | 'extension-package-import'
         | 'extension-program-connection'
+        | 'extension-setup'
         | 'extension-demand'
         | 'attention'
         | 'ssh-prompt-presentation'

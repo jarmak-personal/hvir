@@ -246,6 +246,36 @@ export class ExtensionConnectorApprovalOwner {
     }
   }
 
+  /** Exact saved binding, including an obsolete declaration; never a grant of access. */
+  capturePrior(
+    selection: Pick<ExtensionConnectorSelection, 'installationId' | 'connector' | 'host'>,
+  ) {
+    return { approval: this.approvals.find((entry) => key(entry) === key(selection)) }
+  }
+
+  /** Retain only the checked host lifetime, not this decision's approval authority. */
+  preparedHostCurrent(token: string): () => boolean {
+    const prepared = this.prepared.get(token)
+    if (!prepared) throw new Error('Inspect native access again before reviewing setup')
+    return prepared.hostCurrent
+  }
+
+  /** Project the whole store using the same replacements and byte accounting as a save. */
+  project(approvals: readonly ExtensionConnectorApproval[]): {
+    records: number
+    bytes: number
+  } {
+    if (this.disposed || this.failure)
+      throw new Error(this.failure ?? 'Native approvals ended')
+    if (new Set(approvals.map(key)).size !== approvals.length)
+      throw new Error('Duplicate native setup binding')
+    const next = approvals.reduce(
+      (state, approval) => replaceApproval(state, approval),
+      this.approvals,
+    )
+    return approvalCapacity(next)
+  }
+
   approve(token: string): Promise<void> {
     return this.serialize(async () => {
       this.prune()
@@ -288,17 +318,8 @@ export class ExtensionConnectorApprovalOwner {
           this.trustSession(prior, prepared.hostCurrent)
           return
         }
-        const next = [
-          ...this.approvals.filter((entry) => key(entry) !== key(approval)),
-          approval,
-        ]
-        if (
-          next.length > CONNECTOR_LIMITS.approvals ||
-          Buffer.byteLength(JSON.stringify(next)) > CONNECTOR_LIMITS.stateBytes
-        )
-          throw new Error(
-            'Connector approval state exceeds its bound; revoke unused host bindings first',
-          )
+        const next = replaceApproval(this.approvals, approval)
+        approvalCapacity(next)
         this.dropSession(approval)
         this.revoked(approval.installationId, approval.connector, approval.host)
         this.approvals = this.approvals.filter((entry) => key(entry) !== key(approval))
@@ -739,6 +760,24 @@ function key(
   approval: Pick<ExtensionConnectorSelection, 'installationId' | 'connector' | 'host'>,
 ): string {
   return JSON.stringify([approval.installationId, approval.connector, approval.host])
+}
+
+function replaceApproval(
+  state: readonly ExtensionConnectorApproval[],
+  approval: ExtensionConnectorApproval,
+): ExtensionConnectorApproval[] {
+  return [...state.filter((entry) => key(entry) !== key(approval)), approval]
+}
+function approvalCapacity(state: readonly ExtensionConnectorApproval[]): {
+  records: number
+  bytes: number
+} {
+  const bytes = Buffer.byteLength(JSON.stringify(state))
+  if (state.length > CONNECTOR_LIMITS.approvals || bytes > CONNECTOR_LIMITS.stateBytes)
+    throw new Error(
+      'Connector approval state exceeds its bound; revoke unused host bindings first',
+    )
+  return { records: state.length, bytes }
 }
 
 function sameLauncherBinding(
