@@ -7,6 +7,7 @@ import {
 } from './management-contract.mjs'
 import { initializationArgs, syncArgs } from './management-argv.mjs'
 import { publicSyncObservation } from './management-sync-observation.mjs'
+import { syncReport } from './management-sync-report.mjs'
 import { syncReviewHash } from './management-sync-review.mjs'
 
 export async function initializeLibrary(io, selection) {
@@ -31,60 +32,7 @@ export async function initializeLibrary(io, selection) {
 }
 export function syncObservation(value, library, apply = false) {
   publicSyncObservation(value, library, apply)
-  const items = apply ? value.items : value.candidates
-  if (items.length > 32)
-    throw new Error(
-      'Complete synchronization exceeds the supported 32-source report bound. Use the public Skillager CLI, then explicitly reconcile.',
-    )
-  if (
-    apply &&
-    (!['completed', 'partial', 'uncertain'].includes(value.status) ||
-      items.some(
-        (item) =>
-          ![
-            'created',
-            'updated',
-            'unchanged',
-            'skipped',
-            'conflict',
-            'failed',
-            'uncertain',
-          ].includes(item.outcome),
-      ))
-  )
-    throw new Error('Synchronization has no complete supported per-item outcomes')
-  if (!apply) {
-    const maximum = items.map((item) => [
-      item.source_identity,
-      item.canonical_skill_id,
-      'unchanged',
-      'source-approval',
-      'x'.repeat(96),
-      'x'.repeat(32),
-    ])
-    if (
-      new TextEncoder().encode(JSON.stringify(maximum)).length > 5120 ||
-      new TextEncoder().encode(JSON.stringify(value.coverage)).length > 512
-    )
-      throw new Error(
-        'Complete synchronization outcomes cannot fit the action-result bound. Use the public Skillager CLI; no synchronization was submitted.',
-      )
-  } else {
-    const counts = {
-      created: 0,
-      updated: 0,
-      unchanged: 0,
-      skipped: 0,
-      conflict: 0,
-      failed: 0,
-      uncertain: 0,
-    }
-    for (const item of items) counts[item.outcome]++
-    if (Object.keys(counts).some((key) => value.counts?.[key] !== counts[key]))
-      throw new Error(
-        'Synchronization counts disagree with its complete per-item outcomes',
-      )
-  }
+  syncReport(value, apply)
   return value
 }
 function syncCompletion(value, code, library) {
@@ -121,22 +69,7 @@ export async function synchronizeLibrary(io, input, human = false) {
     status: result.status,
     coverage: result.coverage,
     counts: result.counts,
-    columns: [
-      'Source identity',
-      'Canonical skill',
-      'Outcome',
-      'Phase',
-      'Reason',
-      'Repair',
-    ],
-    items: result.items.map((item) => [
-      item.source_identity,
-      item.canonical_skill_id,
-      item.outcome,
-      item.phase,
-      item.reason_code,
-      item.repair,
-    ]),
+    ...syncReport(result, true),
   }
   if (new TextEncoder().encode(JSON.stringify(report)).length > 6144)
     throw new Error(

@@ -75,6 +75,7 @@ function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Val
     library: {
       library_id: selected.source.library_id,
       root: selected.source.library_root,
+      git_mode: 'disabled',
     },
     context: {
       project_root: '/owned-fixture/mode-change-codex',

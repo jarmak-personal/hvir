@@ -5,6 +5,7 @@ import { applyExposureChange } from './exposure-operation.mjs'
 import { applyCopy } from './management-copy.mjs'
 import { pendingManagement } from './management-pending.mjs'
 import { reconciliationFacts } from './management-reconcile.mjs'
+import { saveAndAccept } from './import-operation.mjs'
 import { acceptReviewedVersion } from './review-acceptance.mjs'
 
 const pending = pendingManagement()
@@ -42,6 +43,18 @@ export async function executeManagement(client, invocation) {
         )))
   )
     return executeDelivery(client, invocation)
+  if (
+    invocation.action === 'sync-library' &&
+    invocation.context.workspace &&
+    (invocation.context.workspace.host !== 'local' ||
+      invocation.context.workspace.root?.hostId !== 'local')
+  )
+    return {
+      outcome: 'refused',
+      action: invocation.action,
+      message:
+        'Sync requires a local project-cli context or untargeted library-cli. SSH sync is unavailable; choose a local project explicitly.',
+    }
   if (invocation.action === 'operation-state' && invocation.input.mode === 'list')
     return {
       ids: pending.ids().filter((id) => {
@@ -74,7 +87,7 @@ export async function executeManagement(client, invocation) {
   const workspace = invocation.context.workspace,
     project =
       ['add-copy', 'change-exposure', 'remove-copy'].includes(invocation.action) ||
-      (invocation.action === 'sync-library' && workspace?.host === 'local') ||
+      (['sync-library', 'save-and-accept'].includes(invocation.action) && !!workspace) ||
       (invocation.action === 'operation-state' &&
         ['observe', 'acknowledge'].includes(invocation.input.mode) &&
         pending.get(invocation.input.operationId).operation.workspace)
@@ -131,6 +144,10 @@ export async function executeManagement(client, invocation) {
     }
     if (invocation.action === 'initialize-library')
       return await initializeLibrary(io, invocation.input)
+    if (invocation.action === 'save-and-accept')
+      return await saveAndAccept(io, invocation.input, invocation, (descriptor) =>
+        pending.assertAvailable(descriptor),
+      )
     if (invocation.action === 'accept-version')
       return await acceptReviewedVersion(io, invocation.input, invocation, (descriptor) =>
         pending.assertAvailable(descriptor),

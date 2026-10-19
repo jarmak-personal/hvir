@@ -78,6 +78,7 @@ it('automatically lists and selects the exact pending project occurrence through
       },
     },
   ])
+  expect(f.opened[0]).not.toHaveProperty('input.row.canonical')
   expect(f.initializationRequests).toEqual([])
   expect(f.calls.some((args) => ['review', 'expose', 'setup'].includes(args[0]!))).toBe(
     false,

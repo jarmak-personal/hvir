@@ -6,16 +6,23 @@ import {
   digest,
 } from './management-contract.mjs'
 import { syncArgs, removalArgs } from './management-argv.mjs'
+import { syncReport } from './management-sync-report.mjs'
+import { syncReviewHash } from './management-sync-review.mjs'
 import { syncObservation } from './management-library.mjs'
+import { importReconciliation } from './import-operation.mjs'
 import { exposureFacts } from './exposure-reconcile.mjs'
 import { prepareCopy } from './management-copy.mjs'
 
 /** Public present-state facts establish safe next operations, never historical completion. */
 export async function reconciliationFacts(io, record, workspace) {
   const operation = record.operation,
-    library = registeredLibrary(await io.run(['library', 'status', '--json']))
+    status = await io.run(['library', 'status', '--json']),
+    library =
+      operation.action === 'save-and-accept' ? undefined : registeredLibrary(status)
   let current
-  if (operation.action === 'initialize-library') {
+  if (operation.action === 'save-and-accept') {
+    current = await importReconciliation(io, operation, status)
+  } else if (operation.action === 'initialize-library') {
     if (
       operation.selection.location === 'custom' &&
       library.root.path !== operation.selection.root.path
@@ -85,12 +92,9 @@ export async function reconciliationFacts(io, record, workspace) {
         action: operation.action,
         registered: library,
         coverage: observed.coverage,
-        candidates: observed.candidates.map((item) => [
-          item.source_identity,
-          item.canonical_skill_id,
-          item.state,
-          item.reason_code,
-        ]),
+        ...syncReport(observed),
+        observationHash: await syncReviewHash(observed),
+        originalCompletion: 'unknown',
       }
     } else {
       if (

@@ -43,7 +43,9 @@ export async function captureExtensionVisuals(
     | 'add'
     | 'update'
     | 'remove'
-    | 'management',
+    | 'management'
+    | 'import'
+    | 'import-files',
   controls: VisualControls,
   captureDirectory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY,
 ): Promise<void> {
@@ -127,9 +129,9 @@ export async function captureExtensionVisuals(
           const button = document.querySelector('.toolbar .hvir-button'), style = getComputedStyle(button);
           const input = document.getElementById('query');
           const scroll = document.getElementById('skills') ?? document.getElementById('instructions');
-          return {stateKind:document.getElementById('state').dataset.state,
+          return {stateKind:document.getElementById('state')?.dataset.state ?? null,
             observedRows:document.querySelectorAll('#skills [role=option]').length,
-            actionableApproval:document.getElementById('state').textContent.includes('Settings'),
+            actionableApproval:document.getElementById('state')?.textContent.includes('Settings') ?? false,
             sourceIdentitySecondary:!!document.getElementById('source-label')?.closest('details'),
             width:innerWidth, height:innerHeight, theme:document.documentElement.style.colorScheme,
             font:body.fontFamily, fontSize:body.fontSize, buttonFontSize:style.fontSize,
@@ -622,18 +624,21 @@ export async function captureExtensionVisuals(
     )
   }
   async function write(name: string): Promise<void> {
-    await host.writeFile(
-      joinHostPath(output, `${name}.png`),
-      (await win.webContents.capturePage()).toPNG(),
-    )
     if (
-      /^(unapproved|library|instructions|project|acceptance|add|update|remove|management)-/.test(
+      /^(unapproved|library|instructions|project|acceptance|add|update|remove|management|import|import-files)-/.test(
         name,
       )
-    )
+    ) {
       await host.writeFile(
         joinHostPath(output, `${name}-guest.png`),
         (await guest.capturePage()).toPNG(),
       )
+      // Publish the current guest surface through the existing parent-frame barrier.
+      await settled()
+    }
+    await host.writeFile(
+      joinHostPath(output, `${name}.png`),
+      (await win.webContents.capturePage()).toPNG(),
+    )
   }
 }

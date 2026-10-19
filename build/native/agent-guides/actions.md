@@ -27,3 +27,11 @@ Exit 0 with `ok:true` means the invocation returned a value. Core leaves that va
 fields such as `outcome:"refused"` do not change command success or prove domain success.
 Consumers interpret the declared domain result; they must not automatically retry an uncertain
 operation. Interruption and failure do not promise rollback.
+
+For Skillager, `sync-library` with a local workspace uses its independently approved
+`project-cli` and effective project discovery; omit the target only when you intend the
+application `library-cli` context. SSH sync is unsupported. Message-only definite refusals use the ordinary
+action-error exit; refusals with structured target, reason, tracking or operation facts retain those facts.
+Partial or uncertain domain results retain operation and recovery details.
+Exact no-effect source counts may accompany detailed consequential rows. `save-and-accept`
+and `accept-version` are human-only; reading or program access never grants acceptance.

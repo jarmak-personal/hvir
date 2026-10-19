@@ -16,6 +16,7 @@ import { reviewOwnedSkill } from './skillager-management-review'
 import { verifyOwnedAdvancedExposure } from './skillager-advanced-exposure'
 import { verifyOwnedManagedCopies } from './skillager-management-copies'
 import { verifyOwnedApprovedSync } from './skillager-management-sync'
+import { verifyOwnedImport } from './skillager-import'
 import { verifyOwnedOriginalReveal } from './skillager-management-reveal'
 import { verifyOwnedReviewRefusals } from './skillager-management-refusals'
 import { captureExtensionVisuals } from './extension-visuals'
@@ -191,22 +192,22 @@ export async function verifySkillagerManagement(
     throw new Error(
       'Selected init/current registered canonical path or history mode differs',
     )
+  await ui.inspect("document.getElementById('result').textContent=''")
+  await ui.click('create-library')
+  const preserved = await ui.result('initialize-library')
+  if (
+    preserved['outcome'] !== 'verified' ||
+    preserved['created'] !== false ||
+    preserved['connect'] !== true ||
+    JSON.stringify(preserved['observed']) !== JSON.stringify(initialized['observed'])
+  )
+    throw new Error(
+      'Default public initialization changed the owned existing registration',
+    )
+  console.log(
+    '[smoke] Skillager management: default init preserved owned registration; fresh HOME creation not exercised',
+  )
   if (process.env.HVIR_SKILLAGER_MANAGEMENT_INITIALIZATION_ONLY === '1') {
-    await ui.inspect("document.getElementById('result').textContent=''")
-    await ui.click('create-library')
-    const preserved = await ui.result('initialize-library')
-    if (
-      preserved['outcome'] !== 'verified' ||
-      preserved['created'] !== false ||
-      preserved['connect'] !== true ||
-      JSON.stringify(preserved['observed']) !== JSON.stringify(initialized['observed'])
-    )
-      throw new Error(
-        'Default public initialization changed the owned existing registration',
-      )
-    console.log(
-      '[smoke] Skillager management: default init preserved owned registration; fresh HOME creation not exercised',
-    )
     await host.writeFile(
       joinHostPath(owned, 'initialization-proof.json'),
       JSON.stringify({
@@ -446,6 +447,24 @@ ${'Follow the existing product boundaries and inspect neighboring consumers befo
       workspace.root,
       controls,
     )
+    const imported = browserOnly
+      ? {
+          status: 'not-exercised',
+          reason: 'Browser-only evidence does not prove Save and accept.',
+        }
+      : await verifyOwnedImport(
+          win,
+          projectGuest,
+          async () => {
+            await controls.wait(() => !!view('detail'), 'import detail placement')
+            return withinExtensionInspection(controls.guest(view('detail')!))
+          },
+          host,
+          workspace.root,
+          library,
+          mode!,
+          controls,
+        )
     await host.writeFile(
       joinHostPath(owned, 'consumer-proof.json'),
       JSON.stringify(
@@ -457,6 +476,7 @@ ${'Follow the existing product boundaries and inspect neighboring consumers befo
           scope: browserOnly ? 'browser-only' : 'full-management',
           workspace,
           initialized,
+          defaultPreserved: preserved,
           firstAccepted,
           editedAccepted,
           acceptedCanonicalSource: true,
@@ -466,6 +486,7 @@ ${'Follow the existing product boundaries and inspect neighboring consumers befo
           copies,
           advanced,
           synchronization,
+          imported,
           refusals,
           reveal,
           commandProof,

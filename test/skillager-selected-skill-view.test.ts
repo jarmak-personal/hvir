@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { buildSync } from 'esbuild'
 import { afterEach, expect, it, vi } from 'vitest'
+import { importContractFixture, type ImportPreview } from './fixtures/skillager-import'
 
 type Value = Record<string, unknown>
 interface Preview {
@@ -37,7 +38,7 @@ afterEach(() => {
   dispose?.()
   document.body.replaceChildren()
 })
-function fixture() {
+function fixture(external?: ImportPreview) {
   const template = document.createElement('template')
   template.innerHTML = readFileSync('packages/skillager-extension/detail.html', 'utf8')
   for (const node of template.content.querySelectorAll('script, link')) node.remove()
@@ -81,6 +82,16 @@ function fixture() {
     host: 'local',
     root: { hostId: 'local', path: preview[0].preview.project },
   }
+  if (external)
+    external = JSON.parse(
+      JSON.stringify(external)
+        .replaceAll(external.library.root, selected.source.library_root)
+        .replaceAll(external.project, workspace.root.path)
+        .replaceAll(
+          external.review_manifest.library.library_id!,
+          selected.source.library_id,
+        ),
+    ) as ImportPreview
   let context: Value = { visible: true, workspace },
     exposures: unknown[] = [],
     failure = false,
@@ -192,15 +203,17 @@ function fixture() {
       const receipt = String(++count)
       outputs.set(
         receipt,
-        args.includes('--list')
-          ? { schema: 'skillager.exposures.v1', exposures }
-          : args.includes('accept')
-            ? review
-            : args[0] === 'expose'
-              ? preview
-              : input['connector'] === 'project-cli'
-                ? status
-                : { ...status, skill: { ...status.skill, exposures: [] } },
+        args[0] === 'import'
+          ? external
+          : args.includes('--list')
+            ? { schema: 'skillager.exposures.v1', exposures }
+            : args.includes('accept')
+              ? review
+              : args[0] === 'expose'
+                ? preview
+                : input['connector'] === 'project-cli'
+                  ? status
+                  : { ...status, skill: { ...status.skill, exposures: [] } },
       )
       if (hold) {
         hold = false
@@ -252,6 +265,7 @@ function fixture() {
     executions,
     requests,
     preview,
+    external,
     button,
     ready,
     changeMode: (mode: string) => {
@@ -346,6 +360,61 @@ function fixture() {
     },
   }
 }
+
+it('keeps canonical original tasks and offers Save as in the same task area without adoption', async () => {
+  const f = fixture(importContractFixture().preview),
+    external = f.external!,
+    linked = f.projectSelection().row
+  f.view.select({
+    row: {
+      id: 'linked-original',
+      source: 'project',
+      kind: 'Project original',
+      host: linked.host,
+      workspaceId: linked.workspaceId,
+      canonical: linked.canonical,
+      skillId: external.source.id,
+      path: external.source.file,
+    },
+  })
+  await f.ready()
+  expect(f.button('selected-task').hidden).toBe(false)
+  expect(f.button('selected-import').hidden).toBe(true)
+  expect(f.button('task-save-original').hidden).toBe(false)
+  expect(f.button('task-remove').hidden).toBe(true)
+  f.button('task-save-original').click()
+  await vi.waitFor(() => expect(f.button('import-save').disabled).toBe(false))
+  expect(f.button('selected-task').hidden).toBe(true)
+  expect(f.button('selected-import').hidden).toBe(false)
+  expect(f.button('import-use-library').hidden).toBe(false)
+  const name = document.getElementById('import-name') as HTMLInputElement
+  name.value = 'separate-copy'
+  name.dispatchEvent(new Event('input'))
+  external.destination.name = 'separate-copy'
+  external.destination.id = external.review_manifest.destination_id = 'lib/separate-copy'
+  external.destination.path =
+    external.review_manifest.destination_path = `${external.library.root}/skills/separate-copy`
+  external.next_command_argv[external.next_command_argv.indexOf('--as') + 1] =
+    'separate-copy'
+  f.button('import-refresh').click()
+  await vi.waitFor(() => expect(f.button('import-save').disabled).toBe(false))
+  f.button('import-save').click()
+  await vi.waitFor(() =>
+    expect(f.actions.at(-1)).toMatchObject({
+      action: 'save-and-accept',
+      input: {
+        name: 'separate-copy',
+        skillId: external.source.id,
+        file: { hostId: 'local', path: external.source.file },
+      },
+    }),
+  )
+  f.button('import-use-library').click()
+  await f.ready()
+  expect(f.button('selected-task').hidden).toBe(false)
+  expect(f.button('selected-import').hidden).toBe(true)
+  expect(f.actions).toHaveLength(1)
+})
 it('resolves selection internally and adds the accepted version with one action and visible destination', async () => {
   const f = fixture()
   f.view.select(f.selection)

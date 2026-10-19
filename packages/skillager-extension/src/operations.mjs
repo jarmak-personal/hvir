@@ -1,5 +1,6 @@
 /* global window, document */
 import { guestClient } from './bridge.mjs'
+import { replyManagement, managementActionError } from './management-action-reply.mjs'
 import { executeManagement } from './management-operation.mjs'
 import { bindManagementView } from './management-view.mjs'
 
@@ -14,11 +15,11 @@ client.listen((message) => {
   void executeManagement(scoped, invocation)
     .then(
       (value) => {
-        if (scoped.alive) return scoped.reply(value)
+        return replyManagement(scoped, value)
       },
       (error) => {
         if (scoped.alive)
-          return scoped.reply(undefined, error.message.slice(0, 240))
+          return scoped.reply(undefined, managementActionError(error.message))
       },
     )
     .finally(() => scoped.dispose())

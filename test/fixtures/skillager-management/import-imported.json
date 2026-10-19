@@ -1,0 +1,76 @@
+{
+  "approval": {
+    "content_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61",
+    "lint_override": null,
+    "risk_override": null,
+    "scope": "global",
+    "state": "reviewed"
+  },
+  "commit": null,
+  "copied_file_count": 2,
+  "destination": {
+    "acceptance": "accepted",
+    "accepted_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61",
+    "display_name": "owned-original",
+    "entrypoint": "/owned-import-fixture/library/skills/owned-original/SKILL.md",
+    "exposures": [],
+    "git": {
+      "conflicts": [],
+      "staged": [],
+      "unstaged": [],
+      "untracked": []
+    },
+    "head_hash": null,
+    "history": {
+      "available": false,
+      "reason": "no-git"
+    },
+    "id": "lib/owned-original",
+    "imported_from": {
+      "content_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61",
+      "skill_id": "project/owned-original",
+      "source_type": "project"
+    },
+    "lint": {
+      "blocking_count": 0,
+      "findings": [],
+      "status": "ok"
+    },
+    "name": "owned-original",
+    "path": "/owned-import-fixture/library/skills/owned-original",
+    "scan": {
+      "finding_count": 0,
+      "findings": [],
+      "risk": "low",
+      "scanned_files": 2,
+      "skipped_files": 0
+    },
+    "slug": "owned-original",
+    "status": "no_git",
+    "summary": "Use only for owned import validation.",
+    "working_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61"
+  },
+  "provenance": {
+    "imported_at": "2026-10-19T13:13:44.666870+00:00",
+    "imported_from": {
+      "content_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61",
+      "skill_id": "project/owned-original",
+      "source_type": "project"
+    }
+  },
+  "schema": "skillager.import.v1",
+  "source": {
+    "collection": null,
+    "content_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61",
+    "editable": false,
+    "id": "project/owned-original",
+    "name": "owned-original",
+    "package": null,
+    "path": "/owned-import-fixture/.claude/skills/owned-original",
+    "summary": "Use only for owned import validation.",
+    "trust": "discovered",
+    "type": "project",
+    "version": null
+  },
+  "status": "imported"
+}

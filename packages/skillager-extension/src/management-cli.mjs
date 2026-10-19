@@ -59,7 +59,7 @@ export function managementCli(
           }
           throw connectorSetupError(
             result.reason,
-            `Operation did not start: ${result.reason ?? 'admission refused'}. Retry only by explicit choice.`,
+            `Operation did not start (${result.reason ?? 'admission refused'}). ${context?.workspace ? 'Connect Skillager for this project (project-cli); library-cli approval is separate.' : 'Connect Skillager for your library (library-cli).'} Retry only by explicit choice.`,
           )
         }
         if (result.outcome !== 'completed' || !result.receipt || result.truncated)

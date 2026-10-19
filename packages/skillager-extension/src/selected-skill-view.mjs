@@ -1,3 +1,4 @@
+import { bindSelectedImport } from './import-view.mjs'
 import { managementCli } from './management-cli.mjs'
 import { registeredLibrary, acceptedSource, sameLibrary } from './management-contract.mjs'
 import { localWorkspace } from './catalog.mjs'
@@ -24,8 +25,13 @@ export function bindSelectedSkill(document, client, ports) {
     projectReady = false,
     refreshQueued = false,
     serial = 0,
+    importSelected = false,
     disposed = false
   const context = ports.context
+  const importing = bindSelectedImport(document, client, {
+    context,
+    useLibrary: () => chooseImport(false),
+  })
   const skillId = () =>
     selection?.row.canonical?.skill_id ??
     (selection?.row.source === 'library' ? selection.row.id : undefined)
@@ -36,7 +42,11 @@ export function bindSelectedSkill(document, client, ports) {
     el('task-state').textContent = message
   }
   const current = (revision) =>
-    !disposed && client.alive && context().visible && serial === revision
+    !disposed &&
+    !importSelected &&
+    client.alive &&
+    context().visible &&
+    serial === revision
   const review = bindExactReview(document, client, {
     context,
     library: () => library,
@@ -132,6 +142,17 @@ export function bindSelectedSkill(document, client, ports) {
         ? 'Inspect delivery recovery'
         : 'Inspect uncertain operation'
     el('task-options').hidden = !library
+    el('task-save-original').hidden = !local || selection?.row.kind !== 'Project original'
+    el('task-save-original').disabled = working
+  }
+  function chooseImport(selected) {
+    if (busy || activeAction) return
+    importSelected = selected
+    invalidate()
+    el('selected-task').hidden = selected || !skillId()
+    el('task-options').open = false
+    importing.select(selected ? selection : undefined)
+    if (!selected && skillId()) void refresh()
   }
   function invalidate() {
     serial++
@@ -317,6 +338,7 @@ export function bindSelectedSkill(document, client, ports) {
     }
   }
   async function refresh() {
+    if (importSelected) return
     if (busy || activeAction) {
       refreshQueued = true
       return
@@ -582,6 +604,7 @@ export function bindSelectedSkill(document, client, ports) {
   }
   const on = (id, event, work) =>
     el(id)?.addEventListener(event, work, { signal: client.signal })
+  on('task-save-original', 'click', () => chooseImport(true))
   on('task-primary', 'click', () => {
     if (!source) return
     void guarded(async (revision) => {
@@ -761,6 +784,8 @@ export function bindSelectedSkill(document, client, ports) {
       el('task-result').textContent = ''
       el('task-operation-details').open = false
       selection = input
+      importSelected = selection?.row.kind === 'Project original' && !skillId()
+      importing.select(importSelected ? input : undefined)
       if (!exposure()) el('task-mode').value = 'native'
       library = source = installed = undefined
       pending = []
@@ -768,6 +793,7 @@ export function bindSelectedSkill(document, client, ports) {
       if (skillId()) void refresh()
     },
     contextChanged() {
+      importing.contextChanged()
       if (connecting?.revision === serial && connecting.key === taskKey()) {
         controls()
         return
@@ -784,6 +810,7 @@ export function bindSelectedSkill(document, client, ports) {
       disposed = true
       invalidate()
       review.dispose()
+      importing.dispose()
     },
   }
 }

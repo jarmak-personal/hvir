@@ -1,10 +1,10 @@
 /* global crypto, atob, TextEncoder */
 import { sourcePages } from './reader.mjs'
 
-function selectedMatches(selected, manifest, file) {
+function selectedMatches(selected, tree, file) {
   if (
     selected.path?.hostId !== 'local' ||
-    selected.path.path !== `${manifest.skill_root}/${file.path}` ||
+    selected.path.path !== `${tree.root.path}/${file.path}` ||
     selected.currentFile !== true ||
     selected.bytes !== file.size ||
     selected.sha256 !== file.sha256
@@ -19,17 +19,18 @@ async function fileDigest(bytes) {
     .join('')
 }
 /** Read through D7 human origin only; verify generic file identity, never Skillager tree hashes. */
-export async function readReviewFile(client, manifest, file, current) {
+export async function readReviewFile(client, tree, file, current) {
   let documentReceipt, imageReceipt
   try {
     const image = /\.(avif|bmp|gif|jpe?g|png|svg|webp)$/iu.test(file.path)
-    const entry = image ? manifest.files.find((item) => item.path === 'SKILL.md') : file
+    const entry = image ? tree.files.find((item) => item.path === 'SKILL.md') : file
     const selected = await client.request('source.select', {
-      source: 'library',
-      path: { hostId: 'local', path: `${manifest.skill_root}/${entry.path}` },
+      source: tree.source,
+      ...(tree.workspaceId ? { workspaceId: tree.workspaceId } : {}),
+      path: { hostId: 'local', path: `${tree.root.path}/${entry.path}` },
     })
     documentReceipt = selected.receipt
-    selectedMatches(selected, manifest, entry)
+    selectedMatches(selected, tree, entry)
     if (!image) {
       const text = await sourcePages(client, documentReceipt)
       if (text.includes('\0'))

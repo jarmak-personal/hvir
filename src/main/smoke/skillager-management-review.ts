@@ -34,7 +34,7 @@ export async function reviewOwnedSkill(
     await controls.inspect(
       `document.querySelector('[data-review-path=${JSON.stringify(path)}]').click()`,
     )
-    const verified = `document.getElementById('state').textContent===${JSON.stringify(`${path} · complete supported bytes verified`)}`
+    const verified = `document.getElementById('state').textContent==='' && document.getElementById('review-file-label').textContent.startsWith(${JSON.stringify(`${path} · `)}) && !document.getElementById('review-file-body').textContent.startsWith('Preview unavailable')`
     await controls.ready(
       path.endsWith('.png')
         ? `!!document.querySelector('#review-file-body img')?.complete && document.querySelector('#review-file-body img').naturalWidth>0 && ${verified}`

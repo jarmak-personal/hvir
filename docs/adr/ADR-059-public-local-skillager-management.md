@@ -1,6 +1,8 @@
 # ADR-059: Public local Skillager management
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-079](ADR-079-selected-original-save-and-accept.md) | partial | Local management excludes selected external import; complete exact external inspection and one human Save and accept decision are permitted.
+> Superseded by: [ADR-080](ADR-080-bounded-sync-no-effect-summaries.md) | partial | Individual identity rows for every synchronization outcome; only the exact proven no-effect categories may be summarized.
 > Superseded by: [ADR-071](ADR-071-selected-skill-tasks-and-version-acceptance.md) | partial | Mandatory complete-file presentation and acknowledgment before accepting an exact version, and refusal of acceptance solely because a file format cannot be previewed.
 > Superseded by: [ADR-060](ADR-060-public-skillager-advanced-exposure.md) | partial | Exclusion of native adoption from local management; complete public preservation-backed adoption is permitted by this decision.
 > Superseded by: [ADR-067](ADR-067-cli-owned-personal-library-creation-defaults.md) | partial | Mandatory explicit initialization path and separate Git choice only.

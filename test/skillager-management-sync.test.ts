@@ -17,7 +17,7 @@ function fixture(
       root: { hostId: 'local', path: status.library.root },
       gitMode: 'disabled',
     },
-    identity = { library_id: library.id, root: library.root.path }
+    identity = { library_id: library.id, root: library.root.path, git_mode: 'disabled' }
   const plan = {
       schema: 'skillager.library-sync-status.v1',
       library: identity,
@@ -81,6 +81,7 @@ function fixture(
   let overrideCode: number | undefined
   const outputs = new Map<string, unknown>(),
     calls: string[][] = [],
+    executions: Value[] = [],
     native = connectorOutputFixture(),
     client = {
       alive: true,
@@ -89,6 +90,7 @@ function fixture(
         const args = input['args'] as string[],
           receipt = String(++serial)
         calls.push(args)
+        executions.push(input)
         outputs.set(
           receipt,
           args.includes('sync') ? (args.includes('--approved') ? result : plan) : status,
@@ -108,12 +110,17 @@ function fixture(
         )
       },
     }
-  const invoke = (action: string, input: unknown = {}, caller = 'agent') =>
+  const invoke = (
+    action: string,
+    input: unknown = {},
+    caller = 'agent',
+    context: Value = {},
+  ) =>
     module.executeManagement(client, {
       id: `main-${++serial}`,
       action,
       input,
-      context: {},
+      context,
       caller,
       authorization: 'standing',
     })
@@ -122,6 +129,7 @@ function fixture(
     result,
     library,
     calls,
+    executions,
     invoke,
     nativeCode: (code: number) => {
       overrideCode = code
@@ -141,6 +149,7 @@ it('returns complete code-two partial conflicts and failures without claiming ov
       item.phase,
       item.reason_code,
       item.repair,
+      null,
     ]),
   )
   expect(result['counts']).toEqual(f.result.counts)
@@ -314,3 +323,198 @@ it.each(['missing', 'selection', 'canonical', 'state', 'coverage', 'lineage'])(
     })
   },
 )
+
+function noEffect(f: ReturnType<typeof fixture>, index: number, state = 'skipped') {
+  Object.assign(f.plan.candidates[index]!, {
+    state,
+    reason_code: state === 'current' ? null : 'source-not-approved',
+  })
+  Object.assign(f.result.items[index]!, {
+    phase: state === 'current' ? 'accepted' : 'not-started',
+    repair: 'none',
+    reason_code: state === 'current' ? null : 'source-not-approved',
+  })
+}
+it('reports exactly 68 sources, 7 effects and 61 not-approved sources with original coverage', async () => {
+  const f = fixture([
+    ...Array<string>(7).fill('created'),
+    ...Array<string>(61).fill('skipped'),
+  ])
+  for (let i = 7; i < 68; i++) noEffect(f, i)
+  f.plan.coverage.approved_origins = f.result.coverage.approved_origins = 7
+  const result = await f.invoke(
+    'sync-library',
+    { library: f.library, reviewHash: reviewedHash(f.plan) },
+    'guest',
+  )
+  expect(result['outcome']).toBe('verified')
+  expect(result['items']).toHaveLength(7)
+  expect(result['summary']).toEqual({
+    total: 68,
+    detailed: 7,
+    notApproved: { label: 'not approved for sync', count: 61 },
+    unchanged: { label: 'unchanged', count: 0 },
+  })
+  expect(result['coverage']).toEqual(f.result.coverage)
+  expect(result['counts']).toEqual(f.result.counts)
+  expect(f.calls.filter((args) => args.includes('--approved'))).toHaveLength(1)
+})
+it('admits inventories above 32 when every exact outcome is unchanged', async () => {
+  const f = fixture(Array<string>(68).fill('unchanged'))
+  for (let i = 0; i < 68; i++) noEffect(f, i, 'current')
+  const result = await f.invoke('sync-library', { library: f.library })
+  expect(result['outcome']).toBe('verified')
+  expect(result['items']).toEqual([])
+  expect(result['summary']).toMatchObject({
+    total: 68,
+    detailed: 0,
+    unchanged: { count: 68 },
+  })
+})
+
+it('admits the exact 32-source preview and apply with 31 no-effect rows and one effect', async () => {
+  const f = fixture(['created', ...Array<string>(31).fill('skipped')])
+  for (let i = 1; i < 32; i++) noEffect(f, i)
+  f.plan.coverage.approved_origins = f.result.coverage.approved_origins = 1
+  const result = await f.invoke(
+    'sync-library',
+    { library: f.library, reviewHash: reviewedHash(f.plan) },
+    'guest',
+  )
+  expect(result['outcome']).toBe('verified')
+  expect(result['items']).toHaveLength(1)
+  expect(result['summary']).toEqual({
+    total: 32,
+    detailed: 1,
+    notApproved: { label: 'not approved for sync', count: 31 },
+    unchanged: { label: 'unchanged', count: 0 },
+  })
+  expect(result['coverage']).toEqual(f.result.coverage)
+  expect(result['counts']).toEqual(f.result.counts)
+  expect(f.calls.filter((args) => args.includes('--approved'))).toHaveLength(1)
+})
+it.each(['phase', 'repair', 'recovery_path', 'reason_code'])(
+  'retains a nominal no-effect row with consequential %s information',
+  async (field) => {
+    const f = fixture(['unchanged'])
+    noEffect(f, 0, 'current')
+    Reflect.set(
+      f.result.items[0]!,
+      field,
+      field === 'recovery_path' ? '/owned/完整-recovery' : 'needs-inspection',
+    )
+    const result = await f.invoke('sync-library', { library: f.library })
+    expect(result['items']).toHaveLength(1)
+    expect(result['summary']).toMatchObject({ detailed: 1, unchanged: { count: 0 } })
+    if (field === 'recovery_path')
+      expect((result['items'] as unknown[][])[0]![6]).toBe('/owned/完整-recovery')
+  },
+)
+it('does not inherit preview exclusions when the actual operation creates 33 sources', async () => {
+  const f = fixture(Array<string>(33).fill('created'))
+  for (const row of f.plan.candidates)
+    Object.assign(row, { state: 'skipped', reason_code: 'source-not-approved' })
+  const result = await f.invoke('sync-library', { library: f.library })
+  expect(result['outcome']).toBe('uncertain')
+  expect(result['operationId']).toBeTypeOf('string')
+  let report = '',
+    offset = 0
+  for (;;) {
+    const page = await f.invoke('operation-state', {
+      mode: 'report',
+      operationId: result['operationId'],
+      offset,
+    })
+    report += page['data'] as string
+    if (page['nextOffset'] === null) break
+    offset = page['nextOffset'] as number
+  }
+  const retained = JSON.parse(report) as { output: { stdout: string } }
+  expect(JSON.parse(retained.output.stdout)).toEqual(f.result)
+  expect((await f.invoke('sync-library', { library: f.library }))['outcome']).toBe(
+    'refused',
+  )
+})
+it('retains an exact long recovery path as paged uncertainty instead of losing the repair location', async () => {
+  const f = fixture(['failed'])
+  const recovery = '/owned/' + 'long-recovery-'.repeat(600)
+  Reflect.set(f.result.items[0]!, 'recovery_path', recovery)
+  const result = await f.invoke('sync-library', { library: f.library })
+  expect(result['outcome']).toBe('uncertain')
+  expect(result['operationId']).toBeTypeOf('string')
+})
+it('binds fresh summarized reconciliation to all identities and lineage while original completion stays unknown', async () => {
+  const f = fixture(Array<string>(68).fill('skipped'))
+  for (let i = 0; i < 68; i++) noEffect(f, i)
+  f.result.status = 'uncertain'
+  const result = await f.invoke('sync-library', { library: f.library })
+  const operationId = result['operationId']
+  const observed = await f.invoke('operation-state', { mode: 'observe', operationId })
+  const value = JSON.parse(observed['observation'] as string) as {
+    summary: { notApproved: { count: number } }
+    originalCompletion: string
+    observationHash: string
+  }
+  expect(value.summary.notApproved.count).toBe(68)
+  expect(value.originalCompletion).toBe('unknown')
+  expect(value.observationHash).toBe(reviewedHash(f.plan))
+  f.plan.candidates[67]!.source_identity = 'different-summarized-identity'
+  const stale = await f.invoke('operation-state', {
+    mode: 'acknowledge',
+    operationId,
+    observation: observed['observation'],
+  })
+  expect(stale['outcome']).toBe('refused')
+  const fresh = await f.invoke('operation-state', { mode: 'observe', operationId })
+  Reflect.set(f.plan, 'lineages', [{ changed: true }])
+  expect(
+    (
+      await f.invoke('operation-state', {
+        mode: 'acknowledge',
+        operationId,
+        observation: fresh['observation'],
+      })
+    )['outcome'],
+  ).toBe('refused')
+  const latest = await f.invoke('operation-state', { mode: 'observe', operationId })
+  expect(
+    (
+      await f.invoke('operation-state', {
+        mode: 'acknowledge',
+        operationId,
+        observation: latest['observation'],
+      })
+    )['outcome'],
+  ).toBe('reconciled')
+})
+it('routes local sync to project-cli, untargeted to library-cli and refuses SSH before execution', async () => {
+  const local = fixture(['created']),
+    global = fixture(['created']),
+    remote = fixture(['created'])
+  const workspace = {
+    id: 'project',
+    host: 'local',
+    root: { hostId: 'local', path: '/owned/project' },
+  }
+  await local.invoke('sync-library', { library: local.library }, 'agent', { workspace })
+  expect(
+    local.executions.every(
+      (value) => value['connector'] === 'project-cli' && value['workspace'] === 'project',
+    ),
+  ).toBe(true)
+  await global.invoke('sync-library', { library: global.library })
+  expect(
+    global.executions.every(
+      (value) => value['connector'] === 'library-cli' && value['workspace'] === undefined,
+    ),
+  ).toBe(true)
+  const result = await remote.invoke(
+    'sync-library',
+    { library: remote.library },
+    'agent',
+    { workspace: { ...workspace, host: 'ssh' } },
+  )
+  expect(result['outcome']).toBe('refused')
+  expect(result['message']).toMatch(/SSH sync is unavailable/)
+  expect(remote.executions).toEqual([])
+})
