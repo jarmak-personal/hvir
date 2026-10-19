@@ -12,6 +12,10 @@
       <p id="destination" class="hvir-meta">
         Personal library · select a local project for copies and terminal setup.
       </p>
+      <details id="destination-details" hidden>
+        <summary>Project details</summary>
+        <p id="destination-identity" class="hvir-meta"></p>
+      </details>
       <p id="state" class="hvir-state" aria-live="polite">Loading library…</p>
       <section aria-label="Personal library">
         <h2>Personal library</h2>
@@ -116,51 +120,14 @@
           aria-label="Recorded SSH deliveries"
         ></div>
       </details>
-      <details class="management-section" aria-label="Advanced local exposure">
-        <summary>Advanced local choices</summary>
+      <section aria-label="Router and original tasks">
+        <h2>Routers and originals</h2>
         <p>
-          Group related skills behind one Router, change its members, ungroup it, or adopt
-          an original whose bytes are preserved in your library. Full/Stub mode and agent
-          above apply.
+          Select a Router to edit its members, a library skill to group it, or a project
+          original to replace its preserved copy.
         </p>
-        <button id="observe-advanced" class="hvir-button">
-          Observe Routers and preserved originals
-        </button>
-        <label
-          >Operation
-          <select id="advanced-operation" class="hvir-input">
-            <option value="group">Group in a new Router</option>
-            <option value="set-members">Edit Router members</option>
-            <option value="ungroup">Ungroup Router</option>
-            <option value="adopt-native">Adopt preserved native skill</option>
-          </select></label
-        >
-        <label id="advanced-name-row"
-          >New Router name <input id="advanced-name" class="hvir-input"
-        /></label>
-        <label id="advanced-router-row" hidden
-          >Existing Router
-          <select id="advanced-router" class="hvir-input"></select
-        ></label>
-        <label id="advanced-members-row"
-          >Complete desired library members, one lib/name per line
-          <textarea id="advanced-members" class="hvir-input"></textarea>
-        </label>
-        <div id="advanced-departures" hidden></div>
-        <label id="advanced-replace-row"
-          >Standalone copies to replace (unselected copies remain)
-          <select id="advanced-replacements" class="hvir-input" multiple></select
-        ></label>
-        <label id="advanced-origin-row" hidden
-          >Preserved native original
-          <select id="advanced-origin" class="hvir-input"></select
-        ></label>
-        <button id="preview-advanced" class="hvir-button">Review advanced change</button>
-        <details>
-          <summary>Observed identities and preservation details</summary>
-          <pre id="advanced-observation" tabindex="0"></pre>
-        </details>
-      </details>
+        <button id="open-exposure-browser" class="hvir-button">Browse skills</button>
+      </section>
       <details class="management-section" aria-label="Exact canonical review">
         <summary>Review exact library version</summary>
         <p class="hvir-meta">

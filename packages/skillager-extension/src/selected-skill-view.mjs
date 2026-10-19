@@ -31,6 +31,7 @@ export function bindSelectedSkill(document, client, ports) {
   const importing = bindSelectedImport(document, client, {
     context,
     useLibrary: () => chooseImport(false),
+    saved: ports.changed,
   })
   const skillId = () =>
     selection?.row.canonical?.skill_id ??
@@ -779,6 +780,7 @@ export function bindSelectedSkill(document, client, ports) {
       }),
   )
   return {
+    preserved: (value) => importing.preserved(value),
     select(input) {
       invalidate()
       el('task-result').textContent = ''

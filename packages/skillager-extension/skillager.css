@@ -513,8 +513,7 @@ body[data-view='project'] #open-library {
 }
 
 .task-review > .review-actions {
-  position: sticky;
-  bottom: 0;
+  flex-shrink: 0;
   padding: 6px 0 4px;
   background: var(--surface-1);
 }
@@ -637,6 +636,115 @@ body[data-view='project'] #open-library {
   line-height: 1.5;
 }
 
-#reader-content:has(#import-inspection:not([hidden])) .instruction-modes {
+#reader-content:has(#import-inspection:not([hidden])) .instruction-modes,
+#reader-content:has(#import-inspection:not([hidden])) #exposure-context {
   display: none;
+}
+
+/* Selected Router content and temporary exposure tasks share the existing reader. */
+#exposure-context {
+  flex-shrink: 0;
+}
+#exposure-context .toolbar {
+  gap: 6px;
+}
+#exposure-preservation-reason {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+#router-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+#router-members,
+#exposure-selected-members {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+#router-members > li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+#router-members button {
+  background: transparent;
+  border-color: transparent;
+  padding: 3px 0;
+  color: var(--accent);
+}
+#router-members p {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+#exposure-task {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex-shrink: 0;
+  max-height: 60%;
+  border-bottom: 1px solid var(--border-subtle);
+}
+#exposure-task[data-content='router'] {
+  flex: 1;
+  max-height: none;
+}
+.exposure-scroll {
+  min-height: 0;
+  overflow: auto;
+}
+#exposure-task h2 {
+  margin: 0 0 4px;
+  font-size: 1em;
+}
+#exposure-task p {
+  margin: 4px 0;
+}
+#exposure-fields > label,
+#exposure-departures label,
+#exposure-replacements label,
+#exposure-member-results label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+#exposure-picker {
+  margin: 8px 0;
+}
+#exposure-member-query {
+  min-width: 0;
+  flex: 1;
+}
+#exposure-task > .review-actions {
+  flex-shrink: 0;
+  padding: 6px 0 4px;
+  background: var(--surface-1);
+}
+#exposure-state:empty {
+  display: none;
+}
+#exposure-summary,
+#exposure-plan,
+#exposure-result {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#exposure-effects {
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+#reader-content:has(#exposure-task:not([hidden])) #instructions {
+  min-height: 80px;
+}
+
+#destination {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+#destination-identity {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

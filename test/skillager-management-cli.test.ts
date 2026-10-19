@@ -4,7 +4,13 @@ import { buildSync } from 'esbuild'
 import { afterEach, expect, it, vi } from 'vitest'
 
 interface ManagementIo {
-  run(args: string[], operation?: object): Promise<unknown>
+  run(
+    args: string[],
+    operation?: object,
+    retryReadFrequency?: boolean,
+    validateCompletion?: (value: unknown, code: number) => void,
+    captureOutput?: (value: unknown, receipt: string) => unknown,
+  ): Promise<unknown>
   verified(): void
   readonly pending?: object
 }
@@ -180,6 +186,33 @@ it('defers a never-started human metadata observation once and obtains fresh out
   ).rejects.toThrow(/did not start/)
   expect(waits).toEqual([1100])
   expect(f.io.pending).toBeUndefined()
+})
+
+it('keeps public completion interpretation and receipt capture after an admitted observation deferral', async () => {
+  const f = fixture(),
+    validate = vi.fn(),
+    capture = vi.fn((value: unknown, receipt: string) => ({ value, receipt }))
+  f.execution({ outcome: 'not-started', reason: 'frequency' })
+  f.client.delay = () => {
+    f.execution({ outcome: 'completed', code: 2, receipt: 'fresh', truncated: false })
+    f.stdout('{"status":"unavailable"}')
+    return Promise.resolve()
+  }
+  await expect(
+    f.io.run(
+      ['expose', '--observe-native', '/owned/SKILL.md'],
+      undefined,
+      true,
+      validate,
+      capture,
+    ),
+  ).resolves.toEqual({ value: { status: 'unavailable' }, receipt: 'fresh' })
+  expect(validate).toHaveBeenCalledExactlyOnceWith({ status: 'unavailable' }, 2)
+  expect(capture).toHaveBeenCalledExactlyOnceWith({ status: 'unavailable' }, 'fresh')
+  expect(f.calls.at(-1)).toEqual({
+    capability: 'connector.output',
+    input: { receipt: 'fresh', release: true },
+  })
 })
 it('does not loop on a second observation refusal or dispatch after the deferred observation loses its lifetime', async () => {
   const refused = fixture(),

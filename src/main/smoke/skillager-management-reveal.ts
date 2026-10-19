@@ -34,20 +34,48 @@ export async function verifyOwnedOriginalReveal(
   await project.inspect(
     `[...document.querySelectorAll('#skills [role=option]')].find(e=>e.dataset.sourcePath===${JSON.stringify(path.path)}).click()`,
   )
-  const reader = skillagerManagementControls(await detail(), controls)
+  const guest = await detail(),
+    reader = skillagerManagementControls(guest, controls)
+  await controls.wait(
+    async () =>
+      Boolean(
+        await withinExtensionInspection(
+          win.webContents.executeJavaScript(
+            `(() => {const frame=[...document.querySelectorAll('webview')].find(item=>item.getWebContentsId()===${guest.id});return frame?.checkVisibility()})()`,
+          ),
+        ),
+      ),
+    'foreground original detail before reveal',
+  )
   await reader.ready(
-    "document.getElementById('reveal-original')?.hidden === false",
+    `document.getElementById('source-label').textContent.endsWith(${JSON.stringify(` · local: ${path.path}`)}) && document.getElementById('reveal-original')?.hidden === false`,
     'ordinary human original reveal control',
   )
   await reader.click('reveal-original')
-  const inspect = (expression: string) =>
+  const inspect = (expression: string): Promise<unknown> =>
       withinExtensionInspection(win.webContents.executeJavaScript(expression)),
     selector = `.files-panel:not([hidden]) [data-file-path=${JSON.stringify(original.path)}][aria-selected="true"][aria-expanded="true"]`
-  await controls.wait(
-    async () =>
-      Boolean(await inspect(`document.querySelector(${JSON.stringify(selector)})`)),
-    'emitted Files original folder selected and expanded',
-  )
+  try {
+    await controls.wait(
+      async () =>
+        Boolean(await inspect(`document.querySelector(${JSON.stringify(selector)})`)),
+      'emitted Files original folder selected and expanded',
+    )
+  } catch (error) {
+    console.log(
+      '[smoke] original reveal handoff',
+      JSON.stringify({
+        expected: original,
+        exactReader: await reader.inspect(
+          `document.getElementById('source-label').textContent.endsWith(${JSON.stringify(` · local: ${path.path}`)})`,
+        ),
+        files: await inspect(
+          "[...document.querySelectorAll('.files-panel:not([hidden]) [data-file-path][aria-selected=true]')].slice(0,10).map(row=>({path:row.dataset.filePath,expanded:row.getAttribute('aria-expanded')}))",
+        ),
+      }),
+    )
+    throw error
+  }
   await inspect(
     `document.querySelector(${JSON.stringify(selector)}).dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:180}))`,
   )

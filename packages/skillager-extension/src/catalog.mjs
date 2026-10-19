@@ -3,6 +3,7 @@ import {
   metadataObject as object,
   metadataText as text,
   metadataSourcePath as sourcePath,
+  isCanonicalSkillId,
 } from './public-metadata.mjs'
 import {
   SkillagerSetupError,
@@ -134,6 +135,9 @@ export function searchPage(value, workspace) {
         canonical: validCanonical(search.canonical) ? search.canonical : null,
         matched: search.match?.skill_id ?? null,
         installed: search.installed,
+        ...(['codex', 'claude'].includes(occurrence.agent)
+          ? { agent: occurrence.agent }
+          : {}),
       }
     }),
     next: data.next_cursor,
@@ -234,6 +238,7 @@ export function projectInventory(value, workspace) {
         source: 'project',
         host: 'local',
         workspaceId: workspace.id,
+        ...(['codex', 'claude'].includes(native.agent) ? { agent: native.agent } : {}),
         ...(exposure ? { exposure } : {}),
         kind:
           row.kind === 'native'
@@ -302,6 +307,7 @@ export function detailInputFor(row, library) {
     name: row.name,
     kind: row.kind,
     status: row.status,
+    ...(row.agent ? { agent: row.agent } : {}),
     ...(validCanonical(row.canonical) ? { canonical: row.canonical } : {}),
     ...(row.exposure ? { exposure: row.exposure } : {}),
   }
@@ -322,12 +328,7 @@ export function detailInputFor(row, library) {
 }
 
 function validCanonical(value) {
-  return (
-    value &&
-    validLibraryId(value.library_id) &&
-    typeof value.skill_id === 'string' &&
-    /^lib\/[a-z0-9][a-z0-9._/-]{0,251}$/iu.test(value.skill_id)
-  )
+  return value && validLibraryId(value.library_id) && isCanonicalSkillId(value.skill_id)
 }
 function validLibraryId(value) {
   return (

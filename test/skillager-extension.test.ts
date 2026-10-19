@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { validateExtensionManifest } from '../src/shared/extensions/manifest'
 import { validateExtensionViewInput } from '../src/shared/extensions/view-input'
 interface Metadata {
+  isCanonicalSkillId(value: unknown): boolean
   requireVersion(text: string): void
   libraryStatus(value: unknown): { initialized: boolean; count: number }
   libraryPage(value: unknown): { rows: Record<string, unknown>[]; next: string | null }
@@ -21,7 +22,11 @@ interface Metadata {
 }
 function metadata(): Metadata {
   const result = buildSync({
-    entryPoints: ['packages/skillager-extension/src/catalog.mjs'],
+    stdin: {
+      contents: `export * from './packages/skillager-extension/src/catalog.mjs';
+      export { isCanonicalSkillId } from './packages/skillager-extension/src/public-metadata.mjs';`,
+      resolveDir: process.cwd(),
+    },
     bundle: true,
     format: 'iife',
     globalName: 'Metadata',
@@ -45,6 +50,39 @@ const row = {
   skill_file: '/library/exact/SKILL.md',
 }
 describe('ordinary maintained Skillager package contract', () => {
+  it('retains exact public Unicode canonical identities without normalization', () => {
+    for (const skill_id of ['lib/保存-𐐨-１２', `lib/${'𐐨'.repeat(64)}`, 'lib/café']) {
+      expect(cli.isCanonicalSkillId(skill_id)).toBe(true)
+      const canonical = { library_id: '7872ddf0-5e50-4bce-a032-c0fa6eac38a3', skill_id }
+      expect(
+        cli.detailInputFor({ ...row, host: 'local', source: 'library', canonical }).row[
+          'canonical'
+        ],
+      ).toEqual(canonical)
+    }
+  })
+  it('rejects malformed and over-bound canonical names rather than repairing identity', () => {
+    for (const id of [
+      null,
+      '',
+      'lib/',
+      'lib/../x',
+      'lib/a/b',
+      'lib/a\\b',
+      'lib/a\u0000b',
+      'lib/a\nb',
+      'lib/a\u202eb',
+      'lib/A',
+      'lib/-a',
+      'lib/a-',
+      'lib/a--b',
+      'lib/a_b',
+      'lib/a.b',
+      'lib/cafe\u0301',
+      `lib/${'𐐨'.repeat(65)}`,
+    ])
+      expect(cli.isCanonicalSkillId(id), String(id)).toBe(false)
+  })
   it('validates ready assets and declares independent source grants without agent-callable body actions', () => {
     const manifest = validateExtensionManifest(
       JSON.parse(

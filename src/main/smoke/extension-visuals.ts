@@ -45,7 +45,11 @@ export async function captureExtensionVisuals(
     | 'remove'
     | 'management'
     | 'import'
-    | 'import-files',
+    | 'import-files'
+    | 'router'
+    | 'router-members'
+    | 'preserved-original'
+    | 'library-selected',
   controls: VisualControls,
   captureDirectory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY,
 ): Promise<void> {
@@ -118,8 +122,14 @@ export async function captureExtensionVisuals(
             state,
             search: await verifySkillagerSearchGeometry(guest),
           })
-        if (controls.painted)
-          facts.push({ theme, variant, state, navigation: await controls.painted() })
+        if (controls.painted) {
+          try {
+            facts.push({ theme, variant, state, navigation: await controls.painted() })
+          } catch (error) {
+            await write(`${state}-${theme}-${variant}-failed`)
+            throw error
+          }
+        }
         facts.push({
           theme,
           variant,
@@ -150,31 +160,7 @@ export async function captureExtensionVisuals(
           )
           await settled()
           await write(`management-${theme}-${variant}-copy-form`)
-          await guest.executeJavaScript(
-            "document.querySelector('[aria-label=\"Advanced local exposure\"] > summary').click();document.querySelector('[aria-label=\"Advanced local exposure\"]').scrollIntoView({block:'start'})",
-          )
-          await settled()
-          await write(`management-${theme}-${variant}-advanced-form`)
-          const advanced: unknown = await guest.executeJavaScript(`(() => {
-            const section=document.querySelector('[aria-label="Advanced local exposure"]');
-            if([...section.querySelectorAll('[hidden]')].some(item=>item.checkVisibility()))throw new Error('Advanced choices expose hidden fields');
-            for(const field of section.querySelectorAll('input,select,textarea')) {
-              if(!field.checkVisibility())continue;
-              const rect=field.getBoundingClientRect();
-              if(rect.left<0||rect.right>innerWidth+1)throw new Error('Advanced field escapes viewport');
-            }
-            const action=document.getElementById('preview-advanced');
-            action.scrollIntoView({block:'end'});
-            const rect=action.getBoundingClientRect();
-            if(rect.top<0||rect.bottom>innerHeight+1)throw new Error('Advanced action cannot be reached by scrolling');
-            return {actionVisible:true,hiddenFieldsPreserved:true,width:innerWidth,height:innerHeight};
-          })()`)
-          facts.push({ theme, variant, state, advanced })
-          await settled()
-          await write(`management-${theme}-${variant}-advanced-action`)
-          await guest.executeJavaScript(
-            "document.querySelector('[aria-label=\"Advanced local exposure\"]').open=false;document.querySelector('main').scrollTop=0",
-          )
+          await guest.executeJavaScript("document.querySelector('main').scrollTop=0")
         }
         if (state === 'instructions') {
           await instructionImages('after Settings and appearance changes')
@@ -625,7 +611,7 @@ export async function captureExtensionVisuals(
   }
   async function write(name: string): Promise<void> {
     if (
-      /^(unapproved|library|instructions|project|acceptance|add|update|remove|management|import|import-files)-/.test(
+      /^(unapproved|library|instructions|project|acceptance|add|update|remove|management|import|import-files|router|router-members|preserved-original|library-selected)-/.test(
         name,
       )
     ) {

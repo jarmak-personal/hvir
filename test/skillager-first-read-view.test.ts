@@ -293,6 +293,41 @@ it('asks only after explicit selected metadata, using reported host-qualified ro
   )
 })
 
+it('keeps Router membership as selected content without requesting an instruction body', async () => {
+  const f = fixture({ project: true })
+  f.receive({
+    kind: 'context',
+    context: {
+      visible: true,
+      workspace: {
+        id: 'project',
+        host: 'local',
+        root: { hostId: 'local', path: '/library' },
+      },
+      input: {
+        selection: 'router',
+        row: {
+          id: 'router',
+          host: 'local',
+          source: 'project',
+          workspaceId: 'project',
+          path: '/library/.agents/skills/router/SKILL.md',
+          name: 'Router',
+          kind: 'Installed Router',
+          agent: 'codex',
+        },
+      },
+    },
+  })
+  await f.flush()
+  f.read()
+  await f.flush()
+  expect(f.sent.some((entry) => entry.capability?.startsWith('source.'))).toBe(false)
+  expect(document.getElementById('instructions')!.hidden).toBe(true)
+  expect(document.getElementById('router-content')!.hidden).toBe(false)
+  expect(document.getElementById('selected-task')!.hidden).toBe(true)
+})
+
 it.each(['source.select', 'source.render'] as const)(
   'leaves the waiting state after a correlated %s deadline and ignores late completion',
   async (capability) => {

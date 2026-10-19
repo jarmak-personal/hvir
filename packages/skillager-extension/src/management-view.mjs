@@ -11,7 +11,6 @@ import { prepareCopy } from './management-copy.mjs'
 import { syncArgs } from './management-argv.mjs'
 import { syncObservation } from './management-library.mjs'
 import { syncReviewHash } from './management-sync-review.mjs'
-import { bindExposureView } from './exposure-view.mjs'
 import { copyChangeInput } from './exposure-operation.mjs'
 import { bindExactReview } from './review-view.mjs'
 
@@ -388,20 +387,10 @@ export function bindManagementView(document, client) {
   const sourceChanged = () => clearSource()
   element('skill-id').addEventListener('input', sourceChanged)
   listeners.push(() => element('skill-id').removeEventListener('input', sourceChanged))
-  for (const id of ['copy-agent', 'copy-mode'])
-    onSelection(id, 'change', () => {
-      advanced.clear()
-    })
-  const advanced = bindExposureView(document, client, {
-    on,
-    onSelection,
-    local,
-    library: connected,
-    io: () => io(true),
-    clear: clearPlan,
-    review,
-    say,
-  })
+  for (const id of ['copy-agent', 'copy-mode']) onSelection(id, 'change')
+  on('open-exposure-browser', 'click', () =>
+    client.request('viewer.open-own', { contributionId: 'library' }),
+  )
   const delivery = bindDeliveryView(document, client, {
     on,
     onSelection,
@@ -426,7 +415,6 @@ export function bindManagementView(document, client) {
     if (JSON.stringify(message.context.workspace) !== JSON.stringify(context.workspace)) {
       clearPlan()
       element('managed-copies').replaceChildren()
-      advanced.clear()
       delivery.clear()
       revision++
     }
@@ -444,9 +432,14 @@ export function bindManagementView(document, client) {
       element('skill-id').value = row.id
       selectionChanged = true
     }
-    element('destination').textContent = context.workspace?.root
-      ? `${context.workspace.host}: ${context.workspace.root.path} · exact selected workspace ${context.workspace.id}`
+    const target = context.workspace
+    element('destination').textContent = target?.root
+      ? `${target.name ?? 'Project'} · ${target.host}: …/${target.root.path.split('/').filter(Boolean).slice(-2).join('/')}`
       : 'Choose a project for project actions.'
+    element('destination-details').hidden = !target?.root
+    element('destination-identity').textContent = target?.root
+      ? `${target.host}: ${target.root.path}\nWorkspace: ${target.id}`
+      : ''
     if (renewed || (selectionChanged && context.visible)) {
       if (busy) refreshQueued = true
       else void guarded((current) => observeLibrary(current))

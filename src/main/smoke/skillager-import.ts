@@ -5,6 +5,7 @@ import { joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
 import {
   skillagerManagementControls,
+  withinExtensionInspection,
   type SkillagerManagementControls,
 } from './skillager-management-controls'
 
@@ -35,7 +36,24 @@ export async function verifyOwnedImport(
     await project.inspect(
       `[...document.querySelectorAll('#skills [role=option]')].find(e=>e.dataset.sourcePath===${JSON.stringify(path)}).click()`,
     )
-    return skillagerManagementControls(await detail(), controls)
+    const guest = await detail(),
+      ui = skillagerManagementControls(guest, controls)
+    await controls.wait(
+      async () =>
+        Boolean(
+          await withinExtensionInspection(
+            win.webContents.executeJavaScript(
+              `(() => {const frame=[...document.querySelectorAll('webview')].find(item=>item.getWebContentsId()===${guest.id});return frame?.checkVisibility()})()`,
+            ),
+          ),
+        ),
+      'foreground selected original import',
+    )
+    await ui.ready(
+      `document.getElementById('source-label').textContent.endsWith(${JSON.stringify(` · local: ${path}`)})`,
+      'selected exact original import identity',
+    )
+    return ui
   }
   async function absent(path: HostPath) {
     try {
@@ -158,21 +176,29 @@ export async function verifyOwnedImport(
           )
         }
       },
-      painted: () =>
-        ui.inspect(`(() => {
+      painted: async () => {
+        const facts = (await ui.inspect(`(() => {
       const action=document.getElementById('import-save'), pane=document.getElementById('selected-import'), inspection=document.getElementById('import-inspection');
       const expanded=${state === 'import-files'}, reader=document.getElementById(expanded?'import-inspection':'instructions'), box=reader.getBoundingClientRect();
       const contained=element=>{const r=element.getBoundingClientRect();return element.checkVisibility()&&r.height>0&&r.width>0&&r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1};
+      const rect=element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height,visible:element.checkVisibility()}};
       const effect=document.getElementById('import-effect'), toggle=document.getElementById('import-inspect'), modes=document.querySelector('.instruction-modes');
-      if(modes.checkVisibility()===expanded)throw new Error('Original instruction controls do not match the active reader');
-      if(box.height<120||box.width<180||!contained(reader))throw new Error('Import lost usable reading space');
-      if(!contained(action)||action.disabled||!contained(effect)||!effect.textContent.includes('Original')||!contained(toggle)||document.documentElement.scrollWidth>innerWidth+1)throw new Error('Import action, effect or inspection control is clipped');
+      const failures=[];
+      if(modes.checkVisibility()===expanded)failures.push('instruction-controls');
+      if(box.height<120||box.width<180||!contained(reader))failures.push('reader-space');
+      if(!contained(action)||action.disabled||!contained(effect)||!effect.textContent.includes('Original')||!contained(toggle)||document.documentElement.scrollWidth>innerWidth+1)failures.push('action-effect-inspection-control');
+      let selectedFile;
       if(expanded){
         const body=document.getElementById('import-file-body'), file=body.getBoundingClientRect(), label=document.getElementById('import-file-label'), all=document.getElementById('import-all-files');
-        if(inspection.hidden||!contained(label)||!label.textContent.startsWith('SKILL.md')||!contained(all)||toggle.textContent!=='Close files'||!body.textContent.includes('owned-original')||file.top<box.top-1||file.top>=box.bottom-1||Math.min(file.bottom,box.bottom)-file.top<100)throw new Error('Inspection capture does not show selected file bytes');
-      }else if(!inspection.hidden)throw new Error('Normal instructions are replaced unexpectedly');
-      return {singleHumanDecision:true,files:document.querySelectorAll('#import-files [data-review-path]').length,actionVisible:true,effectVisible:true,inspectionControlVisible:true,selectedFileVisible:expanded,readerHeight:box.height,readerWidth:box.width,taskHeight:pane.getBoundingClientRect().height};
-    })()`),
+        selectedFile={body:rect(body),label:rect(label),all:rect(all),visibleHeight:Math.min(file.bottom,box.bottom)-file.top,expectedLabel:label.textContent.startsWith('SKILL.md'),expectedBody:body.textContent.includes('owned-original')};
+        if(inspection.hidden||!contained(label)||!label.textContent.startsWith('SKILL.md')||!contained(all)||toggle.textContent!=='Close files'||!body.textContent.includes('owned-original')||file.top<box.top-1||file.top>=box.bottom-1||Math.min(file.bottom,box.bottom)-file.top<100)failures.push('selected-file-bytes');
+      }else if(!inspection.hidden)failures.push('ordinary-instructions');
+      return {failures,width:innerWidth,height:innerHeight,reader:rect(reader),action:rect(action),effect:rect(effect),toggle:rect(toggle),selectedFile,singleHumanDecision:true,files:document.querySelectorAll('#import-files [data-review-path]').length,actionVisible:contained(action),effectVisible:contained(effect),inspectionControlVisible:contained(toggle),selectedFileVisible:expanded,readerHeight:box.height,readerWidth:box.width,taskHeight:pane.getBoundingClientRect().height};
+    })()`)) as { failures: string[] }
+        if (facts.failures.length)
+          throw new Error(`Selected import geometry: ${JSON.stringify(facts)}`)
+        return facts
+      },
     })
   await ui.click('import-save')
   await ui.ready(
@@ -191,8 +217,8 @@ export async function verifyOwnedImport(
     )
   await ui.click('import-refresh')
   await ui.ready(
-    "document.getElementById('import-state').textContent.includes('already exists') && document.getElementById('import-save').disabled",
-    'collision refuses replacement of the canonical copy',
+    "document.getElementById('import-destination').textContent==='Saved in library' && document.getElementById('import-effect').textContent==='Original unchanged.' && document.getElementById('import-save').hidden && document.getElementById('import-state').textContent===''",
+    'public preservation reports saved original without collision noise',
   )
   const proof: Record<string, unknown> = {
     imported,
@@ -202,7 +228,7 @@ export async function verifyOwnedImport(
     targetAfter: await snapshot(target),
     cancelledBeforeWrite: true,
     changedManifestRefused: true,
-    collisionRefused: true,
+    savedOriginalPreserved: true,
   }
   const absentOriginal = joinHostPath(root, 'owned-import-absent'),
     absentTarget = joinHostPath(joinHostPath(library, 'skills'), 'owned-import-absent')
@@ -218,6 +244,22 @@ export async function verifyOwnedImport(
   await absentUi.ready(
     "!document.getElementById('import-save').disabled",
     'absent import review',
+  )
+  await absentUi.inspect("document.getElementById('import-options').open=true")
+  await absentUi.set('import-name', 'owned-original')
+  await absentUi.click('import-refresh')
+  await absentUi.ready(
+    "document.getElementById('import-state').textContent.includes('already exists') && document.getElementById('import-save').disabled && !document.getElementById('import-save').hidden",
+    'different original cannot overwrite occupied canonical name',
+  )
+  if (JSON.stringify(await snapshot(target)) !== JSON.stringify(before))
+    throw new Error('Refused explicit collision changed the canonical copy')
+  proof.collisionRefused = true
+  await absentUi.set('import-name', '')
+  await absentUi.click('import-refresh')
+  await absentUi.ready(
+    "!document.getElementById('import-save').disabled",
+    'distinct original destination restored after collision',
   )
   async function setSkillsPermissions(mode: number) {
     const changed = await host.exec('chmod', [mode.toString(8), skills.path], {

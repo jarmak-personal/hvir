@@ -22,8 +22,7 @@ function fixture() {
   ) as Sync
   const bundle = buildSync({
     stdin: {
-      contents: `export { bindExposureView } from './packages/skillager-extension/src/exposure-view.mjs';
-      export { exposureFacts } from './packages/skillager-extension/src/exposure-reconcile.mjs';
+      contents: `export { exposureFacts } from './packages/skillager-extension/src/exposure-reconcile.mjs';
       export { syncObservation } from './packages/skillager-extension/src/management-library.mjs';`,
       resolveDir: process.cwd(),
     },
@@ -35,7 +34,6 @@ function fixture() {
   const sandbox = { TextEncoder, crypto: webcrypto, Module: undefined as unknown }
   runInNewContext(bundle.outputFiles[0]!.text, sandbox)
   const module = sandbox.Module as {
-    bindExposureView(document: Document, client: unknown, ports: unknown): unknown
     exposureFacts(
       io: unknown,
       operation: Value,
@@ -50,24 +48,13 @@ function fixture() {
   }
   return { sync, library, module }
 }
-it('observes every preserved native choice and reconciles full metadata independently of synchronization report capacity', async () => {
+it('reconciles complete native metadata independently of synchronization report capacity', async () => {
   const { sync, library, module } = fixture()
-  const template = document.createElement('template')
-  template.innerHTML = readFileSync(
-    'packages/skillager-extension/management.html',
-    'utf8',
-  )
-  for (const item of template.content.querySelectorAll('script, link')) item.remove()
-  document.body.replaceChildren(template.content.cloneNode(true))
   const workspace = {
     id: 'exact',
     host: 'local',
     root: { hostId: 'local', path: '/owned-fixture/advanced/project' },
   }
-  const callbacks = new Map<
-    string,
-    (event: unknown, current: () => boolean) => Promise<void>
-  >()
   const calls: string[][] = []
   const io = {
     run(args: string[]) {
@@ -97,32 +84,6 @@ it('observes every preserved native choice and reconciles full metadata independ
       )
     },
   }
-  module.bindExposureView(
-    document,
-    {},
-    {
-      on(
-        id: string,
-        _event: string,
-        callback: (event: unknown, current: () => boolean) => Promise<void>,
-      ) {
-        callbacks.set(id, callback)
-      },
-      onSelection: () => {},
-      local: () => workspace,
-      clear: () => {},
-      say: () => {},
-      io: () => io,
-      library: () => library,
-    },
-  )
-  await callbacks.get('observe-advanced')!(undefined, () => true)
-  expect(document.querySelectorAll('#advanced-origin option')).toHaveLength(2)
-  const observed = JSON.parse(
-    document.getElementById('advanced-observation')!.textContent,
-  ) as { preserved: Sync }
-  expect(observed.preserved).toEqual(sync)
-  expect(observed.preserved.candidates).toHaveLength(29)
   expect(module.syncObservation(sync, library)).toEqual(sync)
   const consequential = structuredClone(sync)
   for (const item of consequential.candidates)
@@ -130,11 +91,6 @@ it('observes every preserved native choice and reconciles full metadata independ
   expect(() => module.syncObservation(consequential, library)).toThrow(
     /action-result bound/,
   )
-  sync.coverage['complete'] = false
-  await callbacks.get('observe-advanced')!(undefined, () => true)
-  expect(document.querySelectorAll('#advanced-origin option')).toHaveLength(0)
-  expect(document.querySelectorAll('#advanced-router option')).toHaveLength(1)
-  sync.coverage['complete'] = true
   const facts = await module.exposureFacts(
     io,
     {

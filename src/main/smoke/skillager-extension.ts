@@ -1,3 +1,4 @@
+import { skillagerManagementControls } from './skillager-management-controls'
 import { captureExtensionDecision } from './extension-decision-visuals'
 import { inspectSkillagerSearch, submitSkillagerSearch } from './skillager-search'
 import {
@@ -235,51 +236,148 @@ export async function verifySkillagerExtension(
   })
   const observed = new Set<string>()
   let pages = 0
-  for (;;) {
-    const entries = (await inspect(
-      guest,
-      "[...document.querySelectorAll('#skills [role=option]')].map(row=>row.dataset.id)",
-    )) as string[]
-    entries.forEach((id) => observed.add(id))
-    pages++
-    if (pages === 1 || pages % 10 === 0)
-      console.log(
-        `[smoke] Skillager evidence: ${pages} public pages/${observed.size} identities`,
+  const detailIds = () =>
+    extensions
+      .guests!.snapshot(owner)
+      .filter(
+        (entry) =>
+          entry.installationId === installation()!.installationId &&
+          entry.contributionId === 'detail',
       )
-    if (diagnostic) break
-    if ((await inspect(guest, "document.getElementById('next').disabled")) as boolean)
-      break
-    const first = entries[0]
-    await inspect(guest, "document.getElementById('next').click()")
-    await ready(
-      guest,
-      () =>
-        inspect(
-          guest,
-          `document.querySelector('#skills [role=option]')?.dataset.id !== ${JSON.stringify(first)} && document.getElementById('state').dataset.state==='ready'`,
-        ) as Promise<boolean>,
-      `public cursor page ${pages + 1}`,
-    )
-    if (pages > 50) throw new Error('Public library cursor did not terminate')
-  }
-  if (!diagnostic && (observed.size !== 5000 || pages !== 50))
-    throw new Error(
-      `Genuine library traversal yielded ${observed.size} identities on ${pages} pages`,
-    )
-  if (
-    extensions.guests!.snapshot(owner).some((entry) => entry.contributionId === 'detail')
-  )
-    throw new Error('Metadata browsing prefetched a detail view')
-  await inspect(
+      .map((entry) => entry.id)
+      .sort()
+  const priorDetails = detailIds()
+  const readers = [
     guest,
-    "document.querySelector('#skills [role=option]').focus(); document.querySelector('#skills [role=option]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));",
-  )
-  if (
-    extensions.guests!.snapshot(owner).some((entry) => entry.contributionId === 'detail')
-  )
-    throw new Error('Keyboard focus prefetched instruction bodies')
-  if (extensions.sourceRequests!.snapshot(owner).length)
-    throw new Error('Metadata browsing or keyboard focus requested file access')
+    ...(await Promise.all(
+      priorDetails.map((id) => {
+        const retained = extensions
+          .guests!.snapshot(owner)
+          .find((entry) => entry.id === id)!
+        return bounded(controls.guest(retained))
+      }),
+    )),
+  ]
+  const observing: WebContents[] = []
+  const readerFacts = (reader: WebContents) =>
+    inspect(
+      reader,
+      `(() => ({
+    sourceSelections: globalThis.__hvirMetadataReads.selections,
+    renderedSources: globalThis.__hvirMetadataReads.rendered,
+    source: document.getElementById('source-label').textContent,
+    sha256: document.getElementById('details').dataset.sha256 ?? null,
+    bodyCharacters: document.getElementById('instructions').textContent.length,
+    hidden: document.getElementById('reader-content').hidden,
+  }))()`,
+    )
+  let baseline: unknown[]
+  let metadataFailure: Error | undefined
+  let cleanupFailures: unknown[]
+  async function metadataOnly(stage: string) {
+    const current = await Promise.all(readers.map(readerFacts))
+    if (
+      JSON.stringify(detailIds()) !== JSON.stringify(priorDetails) ||
+      JSON.stringify(current) !== JSON.stringify(baseline)
+    ) {
+      console.log(
+        '[smoke] metadata-only reader boundary',
+        JSON.stringify({
+          stage,
+          priorDetails,
+          currentDetails: detailIds(),
+          baseline,
+          current,
+        }),
+      )
+      throw new Error(
+        `Library ${stage} changed selected bodies or performed a new source read`,
+      )
+    }
+  }
+  try {
+    for (const reader of readers) {
+      await inspect(
+        reader,
+        `(() => {
+        const counts={selections:0,rendered:0};
+        const stop=window.hvirExtension.onMessage(message=>{
+          if(message.kind!=='result'||message.ok!==true)return;
+          const value=message.value;
+          if(value?.currentFile===true)counts.selections++;
+          if(typeof value?.sourceFallback==='boolean')counts.rendered++;
+        });
+        globalThis.__hvirMetadataReads=counts;globalThis.__hvirMetadataReadsStop=stop;
+      })()`,
+      )
+      observing.push(reader)
+    }
+    baseline = await Promise.all(readers.map(readerFacts))
+    for (;;) {
+      const entries = (await inspect(
+        guest,
+        "[...document.querySelectorAll('#skills [role=option]')].map(row=>row.dataset.id)",
+      )) as string[]
+      entries.forEach((id) => observed.add(id))
+      pages++
+      if (pages === 1 || pages % 10 === 0)
+        console.log(
+          `[smoke] Skillager evidence: ${pages} public pages/${observed.size} identities`,
+        )
+      if (diagnostic) break
+      if ((await inspect(guest, "document.getElementById('next').disabled")) as boolean)
+        break
+      const first = entries[0]
+      await inspect(guest, "document.getElementById('next').click()")
+      await ready(
+        guest,
+        () =>
+          inspect(
+            guest,
+            `document.querySelector('#skills [role=option]')?.dataset.id !== ${JSON.stringify(first)} && document.getElementById('state').dataset.state==='ready'`,
+          ) as Promise<boolean>,
+        `public cursor page ${pages + 1}`,
+      )
+      if (pages > 50) throw new Error('Public library cursor did not terminate')
+    }
+    if (!diagnostic && (observed.size !== 5000 || pages !== 50))
+      throw new Error(
+        `Genuine library traversal yielded ${observed.size} identities on ${pages} pages`,
+      )
+    await metadataOnly('metadata traversal')
+    await inspect(
+      guest,
+      "document.querySelector('#skills [role=option]').focus(); document.querySelector('#skills [role=option]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));",
+    )
+    await metadataOnly('keyboard focus')
+    if (extensions.sourceRequests!.snapshot(owner).length)
+      throw new Error('Metadata browsing or keyboard focus requested file access')
+  } catch (error) {
+    metadataFailure =
+      error instanceof Error
+        ? error
+        : new Error('Metadata reader verification failed', { cause: error })
+  } finally {
+    const cleanup = await Promise.allSettled(
+      observing
+        .filter((reader) => !reader.isDestroyed())
+        .map((reader) =>
+          inspect(
+            reader,
+            'globalThis.__hvirMetadataReadsStop();delete globalThis.__hvirMetadataReadsStop;delete globalThis.__hvirMetadataReads',
+          ),
+        ),
+    )
+    cleanupFailures = cleanup.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason as unknown] : [],
+    )
+  }
+  if (cleanupFailures.length)
+    throw new AggregateError(
+      [...(metadataFailure ? [metadataFailure] : []), ...cleanupFailures],
+      'Metadata reader observation cleanup failed',
+    )
+  if (metadataFailure) throw metadataFailure
   if (!process.env.HVIR_EXTENSION_VISUAL_DIRECTORY) {
     await inspect(guest, "document.getElementById('query').value='catalogneedle';")
     for (const mode of ['button', 'enter'] as const) {
@@ -510,6 +608,101 @@ export async function verifySkillagerExtension(
       ) as Promise<boolean>,
     'rendered instructions before appearance capture obscures the reader',
   )
+  if (!diagnostic) {
+    const members = skillagerManagementControls(detail, controls)
+    try {
+      await members.click('exposure-group')
+      await members.ready(
+        "!document.getElementById('exposure-member-search-button').disabled && document.querySelectorAll('#exposure-member-results input').length===50",
+        'first bounded member page from genuine 5000',
+      )
+      const firstMember = (await members.inspect(
+        "document.querySelector('#exposure-member-results input').dataset.skillId",
+      )) as string
+      const selected = (await members.inspect(
+        "[...document.querySelectorAll('#exposure-selected-members button')].map(e=>e.title)",
+      )) as string[]
+      if (selected.length !== 1)
+        throw new Error('Group did not start from exactly the selected skill')
+      for (const page of [1, 2]) {
+        const identity = (await members.inspect(`(() => {
+        const input=[...document.querySelectorAll('#exposure-member-results input')].find(e=>!e.checked);
+        if(!input)throw new Error('No distinct member on the bounded page');
+        const identity=input.closest('label').title.split('\\n')[0];input.click();return identity;
+      })()`)) as string
+        selected.push(identity)
+        if (page === 1) {
+          await members.click('exposure-member-next')
+          await members.ready(
+            "!document.getElementById('exposure-member-search-button').disabled && document.getElementById('exposure-member-page').textContent==='Page 2' && document.querySelectorAll('#exposure-member-results input').length===50",
+            'second bounded member page',
+          )
+        }
+      }
+      await members.click('exposure-member-previous')
+      await members.ready(
+        `!document.getElementById('exposure-member-search-button').disabled && document.getElementById('exposure-member-page').textContent==='Page 1' && document.querySelector('#exposure-member-results input').dataset.skillId===${JSON.stringify(firstMember)}`,
+        'Previous returns the exact first member page',
+      )
+      await members.click('exposure-member-next')
+      await members.ready(
+        "!document.getElementById('exposure-member-search-button').disabled && document.getElementById('exposure-member-page').textContent==='Page 2'",
+        'second member page before a new search',
+      )
+      await members.set('exposure-member-query', 'catalogneedle')
+      await members.inspect(
+        "document.getElementById('exposure-member-search').requestSubmit()",
+      )
+      await members.ready(
+        "!document.getElementById('exposure-member-search-button').disabled && document.getElementById('exposure-member-page').textContent==='Page 1'",
+        'member search retains off-page selection',
+      )
+      const retained = (await members.inspect(
+        "[...document.querySelectorAll('#exposure-selected-members button')].map(e=>e.title)",
+      )) as string[]
+      const resultCount = (await members.inspect(
+        "document.querySelectorAll('#exposure-member-results input').length",
+      )) as number
+      if (
+        retained.length !== 3 ||
+        new Set(selected).size !== 3 ||
+        selected.some((identity) => !retained.includes(identity)) ||
+        resultCount < 1 ||
+        resultCount > 50
+      )
+        throw new Error(
+          'Large-library member search lost exact off-page identities or rendered an unbounded catalog',
+        )
+      await members.click('exposure-cancel')
+      await members.ready(
+        "document.getElementById('exposure-task').hidden && document.getElementById('instructions').textContent.length>0",
+        'cancelled membership preserves ordinary reading',
+      )
+      console.log(
+        '[smoke] genuine 5000 membership: two 50-row public pages, ranked search, three exact retained identities, cancelled without mutation',
+      )
+    } catch (error) {
+      console.log(
+        '[smoke] capacity membership boundary',
+        JSON.stringify(
+          await members
+            .inspect(
+              `(() => {
+        const text=document.getElementById('exposure-state').textContent;
+        return {page:document.getElementById('exposure-member-page').textContent,
+          query:document.getElementById('exposure-member-query').value,
+          busy:document.getElementById('exposure-member-search-button').disabled,
+          rows:[...document.querySelectorAll('#exposure-member-results input')].slice(0,50).map(input=>({id:input.dataset.skillId,checked:input.checked})),
+          selected:[...document.querySelectorAll('#exposure-selected-members button')].slice(0,16).map(item=>item.title),
+          failureClasses:['invalid_cursor','different request','frequency','capacity','exact library','cancelled','exceeds'].filter(value=>text.includes(value))};
+      })()`,
+            )
+            .catch(() => ({ inspectionUnavailable: true })),
+        ),
+      )
+      throw error
+    }
+  }
   await captureExtensionVisuals(win, detail, host, 'instructions', {
     ...controls,
     select: async () => {
