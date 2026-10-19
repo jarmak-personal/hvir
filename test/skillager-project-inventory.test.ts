@@ -329,7 +329,7 @@ it('filters the project inventory before opaque pagination without importing lib
   expect(state().textContent).toContain('No matches')
 })
 
-it('offers the supported inventory update when an older project CLI rejects --query', async () => {
+it('names the required project query capability when inventory works but filtering is unsupported', async () => {
   const f = view()
   f.unsupportedProjectQuery()
   f.context(true, workspace)
@@ -341,7 +341,9 @@ it('offers the supported inventory update when an older project CLI rejects --qu
   await f.flush()
   expect(state().dataset.state).toBe('stale')
   expect(state().textContent).toContain('Update Skillager')
-  expect(document.getElementById('observation-details')?.textContent).toContain('0.9.7')
+  expect(document.getElementById('observation-details')?.textContent).toContain(
+    'Project filtering requires Skillager 0.9.7 or a supported source build with list --scope project --query.',
+  )
   expect(rows()[0]?.dataset.id).toBe(original.occurrence_id)
   expect(f.calls.some((args) => args[0] === 'search')).toBe(false)
 })

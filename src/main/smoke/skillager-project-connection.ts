@@ -106,11 +106,9 @@ export async function verifySkillagerProjectConnection(
         )) === true,
       'maintained local project offers in-context Connect without Settings',
     )
-    // Retain the project filter through both decisions; Library options cannot change its scope.
+    // Retain the project filter through both decisions; this form has no Library options.
     await inspect(`(() => {
       document.getElementById('query').value='catalogneedle';
-      document.getElementById('separate-copies').checked=true;
-      document.getElementById('preferred-agent').selectedIndex=1;
       document.getElementById('search-form').requestSubmit();
     })()`)
     await controls.wait(
@@ -147,8 +145,8 @@ export async function verifySkillagerProjectConnection(
         (await inspect(`(() => {
           const state=document.getElementById('state'), query=document.getElementById('query');
           return state?.dataset.state==='ready' && document.querySelectorAll('#skills [role=option]').length===1 && ${currentInventory} &&
-            query.value==='catalogneedle' && document.getElementById('separate-copies').checked &&
-            document.getElementById('preferred-agent').selectedIndex===1 && document.getElementById('connect-program').hidden && document.getElementById('connection-status').textContent==='Connected' &&
+            query.value==='catalogneedle' && !document.querySelector('.search-options') &&
+            document.getElementById('connect-program').hidden && document.getElementById('connection-status').textContent==='Connected' &&
             globalThis.__hvirProjectConnectionProof.connecting && globalThis.__hvirProjectConnectionProof.observing;
         })()`)) === true,
       'current project connection automatically filters exact project metadata while retaining the submitted query',

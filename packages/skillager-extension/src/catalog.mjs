@@ -4,7 +4,11 @@ import {
   metadataText as text,
   metadataSourcePath as sourcePath,
 } from './public-metadata.mjs'
-import { SkillagerSetupError, projectInventoryRequirement } from './library-first-use.mjs'
+import {
+  SkillagerSetupError,
+  projectInventoryRequirement,
+  projectQueryRequirement,
+} from './library-first-use.mjs'
 export const MINIMUM_SKILLAGER = '0.9.3'
 export function requireVersion(text) {
   const match = /skillager\s+(\d+)\.(\d+)\.(\d+)/u.exec(text)
@@ -137,14 +141,12 @@ export function searchPage(value, workspace) {
     presence: data.context?.installed_observation ?? 'unknown',
   }
 }
-/** Only this command owns the meaning of argparse's unsupported project scope. */
+/** This command owns argparse's unsupported project inventory and filtering facts. */
 export function projectInventoryFailure(error) {
-  if (
-    error.cli?.outcome === 'completed' &&
-    error.cli.code === 2 &&
-    (/argument --scope: invalid choice: ['"]project['"]/u.test(error.cli.stderr) ||
-      /unrecognized arguments: --query(?: |$)/u.test(error.cli.stderr))
-  )
+  if (error.cli?.outcome !== 'completed' || error.cli.code !== 2) return error
+  if (/unrecognized arguments: --query(?: |$)/u.test(error.cli.stderr))
+    return new SkillagerSetupError('update-required', projectQueryRequirement)
+  if (/argument --scope: invalid choice: ['"]project['"]/u.test(error.cli.stderr))
     return new SkillagerSetupError('update-required', projectInventoryRequirement)
   return error
 }

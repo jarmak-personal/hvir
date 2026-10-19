@@ -3,7 +3,6 @@ import {
   SOURCE_LIMITS,
   sameSourceBinding,
   type ExtensionSourceBinding,
-  type ExtensionSourceSelection,
   type ExtensionSourceRequestProposal,
   type ExtensionSourceRequestResult,
 } from '../../shared/extensions/source-access'
@@ -37,6 +36,7 @@ export class ExtensionSourceRequestOwner {
       | 'hasPrepared'
       | 'decisionCurrent'
       | 'canReuseGrant'
+      | 'prepareWorkspaceRead'
     >,
     private readonly foreground: (owner: RendererOwner) => boolean,
     private readonly publish: (
@@ -76,14 +76,12 @@ export class ExtensionSourceRequestOwner {
     const binding = context
       ? { workspaceId: context.value.workspace!.id, root }
       : undefined
-    const selection: ExtensionSourceSelection = {
-      installationId: caller.activation.installationId,
-      source,
-      ...(binding ? { workspaceId: binding.workspaceId } : { root }),
-    }
     const controller = new AbortController()
     const signal = AbortSignal.any([caller.signal, controller.signal])
     let proposalToken: string | undefined
+    let workspaceRead:
+      | Awaited<ReturnType<ExtensionSourceApprovalOwner['prepareWorkspaceRead']>>
+      | undefined
     const current = this.approvals.decisionCurrent(() => {
       signal.throwIfAborted()
       caller.current()
@@ -112,7 +110,10 @@ export class ExtensionSourceRequestOwner {
     const pending: SourceDecision = {
       owner,
       controller,
-      current,
+      current: () => {
+        current()
+        if (pending.proposal?.state === 'ready') workspaceRead?.current()
+      },
       installation: caller.activation.installationId,
       source,
       ...(binding ? { binding } : {}),
@@ -121,6 +122,7 @@ export class ExtensionSourceRequestOwner {
     let token: string | undefined
     const retire = (): void => {
       if (token) this.approvals.cancelPrepared(token)
+      workspaceRead?.cancel()
       proposalToken = undefined
       if (!pending.proposal) return
       delete pending.proposal
@@ -156,14 +158,23 @@ export class ExtensionSourceRequestOwner {
       SOURCE_LIMITS.decisionMs,
     )
     try {
-      if (
-        await this.approvals.canReuseGrant(
-          caller.activation,
-          source,
-          root,
-          current,
-          context,
-        )
+      let preparationFailure: { reason: unknown } | undefined
+      if (context) {
+        try {
+          workspaceRead = await this.approvals.prepareWorkspaceRead(
+            caller.activation,
+            source,
+            context,
+            current,
+            signal,
+          )
+          if (workspaceRead.reused) return { granted: true }
+        } catch (reason) {
+          current()
+          preparationFailure = { reason }
+        }
+      } else if (
+        await this.approvals.canReuseGrant(caller.activation, source, root, current)
       )
         return { granted: true }
       current()
@@ -178,17 +189,24 @@ export class ExtensionSourceRequestOwner {
       this.publish(owner, this.snapshot(owner))
       current()
       try {
-        const prepared = await this.approvals.prepare(selection, current)
-        token = prepared.token
-        if (binding && !sameSourceBinding(prepared.grant, binding))
-          throw new Error('Read access workspace changed')
+        if (preparationFailure) throw preparationFailure.reason
+        workspaceRead?.current()
+        let grant = workspaceRead?.grant
+        if (!grant) {
+          const prepared = await this.approvals.prepare(
+            { installationId: caller.activation.installationId, source, root },
+            current,
+          )
+          token = prepared.token
+          grant = prepared.grant
+        }
         current()
         proposalToken = token
         if (pending.proposal)
           pending.proposal = {
             ...pending.proposal,
             state: 'ready',
-            root: prepared.grant.root!,
+            root: grant.root!,
           }
       } catch (reason) {
         current()
@@ -209,7 +227,8 @@ export class ExtensionSourceRequestOwner {
       current()
       if (!accepted) return { granted: false }
       // Await the owning physical write; cancellation cannot prove its rollback.
-      await this.approvals.approve(token!)
+      if (workspaceRead) await workspaceRead.approve()
+      else await this.approvals.approve(token!)
       current()
       return { granted: true }
     } finally {
@@ -219,6 +238,7 @@ export class ExtensionSourceRequestOwner {
         retire()
       } finally {
         if (token) this.approvals.cancelPrepared(token)
+        workspaceRead?.cancel()
         this.pending.delete(pending)
         controller.abort()
       }

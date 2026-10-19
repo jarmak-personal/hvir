@@ -1,8 +1,8 @@
 # ADR-073: Exact workspace source grants and contextual read requests
 
 > Lifecycle: Active
-> Supersedes: [ADR-057](ADR-057-selected-extension-source-reading.md) | partial | Workspace grant retention and contextual workspace read consent only.
-> Supersedes: [ADR-068](ADR-068-in-context-human-source-read-decisions.md) | partial | Workspace grant retention and contextual workspace read consent only.
+> Supersedes: [ADR-057](ADR-057-selected-extension-source-reading.md) | partial | Read-only workspace grant retention and contextual workspace read consent only.
+> Supersedes: [ADR-068](ADR-068-in-context-human-source-read-decisions.md) | partial | Read-only workspace grant retention and contextual workspace read consent only.
 
 ## Context
 
@@ -13,13 +13,15 @@ explicit, main-admitted workspace target.
 
 ## Decision
 
-The existing source approval owner retains workspace grants by installation, full declaration,
-workspace identity, and exact host-qualified canonical root. Application sources retain their
-existing single-root replacement and ancestor coverage rules. Across an accepted declaration
-context change, an application approval replaces prior same-source workspace bindings; a
-workspace approval replaces a prior application binding. Ordinary workspace approvals retain
-other exact workspace bindings. Registration, host, declaration,
-and activation checks remain live; retaining a grant does not make an unavailable binding usable.
+The existing source approval owner retains read-only workspace grants by installation, full
+declaration, workspace identity, and exact host-qualified canonical root. Application sources
+retain their existing single-root replacement and ancestor coverage rules. Managed-delivery
+grants retain their single binding and Settings decision: approving workspace B replaces and
+revokes workspace A's delivery authority. Across an accepted declaration context change, an
+application approval replaces prior same-source workspace bindings; a read-only workspace
+approval replaces a prior application or delivery binding. Read-only workspace approvals retain
+other exact workspace bindings. Registration, host, declaration and activation checks remain
+live; retaining a grant does not make an unavailable binding usable.
 
 An ordinary visible human reader may request a read-only workspace source using only its
 source identifier. Main derives the root and identity from the caller's admitted context,
@@ -31,6 +33,9 @@ The source owner exposes a narrow prepared workspace read decision to trusted co
 It carries activation, exact context, current/abort checks and cancellation through persistence;
 a reusable grant must still be current before a coordinator writes any independent decision.
 Coordinators never write the source store or infer consent from native permission.
+Callers must keep the handle live through all independent writes, then call `cancel()` in a
+`finally` block after every outcome, including reuse, success and failure. Cancellation releases
+the prepared decision and abort listener without retiring an already stored grant.
 
 Guest status reports only the caller's binding. Settings lists retained bindings, including
 unavailable ones, and may revoke one exact binding without ending another workspace's reads

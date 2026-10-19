@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
+import { getEventListeners } from 'node:events'
 import { sourceFixture } from './fixtures/extension-source'
 import { localPath, asHostId, hostPath } from '../src/shared/host-path'
 import type { AdmittedExtensionContext } from '../src/main/extensions/context-owner'
@@ -471,4 +472,158 @@ it('prepares read-only source consent on the admitted SSH host without substitut
   expect(
     f.approvals.get(f.activation, 'source', { ...context, root: localPath('/library') }),
   ).toBeUndefined()
+})
+
+it('replaces the single delivery binding and revokes A before persisting B', async () => {
+  const ssh = asHostId('ssh'),
+    f = sourceFixture('workspace', undefined, ssh)
+  stop.push(() => f.dispose())
+  const delivery = {
+    ...f.activation,
+    revision: {
+      ...f.activation.revision,
+      manifest: {
+        ...f.activation.revision.manifest,
+        access: [{ ...f.declaration, mode: 'managed-delivery' as const }],
+      },
+    },
+  }
+  f.active.set('installation', delivery)
+  const second = {
+    id: 'second',
+    name: 'Second',
+    host: ssh,
+    root: hostPath(ssh, '/second'),
+  }
+  f.workspaces.push(second)
+  f.host.stat.mockResolvedValue({ type: 'dir', size: 0, mode: 0o755, mtimeMs: 0 })
+  const a = f.caller.context()!,
+    b = { ...a, value: { ...a.value, workspace: second }, root: second.root }
+  await f.approvals.start()
+  const prepare = (workspaceId: string) =>
+    f.approvals.prepare(
+      { installationId: 'installation', source: 'source', workspaceId },
+      () => {},
+    )
+  await f.approvals.approve((await prepare('workspace')).token)
+  expect(f.approvals.get(delivery, 'source', a)).toBeDefined()
+  let release!: () => void, enter!: () => void
+  const held = new Promise<void>((resolve) => {
+      release = resolve
+    }),
+    reached = new Promise<void>((resolve) => {
+      enter = resolve
+    }),
+    save = f.authority.saveSourceGrants.getMockImplementation()!
+  f.authority.saveSourceGrants.mockImplementationOnce(async (...args) => {
+    enter()
+    await held
+    return save(...args)
+  })
+  f.revoked.mockClear()
+  const writing = f.approvals.approve((await prepare('second')).token)
+  await reached
+  expect(f.revoked).toHaveBeenCalledWith('installation', 'source', undefined)
+  expect(f.approvals.get(delivery, 'source', a)).toBeUndefined()
+  release()
+  await writing
+  await f.approvals.start()
+  expect(f.state()).toHaveLength(1)
+  expect(f.approvals.get(delivery, 'source', a)).toBeUndefined()
+  expect(f.approvals.get(delivery, 'source', b)?.workspaceId).toBe('second')
+  expect(f.approvals.settings(delivery)).toHaveLength(1)
+})
+
+it.each(['accepted', 'reused', 'failed'] as const)(
+  'keeps a %s prepared handle live until finally cleanup without retiring stored authority',
+  async (outcome) => {
+    const f = await fixture(),
+      controller = new AbortController()
+    if (outcome === 'reused') await f.grant(f.a)
+    const prepared = await f.approvals.prepareWorkspaceRead(
+      f.activation,
+      'source',
+      f.a,
+      () => {},
+      controller.signal,
+    )
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(1)
+    if (outcome === 'failed')
+      f.authority.saveSourceGrants.mockRejectedValueOnce(new Error('Write failed'))
+    try {
+      if (outcome === 'failed')
+        await expect(prepared.approve()).rejects.toThrow('Write failed')
+      else {
+        await prepared.approve()
+        prepared.current() // Still usable before the coordinator's next independent writer.
+        expect(getEventListeners(controller.signal, 'abort')).toHaveLength(1)
+      }
+    } finally {
+      prepared.cancel()
+    }
+    expect(getEventListeners(controller.signal, 'abort')).toEqual([])
+    expect(() => prepared.current()).toThrow(/ended/)
+    expect(!!f.approvals.get(f.activation, 'source', f.a)).toBe(outcome !== 'failed')
+    const tokens = []
+    for (let i = 0; i < SOURCE_LIMITS.decisions; i++)
+      tokens.push(
+        await f.approvals.prepare(
+          { installationId: 'installation', source: 'source', workspaceId: 'second' },
+          () => {},
+        ),
+      )
+    for (const { token } of tokens) f.approvals.cancelPrepared(token)
+  },
+)
+
+it.each(['accepted', 'reused', 'declined', 'write-failed'] as const)(
+  'retires the production workspace request handle after %s',
+  async (outcome) => {
+    const f = await fixture(),
+      prepare = vi.spyOn(f.approvals, 'prepareWorkspaceRead')
+    if (outcome === 'reused') await f.grant(f.a)
+    if (outcome === 'write-failed')
+      f.authority.saveSourceGrants.mockRejectedValueOnce(new Error('Write failed'))
+    const request = f.request(),
+      result =
+        outcome === 'write-failed'
+          ? expect(request).rejects.toThrow('Write failed')
+          : expect(request).resolves.toEqual({ granted: outcome !== 'declined' })
+    if (outcome !== 'reused') {
+      const proposal = await ready(f)
+      f.requests.decide(f.renderer, proposal.id, outcome !== 'declined')
+    }
+    await result
+    expect(prepare).toHaveBeenCalledTimes(1)
+    const signal = prepare.mock.calls[0]![4],
+      handle = await (prepare.mock.results[0]!.value as ReturnType<
+        typeof f.approvals.prepareWorkspaceRead
+      >)
+    expect(getEventListeners(signal, 'abort')).toEqual([])
+    expect(() => handle.current()).toThrow()
+    expect(f.requests.snapshot(f.renderer)).toEqual([])
+    expect(!!f.approvals.get(f.activation, 'source', f.a)).toBe(
+      outcome === 'accepted' || outcome === 'reused',
+    )
+  },
+)
+
+it('keeps workspace preparation errors in trusted chrome until decline', async () => {
+  const f = await fixture()
+  f.host.realpath.mockRejectedValueOnce(new Error('Private preparation detail'))
+  let settled = false
+  const request = f.request().then((result) => {
+    settled = true
+    return result
+  })
+  await vi.waitFor(() => expect(f.requests.snapshot(f.renderer)[0]?.state).toBe('failed'))
+  const proposal = f.requests.snapshot(f.renderer)[0]!
+  expect(proposal).toMatchObject({
+    state: 'failed',
+    explanation: 'Private preparation detail',
+  })
+  expect(settled).toBe(false)
+  f.requests.decide(f.renderer, proposal.id, false)
+  await expect(request).resolves.toEqual({ granted: false })
+  expect(f.state()).toEqual([])
 })

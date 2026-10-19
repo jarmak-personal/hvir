@@ -160,7 +160,7 @@ it('replaces queued paging with explicit search/filter intent through a pending 
 })
 
 it.each(['library', 'ssh', 'local'])(
-  'defaults installed controls only for available exact local workspace (%s)',
+  'keeps Library options on Library and omits them from Project (%s)',
   async (kind) => {
     const f = packageView(kind === 'library' ? 'library' : 'project')
     f.context(
@@ -174,10 +174,19 @@ it.each(['library', 'ssh', 'local'])(
           },
     )
     await f.flush()
-    const installed = document.getElementById('include-installed') as HTMLInputElement
-    expect(installed.checked).toBe(kind === 'local')
-    expect(installed.disabled).toBe(kind !== 'local')
-    if (kind !== 'local') expect(installed.title).toContain('unknown')
+    const installed = document.getElementById(
+      'include-installed',
+    ) as HTMLInputElement | null
+    if (kind === 'library') {
+      expect(installed?.checked).toBe(false)
+      expect(installed?.disabled).toBe(true)
+      expect(installed?.title).toContain('unknown')
+    } else {
+      expect(installed).toBeNull()
+      expect(document.querySelector('.search-options')).toBeNull()
+      expect(document.getElementById('separate-copies')).toBeNull()
+      expect(document.getElementById('preferred-agent')).toBeNull()
+    }
     if (kind === 'ssh') expect(f.calls).toEqual([])
   },
 )
@@ -285,8 +294,6 @@ it('connects the current project and automatically preserves project query witho
   await f.flush()
   expect(f.button('connect-program').hidden).toBe(false)
   expect(document.getElementById('state')?.textContent).toContain('for this project')
-  ;(document.getElementById('separate-copies') as HTMLInputElement).checked = true
-  ;(document.getElementById('preferred-agent') as HTMLSelectElement).value = 'claude'
   submitQuery('exact query')
   await f.flush()
   f.button('connect-program').click()
@@ -342,7 +349,6 @@ it.each(['timer', 'query'] as const)(
     await f.flush()
     if (edge === 'timer') await vi.advanceTimersByTimeAsync(31_000)
     else {
-      ;(document.getElementById('separate-copies') as HTMLInputElement).checked = true
       submitQuery('new query')
       await f.flush()
     }
@@ -524,6 +530,9 @@ it('shows supported-release update guidance in the project tab without initializ
   expect(
     (document.getElementById('setup-request') as HTMLTextAreaElement).value,
   ).toContain('Project inventory requires Skillager 0.9.7 or a supported source build.')
+  expect(
+    (document.getElementById('setup-request') as HTMLTextAreaElement).value,
+  ).toContain('Verify list --scope project --query with pagination.')
   expect(f.initializationRequests).toEqual([])
 })
 

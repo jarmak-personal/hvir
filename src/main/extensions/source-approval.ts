@@ -227,7 +227,11 @@ export class ExtensionSourceApprovalOwner {
         : containsHostPath(existing.root, root))
     )
   }
-  /** Trusted coordinators prepare source consent; only this owner persists it. */
+  /**
+   * Trusted coordinators prepare source consent; only this owner persists it.
+   * Keep the handle live through every independent writer. Always call cancel() in
+   * finally after success, reuse or failure; it retires the handle, never the grant.
+   */
   async prepareWorkspaceRead(
     activation: ExtensionActivation,
     source: string,
@@ -361,7 +365,11 @@ export class ExtensionSourceApprovalOwner {
           throw new Error(
             'Source grant capacity reached; revoke an unused binding in Settings',
           )
-        this.revoked(grant.installationId, grant.declaration.id, bindingOf(grant))
+        this.revoked(
+          grant.installationId,
+          grant.declaration.id,
+          retainsWorkspaceBindings(grant) ? bindingOf(grant) : undefined,
+        )
         this.grants = remaining
         await this.activations.saveSourceGrants(next, current)
         current()
@@ -564,7 +572,7 @@ function key(grant: ExtensionSourceGrant): string {
   return JSON.stringify([
     grant.installationId,
     grant.declaration.id,
-    ...(grant.declaration.context === 'workspace'
+    ...(retainsWorkspaceBindings(grant)
       ? [grant.workspaceId, grant.root?.hostId, grant.root?.path]
       : []),
   ])
@@ -576,13 +584,19 @@ function bindingOf(grant: ExtensionSourceGrant): ExtensionSourceBinding | undefi
     : undefined
 }
 
-/** Application declarations keep their single binding even across context revisions. */
+function retainsWorkspaceBindings(grant: ExtensionSourceGrant): boolean {
+  return (
+    grant.declaration.context === 'workspace' && grant.declaration.mode === 'read-only'
+  )
+}
+
+/** Only workspace read grants retain independent bindings across approvals. */
 function replacedBy(previous: ExtensionSourceGrant, next: ExtensionSourceGrant): boolean {
   return (
     previous.installationId === next.installationId &&
     previous.declaration.id === next.declaration.id &&
-    (next.declaration.context === 'application' ||
-      previous.declaration.context === 'application' ||
+    (!retainsWorkspaceBindings(next) ||
+      !retainsWorkspaceBindings(previous) ||
       key(previous) === key(next))
   )
 }

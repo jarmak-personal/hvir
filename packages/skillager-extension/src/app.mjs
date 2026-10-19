@@ -43,7 +43,7 @@ let lastPage,
   query = '',
   cursor,
   previous = [],
-  searchOptions = {},
+  searchOptions = view === 'library' ? {} : undefined,
   selectedRow,
   pageRequest
 const state = element('state'),
@@ -229,7 +229,8 @@ function pagingControls() {
   const changingSearch =
     pageRequest &&
     (pageRequest.query !== query ||
-      JSON.stringify(pageRequest.options) !== JSON.stringify(searchOptions))
+      (view === 'library' &&
+        JSON.stringify(pageRequest.options) !== JSON.stringify(searchOptions)))
   if (element('next')) element('next').disabled = !!changingSearch || !lastPage?.next
   if (element('previous'))
     element('previous').disabled = !!changingSearch || previous.length === 0
@@ -237,7 +238,7 @@ function pagingControls() {
 function requestRefresh(
   target = pageRequest ?? {
     query,
-    options: searchOptions,
+    ...(view === 'library' ? { options: searchOptions } : {}),
     cursor,
     previous: [...previous],
   },
@@ -248,7 +249,12 @@ function requestRefresh(
     connectionDetail = ''
     refreshConnectionAvailability()
   }
-  pageRequest = { query, options: searchOptions, ...pageRequest, ...target }
+  pageRequest = {
+    query,
+    ...(view === 'library' ? { options: searchOptions } : {}),
+    ...pageRequest,
+    ...target,
+  }
   // A newer page intent cannot discard a refresh whose status has not settled.
   libraryStatusNeeded ||= observeLibrary
   pagingControls()
@@ -265,7 +271,7 @@ async function refresh() {
     connecting = connectionPhase === 'observing' ? connectionIntent : undefined,
     target = pageRequest ?? {
       query,
-      options: searchOptions,
+      ...(view === 'library' ? { options: searchOptions } : {}),
       cursor,
       previous: [...previous],
     }
@@ -526,15 +532,18 @@ on('connect-program', 'click', async () => {
 })
 on('search-form', 'submit', (event) => {
   event.preventDefault()
-  const options = {
-    includeInstalled: element('include-installed').checked,
-    separateCopies: element('separate-copies').checked,
-    preferredAgent: element('preferred-agent').value || undefined,
-  }
   requestRefresh(
     {
       query: element('query').value.trim(),
-      options,
+      ...(view === 'library'
+        ? {
+            options: {
+              includeInstalled: element('include-installed').checked,
+              separateCopies: element('separate-copies').checked,
+              preferredAgent: element('preferred-agent').value || undefined,
+            },
+          }
+        : {}),
       cursor: undefined,
       previous: [],
     },
@@ -543,7 +552,15 @@ on('search-form', 'submit', (event) => {
 })
 on('browse', 'click', () => {
   element('query').value = ''
-  requestRefresh({ query: '', options: {}, cursor: undefined, previous: [] }, false)
+  requestRefresh(
+    {
+      query: '',
+      ...(view === 'library' ? { options: {} } : {}),
+      cursor: undefined,
+      previous: [],
+    },
+    false,
+  )
 })
 on('refresh', 'click', () => {
   // Opaque cursors may expire as skills change; an explicit refresh starts a new page set.
