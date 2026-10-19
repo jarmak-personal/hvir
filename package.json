@@ -91,9 +91,9 @@
     "bplist-parser": "^0.5.0",
     "chokidar": "^5.0.0",
     "ghostty-web": "https://github.com/jarmak-personal/ghostty-web/releases/download/hvir-v0.4.0-20/ghostty-web-0.4.0-hvir-g18fc0d2bddb0.tgz",
-    "markdown-it": "^15.0.2",
+    "markdown-it": "^15.0.3",
     "markdown-it-task-lists": "^2.1.1",
-    "mermaid": "^12.1.0",
+    "mermaid": "^12.2.0",
     "node-pty": "^1.1.0",
     "plist": "^3.1.1",
     "shiki": "^4.5.0",
@@ -124,12 +124,12 @@
     "node-gyp": "^13.0.1",
     "prettier": "^3.9.10",
     "proper-lockfile": "^4.1.2",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.1",
+    "typescript-eslint": "^8.71.2",
     "vite": "^7.3.7",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.5"
   },
   "overrides": {
     "typed-rest-client": {
