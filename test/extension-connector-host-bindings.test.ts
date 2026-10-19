@@ -138,6 +138,28 @@ it('rejects duplicate full saved identities, while distinct hosts remain valid',
   }
 })
 
+it('fails closed when restored application access is bound to a remote host', async () => {
+  const f = fixture(),
+    saved = await f.approveHost('remote')
+  const declaration = { ...saved.declaration, context: 'application' as const }
+  Object.assign(f.activation.revision.manifest, { connectors: [declaration] })
+  f.setState([{ ...saved, declaration }])
+  const restored = new ExtensionConnectorApprovalOwner(
+    f.hosts,
+    f.authority,
+    () => undefined,
+  )
+  try {
+    await restored.start()
+    expect(restored.get(f.activation, 'tool', 'remote')).toBeUndefined()
+    await expect(restored.prepare(f.selection('local'), () => undefined)).rejects.toThrow(
+      'cannot be read safely',
+    )
+  } finally {
+    restored.dispose()
+  }
+})
+
 it('denies an unauthorized requested host even when it has no saved approval', async () => {
   const f = fixture()
   const authorizeHost = vi.fn(() => {
