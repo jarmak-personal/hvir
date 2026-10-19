@@ -6,7 +6,7 @@ import type { ProjectHost } from '../project-host/project-host'
 export async function captureExtensionDecision(
   win: BrowserWindow,
   host: ProjectHost,
-  decision: 'program' | 'read',
+  decision: 'program' | 'read' | 'combined' | 'project-read',
   wait: (predicate: () => Promise<boolean>, label: string) => Promise<void>,
 ): Promise<void> {
   const directory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY
@@ -16,7 +16,7 @@ export async function captureExtensionDecision(
   await wait(
     async () =>
       (await win.webContents.executeJavaScript(`(() => {
-    const dialog=document.querySelector('[aria-labelledby="${decision === 'program' ? 'connection' : 'source'}-confirmation-title"]');
+    const dialog=document.querySelector('[aria-labelledby="${decision === 'read' ? 'source' : 'connection'}-confirmation-title"]');
     return !!dialog?.checkVisibility() && dialog.contains(document.activeElement);
   })()`)) === true,
     'trusted consent rendered with safe focus',
@@ -45,7 +45,7 @@ export async function captureExtensionDecision(
           `document.documentElement.dataset.theme=${JSON.stringify(theme)};document.documentElement.style.setProperty('--hvir-interface-scale',${JSON.stringify(String(scale))});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`,
         )
         const geometry: unknown = await win.webContents.executeJavaScript(`(() => {
-        const dialog=document.querySelector('[aria-labelledby="${decision === 'program' ? 'connection' : 'source'}-confirmation-title"]');
+        const dialog=document.querySelector('[aria-labelledby="${decision === 'read' ? 'source' : 'connection'}-confirmation-title"]');
         if(!dialog?.checkVisibility()||!dialog.contains(document.activeElement))throw new Error('Consent lost visibility or safe focus');
         const rect=dialog.getBoundingClientRect(), content=dialog.querySelector('.confirmation-dialog-content'), style=getComputedStyle(dialog);
         const buttons=[...dialog.querySelectorAll('button')];

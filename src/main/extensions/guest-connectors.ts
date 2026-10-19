@@ -53,14 +53,25 @@ export async function requestGuestConnector(
     )
       throw new Error('Program connection requires a visible ordinary human view')
     const selection = extensionObject(input)
-    if (Object.keys(selection).some((key) => key !== 'connector'))
-      throw new Error('Program connection accepts only a declared connector identity')
+    if (Object.keys(selection).some((key) => !['connector', 'source'].includes(key)))
+      throw new Error('Connection accepts only declared connector and source identities')
     const connector = extensionId(selection['connector'])
+    const source =
+      selection['source'] === undefined ? undefined : extensionId(selection['source'])
     const declaration = record.activation.revision.manifest.connectors?.find(
       (entry) => entry.id === connector,
     )
-    const admitted = declaration?.context === 'workspace' ? record.context : undefined
-    const workspace = admitted ? contexts.pinWorkspaceConnection(admitted) : undefined
+    const admitted =
+      declaration?.context === 'workspace' || source ? record.context : undefined
+    const view = record.activation.revision.manifest.views.find(
+      (entry) => entry.id === record.view.contributionId,
+    )
+    const workspace = admitted
+      ? contexts.pinWorkspaceConnection(
+          admitted,
+          view?.placement === 'application' ? 'explicit' : 'project',
+        )
+      : undefined
     return connections.request(
       record.activation,
       record.owner,
@@ -75,6 +86,7 @@ export async function requestGuestConnector(
       connector,
       false,
       workspace,
+      source,
     )
   }
   const invocationAuthority = invocation

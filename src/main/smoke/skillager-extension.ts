@@ -10,6 +10,7 @@ import {
 } from './skillager-first-use'
 import { extensionSettingsControls } from './extension-settings-controls'
 import { captureExtensionVisuals } from './extension-visuals'
+import { verifySkillagerLibraryConnection } from './skillager-library-connection'
 import { verifySkillagerProjectConnection } from './skillager-project-connection'
 import { createHash } from 'node:crypto'
 import { app, type BrowserWindow, type WebContents } from 'electron'
@@ -184,6 +185,19 @@ export async function verifySkillagerExtension(
         projectGuest = await bounded(controls.guest(view('project')!))
         return projectGuest
       },
+    },
+  )
+  await verifySkillagerLibraryConnection(
+    win,
+    guest,
+    extensions,
+    owner,
+    host,
+    controls.projectRoot,
+    executable,
+    {
+      ...controls,
+      within: bounded,
     },
   )
   if (process.env.HVIR_SKILLAGER_PROJECT_PROOF === '1') {

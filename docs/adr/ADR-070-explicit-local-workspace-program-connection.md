@@ -1,6 +1,7 @@
 # ADR-070: Explicit local workspace program connection
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-077](ADR-077-combined-project-connection-decision.md) | partial | Active-selection-only setup pin for explicitly targeted application views and exclusion of an explicitly named workspace read scope from the connection decision only.
 > Superseded by: [ADR-074](ADR-074-independent-host-connector-approvals.md) | partial | Single saved host binding per connector and disclosure of replacing another host during local connection only.
 > Supersedes: [ADR-065](ADR-065-passive-extension-program-connection.md) | partial | Application-only restriction on setup hints and ordinary-human connection requests.
 > Supersedes: [ADR-051](ADR-051-approved-finite-connector-execution.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for explicit ordinary-human local-workspace connections only.

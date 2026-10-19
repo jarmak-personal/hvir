@@ -21,6 +21,7 @@ export function bindSelectedSkill(document, client, ports) {
     chosenMode = false,
     busy = false,
     activeAction = false,
+    connecting,
     ready = false,
     projectReady = false,
     refreshQueued = false,
@@ -247,8 +248,14 @@ export function bindSelectedSkill(document, client, ports) {
           )?.source_hash,
         }
       }
-      delete el('task-connect').dataset.needed
+      const scopes = await scopedClient(revision).request('source.status', {})
+      if (!current(revision)) return
+      const readable = scopes.some((entry) => entry.source === 'project' && entry.granted)
+      if (readable) delete el('task-connect').dataset.needed
+      else el('task-connect').dataset.needed = 'true'
       projectReady = true
+      if (!readable)
+        return 'Project read access is not connected. Choose Connect Skillager to read selected project files.'
     } catch (error) {
       if (!current(revision)) return
       if (['missing-program', 'program-updated'].includes(error.setupState)) {
@@ -618,14 +625,39 @@ export function bindSelectedSkill(document, client, ports) {
     'click',
     () =>
       void guarded(async (revision) => {
-        const result = await client.request('connector.connect', {
-          connector: 'project-cli',
-        })
-        if (current(revision)) {
-          if (result.connections?.some((entry) => entry.outcome === 'connected'))
-            refreshQueued = true
-          else
-            say(result.connections?.[0]?.explanation ?? 'Connection was not completed.')
+        connecting = { revision, key: taskKey() }
+        say('Connecting Skillager…')
+        try {
+          const result = await client.request('connector.connect', {
+            connector: 'project-cli',
+            source: 'project',
+          })
+          if (current(revision)) {
+            if (
+              result.connections?.some(
+                (entry) =>
+                  entry.connector === 'project-cli' && entry.outcome === 'connected',
+              ) &&
+              result.source?.outcome === 'granted' &&
+              result.readiness?.program === true &&
+              result.readiness?.source === true
+            )
+              refreshQueued = true
+            else
+              say(
+                result.connections?.some(
+                  (entry) =>
+                    entry.connector === 'project-cli' && entry.outcome === 'connected',
+                )
+                  ? result.readiness?.program === true
+                    ? 'The program is connected. Project read access was not confirmed. Choose Connect Skillager when ready.'
+                    : 'Program access was saved but is no longer ready. Choose Connect Skillager to check the remaining access.'
+                  : (result.connections?.[0]?.explanation ??
+                      'Connection was not completed.'),
+              )
+          }
+        } finally {
+          connecting = undefined
         }
       }),
   )
@@ -687,6 +719,10 @@ export function bindSelectedSkill(document, client, ports) {
       if (skillId()) void refresh()
     },
     contextChanged() {
+      if (connecting?.revision === serial && connecting.key === taskKey()) {
+        controls()
+        return
+      }
       invalidate()
       el('task-result').textContent = ''
       el('task-operation-details').open = false

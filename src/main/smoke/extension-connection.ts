@@ -358,8 +358,8 @@ export async function verifyExtensionConnection(
             modalPresent: !!modal,
             modalVisible: !!modal?.checkVisibility(),
             modalContainsFocus: !!modal?.contains(document.activeElement),
-            accountAccessVisible: !!modal?.textContent.includes('Programs run with your account’s access'),
-            defaultsVisible: !!modal?.textContent.includes('No extra arguments or environment overrides'),
+            accountAccessVisible: !!modal?.textContent.includes('The program runs with your account’s access.'),
+            detailsCollapsed: !!modal?.querySelector('details') && !modal.querySelector('details').open,
             localProgramVisible: !!modal?.querySelector('pre')?.textContent.includes('local: /'),
             safeActionFocused: [...(modal?.querySelectorAll('button') ?? [])].some(button=>button.textContent==='Not now' && document.activeElement===button),
             guestFocused: document.activeElement?.tagName === 'WEBVIEW',
@@ -370,7 +370,7 @@ export async function verifyExtensionConnection(
           modalVisible: boolean
           modalContainsFocus: boolean
           accountAccessVisible: boolean
-          defaultsVisible: boolean
+          detailsCollapsed: boolean
           localProgramVisible: boolean
           safeActionFocused: boolean
           guestFocused: boolean
@@ -392,12 +392,32 @@ export async function verifyExtensionConnection(
           presentation.modalVisible &&
           presentation.modalContainsFocus &&
           presentation.accountAccessVisible &&
-          presentation.defaultsVisible &&
+          presentation.detailsCollapsed &&
           presentation.localProgramVisible &&
           presentation.safeActionFocused
         )
       }, 'live trusted confirmation and safe focus with exact default program')
     } catch (reason) {
+      const pendingView = (await views()).find(
+        (entry) =>
+          entry.installationId ===
+          [...activations.active.values()].find(
+            (entry) => entry.revision.manifest.id === 'hvir.connection-smoke',
+          )?.installationId,
+      )
+      const guestResult: unknown = pendingView
+        ? await (
+            await controls.guest(pendingView)
+          )
+            .executeJavaScript(
+              `(() => {
+        const value=document.getElementById('state')?.textContent;
+        return {state:['pending','connected','declined','unavailable','interrupted-uncertain','refused'].includes(value)?value:'unknown',hiddenContexts:Math.min(64,Number(document.body.dataset.hiddenContexts)||0)};
+      })()`,
+            )
+            .catch(() => ({ unavailable: true }))
+        : { viewEnded: true }
+      console.log('[smoke:connection-guest-result]', JSON.stringify(guestResult))
       console.log(
         '[smoke:connection-consent-wait-facts]',
         JSON.stringify(consentFacts ?? { observationUnavailable: true }),

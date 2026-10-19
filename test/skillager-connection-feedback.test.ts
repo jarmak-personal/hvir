@@ -21,6 +21,8 @@ const localProject = {
 }
 const projectConnection = () => ({
   connections: [{ connector: 'project-cli', outcome: 'connected' }],
+  source: { source: 'project', outcome: 'granted' },
+  readiness: { program: true, source: true },
 })
 it.each(['project', 'library'])(
   'shows immediate adjacent Connect feedback through the first useful %s observation and prevents duplicate submits',
@@ -46,6 +48,12 @@ it.each(['project', 'library'])(
     f.hold()
     f.libraryApproval(true)
     f.connected({
+      ...(view === 'project'
+        ? {
+            source: { source: 'project', outcome: 'granted' },
+            readiness: { program: true, source: true },
+          }
+        : {}),
       connections: [
         {
           connector: view === 'project' ? 'project-cli' : 'library-cli',
@@ -206,5 +214,76 @@ it.each(['timer', 'search', 'in-flight search'])(
       f.dispose()
       vi.useRealTimers()
     }
+  },
+)
+
+it('keeps missing project read access explicit after a declined combined attempt without a fallback prompt', async () => {
+  const f = packageView('project')
+  f.projectRead(false)
+  f.context(true, localProject)
+  await f.flush()
+  expect(f.button('connect-program').hidden).toBe(false)
+  f.button('connect-program').click()
+  await f.flush()
+  expect(
+    f.requests.find((entry) => entry.capability === 'connector.connect')?.input,
+  ).toEqual({ connector: 'project-cli', source: 'project' })
+  f.connected({
+    connections: [{ connector: 'project-cli', outcome: 'connected' }],
+    source: { source: 'project', outcome: 'declined' },
+    readiness: { program: true, source: false },
+  })
+  await f.flush()
+  expect(f.button('connect-program').disabled).toBe(false)
+  expect(document.getElementById('connection-status')?.textContent).toBe('Not connected')
+  expect(document.getElementById('state')?.textContent).toContain(
+    'Project read access was not confirmed',
+  )
+  expect(f.requests.some((entry) => entry.capability === 'source.request')).toBe(false)
+  f.button('refresh').click()
+  await f.flush()
+  expect(f.button('connect-program').hidden).toBe(false)
+  expect(
+    f.requests.filter((entry) => entry.capability === 'connector.connect'),
+  ).toHaveLength(1)
+})
+it('retains only the submitted project connection intent through passive picker visibility loss', async () => {
+  const f = packageView('project')
+  f.projectApproval(false)
+  f.context(true, localProject)
+  await f.flush()
+  f.button('connect-program').click()
+  await f.flush()
+  f.context(false, localProject)
+  f.context(true, localProject)
+  f.connected(projectConnection())
+  await f.flush()
+  expect(document.getElementById('connection-status')?.textContent).toBe('Connected')
+  expect(
+    f.requests.filter((entry) => entry.capability === 'connector.connect'),
+  ).toHaveLength(1)
+})
+it.each(['program', 'source'])(
+  'never reports current readiness from a completed but withdrawn %s grant',
+  async (scope) => {
+    const f = packageView('project')
+    f.projectApproval(false)
+    f.context(true, localProject)
+    await f.flush()
+    f.button('connect-program').click()
+    await f.flush()
+    f.connected({
+      ...projectConnection(),
+      readiness: { program: scope !== 'program', source: scope !== 'source' },
+    })
+    await f.flush()
+    expect(document.getElementById('connection-status')?.textContent).toBe(
+      'Connection not confirmed',
+    )
+    expect(f.requests.some((entry) => entry.capability === 'source.request')).toBe(false)
+    if (scope === 'program')
+      expect(document.getElementById('state')?.textContent).toContain(
+        'Program access was saved but is no longer ready',
+      )
   },
 )
