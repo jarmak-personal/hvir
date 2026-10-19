@@ -52,6 +52,7 @@ export function bindSelectedImport(document, client, ports) {
     el('refresh').disabled = busy || submitted
     el('name').disabled = busy || submitted
     el('cancel').disabled = submitted
+    el('use-library').disabled = busy || submitted
     el('reconcile').hidden = !pending
     el('reconcile').disabled = busy || submitted
     el('reconcile').textContent = observation
@@ -216,6 +217,9 @@ export function bindSelectedImport(document, client, ports) {
       }),
   )
   on('inspect', 'click', () => inspect(el('inspection').hidden))
+  on('use-library', 'click', () => {
+    if (!busy && !submitted) ports.useLibrary?.()
+  })
   on('all-files', 'click', () => {
     el('inspection').scrollTop = 0
     el('files').querySelector('button')?.focus({ preventScroll: true })
@@ -256,6 +260,7 @@ export function bindSelectedImport(document, client, ports) {
           ? input.row
           : undefined
       document.getElementById('selected-import').hidden = !row
+      el('use-library').hidden = !row?.canonical?.skill_id
       pending = undefined
       el('result').textContent = ''
       el('name').value = ''

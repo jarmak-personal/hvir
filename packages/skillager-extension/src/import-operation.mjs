@@ -99,7 +99,28 @@ export async function saveAndAccept(io, input, invocation, admit) {
   return reply
 }
 
-export async function importReconciliation(io, operation, library) {
+export async function importReconciliation(io, operation, registration) {
+  if (
+    operation.initializes &&
+    registration.schema === 'skillager.library-status.v1' &&
+    registration.status === 'not-initialized' &&
+    registration.initialized === false &&
+    registration.library === null &&
+    registration.git === null &&
+    registration.skill === null
+  )
+    return {
+      action: operation.action,
+      registered: null,
+      target: operation.target,
+      state: 'registration-absent',
+      destination: 'unknown',
+      partialFiles: 'unknown',
+      originalCompletion: 'unknown',
+      safeNext:
+        'No library is currently registered. Partial files at the submitted destination remain unknown. A new explicit attempt requires fresh public review; do not replay this operation.',
+    }
+  const library = registeredLibrary(registration)
   if (
     library.root.path !== operation.library.root.path ||
     library.gitMode !== operation.library.gitMode ||
@@ -109,7 +130,45 @@ export async function importReconciliation(io, operation, library) {
       'The import library changed; inspect the original destination with public CLI tools. Original completion remains unknown.',
     )
   const id = `lib/${operation.name}`
-  const status = await io.run(['library', 'status', id, '--json'])
+  let status
+  try {
+    status = await io.run(['library', 'status', id, '--json'])
+  } catch {
+    // An unavailable status proves nothing. A successful exact public preview does.
+    const selection = {
+        skillId: operation.source.id,
+        file: operation.file,
+        name: operation.name,
+      },
+      { manifest } = exactImportManifest(
+        await io.run(importArgs(selection)),
+        selection,
+        operation.workspace,
+      )
+    if (
+      manifest.destination_id !== id ||
+      manifest.destination_path !== operation.target.path ||
+      manifest.library.library_id !== library.id ||
+      manifest.library.root !== library.root.path ||
+      manifest.library.git_mode !== library.gitMode ||
+      manifest.library.status !== 'ready'
+    )
+      throw new Error(
+        'The current import destination or library changed; inspect the retained operation before acknowledgment',
+      )
+    return {
+      action: operation.action,
+      registered: library,
+      target: operation.target,
+      state: 'destination-absent',
+      partialFiles: 'unknown',
+      sourceHash: manifest.source_hash,
+      token: manifest.confirmation_token,
+      originalCompletion: 'unknown',
+      safeNext:
+        'The public preview currently reports this destination absent; other partial files remain unknown. A new explicit Save and accept requires fresh review; no import was replayed.',
+    }
+  }
   const observed = registeredLibrary(status)
   if (
     observed.id !== library.id ||

@@ -36,8 +36,9 @@ and original completion remains unknown.
 
 A supplied local workspace uses its separately approved project connector and discovery
 context. Untargeted sync uses the application library connector. SSH sync is refused before
-execution. The package maps only definite domain refusals to the existing bounded action-error
-channel; partial and uncertain results keep their operation identity and structured details.
+execution. The package maps message-only definite domain refusals to the existing bounded
+action-error channel. Refusals with target, reason, tracking or operation facts retain those
+structured details; partial and uncertain results retain their operation identity and details.
 Core remains unaware of Skillager outcome fields.
 
 ## Consequences

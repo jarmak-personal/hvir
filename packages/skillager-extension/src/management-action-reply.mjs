@@ -11,7 +11,11 @@ export function managementActionError(message) {
 }
 export function replyManagement(scoped, value) {
   if (!scoped.alive) return
-  return value?.outcome === 'refused'
+  // Per-target, tracking and operation facts must survive the public reply boundary.
+  const messageOnly =
+    value?.outcome === 'refused' &&
+    Object.keys(value).every((key) => ['outcome', 'action', 'message'].includes(key))
+  return messageOnly
     ? scoped.reply(undefined, managementActionError(value.message))
     : scoped.reply(value)
 }

@@ -235,3 +235,17 @@ it('shows a collision refusal without enabling overwrite', async () => {
   )
   expect(button('import-save').disabled).toBe(true)
 })
+
+it('names the separate destination decision for a structured exit-zero collision', async () => {
+  const f = fixture()
+  await ready()
+  f.preview.destination.exists = true
+  button('import-refresh').click()
+  await vi.waitFor(() =>
+    expect(document.getElementById('import-state')!.textContent).toContain(
+      'Choose a different Library name',
+    ),
+  )
+  expect(button('import-save').disabled).toBe(true)
+  expect(f.calls.some((call) => call.input['action'] === 'save-and-accept')).toBe(false)
+})

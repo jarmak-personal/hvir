@@ -16,9 +16,13 @@ import { prepareCopy } from './management-copy.mjs'
 /** Public present-state facts establish safe next operations, never historical completion. */
 export async function reconciliationFacts(io, record, workspace) {
   const operation = record.operation,
-    library = registeredLibrary(await io.run(['library', 'status', '--json']))
+    status = await io.run(['library', 'status', '--json']),
+    library =
+      operation.action === 'save-and-accept' ? undefined : registeredLibrary(status)
   let current
-  if (operation.action === 'initialize-library') {
+  if (operation.action === 'save-and-accept') {
+    current = await importReconciliation(io, operation, status)
+  } else if (operation.action === 'initialize-library') {
     if (
       operation.selection.location === 'custom' &&
       library.root.path !== operation.selection.root.path
@@ -38,8 +42,6 @@ export async function reconciliationFacts(io, record, workspace) {
           }
         : {}),
     }
-  } else if (operation.action === 'save-and-accept') {
-    current = await importReconciliation(io, operation, library)
   } else {
     sameLibrary(operation.library, library)
     if (operation.action === 'change-exposure') {

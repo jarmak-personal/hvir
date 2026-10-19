@@ -371,6 +371,28 @@ it('admits inventories above 32 when every exact outcome is unchanged', async ()
     unchanged: { count: 68 },
   })
 })
+
+it('admits the exact 32-source preview and apply with 31 no-effect rows and one effect', async () => {
+  const f = fixture(['created', ...Array<string>(31).fill('skipped')])
+  for (let i = 1; i < 32; i++) noEffect(f, i)
+  f.plan.coverage.approved_origins = f.result.coverage.approved_origins = 1
+  const result = await f.invoke(
+    'sync-library',
+    { library: f.library, reviewHash: reviewedHash(f.plan) },
+    'guest',
+  )
+  expect(result['outcome']).toBe('verified')
+  expect(result['items']).toHaveLength(1)
+  expect(result['summary']).toEqual({
+    total: 32,
+    detailed: 1,
+    notApproved: { label: 'not approved for sync', count: 31 },
+    unchanged: { label: 'unchanged', count: 0 },
+  })
+  expect(result['coverage']).toEqual(f.result.coverage)
+  expect(result['counts']).toEqual(f.result.counts)
+  expect(f.calls.filter((args) => args.includes('--approved'))).toHaveLength(1)
+})
 it.each(['phase', 'repair', 'recovery_path', 'reason_code'])(
   'retains a nominal no-effect row with consequential %s information',
   async (field) => {

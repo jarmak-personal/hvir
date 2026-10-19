@@ -104,20 +104,23 @@ export function importOperationFixture() {
   let serial = 0,
     applyCode = 0,
     invalidOutput = false,
-    revoke = false
+    revoke = false,
+    selectedStatusMissing = false,
+    registration: unknown
   const client = {
     alive: true,
     request(capability: string, input: Value) {
       if (capability === 'connector.output') return Promise.resolve(native.read(input))
       calls.push(input)
       const args = input['args'] as string[],
-        mutation = args.includes('--yes')
+        mutation = args.includes('--yes'),
+        missing = selectedStatusMissing && args[0] === 'library' && args[2] !== '--json'
       if (mutation && revoke) client.alive = false
       return Promise.resolve(
         native.complete(
           {
             outcome: 'completed',
-            code: mutation ? applyCode : 0,
+            code: mutation ? applyCode : missing ? 2 : 0,
             receipt: `receipt-${++serial}`,
             truncated: false,
           },
@@ -128,9 +131,15 @@ export function importOperationFixture() {
                   ? mutation
                     ? data.result
                     : data.preview
-                  : data.status,
+                  : registration !== undefined && args[2] === '--json'
+                    ? registration
+                    : data.status,
               ),
-          mutation && applyCode ? 'Git failed; copied content may remain pending' : '',
+          missing
+            ? 'Selected status unavailable'
+            : mutation && applyCode
+              ? 'Git failed; copied content may remain pending'
+              : '',
         ),
       )
     },
@@ -154,6 +163,12 @@ export function importOperationFixture() {
     calls,
     client,
     invoke,
+    missing: () => {
+      selectedStatusMissing = true
+    },
+    registration: (value: unknown) => {
+      registration = value
+    },
     fail: () => {
       applyCode = 2
     },

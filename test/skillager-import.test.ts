@@ -149,3 +149,112 @@ it('acknowledges exact current imported state without asserting historical compl
     )['outcome'],
   ).toBe('refused')
 })
+
+it('positively observes an absent destination through fresh public preview and rejects stale acknowledgment', async () => {
+  const f = importOperationFixture()
+  f.fail()
+  const result = await f.invoke(),
+    operationId = result['operationId']
+  f.missing()
+  const observed = await f.invoke('operation-state', { mode: 'observe', operationId })
+  expect(observed['outcome']).toBe('observed')
+  expect(JSON.parse(observed['observation'] as string)).toMatchObject({
+    state: 'destination-absent',
+    originalCompletion: 'unknown',
+  })
+  const writes = () =>
+    f.calls.filter((call) => (call['args'] as string[]).includes('--yes'))
+  expect(writes()).toHaveLength(1)
+  f.preview.review_manifest.confirmation_token = 'b'.repeat(64)
+  f.preview.next_command_argv[f.preview.next_command_argv.length - 1] = 'b'.repeat(64)
+  expect(
+    (
+      await f.invoke('operation-state', {
+        mode: 'acknowledge',
+        operationId,
+        observation: observed['observation'],
+      })
+    )['outcome'],
+  ).toBe('refused')
+  const fresh = await f.invoke('operation-state', { mode: 'observe', operationId })
+  expect(
+    (
+      await f.invoke('operation-state', {
+        mode: 'acknowledge',
+        operationId,
+        observation: fresh['observation'],
+      })
+    )['outcome'],
+  ).toBe('reconciled')
+  expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({ ids: [] })
+  expect(writes()).toHaveLength(1)
+})
+
+it('does not infer destination absence from an unavailable selected status', async () => {
+  const f = importOperationFixture()
+  f.fail()
+  const result = await f.invoke()
+  f.missing()
+  f.preview.destination.exists = true
+  expect(
+    (
+      await f.invoke('operation-state', {
+        mode: 'observe',
+        operationId: result['operationId'],
+      })
+    )['outcome'],
+  ).toBe('refused')
+  expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({
+    ids: [result['operationId']],
+  })
+})
+
+it('acknowledges no registration without claiming absent files or replaying failed first import', async () => {
+  const f = importOperationFixture()
+  f.preview.library.status = f.preview.review_manifest.library.status = 'will-initialize'
+  f.preview.review_manifest.library.library_id = null
+  f.fail()
+  const result = await f.invoke(),
+    operationId = result['operationId']
+  const unregistered = {
+    schema: 'skillager.library-status.v1',
+    status: 'not-initialized',
+    initialized: false,
+    library: null,
+    git: null,
+    skill: null,
+  }
+  f.registration(unregistered)
+  const observed = await f.invoke('operation-state', { mode: 'observe', operationId })
+  expect(JSON.parse(observed['observation'] as string)).toMatchObject({
+    state: 'registration-absent',
+    registered: null,
+    destination: 'unknown',
+    partialFiles: 'unknown',
+    originalCompletion: 'unknown',
+  })
+  f.registration(f.status)
+  expect(
+    (
+      await f.invoke('operation-state', {
+        mode: 'acknowledge',
+        operationId,
+        observation: observed['observation'],
+      })
+    )['outcome'],
+  ).toBe('refused')
+  f.registration(unregistered)
+  expect(
+    (
+      await f.invoke('operation-state', {
+        mode: 'acknowledge',
+        operationId,
+        observation: observed['observation'],
+      })
+    )['outcome'],
+  ).toBe('reconciled')
+  expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({ ids: [] })
+  expect(
+    f.calls.filter((call) => (call['args'] as string[]).includes('--yes')),
+  ).toHaveLength(1)
+})

@@ -29,10 +29,17 @@ location and history mode. No library is initialized by selection or preview.
 
 The original remains untouched. Save and accept creates a separate accepted canonical copy;
 subsequent replacement or adoption belongs to the existing advanced-exposure decision.
+Public search may link an original to a canonical version without making it a managed copy.
+Keep its canonical actions and offer original import as a contextual choice in the same task
+area; the link grants no replacement authority.
+
 Public imported metadata and fresh accepted status must agree before reporting success.
 Lost, failed or malformed completion can leave copied or committed pending content. Keep the
 exact operation and admitted raw output for explicit current-state reconciliation, without
-retry or rollback claims. Current state never proves the original operation's completion.
+retry or rollback claims. Current state never proves the original operation's completion. A fresh exact public import
+preview can positively establish an absent destination. No registration establishes only that
+current fact, leaving destination and partial files unknown. Explicit acknowledgment releases
+the specific operation; every later attempt requires a new public preflight and decision.
 
 ## Consequences
 

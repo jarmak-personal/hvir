@@ -51,6 +51,10 @@ export function exactImportManifest(value, selection, workspace) {
     throw new Error(
       'Save and accept requires the public external import review manifest (Skillager 0.9.7 or supported source). Update Skillager, then select the original again.',
     )
+  if (value.destination?.exists === true)
+    throw new Error(
+      'That library name already exists. Choose a different Library name in Save options, then Refresh review; the existing copy is preserved.',
+    )
   if (
     value.source?.id !== selection.skillId ||
     manifest.source_id !== selection.skillId ||

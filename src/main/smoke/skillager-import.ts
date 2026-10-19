@@ -204,6 +204,76 @@ export async function verifyOwnedImport(
     changedManifestRefused: true,
     collisionRefused: true,
   }
+  const absentOriginal = joinHostPath(root, 'owned-import-absent'),
+    absentTarget = joinHostPath(joinHostPath(library, 'skills'), 'owned-import-absent')
+  await host.createDirectoryExclusive(absentOriginal, { mode: 0o755 })
+  await host.writeFile(
+    joinHostPath(absentOriginal, 'SKILL.md'),
+    '---\nname: owned-import-absent\ndescription: Use only for an owned refused import fixture.\n---\n\nOriginal bytes stay separate after a pre-copy failure.\n',
+  )
+  const absentBefore = await snapshot(absentOriginal),
+    absentUi = await select('owned-import-absent'),
+    skills = joinHostPath(library, 'skills'),
+    permissions = (await host.stat(skills)).mode & 0o777
+  await absentUi.ready(
+    "!document.getElementById('import-save').disabled",
+    'absent import review',
+  )
+  async function setSkillsPermissions(mode: number) {
+    const changed = await host.exec('chmod', [mode.toString(8), skills.path], {
+      cwd: library,
+    })
+    if (changed.code !== 0) throw new Error('Owned import permission fixture failed')
+  }
+  await setSkillsPermissions(0o500)
+  try {
+    await absentUi.click('import-save')
+    await absentUi.ready(
+      "(() => {try{const r=JSON.parse(document.getElementById('import-result').textContent);return r.outcome==='uncertain'&&typeof r.operationId==='string'}catch{return false}})()",
+      'pre-copy failure retains exact import operation',
+    )
+  } finally {
+    await setSkillsPermissions(permissions)
+  }
+  await absent(absentTarget)
+  await absentUi.click('import-reconcile')
+  await absentUi.ready(
+    "document.getElementById('import-reconcile').textContent==='Acknowledge current facts'",
+    'positive public absence observation',
+  )
+  const absentObserved = (await absentUi.inspect(
+    "JSON.parse(document.getElementById('import-result').textContent)",
+  )) as { observation: string }
+  const absentFacts = JSON.parse(absentObserved.observation) as {
+    state: string
+    originalCompletion: string
+  }
+  if (
+    absentFacts.state !== 'destination-absent' ||
+    absentFacts.originalCompletion !== 'unknown'
+  )
+    throw new Error('Import absence was not established by current public facts')
+  await absentUi.click('import-reconcile')
+  await absentUi.ready(
+    "document.getElementById('import-reconcile').hidden",
+    'specific import blockade acknowledged',
+  )
+  await absentUi.click('import-refresh')
+  await absentUi.ready(
+    "!document.getElementById('import-save').disabled",
+    'fresh explicit review available after acknowledgment',
+  )
+  await absent(absentTarget)
+  if (JSON.stringify(await snapshot(absentOriginal)) !== JSON.stringify(absentBefore))
+    throw new Error('Refused import changed original bytes')
+  proof.absentDestination = {
+    observed: absentObserved,
+    originalBefore: absentBefore,
+    originalAfter: await snapshot(absentOriginal),
+    acknowledgmentDidNotReplay: true,
+    qualification:
+      'Task-owned skills directory temporarily denies writes before submission; permission restored before fresh public absence observation. No arbitrary error establishes absence.',
+  }
   if (mode !== 'git')
     return {
       ...proof,

@@ -30,7 +30,8 @@ operation. Interruption and failure do not promise rollback.
 
 For Skillager, `sync-library` with a local workspace uses its independently approved
 `project-cli` and effective project discovery; omit the target only when you intend the
-application `library-cli` context. SSH sync is unsupported. Definite refusals use the ordinary
-action-error exit; partial or uncertain domain results retain operation and recovery details.
+application `library-cli` context. SSH sync is unsupported. Message-only definite refusals use the ordinary
+action-error exit; refusals with structured target, reason, tracking or operation facts retain those facts.
+Partial or uncertain domain results retain operation and recovery details.
 Exact no-effect source counts may accompany detailed consequential rows. `save-and-accept`
 and `accept-version` are human-only; reading or program access never grants acceptance.
