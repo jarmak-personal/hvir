@@ -1,6 +1,6 @@
 import type { BrowserWindow, WebContents } from 'electron'
 import type { ExtensionView } from '../../shared/extensions/workbench'
-import type { HostPath } from '../../shared/host-path'
+import { joinHostPath, localPath, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
 import {
   chooseExtensionWorkspace,
@@ -24,6 +24,8 @@ export async function verifySelectedSkillTasks(
     wait(predicate: () => boolean | Promise<boolean>, label: string): Promise<void>
     guest(view: ExtensionView): Promise<WebContents>
     library(): ExtensionView | undefined
+    project(): ExtensionView | undefined
+    reader(): ExtensionView | undefined
   },
 ): Promise<Record<string, unknown>> {
   await controls.click('Skillager library')
@@ -58,10 +60,9 @@ export async function verifySelectedSkillTasks(
     (predicate, label) => controls.wait(predicate, label),
   )
   await ui.ready(
-    `document.getElementById('task-destination').textContent.includes(${JSON.stringify(workspace.root.path)}) && !document.getElementById('task-primary').disabled`,
+    `document.getElementById('task-destination').title.includes(${JSON.stringify(workspace.root.path)})`,
     'visible exact project destination',
   )
-  await pointer('#task-primary')
   await ui.ready(
     "!document.getElementById('exact-review').hidden && document.querySelectorAll('[data-review-path]').length===3 && !document.getElementById('accept-version').disabled",
     'complete optional inventory with one acceptance decision',
@@ -76,7 +77,7 @@ export async function verifySelectedSkillTasks(
   await ui.set('query', 'owned-consumer')
   await ui.inspect("document.getElementById('search-form').requestSubmit()")
   await ui.ready(
-    "document.getElementById('state').textContent.includes('matches')",
+    "document.getElementById('state').textContent.includes('match')",
     'selected task search',
   )
   await ui.ready(
@@ -100,10 +101,20 @@ export async function verifySelectedSkillTasks(
     })
   await ownedImage()
   await captureReview('add', 'selected-task', 'task-primary')
+  const selectedAgent = (await ui.inspect(`(() => {
+    const option=document.getElementById('task-agent').selectedOptions[0];
+    if(option?.textContent.trim()!=='Codex'||!option.value)throw new Error('Expected displayed Add agent is unavailable');
+    return option.value;
+  })()`)) as string
   await focusSmokeWindow(win, 'window')
   // Appearance captures return focus to the workbench; enter the guest with real input.
-  await pointer('#task-destination')
-  await ui.inspect("document.getElementById('task-mode').focus()")
+  await ui.ready(
+    "document.getElementById('state').dataset.state==='ready' && !document.getElementById('task-mode').disabled",
+    'current list and selected task settled before keyboard entry',
+  )
+  await pointer('#task-mode')
+  guest.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+  guest.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
   await ui
     .ready(
       "document.hasFocus() && document.activeElement.id==='task-mode'",
@@ -124,10 +135,32 @@ export async function verifySelectedSkillTasks(
     "document.hasFocus() && document.activeElement.id==='task-primary' && document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle!=='none' && !document.activeElement.disabled",
     'keyboard reaches the primary Add action',
   )
-  guest.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
-  guest.sendInputEvent({ type: 'char', keyCode: '\r' })
-  guest.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
-  await result('add-copy')
+  await ui.inspect(`(() => {
+    const events=[], started=performance.now(), record=value=>{
+      if(events.length<48)events.push({ms:Math.round(performance.now()-started),...value});
+    }, input=event=>record({kind:event.type,key:event.key,target:event.target.id});
+    for(const type of ['keydown','keyup','click'])document.addEventListener(type,input,true);
+    const release=window.hvirExtension.onMessage(message=>{
+      if(message.kind==='context')record({kind:'context',visible:message.context.visible,workspace:message.context.workspace?.id});
+      if(message.kind==='result')record({kind:'result',ok:message.ok,action:message.value?.action,outcome:message.value?.outcome});
+      if(message.kind==='revoked')record({kind:'revoked'});
+    });
+    window.__hvirSelectedAddTrace={events,stop:()=>{release();for(const type of ['keydown','keyup','click'])document.removeEventListener(type,input,true);}};
+  })()`)
+  try {
+    guest.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+    guest.sendInputEvent({ type: 'char', keyCode: '\r' })
+    guest.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+    await result('add-copy')
+  } finally {
+    console.log(
+      '[smoke] selected Add public input/result trace',
+      await ui.inspect(`(() => {
+        const trace=window.__hvirSelectedAddTrace;trace.stop();delete window.__hvirSelectedAddTrace;
+        return {events:trace.events,primary:document.getElementById('task-primary').textContent,hidden:document.getElementById('task-primary').hidden,modeDisabled:document.getElementById('task-mode').disabled};
+      })()`),
+    )
+  }
   await ui.ready(
     "document.getElementById('task-primary').textContent==='Added'",
     'quiet installed state',
@@ -138,6 +171,12 @@ export async function verifySelectedSkillTasks(
     ))
   )
     throw new Error('Selected task lost the search or instructions')
+  await sidebarSelection()
+  await controls.click('Skillager library')
+  await ui.ready(
+    "document.getElementById('task-primary').textContent==='Added' && !document.getElementById('task-mode').disabled",
+    'independent Library retains its current selected copy after sidebar browsing',
+  )
   await ui.inspect("document.getElementById('instructions').scrollTop=160")
   const retainedScroll = (await ui.inspect(
     "document.getElementById('instructions').scrollTop",
@@ -162,7 +201,7 @@ export async function verifySelectedSkillTasks(
       )
       try {
         await ui.ready(
-          `document.getElementById('state').dataset.state==='ready' && document.getElementById('task-primary').textContent==='Added' && document.getElementById('task-state').textContent.includes('In this project') && document.getElementById('query').value==='owned-consumer' && document.getElementById('task-destination').textContent.includes(${JSON.stringify(workspace.root.path)}) && document.getElementById('instructions').textContent.length>0 && Math.abs(document.getElementById('instructions').scrollTop-${retainedScroll})<1 && !!document.querySelector('#skills [aria-selected=true]')`,
+          `document.getElementById('state').dataset.state==='ready' && document.getElementById('task-primary').textContent==='Added' && document.getElementById('task-state').textContent==='' && !document.getElementById('task-mode').disabled && document.getElementById('query').value==='owned-consumer' && document.getElementById('task-destination').title.includes(${JSON.stringify(workspace.root.path)}) && document.getElementById('instructions').textContent.length>0 && Math.abs(document.getElementById('instructions').scrollTop-${retainedScroll})<1 && !!document.querySelector('#skills [aria-selected=true]')`,
           'return retains query destination selected occurrence and reading position',
         )
       } catch (error) {
@@ -177,7 +216,7 @@ export async function verifySelectedSkillTasks(
     },
     painted: async () => {
       const facts = await ui.inspect(`(() => {
-        const article=document.getElementById('instructions'), action=document.getElementById('task-primary'), destination=document.getElementById('task-destination');
+        const article=document.getElementById('instructions'), action=document.getElementById('task-mode'), destination=document.getElementById('task-destination');
         const a=article.getBoundingClientRect(), b=action.getBoundingClientRect();
         const fits=r=>r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1;
         const result={readingHeight:a.height, readingWidth:a.width, readingFits:fits(a), actionFits:fits(b), destinationVisible:destination.checkVisibility(), overflow:getComputedStyle(article).overflowY};
@@ -192,17 +231,14 @@ export async function verifySelectedSkillTasks(
   })
   await ui.set('task-mode', 'stub')
   await ui.ready(
-    "document.getElementById('task-primary').textContent==='Update' && !document.getElementById('task-primary').disabled",
-    'contextual mode change',
-  )
-  await pointer('#task-primary')
-  await ui.ready(
     "!document.getElementById('task-confirmation').hidden && document.getElementById('task-effects').textContent.includes('SKILL.md')",
     'complete affected-file summary',
   )
   await captureReview('update', 'task-confirmation', 'task-confirm')
   await pointer('#task-cancel')
-  await pointer('#task-primary')
+  if ((await ui.inspect("document.getElementById('task-mode').value")) !== 'native')
+    throw new Error('Canceled conversion changed the displayed actual mode')
+  await ui.set('task-mode', 'stub')
   await ui.ready(
     "!document.getElementById('task-confirmation').hidden",
     'fresh update confirmation',
@@ -240,6 +276,89 @@ export async function verifySelectedSkillTasks(
   )
   return accepted
 
+  async function sidebarSelection(): Promise<void> {
+    await withinExtensionInspection(
+      win.webContents.executeJavaScript(
+        "document.querySelector('.project-tab-main').click()",
+      ),
+    )
+    await controls.click('Skills in this project')
+    await controls.wait(() => !!controls.project(), 'existing project sidebar')
+    const sidebar = await controls.guest(controls.project()!),
+      browser = skillagerManagementControls(sidebar, controls)
+    sidebar.focus()
+    sidebar.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+    sidebar.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+    await browser.ready(
+      "!document.querySelector('.library-options').open",
+      'secondary browser menu closed before selecting rows',
+    )
+    await browser.set('query', 'owned-consumer')
+    await browser.inspect("document.getElementById('search-form').requestSubmit()")
+    await browser.ready(
+      "document.getElementById('state').dataset.state==='ready' && document.querySelectorAll('#skills [role=option]').length===1",
+      'exact managed project occurrence in the unified browser',
+    )
+    const projectPath = await browser.inspect(
+      "document.querySelector('#skills [role=option]').dataset.sourcePath",
+    )
+    await browser.inspect("document.querySelector('#skills [role=option]').click()")
+    await controls.wait(
+      () => !!controls.reader(),
+      'existing selected instruction contribution',
+    )
+    const reader = await controls.guest(controls.reader()!),
+      detail = skillagerManagementControls(reader, controls)
+    await detail.ready(
+      "document.readyState==='complete' && !!document.getElementById('reader-state') && !!document.getElementById('task-agent-name') && !!document.getElementById('task-mode')",
+      'selected reader document loaded before inspecting its task',
+    )
+    await detail.ready(
+      `document.getElementById('reader-state').dataset.state==='ready' && document.getElementById('task-agent-name').textContent===${JSON.stringify(selectedAgent)} && document.getElementById('task-agent-field').hidden && document.getElementById('task-mode').value==='native' && !document.getElementById('task-mode').disabled`,
+      'selected managed Project copy exposes its actual agent and mode',
+    )
+    await captureSidebar('sidebar-managed-project')
+    await browser.click('scope-library')
+    await browser.ready(
+      `document.getElementById('state').dataset.state==='ready' && !!document.querySelector('[data-id="${skillId}"]')`,
+      'same sidebar Library metadata',
+    )
+    await browser.inspect(`document.querySelector('[data-id="${skillId}"]').click()`)
+    await detail.ready(
+      "document.getElementById('reader-state').dataset.state==='ready' && !document.getElementById('task-agent-field').hidden && document.getElementById('instructions').textContent.includes('Owned complete fixture revision two') && !document.getElementById('task-mode').disabled",
+      'selected Library instructions and tasks share the Project reader',
+    )
+    if ((await controls.guest(controls.reader()!)).id !== reader.id)
+      throw new Error('Sidebar Library selection created a second reader')
+    await captureSidebar('sidebar-selected-library')
+    await browser.click('scope-project')
+    await browser.ready(
+      `document.getElementById('query').value==='owned-consumer' && document.querySelector('#skills [aria-selected=true]')?.dataset.sourcePath===${JSON.stringify(projectPath)}`,
+      'return restores the exact Project query and selected managed occurrence',
+    )
+    await detail.ready(
+      `document.getElementById('reader-state').dataset.state==='ready' && document.getElementById('task-agent-name').textContent===${JSON.stringify(selectedAgent)} && document.getElementById('task-agent-field').hidden && !document.getElementById('task-mode').disabled`,
+      'return restores the selected Project task identity',
+    )
+    console.log(
+      '[smoke] one sidebar: managed Project identity → selected Library instructions/tasks → exact Project query/selection, same reader OK',
+    )
+    async function captureSidebar(name: string): Promise<void> {
+      const directory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY
+      if (!directory) return
+      await detail.inspect(
+        'new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))',
+      )
+      await host.writeFile(
+        joinHostPath(localPath(directory), `${name}.png`),
+        (await win.webContents.capturePage()).toPNG(),
+      )
+      await host.writeFile(
+        joinHostPath(localPath(directory), `${name}.json`),
+        JSON.stringify({ readerId: reader.id, projectPath, skillId, workspace }, null, 2),
+      )
+    }
+  }
   async function ownedImage(): Promise<void> {
     await ui.ready(
       "(() => { const images=[...document.querySelectorAll('#instructions img')]; return images.length===1 && images[0].complete && images[0].naturalWidth===1280 && images[0].naturalHeight===120; })()",
@@ -286,7 +405,7 @@ export async function verifySelectedSkillTasks(
           'review capture belongs to the visible guest',
         )
         await ui.ready(
-          `document.getElementById('instructions').textContent.length>0 && !document.getElementById('${state === 'remove' ? 'task-remove' : 'task-primary'}').disabled`,
+          `document.getElementById('state').dataset.state==='ready' && document.getElementById('instructions').textContent.length>0 && ${state === 'acceptance' ? "!document.getElementById('exact-review').hidden" : "!document.getElementById('task-refresh').disabled"}`,
           'current selected review task',
         )
         if (await ui.inspect(`document.getElementById('${section}').hidden`)) {
@@ -294,7 +413,8 @@ export async function verifySelectedSkillTasks(
             if (!(await ui.inspect("document.getElementById('task-options').open")))
               await pointer('#task-options > summary')
             await pointer('#task-remove')
-          } else await pointer('#task-primary')
+          } else if (state === 'update') await ui.set('task-mode', 'stub')
+          else if (state !== 'acceptance') await pointer('#task-primary')
         }
         await ui.ready(
           `!document.getElementById('${section}').hidden && !document.getElementById('${confirm}').disabled`,
@@ -306,6 +426,8 @@ export async function verifySelectedSkillTasks(
         await ui.inspect(
           `document.getElementById('${confirm}').scrollIntoView({block:'nearest'})`,
         )
+        // Capture the resized guest once before the parent compositor snapshot.
+        await guest.capturePage()
       },
       painted: async () =>
         ui.inspect(`(() => {

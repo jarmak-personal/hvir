@@ -25,7 +25,8 @@ export async function verifyOwnedOriginalReveal(
   await host.writeFile(path, body)
   await controls.click('Skills in this project')
   const project = skillagerManagementControls(projectGuest, controls)
-  await project.click('refresh')
+  await project.set('query', 'owned-original')
+  await project.inspect("document.getElementById('search-form').requestSubmit()")
   await project.ready(
     `!![...document.querySelectorAll('#skills [role=option]')].find(e=>e.dataset.sourcePath===${JSON.stringify(path.path)})`,
     'public unapproved project original',

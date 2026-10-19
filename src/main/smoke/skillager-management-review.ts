@@ -9,9 +9,13 @@ export async function reviewOwnedSkill(
   expectedFiles: readonly string[],
 ): Promise<Record<string, unknown>> {
   await controls.set('skill-id', skillId)
+  await controls.ready(
+    "document.querySelector('main').getAttribute('aria-busy')==='false'",
+    'automatic selected-source observation settled',
+  )
   await controls.click('start-review')
   await controls.ready(
-    "!document.getElementById('exact-review').hidden && document.getElementById('state').textContent.includes('Inspect any file')",
+    "!document.getElementById('exact-review').hidden && !document.getElementById('accept-version').disabled && document.querySelectorAll('[data-review-path]').length>0",
     'complete owned review manifest',
   )
   const files = (await controls.inspect(
@@ -30,16 +34,25 @@ export async function reviewOwnedSkill(
     await controls.inspect(
       `document.querySelector('[data-review-path=${JSON.stringify(path)}]').click()`,
     )
+    const verified = `document.getElementById('state').textContent===${JSON.stringify(`${path} · complete supported bytes verified`)}`
     await controls.ready(
       path.endsWith('.png')
-        ? "!!document.querySelector('#review-file-body img')?.complete && document.getElementById('review-page-label').textContent.includes('complete bytes verified')"
-        : "document.getElementById('review-file-body').textContent.length>0 && document.getElementById('state').textContent.includes('complete supported bytes verified')",
+        ? `!!document.querySelector('#review-file-body img')?.complete && document.querySelector('#review-file-body img').naturalWidth>0 && ${verified}`
+        : `document.getElementById('review-file-body').textContent.length>0 && ${verified}`,
       'optional supported file inspection',
     )
   }
   await controls.inspect("document.getElementById('result').textContent=''")
   await controls.click('accept-version')
-  const accepted = await controls.result('accept-version')
+  const accepted = await controls.result('accept-version').catch(async (error) => {
+    console.log(
+      '[smoke] exact review acceptance boundary',
+      await controls.inspect(
+        "({state:document.getElementById('state').textContent.slice(0,512),disabled:document.getElementById('accept-version').disabled,visible:document.getElementById('accept-version').checkVisibility(),reviewHidden:document.getElementById('exact-review').hidden})",
+      ),
+    )
+    throw error
+  })
   if (accepted['outcome'] !== 'verified')
     throw new Error('Owned exact acceptance did not return a verified outcome')
   return accepted

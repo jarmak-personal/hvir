@@ -30,7 +30,7 @@ export async function verifyDiffCopy(
             throw new Error(message);
           };
           if (document.querySelector('.viewer-tab.active .tab-main')?.getAttribute('title') !== ${JSON.stringify(fixture.path.path)}) {
-            [...document.querySelectorAll('.file-row')].find(node => node.getAttribute('title') === ${JSON.stringify(fixture.path.path)})?.click();
+            [...document.querySelectorAll('.viewer-tab .tab-main')].find(node => node.getAttribute('title') === ${JSON.stringify(fixture.path.path)})?.click();
           }
           await waitFor(() => document.querySelector('.viewer-tab.active .tab-main')?.getAttribute('title') === ${JSON.stringify(fixture.path.path)}, 'Copy fixture did not activate');
           if (!document.querySelector('.diff-shell')) {

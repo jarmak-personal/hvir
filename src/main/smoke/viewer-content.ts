@@ -633,6 +633,7 @@ export async function verifyViewerContent(options: {
       win,
       host,
       dirnameHostPath(liveReloadPath),
+      options.projectState.get().activeWorkspaceId,
       options.checkpoint,
     )
     const result = [

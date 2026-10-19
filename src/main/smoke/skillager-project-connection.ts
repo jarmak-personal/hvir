@@ -146,7 +146,7 @@ export async function verifySkillagerProjectConnection(
           const state=document.getElementById('state'), query=document.getElementById('query');
           return state?.dataset.state==='ready' && document.querySelectorAll('#skills [role=option]').length===1 && ${currentInventory} &&
             query.value==='catalogneedle' && !document.querySelector('.search-options') &&
-            document.getElementById('connect-program').hidden && document.getElementById('connection-status').textContent==='Connected' &&
+            document.getElementById('connect-program').hidden && document.getElementById('connection-status').hidden && document.getElementById('connect-program').getAttribute('aria-busy')==='false' &&
             globalThis.__hvirProjectConnectionProof.connecting && globalThis.__hvirProjectConnectionProof.observing;
         })()`)) === true,
       'current project connection automatically filters exact project metadata while retaining the submitted query',
@@ -201,6 +201,38 @@ export async function verifySkillagerProjectConnection(
     await controls.wait(readerReady, 'approved project source reuses its exact grant')
     if (controls.hasReadDecision())
       throw new Error('Unchanged project read repeated its consent')
+    await captureBrowser('connected-project')
+    await inspect("document.getElementById('scope-library').focus()")
+    guest.focus()
+    guest.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+    guest.sendInputEvent({ type: 'char', keyCode: '\r' })
+    guest.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+    await controls.ready(
+      async () =>
+        (await inspect(
+          "document.getElementById('scope-library').getAttribute('aria-pressed')==='true' && document.getElementById('state').dataset.state==='ready' && document.querySelectorAll('#skills [role=option]').length>0",
+        )) === true,
+      'keyboard changes the project sidebar to its Library scope',
+    )
+    await captureBrowser('connected-library')
+    await inspect("document.getElementById('scope-project').focus()")
+    guest.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+    guest.sendInputEvent({ type: 'char', keyCode: '\r' })
+    guest.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+    await controls.ready(
+      async () =>
+        (await inspect(
+          `document.getElementById('scope-project').getAttribute('aria-pressed')==='true' && ${currentInventory} && !!document.querySelector('#skills [aria-selected=true]')`,
+        )) === true,
+      'keyboard returns to the exact Project selection in the same list',
+    )
+    if ((await controls.reader()).id !== reader.id)
+      throw new Error('Project scope switching created a second instruction reader')
+    await controls.wait(
+      readerReady,
+      'Project scope return retains exact selected instructions',
+    )
+
     console.log(
       '[smoke] combined project consent and exact selected read/reuse without another decision OK',
     )
@@ -296,6 +328,32 @@ export async function verifySkillagerProjectConnection(
           return true;
         })()`)) === true,
       'actual enabled maintained project Connect control',
+    )
+  }
+  async function captureBrowser(name: string): Promise<void> {
+    const directory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY
+    if (!directory) return
+    await inspect(
+      'new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))',
+    )
+    const facts = await inspect(`(() => {
+      const scope=document.querySelector('.browser-scopes [aria-pressed=true]');
+      const rows=[...document.querySelectorAll('#skills [role=option]')];
+      const menu=document.querySelector('.library-options > summary');
+      if(!scope?.checkVisibility()||!rows.length||!menu?.getAttribute('aria-label')||!menu.title)throw new Error('Connected browser lacks visible scope, results or discoverable options');
+      return {scope:scope.id,rows:rows.length,selected:rows.find(row=>row.getAttribute('aria-selected')==='true')?.dataset.id??null,menu:menu.title,readerId:${(await controls.reader()).id}};
+    })()`)
+    await host.writeFile(
+      joinHostPath(localPath(directory), `${name}.png`),
+      (await win.webContents.capturePage()).toPNG(),
+    )
+    await host.writeFile(
+      joinHostPath(localPath(directory), `${name}-guest.png`),
+      (await guest.capturePage()).toPNG(),
+    )
+    await host.writeFile(
+      joinHostPath(localPath(directory), `${name}.json`),
+      JSON.stringify(facts, null, 2),
     )
   }
   async function captureWorking(

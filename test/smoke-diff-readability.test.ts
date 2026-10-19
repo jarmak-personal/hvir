@@ -85,6 +85,7 @@ describe('diff readability owned resources', () => {
         isDestroyed: () => false,
         webContents: {
           isDestroyed: () => false,
+          mainFrame: { isDestroyed: () => false, postMessage: vi.fn() },
           executeJavaScript: vi.fn().mockResolvedValue(undefined),
         },
       }
@@ -101,10 +102,23 @@ describe('diff readability owned resources', () => {
         win as unknown as BrowserWindow,
         host,
         localPath('/fixture'),
+        'fixture-workspace',
         vi.fn(),
       )
       if (outcome === 'success') await expect(result).resolves.toContain('exact copy')
       else await expect(result).rejects.toBe(failure)
+      expect(win.webContents.mainFrame.postMessage.mock.calls).toEqual(
+        outcome === 'fixture-startup'
+          ? []
+          : ['ts', 'json', 'md'].map((extension) => [
+              'agent:document-opened',
+              {
+                workspace: 'fixture-workspace',
+                root: localPath('/fixture'),
+                path: localPath(`/fixture/.hvir-smoke-diff.${extension}`),
+              },
+            ]),
+      )
       expect(files.size).toBe(0)
       expect(indexed.size).toBe(0)
       expect(native.data).toEqual(original)
@@ -133,7 +147,13 @@ describe('diff readability owned resources', () => {
           .mockResolvedValue({ code: 0, signal: null, stdout: '', stderr: '' }),
       }
       await expect(
-        verifyDiffReadability({} as BrowserWindow, host, localPath('/fixture'), vi.fn()),
+        verifyDiffReadability(
+          {} as BrowserWindow,
+          host,
+          localPath('/fixture'),
+          'fixture-workspace',
+          vi.fn(),
+        ),
       ).rejects.toThrow('startup failed')
       expect(native.data).toEqual(original)
     },

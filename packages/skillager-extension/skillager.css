@@ -230,7 +230,11 @@ body[data-view='management'] h2 {
   position: relative;
 }
 .skill-more > summary {
+  list-style: none;
   padding: 5px 7px;
+}
+.skill-more > summary::-webkit-details-marker {
+  display: none;
 }
 .skill-menu {
   position: absolute;
@@ -252,13 +256,16 @@ body[data-view='management'] h2 {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-#task-options[open] {
-  flex-basis: 100%;
+#task-options {
+  margin-left: auto;
 }
 #task-options .skill-menu {
   position: static;
-  width: min(320px, 100%);
+  width: min(240px, 100%);
   margin-top: 4px;
+}
+#task-options[open] {
+  flex-basis: 100%;
 }
 #selected-task {
   border-bottom: 1px solid var(--border-subtle);
@@ -283,7 +290,7 @@ body[data-view='management'] h2 {
 #task-primary,
 #accept-version,
 #task-confirm {
-  background: var(--accent-soft);
+  background: var(--surface-2);
 }
 .task-review {
   padding-top: 12px;
@@ -498,4 +505,34 @@ body[data-view='project'] #open-library {
   bottom: 0;
   padding: 6px 0 4px;
   background: var(--surface-1);
+}
+
+.browser-scopes {
+  display: flex;
+  gap: 2px;
+}
+.browser-scopes .hvir-button {
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 5px 7px;
+}
+.browser-scopes .hvir-button[aria-pressed='true'] {
+  color: var(--text-strong);
+  box-shadow: inset 0 -2px var(--accent);
+}
+.observation-details:empty,
+#skills small:empty {
+  display: none;
+}
+.observation-details {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+#skills small {
+  margin-top: 3px;
+}
+[hidden] {
+  display: none !important;
 }

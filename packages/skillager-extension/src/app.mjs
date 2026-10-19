@@ -23,6 +23,8 @@ const bridge = window.hvirExtension,
 const releasePresentation = window.hvirUI.bindPresentation(bridge)
 bindCommandMenus(document, client.signal)
 const view = document.body.dataset.view
+let browserScope = view === 'project' ? 'project' : 'library'
+const scopes = new Map()
 const element = (id) => document.getElementById(id)
 let context = { visible: false },
   generation = 0,
@@ -43,7 +45,7 @@ let lastPage,
   query = '',
   cursor,
   previous = [],
-  searchOptions = view === 'library' ? {} : undefined,
+  searchOptions = browserScope === 'library' ? {} : undefined,
   selectedRow,
   pageRequest
 const state = element('state'),
@@ -83,12 +85,14 @@ function refreshManagementAvailability() {
   refreshConnectionAvailability()
 }
 function refreshConnectionAvailability() {
+  for (const id of ['scope-project', 'scope-library'])
+    if (element(id)) element(id).disabled = !available() || connectionPending
   const button = element('connect-program')
   if (!button) return
   button.hidden =
     !connectAvailable ||
     (!setupNeeded && !connectionPending) ||
-    (view === 'project' && !localWorkspace(context.workspace))
+    (browserScope === 'project' && !localWorkspace(context.workspace))
   button.disabled = !available() || connectionPending
   button.setAttribute('aria-busy', String(available() && connectionPending))
   const status = element('connection-status')
@@ -114,7 +118,7 @@ function finishConnection(message = '', detail = '') {
 }
 
 function scope() {
-  return view === 'project' ? context : undefined
+  return browserScope === 'project' ? context : undefined
 }
 async function choose(row, sourceLibrary) {
   if (!available()) return
@@ -147,6 +151,7 @@ async function choose(row, sourceLibrary) {
       )
   }
   const input = detailInputFor(row, selectedLibrary)
+  selectedRow = row
   if (view === 'library') reader.select(input)
   else await client.request('viewer.open-own', { contributionId: 'detail', input })
 }
@@ -178,7 +183,9 @@ if (list) {
 }
 function rows(page) {
   lastPage = page
-  const active = list?.querySelector('[aria-selected="true"]')?.dataset.id
+  const active =
+      selectedRow?.id ?? list?.querySelector('[aria-selected="true"]')?.dataset.id,
+    scroll = list?.scrollTop ?? 0
   list?.replaceChildren(
     ...page.rows.map((item) => {
       const row = document.createElement('button')
@@ -194,42 +201,55 @@ function rows(page) {
         description = document.createElement('span')
       name.textContent = item.name
       description.textContent = item.description || item.kind
-      row.append(name, description)
+      const identity = document.createElement('small')
+      identity.className = 'hvir-meta'
+      identity.textContent =
+        item.source === 'project'
+          ? `${item.kind.replace('Installed ', '')}${item.exposure?.agent ? ` · ${item.exposure.agent}` : ''}`
+          : ''
+      row.append(name, description, identity)
       return row
     }),
   )
   navigation?.refresh()
+  if (list) list.scrollTop = scroll
   pagingControls()
-  const observed = new Date().toLocaleTimeString()
   if (element('observation-details'))
     element('observation-details').textContent =
-      `${page.rows.length} rows · Page ${previous.length + 1} · observed ${observed}${view === 'project' ? ` · ${page.coverage} project observation\n${page.detail}` : query ? ` · ${page.presence ?? 'unknown'} installed presence` : ''}`
+      page.coverage === 'partial' ? page.detail : ''
   if (page.coverage === 'partial')
     say(
-      `${page.rows.length ? `${page.rows.length} skills · ` : ''}Some project skills could not be loaded.`,
+      `${page.rows.length ? `${page.rows.length} ${page.rows.length === 1 ? 'skill' : 'skills'} · ` : ''}Some project skills could not be loaded.`,
       'partial',
     )
   else if (!page.rows.length)
     say(
       query
         ? `No matches for “${query}”. Change your search.`
-        : view === 'project'
+        : browserScope === 'project'
           ? 'No skills in this project.'
           : 'Your personal library is empty.',
-      view === 'project' ? 'empty' : 'empty-library',
+      browserScope === 'project' ? 'empty' : 'empty-library',
     )
-  else
-    say(
-      query
-        ? `${page.rows.length} matches · Page ${previous.length + 1}`
-        : `${page.rows.length}${library?.count !== null && library?.count !== undefined && view === 'library' ? ` of ${library.count}` : ''} skills · Page ${previous.length + 1}`,
-    )
+  else {
+    const pages = previous.length || page.next ? ` · Page ${previous.length + 1}` : ''
+    const noun = query
+      ? page.rows.length === 1
+        ? 'match'
+        : 'matches'
+      : page.rows.length === 1
+        ? 'skill'
+        : 'skills'
+    say(`${page.rows.length} ${noun}${pages}`)
+  }
 }
 function pagingControls() {
+  if (element('skill-pages'))
+    element('skill-pages').hidden = !previous.length && !lastPage?.next
   const changingSearch =
     pageRequest &&
     (pageRequest.query !== query ||
-      (view === 'library' &&
+      (browserScope === 'library' &&
         JSON.stringify(pageRequest.options) !== JSON.stringify(searchOptions)))
   if (element('next')) element('next').disabled = !!changingSearch || !lastPage?.next
   if (element('previous'))
@@ -238,7 +258,7 @@ function pagingControls() {
 function requestRefresh(
   target = pageRequest ?? {
     query,
-    ...(view === 'library' ? { options: searchOptions } : {}),
+    ...(browserScope === 'library' ? { options: searchOptions } : {}),
     cursor,
     previous: [...previous],
   },
@@ -251,7 +271,7 @@ function requestRefresh(
   }
   pageRequest = {
     query,
-    ...(view === 'library' ? { options: searchOptions } : {}),
+    ...(browserScope === 'library' ? { options: searchOptions } : {}),
     ...pageRequest,
     ...target,
   }
@@ -271,28 +291,29 @@ async function refresh() {
     connecting = connectionPhase === 'observing' ? connectionIntent : undefined,
     target = pageRequest ?? {
       query,
-      ...(view === 'library' ? { options: searchOptions } : {}),
+      ...(browserScope === 'library' ? { options: searchOptions } : {}),
       cursor,
       previous: [...previous],
     }
   say(
     lastPage
-      ? view === 'project'
+      ? browserScope === 'project'
         ? 'Refreshing…'
         : 'Refreshing… last-known rows retained.'
-      : view === 'project'
+      : browserScope === 'project'
         ? 'Loading project skills…'
         : 'Connecting to Skillager…',
     lastPage ? 'stale' : 'connecting',
   )
   const project = scope(),
-    workspace = view === 'project' ? localWorkspace(project?.workspace) : undefined,
-    failureDestination = view
+    workspace =
+      browserScope === 'project' ? localWorkspace(project?.workspace) : undefined,
+    failureDestination = browserScope
   let observedSuccessfully = false
   try {
     let page,
       projectRead = true
-    if (view === 'library') {
+    if (browserScope === 'library') {
       if (libraryStatusNeeded || !library) {
         const observed = libraryStatus(await cli(['library', 'status', '--json']))
         if (!available() || generation !== revision) return
@@ -325,7 +346,7 @@ async function refresh() {
         return
       }
     }
-    if (view === 'project') {
+    if (browserScope === 'project') {
       if (!workspace)
         throw new Error(
           'Project presence is unknown without an available exact local root. Open Your library for independent local browsing; no remote CLI is run.',
@@ -384,21 +405,28 @@ async function refresh() {
   } catch (error) {
     if (available() && generation === revision) {
       const failure = firstUseFailure(
-        view === 'project' ? projectInventoryFailure(error) : error,
+        browserScope === 'project' ? projectInventoryFailure(error) : error,
         !!lastPage,
         failureDestination,
-        connectAvailable && (view !== 'project' || !!localWorkspace(context.workspace)),
+        connectAvailable &&
+          (browserScope !== 'project' || !!localWorkspace(context.workspace)),
       )
       if (element('program-setup')) element('program-setup').hidden = !failure.setup
       setupNeeded = failure.setup
       refreshConnectionAvailability()
       if (element('observation-details'))
-        element('observation-details').textContent = failure.detail
-      say(failure.message, failure.state)
+        element('observation-details').textContent =
+          failure.state === 'missing-program' ? '' : failure.detail
+      say(
+        failure.state === 'missing-program' && connectAvailable
+          ? 'Connect Skillager to browse skills.'
+          : failure.message,
+        failure.state,
+      )
     }
   } finally {
     if (available() && generation === revision && connecting === connectionIntent)
-      finishConnection(observedSuccessfully ? 'Connected' : 'Could not load skills')
+      finishConnection(observedSuccessfully ? '' : 'Could not load skills')
     busy = false
     pagingControls()
     if (pendingRefresh && available()) void refresh()
@@ -410,14 +438,44 @@ function schedule() {
   if (available() && view !== 'detail')
     timer = window.setTimeout(() => requestRefresh(), 30_000 - (Date.now() % 30_000))
 }
-on(
-  'open-library',
-  'click',
-  () =>
-    void client
-      .request('viewer.open-own', { contributionId: 'library' })
-      .catch((error) => say(error.message, 'error')),
-)
+function changeScope(next) {
+  if (view !== 'project' || next === browserScope || connectionPending || !available())
+    return
+  scopes.set(browserScope, {
+    query,
+    cursor,
+    previous,
+    searchOptions,
+    selectedRow,
+    lastPage,
+    pageRequest,
+    draft: element('query').value,
+    scroll: list.scrollTop,
+  })
+  browserScope = next
+  const saved = scopes.get(next) ?? { query: '', previous: [], searchOptions: {} }
+  ;({ query, cursor, previous, searchOptions, selectedRow, lastPage, pageRequest } =
+    saved)
+  element('query').value = saved.draft ?? query
+  element('query').placeholder =
+    next === 'project' ? 'Filter project skills' : 'Search library'
+  element('query').setAttribute(
+    'aria-label',
+    next === 'project' ? 'Search project skills' : 'Search library skills',
+  )
+  for (const name of ['project', 'library'])
+    element(`scope-${name}`).setAttribute('aria-pressed', String(name === next))
+  connectionIntent++
+  finishConnection()
+  setupNeeded = false
+  list.replaceChildren()
+  if (lastPage) rows(lastPage)
+  list.scrollTop = saved.scroll ?? 0
+  if (selectedRow) void choose(selectedRow).catch((error) => say(error.message, 'error'))
+  requestRefresh()
+}
+on('scope-project', 'click', () => changeScope('project'))
+on('scope-library', 'click', () => changeScope('library'))
 on(
   'manage',
   'click',
@@ -464,12 +522,13 @@ on('create-library', 'click', async () => {
   }
 })
 on('connect-program', 'click', async () => {
-  const workspace = view === 'project' ? localWorkspace(context.workspace) : undefined
+  const workspace =
+    browserScope === 'project' ? localWorkspace(context.workspace) : undefined
   if (
     !available() ||
     !connectAvailable ||
     connectionPending ||
-    (view === 'project' && !workspace)
+    (browserScope === 'project' && !workspace)
   )
     return
   const admitted = ++connectionIntent,
@@ -478,7 +537,8 @@ on('connect-program', 'click', async () => {
   const current = () =>
     available() &&
     admitted === connectionIntent &&
-    (view !== 'project' || identity === JSON.stringify(localWorkspace(context.workspace)))
+    (browserScope !== 'project' ||
+      identity === JSON.stringify(localWorkspace(context.workspace)))
   connectionPending = true
   connectionPhase = 'connecting'
   connectionStatus = ''
@@ -487,7 +547,7 @@ on('connect-program', 'click', async () => {
   generation++
   refreshConnectionAvailability()
   say(
-    view === 'project'
+    browserScope === 'project'
       ? 'Connecting Skillager for this project…'
       : 'Connecting to Skillager…',
     'connecting',
@@ -516,7 +576,7 @@ on('connect-program', 'click', async () => {
       if (element('observation-details'))
         element('observation-details').textContent = connection?.explanation ?? ''
       say(
-        view === 'project'
+        browserScope === 'project'
           ? connection?.outcome === 'connected'
             ? result.readiness?.program === true
               ? 'The program is connected. Project read access was not confirmed. Choose Connect Skillager when ready.'
@@ -557,12 +617,12 @@ on('search-form', 'submit', (event) => {
   requestRefresh(
     {
       query: element('query').value.trim(),
-      ...(view === 'library'
+      ...(browserScope === 'library'
         ? {
             options: {
-              includeInstalled: element('include-installed').checked,
-              separateCopies: element('separate-copies').checked,
-              preferredAgent: element('preferred-agent').value || undefined,
+              includeInstalled: element('include-installed')?.checked ?? false,
+              separateCopies: element('separate-copies')?.checked ?? false,
+              preferredAgent: element('preferred-agent')?.value || undefined,
             },
           }
         : {}),
@@ -577,7 +637,7 @@ on('browse', 'click', () => {
   requestRefresh(
     {
       query: '',
-      ...(view === 'library' ? { options: {} } : {}),
+      ...(browserScope === 'library' ? { options: {} } : {}),
       cursor: undefined,
       previous: [],
     },
@@ -607,6 +667,7 @@ client.listen((message) => {
       JSON.stringify(message.context.workspace) !== JSON.stringify(context.workspace)
     context = message.context
     if (view === 'project' && changed) {
+      scopes.clear()
       connectionIntent++
       finishConnection()
     }
@@ -618,7 +679,7 @@ client.listen((message) => {
     }
     if (view !== 'detail') {
       const installed = element('include-installed'),
-        local = view === 'project' && !!localWorkspace(context.workspace)
+        local = browserScope === 'project' && !!localWorkspace(context.workspace)
       if (installed) {
         installed.disabled = !local
         installed.title = local
@@ -635,7 +696,9 @@ client.listen((message) => {
       // Trusted destination changes retire in-flight requests in main, including Library metadata.
       if (renewed || changed)
         requestRefresh(
-          changed && view === 'project' ? { cursor: undefined, previous: [] } : undefined,
+          changed && browserScope === 'project'
+            ? { cursor: undefined, previous: [] }
+            : undefined,
         )
     }
   }

@@ -18,9 +18,8 @@ export async function verifyOwnedManagedCopies(
 ): Promise<readonly Record<string, unknown>[]> {
   const proof: Record<string, unknown>[] = []
   const selected = new Map<string, { target: HostPath; exposureId: string }>()
-  await controls.click('observe-source')
   await controls.ready(
-    "document.getElementById('state').textContent.includes('Accepted source version selected')",
+    `document.getElementById('skill-id').value===${JSON.stringify(skillId)} && document.querySelector('main').getAttribute('aria-busy')==='false' && !document.getElementById('add-copy').disabled`,
     'exact owned accepted source',
   )
   const choices = (await controls.inspect(

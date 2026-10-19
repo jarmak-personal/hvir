@@ -118,6 +118,8 @@ function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Val
   const actions: Array<{ action: string; input: Value }> = []
   let serial = 0
   let readCount = 0
+  let holdObservation = false
+  let rejectObservation: ((reason: Error) => void) | undefined
   let protectedTarget = false
   const native = connectorOutputFixture()
   const client = {
@@ -135,6 +137,12 @@ function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Val
       }
       if (capability === 'connector.output') return Promise.resolve(native.read(input))
       readCount++
+      if (holdObservation) {
+        holdObservation = false
+        return new Promise((_resolve, reject) => {
+          rejectObservation = reject
+        })
+      }
       const args = input['args'] as string[],
         receipt = String(++serial)
       outputs.set(
@@ -216,18 +224,29 @@ function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Val
       expect(document.getElementById('state')!.textContent).toMatch(message),
     )
   const connect = async () => {
-    click('observe-library')
-    await ready(/Public library status observed/)
-    click('connect-library')
-    await ready(/Management connected/)
-    click('observe-source')
-    await ready(/Accepted source version selected/)
+    await vi.waitFor(() =>
+      expect(document.querySelector('main')?.getAttribute('aria-busy')).toBe('false'),
+    )
   }
   return {
     click,
     ready,
     connect,
     actions,
+    holdObservation: () => {
+      holdObservation = true
+    },
+    rejectObservation: () => rejectObservation!(new Error('Retired observation failed')),
+    setAcceptance: (value: string) => {
+      status.skill['acceptance'] = value
+    },
+    selectCurrent: (id: string) => {
+      status.skill['id'] = id
+      row(id)
+    },
+    changeLibrary: () => {
+      status.library['library_id'] = '96600000-0000-4000-8000-000000000001'
+    },
     advanced: () => {
       syncPlan.lineages = [
         {
@@ -298,7 +317,12 @@ it.each(['input', 'context', 'programmatic'])(
       if (mode === 'input') f.input.dispatchEvent(new Event('input'))
     }
     f.click('add-copy')
-    await f.ready(/Select the current accepted source version explicitly/)
+    if (mode === 'programmatic')
+      await f.ready(/Choose a current accepted library skill first/)
+    else
+      expect((document.getElementById('add-copy') as HTMLButtonElement).disabled).toBe(
+        true,
+      )
     expect(f.actions).toEqual([])
   },
 )
@@ -314,8 +338,10 @@ it.each(['input', 'context', 'programmatic'])(
     ;(document.getElementById('copy-mode') as HTMLSelectElement).value = 'stub'
     ;(document.querySelector('#managed-copies button') as HTMLButtonElement).click()
     await vi.waitFor(() => expect(document.getElementById('review')!.hidden).toBe(false))
-    if (mode === 'context') f.row('lib/different')
-    else {
+    if (mode === 'context') {
+      f.row('lib/different')
+      await f.connect()
+    } else {
       f.input.value = 'lib/different'
       if (mode === 'input') f.input.dispatchEvent(new Event('input'))
     }
@@ -329,7 +355,7 @@ it.each(['input', 'context', 'programmatic'])(
     if (mode !== 'programmatic') {
       f.row(f.selected.id)
       f.click('add-copy')
-      await f.ready(/Select the current accepted source version explicitly/)
+      expect(document.getElementById('review')!.hidden).toBe(true)
       expect(f.actions).toEqual([])
     }
   },
@@ -441,7 +467,7 @@ it.each(['event', 'programmatic'])(
       f.click('observe-library')
       expect(f.readCount).toBeGreaterThan(reads)
     })
-    await f.ready(/Public library status observed/)
+    await f.connect()
     expect(document.getElementById('review')!.hidden).toBe(true)
     f.click('confirm-plan')
     await f.ready(/Review one complete current plan/)
@@ -485,6 +511,7 @@ it('creates with one default action without requiring custom location or Git inp
     (document.getElementById('custom-initialization') as HTMLDetailsElement).open,
   ).toBe(false)
   expect((document.getElementById('library-path') as HTMLInputElement).value).toBe('')
+  await f.connect()
   f.click('create-library')
   await f.ready(/Existing library preserved/)
   expect(f.actions).toEqual([
@@ -504,6 +531,7 @@ it('retains the advanced custom/no-Git action and ignores a creation reply after
     resolve = done
   })
   const f = fixture(webcrypto, () => held)
+  await f.connect()
   ;(document.querySelector('#custom-initialization summary') as HTMLElement).click()
   ;(document.getElementById('library-path') as HTMLInputElement).value = '/owned/custom'
   ;(document.getElementById('git-history') as HTMLInputElement).checked = false
@@ -533,7 +561,7 @@ it('retains the advanced custom/no-Git action and ignores a creation reply after
   await Promise.resolve()
   expect(document.getElementById('library-identity')!.textContent).toBe(before)
   expect(document.getElementById('result')!.textContent).toBe('')
-  expect((document.getElementById('connect-library') as HTMLButtonElement).disabled).toBe(
+  expect((document.getElementById('connect-library') as HTMLButtonElement).hidden).toBe(
     true,
   )
 })
@@ -546,6 +574,7 @@ it.each(['hidden', 'selection'])(
       reject = fail
     })
     const f = fixture(webcrypto, () => held)
+    await f.connect()
     f.click('create-library')
     expect(f.actions).toHaveLength(1)
     if (withdrawal === 'hidden') f.hide()
@@ -559,3 +588,92 @@ it.each(['hidden', 'selection'])(
     expect(document.getElementById('result')!.textContent).toBe('')
   },
 )
+
+it('requires one deliberate library change decision then resolves the unchanged selected skill', async () => {
+  const f = fixture()
+  await f.connect()
+  expect((document.getElementById('add-copy') as HTMLButtonElement).disabled).toBe(false)
+  f.changeLibrary()
+  f.click('observe-library')
+  await f.ready(/registered library changed/)
+  await f.connect()
+  expect((document.getElementById('add-copy') as HTMLButtonElement).disabled).toBe(true)
+  expect((document.getElementById('connect-library') as HTMLButtonElement).hidden).toBe(
+    false,
+  )
+  f.click('connect-library')
+  await f.connect()
+  expect((document.getElementById('connect-library') as HTMLButtonElement).hidden).toBe(
+    true,
+  )
+  expect((document.getElementById('add-copy') as HTMLButtonElement).disabled).toBe(false)
+  f.click('add-copy')
+  await vi.waitFor(() => expect(f.actions).toHaveLength(1))
+  expect(f.actions[0]?.input['library']).toMatchObject({
+    id: '96600000-0000-4000-8000-000000000001',
+  })
+})
+
+it('revokes cached Add eligibility when refreshing a now-blocked source', async () => {
+  const f = fixture()
+  await f.connect()
+  f.setAcceptance('blocked')
+  f.click('observe-source')
+  await f.connect()
+  expect((document.getElementById('add-copy') as HTMLButtonElement).disabled).toBe(true)
+  f.click('add-copy')
+  expect(f.actions).toEqual([])
+  expect(document.getElementById('state')!.textContent).toContain('needs exact review')
+})
+it('resolves a new visible selected skill without a manual source observation', async () => {
+  const f = fixture()
+  await f.connect()
+  f.selectCurrent('lib/next-selected')
+  await f.connect()
+  expect((document.getElementById('add-copy') as HTMLButtonElement).disabled).toBe(false)
+  f.click('add-copy')
+  await vi.waitFor(() => expect(f.actions).toHaveLength(1))
+  expect(f.actions[0]?.input['skillId']).toBe('lib/next-selected')
+})
+it('ignores a late automatic observation error after its view is hidden', async () => {
+  const f = fixture()
+  await f.connect()
+  f.holdObservation()
+  f.click('observe-library')
+  f.hide()
+  document.getElementById('state')!.textContent = 'Current view retained'
+  f.rejectObservation()
+  await f.connect()
+  expect(document.getElementById('state')!.textContent).toBe('Current view retained')
+})
+
+it('retires an automatic observation and queued renewal on disposal', async () => {
+  const f = fixture()
+  await f.connect()
+  f.holdObservation()
+  f.click('observe-library')
+  f.hide()
+  f.row(f.selected.id)
+  const reads = f.readCount
+  dispose?.()
+  document.body.replaceChildren()
+  f.rejectObservation()
+  await Promise.resolve()
+  await Promise.resolve()
+  expect(f.readCount).toBe(reads)
+  expect(document.body.childElementCount).toBe(0)
+  expect(() => dispose?.()).not.toThrow()
+})
+
+it('keeps Add unavailable when current-library refresh fails', async () => {
+  const f = fixture()
+  await f.connect()
+  f.holdObservation()
+  f.click('observe-library')
+  expect((document.getElementById('add-copy') as HTMLButtonElement).disabled).toBe(true)
+  f.rejectObservation()
+  await f.connect()
+  f.click('add-copy')
+  expect(f.actions).toEqual([])
+  expect(document.getElementById('state')!.textContent).toBe('Retired observation failed')
+})

@@ -118,7 +118,7 @@ it('keeps canonical source and exact SSH destination through Full Add, changed-v
   const f = fixture()
   f.view.select(f.selection)
   await f.ready()
-  expect(document.getElementById('task-destination')?.textContent).toContain(
+  expect(document.getElementById('task-destination')?.title).toContain(
     'ssh:remote: /project',
   )
   expect((document.getElementById('task-mode') as HTMLSelectElement).disabled).toBe(true)

@@ -24,8 +24,12 @@ const projectConnection = () => ({
   source: { source: 'project', outcome: 'granted' },
   readiness: { program: true, source: true },
 })
+function expectScopeDisabled(f: ReturnType<typeof packageView>, disabled: boolean) {
+  for (const id of ['scope-project', 'scope-library'])
+    expect(f.button(id).disabled).toBe(disabled)
+}
 it.each(['project', 'library'])(
-  'shows immediate adjacent Connect feedback through the first useful %s observation and prevents duplicate submits',
+  'keeps Connect and scope changes locked through the first useful %s observation without duplicate submits',
   async (view) => {
     const f = packageView(view)
     if (view === 'project') f.projectApproval(false)
@@ -34,12 +38,23 @@ it.each(['project', 'library'])(
     await f.flush()
     const button = f.button('connect-program'),
       status = document.getElementById('connection-status')!
+    const rejectScopeChange = async () => {
+      if (view !== 'project') return
+      expectScopeDisabled(f, true)
+      const calls = f.calls.length
+      f.button('scope-library').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await f.flush()
+      expect(f.button('scope-project').getAttribute('aria-pressed')).toBe('true')
+      expect(f.button('scope-library').getAttribute('aria-pressed')).toBe('false')
+      expect(f.calls).toHaveLength(calls)
+    }
     button.click()
     expect(status.textContent).toBe('Connecting…')
     expect(status.getAttribute('role')).toBe('status')
     expect(button.getAttribute('aria-describedby')).toBe(status.id)
     expect(button.disabled).toBe(true)
     expect(button.getAttribute('aria-busy')).toBe('true')
+    await rejectScopeChange()
     button.click()
     await f.flush()
     expect(
@@ -65,15 +80,17 @@ it.each(['project', 'library'])(
     expect(status.textContent).toBe('Loading skills…')
     expect(button.disabled).toBe(true)
     expect(button.hidden).toBe(false)
+    await rejectScopeChange()
     button.click()
     expect(
       f.requests.filter(({ capability }) => capability === 'connector.connect'),
     ).toHaveLength(1)
     f.resume()
     await f.flush()
-    expect(status.textContent).toBe('Connected')
+    expect(status.textContent).toBe('')
     expect(button.getAttribute('aria-busy')).toBe('false')
     expect(button.hidden).toBe(true)
+    if (view === 'project') expectScopeDisabled(f, false)
     expect(document.getElementById('state')?.dataset.state).toBe(
       view === 'project' ? 'empty' : 'ready',
     )
@@ -100,6 +117,7 @@ it.each(['connection', 'observation'])(
     }
     await f.flush()
     expect(f.button('connect-program').getAttribute('aria-busy')).toBe('false')
+    expectScopeDisabled(f, false)
     expect(document.getElementById('connection-status')?.textContent).toBe(
       phase === 'connection' ? 'Connection failed' : 'Could not load skills',
     )
@@ -131,7 +149,7 @@ it('resumes a hidden library observation without stuck progress or duplicate Con
   button.click()
   f.resume()
   await f.flush()
-  expect(status.textContent).toBe('Connected')
+  expect(status.textContent).toBe('')
   expect(button.getAttribute('aria-busy')).toBe('false')
   expect(
     f.requests.filter(({ capability }) => capability === 'connector.connect'),
@@ -147,6 +165,7 @@ it('does not retain progress or revive it from late replies after disposal', asy
   f.button('connect-program').click()
   await f.flush()
   f.dispose()
+  expectScopeDisabled(f, true)
   expect(document.getElementById('connection-status')?.textContent).toBe('')
   f.connected(projectConnection())
   await f.flush()
@@ -207,6 +226,7 @@ it.each(['timer', 'search', 'in-flight search'])(
           : 'Old connection failed',
       )
       expect(f.button('connect-program').getAttribute('aria-busy')).toBe('false')
+      expectScopeDisabled(f, false)
       const observed = f.calls.length
       await vi.advanceTimersByTimeAsync(31_000)
       expect(f.calls.length).toBeGreaterThan(observed)
@@ -255,10 +275,13 @@ it('retains only the submitted project connection intent through passive picker 
   f.button('connect-program').click()
   await f.flush()
   f.context(false, localProject)
+  expectScopeDisabled(f, true)
   f.context(true, localProject)
+  expectScopeDisabled(f, true)
   f.connected(projectConnection())
   await f.flush()
-  expect(document.getElementById('connection-status')?.textContent).toBe('Connected')
+  expect(document.getElementById('connection-status')?.textContent).toBe('')
+  expectScopeDisabled(f, false)
   expect(
     f.requests.filter((entry) => entry.capability === 'connector.connect'),
   ).toHaveLength(1)

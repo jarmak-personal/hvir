@@ -59,8 +59,20 @@ export async function verifyOwnedApprovedSync(
       throw new Error(
         'External setup unexpectedly auto-synchronized instead of exercising explicit sync',
       )
-    await ui.click('preview-sync')
+    // Observe this guest's actual public preflight output, including its discovery context.
+    await ui.inspect(`(() => {
+      let text='', value, overflow=false;
+      const release=window.hvirExtension.onMessage(message=>{
+        if(message.kind!=='result'||message.ok!==true||typeof message.value?.data!=='string'||value||overflow)return;
+        text+=message.value.data;
+        if(new TextEncoder().encode(text).length>256*1024){overflow=true;text='';return;}
+        try { const parsed=JSON.parse(text);text='';if(parsed.schema==='skillager.library-sync-status.v1')value=parsed; } catch {}
+      });
+      window.__hvirSyncPreflightTrace={stop:()=>{release();return {value,overflow};}};
+    })()`)
+    let captureFailure: { error: unknown } | undefined
     try {
+      await ui.click('preview-sync')
       await ui.ready(
         "!document.getElementById('review').hidden && document.getElementById('review-title').textContent.includes('synchronization')",
         'complete approved-source sync preflight',
@@ -79,7 +91,23 @@ export async function verifyOwnedApprovedSync(
         .catch(() => ({ inspectionUnavailable: true }))
       console.log('[smoke] Skillager sync preflight boundary', JSON.stringify(diagnostic))
       throw error
+    } finally {
+      try {
+        const observation = await ui.inspect(`(() => {
+        const trace=window.__hvirSyncPreflightTrace;delete window.__hvirSyncPreflightTrace;return trace.stop();
+      })()`)
+        await host.writeFile(
+          joinHostPath(owned, `sync-${name}-${phase}-preflight.json`),
+          JSON.stringify(observation, null, 2),
+        )
+      } catch (error) {
+        captureFailure = { error }
+        console.log(
+          '[smoke] Sync observation capture failed; any primary preflight failure is retained',
+        )
+      }
     }
+    if (captureFailure) throw captureFailure.error
     await ui.inspect("document.getElementById('result').textContent=''")
     await ui.click('confirm-plan')
     const result = await ui.result('sync-library')

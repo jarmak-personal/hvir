@@ -47,11 +47,19 @@ export async function verifyOwnedReviewRefusals(
     "document.getElementById('state').textContent.includes('Reading remains available')",
     'blocked source has an achievable review/refresh next step',
   )
-  await ui.click('add-copy')
   await ui.ready(
-    "document.getElementById('state').textContent.includes('Select the current accepted source version explicitly')",
-    'blocked source cannot become cached Add authority',
+    `document.getElementById('skill-id').value===${JSON.stringify(skillId)} && document.querySelector('main').getAttribute('aria-busy')==='false' && document.getElementById('add-copy').disabled`,
+    'blocked exact source cannot become cached Add authority',
   )
+  const beforeBlockedAdd = await ui.inspect(
+    "document.getElementById('result').textContent",
+  )
+  await ui.inspect("document.getElementById('add-copy').click()")
+  if (
+    (await ui.inspect("document.getElementById('result').textContent")) !==
+    beforeBlockedAdd
+  )
+    throw new Error('Blocked Add control submitted an action')
   await ui.click('start-review')
   await ui.ready(
     "!document.getElementById('exact-review').hidden && !!document.querySelector('[data-review-path=\"SKILL.md\"]')",

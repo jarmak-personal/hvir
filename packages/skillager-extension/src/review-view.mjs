@@ -41,6 +41,8 @@ export function bindExactReview(document, client, ports) {
     element('exact-review').hidden = true
     element('review-files').replaceChildren()
     element('review-file-body').replaceChildren()
+    element('review-file-label').textContent = ''
+    if (element('review-pages')) element('review-pages').hidden = true
   }
   function showPage() {
     element('review-file-body').textContent = text.slice(
@@ -48,7 +50,9 @@ export function bindExactReview(document, client, ports) {
       (page + 1) * TEXT_PAGE,
     )
     const count = Math.max(1, Math.ceil(text.length / TEXT_PAGE))
-    element('review-page-label').textContent = `Page ${page + 1} of ${count}`
+    element('review-page-label').textContent =
+      count > 1 ? `Page ${page + 1} of ${count}` : ''
+    if (element('review-pages')) element('review-pages').hidden = count === 1
     element('review-previous').disabled = page === 0
     element('review-next').disabled = page + 1 === count
   }
@@ -109,7 +113,8 @@ export function bindExactReview(document, client, ports) {
         element('review-file-body').replaceChildren(image)
         await image.decode()
         if (!available(revision)) return
-        element('review-page-label').textContent = 'Image · complete bytes verified'
+        element('review-page-label').textContent = ''
+        if (element('review-pages')) element('review-pages').hidden = true
         element('review-previous').disabled = true
         element('review-next').disabled = true
       }
@@ -131,6 +136,7 @@ export function bindExactReview(document, client, ports) {
       library = ports.library(),
       id = skillId()
     const status = await io().run(['library', 'status', id, '--json'])
+    if (!available(revision) || skillId() !== id) return
     sameLibrary(library, registeredLibrary(status))
     if (status.skill?.id !== id || status.skill.status === 'missing')
       throw new Error('Select a current canonical skill to review')
@@ -154,7 +160,7 @@ export function bindExactReview(document, client, ports) {
     element('exact-review').hidden = false
     element('review-manifest').textContent = JSON.stringify(value, null, 2)
     element('review-version').textContent =
-      `${result.manifest.file_count} files · ${result.manifest.total_bytes} bytes · version ${result.manifest.working_hash.slice(0, 12)}`
+      `${result.manifest.file_count} ${result.manifest.file_count === 1 ? 'file' : 'files'} · ${result.manifest.total_bytes} bytes`
     for (const file of result.manifest.files) {
       const row = document.createElement('div'),
         button = document.createElement('button'),
@@ -176,9 +182,7 @@ export function bindExactReview(document, client, ports) {
       element('review-files').append(row)
     }
     element('accept-version').disabled = !result.eligible
-    ports.say(
-      result.gate ?? 'Inspect any file, then accept this version when you are ready.',
-    )
+    ports.say(result.gate ?? '')
   }
   on('start-review', start)
   on('review-previous', () => {
