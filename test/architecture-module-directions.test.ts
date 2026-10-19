@@ -47,7 +47,7 @@ async function originalMessages(owner: string, source: string) {
   return linter.verify(
     source,
     {
-      files: ['**/*.{ts,tsx}'],
+      files: ['**/*.{ts,tsx,js,mjs}'],
       languageOptions: { parser: tseslint.parser },
       plugins: config.plugins,
       rules: Object.fromEntries(
@@ -66,6 +66,21 @@ async function originalMessages(owner: string, source: string) {
 
 describe('resolved adapter for existing dependency direction policy', () => {
   it.each([
+    [
+      'src/shared/extensions/guest-client.mjs',
+      'src/main/extensions/guest-owner.ts',
+      '../../main/extensions/guest-owner',
+    ],
+    [
+      'src/shared/extensions/guest-client.mjs',
+      'src/preload/extension-guest.ts',
+      '../../preload/extension-guest',
+    ],
+    [
+      'src/shared/extensions/connector-output.mjs',
+      'packages/skillager-extension/src/bridge.mjs',
+      '../../../packages/skillager-extension/src/bridge',
+    ],
     [
       'packages/skillager-extension/src/app.ts',
       'src/main/extensions/guest-owner.ts',

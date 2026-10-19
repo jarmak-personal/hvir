@@ -7,3 +7,5 @@ Include <link rel="stylesheet" href="presentation.css"> and <script src="guest-u
 Use native buttons and labeled fields with public primitive classes. The shared kit includes panels, toolbars, controls, rows, metadata, state, focus and scroll styles. `hvirUI.bindList(element,onSelect)` handles option selection, click, ArrowUp/Down/Home/End, and exposes refresh/dispose; use role=listbox and role=option. Build a flex list/detail layout with ordinary DOM and public styles; avoid a private workbench dependency. Inspect primitives.css for exact class names. Hosts supply semantic token values; copied primitive rules belong to the captured revision.
 
 The kit only controls the guest's DOM and styling. It cannot approve access, execute native commands, acquire files or create trusted dialogs. Custom presentation may use the same bridge without this kit. See `guide manifest` and `guide lifetimes`.
+
+The separate `guest-client.mjs` and `connector-output.mjs` assets own public transport and output reading; presentation helpers own styling only. See `guide bridge` and `guide connectors`.

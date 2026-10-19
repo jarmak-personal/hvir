@@ -16,7 +16,8 @@ export const CONNECTOR_LIMITS = {
   argumentBytes: 8 * 1024,
   configBytes: 8 * 1024,
   stateBytes: 256 * 1024,
-  pageBytes: 8 * 1024,
+  pageBytes: 128 * 1024,
+  outputReplyBytes: 512 * 1024,
 } as const
 
 export interface ExtensionConnectorDeclaration {

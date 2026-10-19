@@ -17,6 +17,7 @@ import { ExtensionAuthoring } from '../src/main/extensions/extension-authoring'
 import type { HostId } from '../src/shared'
 import { localPath, hostPath } from '../src/shared/host-path'
 import { parseAgentCommand } from '../src/shared/agent/commands'
+import { GUEST_TRANSPORT_ASSETS } from '../scripts/prepare-extension-transport.mts'
 import { PRESENTATION_ASSETS } from '../scripts/prepare-extension-ui.mts'
 
 async function fixture() {
@@ -64,6 +65,10 @@ describe('explicit local extension authoring', () => {
       for (const asset of PRESENTATION_ASSETS)
         expect(await readFile(join(output, asset))).toEqual(
           await readFile(`src/shared/presentation/${asset}`),
+        )
+      for (const asset of GUEST_TRANSPORT_ASSETS)
+        expect(await readFile(join(output, asset))).toEqual(
+          await readFile(`src/shared/extensions/${asset}`),
         )
       await writeFile(
         join(output, 'never-executed.js'),

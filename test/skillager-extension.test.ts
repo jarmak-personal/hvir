@@ -557,7 +557,12 @@ it('cancels paced public package requests on hide and releases timers/listeners 
     await refusedFirst
     await refusedSecond
     receive({ kind: 'context', context: { visible: true } })
-    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(1049)
+    expect(
+      sent.filter((value) => (value as { kind: string }).kind === 'cancel'),
+    ).toHaveLength(0)
+    expect(vi.getTimerCount()).toBe(1)
+    await vi.advanceTimersByTimeAsync(1)
     expect(
       sent.filter((value) => (value as { kind: string }).kind === 'request'),
     ).toHaveLength(1)

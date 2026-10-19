@@ -54,6 +54,7 @@ interface Admission {
   readonly workspace?: string
 }
 interface OutputReceipt {
+  deliveredBytes: number
   readonly consumer: Consumer
   readonly result: ExtensionConnectorResult
   readonly stdout: Buffer
@@ -303,19 +304,26 @@ export class ExtensionConnectorExecutionOwner {
         Buffer.byteLength(
           JSON.stringify({
             kind: 'result',
-            id: 'x'.repeat(80),
+            id: '\u0001'.repeat(80),
             ok: true,
             value: output,
             warnings: Array(EXTENSION_LIMITS.warnings).fill(
-              'Ignored unknown field: ' + 'x'.repeat(80),
+              'Ignored unknown field: ' + '\u0001'.repeat(80),
             ),
           }),
-        ) <= EXTENSION_LIMITS.messageBytes
+        ) <= CONNECTOR_LIMITS.outputReplyBytes
       )
         break
       end = offset + Math.floor((end - offset) / 2)
       while (end > offset && end < buffer.length && (buffer[end]! & 0xc0) === 0x80) end--
     } while (end > offset)
+    const delivered = end - offset
+    if (
+      receipt.deliveredBytes + delivered >
+      receipt.stdout.length + receipt.stderr.length
+    )
+      throw new Error('Connector output delivery allowance exhausted')
+    receipt.deliveredBytes += delivered
     return output
   }
 
@@ -487,6 +495,7 @@ export class ExtensionConnectorExecutionOwner {
       const id = randomUUID(),
         value = { ...result, receipt: id }
       const receipt: OutputReceipt = {
+        deliveredBytes: 0,
         consumer,
         result: value,
         stdout,

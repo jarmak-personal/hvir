@@ -1,3 +1,4 @@
+import { connectorOutputFixture } from './fixtures/connector-output'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { buildSync } from 'esbuild'
@@ -166,21 +167,11 @@ it('retains interrupted default intent, blocks overlapping initialization only, 
   const calls: string[][] = [],
     outputs = new Map<string, unknown>()
   let registered = true
+  const native = connectorOutputFixture()
   const client = {
     alive: true,
     request(capability: string, input: Value) {
-      if (capability === 'connector.output')
-        return Promise.resolve(
-          input['release']
-            ? null
-            : {
-                data:
-                  input['stream'] === 'stderr'
-                    ? ''
-                    : JSON.stringify(outputs.get(String(input['receipt']))),
-                nextOffset: null,
-              },
-        )
+      if (capability === 'connector.output') return Promise.resolve(native.read(input))
       const args = input['args'] as string[]
       calls.push(args)
       if (args.includes('init'))
@@ -196,7 +187,12 @@ it('retains interrupted default intent, blocks overlapping initialization only, 
           ? status()
           : { schema: 'skillager.library-status.v1', initialized: false },
       )
-      return Promise.resolve({ outcome: 'completed', code: 0, receipt, truncated: false })
+      return Promise.resolve(
+        native.complete(
+          { outcome: 'completed', code: 0, receipt, truncated: false },
+          JSON.stringify(outputs.get(receipt)),
+        ),
+      )
     },
   }
   const invoke = (id: string, action: string, input: Value) =>
@@ -242,25 +238,19 @@ it('does not retry initialization or fall back without Git after a native failur
     executeManagement(client: unknown, invocation: unknown): Promise<Value>
   }>('management-operation')
   const calls: string[][] = []
+  const native = connectorOutputFixture()
   const client = {
     alive: true,
     request(capability: string, input: Value) {
-      if (capability === 'connector.output')
-        return Promise.resolve(
-          input['release']
-            ? null
-            : {
-                data: input['stream'] === 'stderr' ? 'Git unavailable' : '{}',
-                nextOffset: null,
-              },
-        )
+      if (capability === 'connector.output') return Promise.resolve(native.read(input))
       calls.push(input['args'] as string[])
-      return Promise.resolve({
-        outcome: 'completed',
-        code: 1,
-        receipt: 'failure',
-        truncated: false,
-      })
+      return Promise.resolve(
+        native.complete(
+          { outcome: 'completed', code: 1, receipt: 'failure', truncated: false },
+          '{}',
+          'Git unavailable',
+        ),
+      )
     },
   }
   expect(

@@ -1,3 +1,4 @@
+import { connectorOutputFixture } from './fixtures/connector-output'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { buildSync } from 'esbuild'
@@ -94,23 +95,13 @@ function fixture(caller = 'guest') {
     applied = false,
     mutationResult: unknown,
     mutationCode = 0
+  const native = connectorOutputFixture()
   const client = {
     alive: true,
     request(capability: string, input: Value) {
       if (capability === 'terminal.start')
         return Promise.resolve({ status: 'handed-off', request: input })
-      if (capability === 'connector.output')
-        return Promise.resolve(
-          input['release']
-            ? null
-            : {
-                data:
-                  input['stream'] === 'stderr'
-                    ? ''
-                    : JSON.stringify(outputs.get(String(input['receipt']))),
-                nextOffset: null,
-              },
-        )
+      if (capability === 'connector.output') return Promise.resolve(native.read(input))
       const args = input['args'] as string[]
       calls.push(args)
       const receipt = String(++serial)
@@ -163,12 +154,17 @@ function fixture(caller = 'guest') {
       status.skill['accepted_hash'] = statusHash
       status.skill['acceptance'] = canonicalPending ? 'pending' : 'accepted'
       outputs.set(receipt, value)
-      return Promise.resolve({
-        outcome: 'completed',
-        code: applied ? mutationCode : 0,
-        receipt,
-        truncated: false,
-      })
+      return Promise.resolve(
+        native.complete(
+          {
+            outcome: 'completed',
+            code: applied ? mutationCode : 0,
+            receipt,
+            truncated: false,
+          },
+          JSON.stringify(outputs.get(receipt)),
+        ),
+      )
     },
   }
   const invoke = (

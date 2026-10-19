@@ -1,3 +1,4 @@
+import { connectorOutputFixture } from './fixtures/connector-output'
 import { runInNewContext } from 'node:vm'
 import { buildSync } from 'esbuild'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -14,7 +15,8 @@ interface BridgeClient {
 function realGuestFixture() {
   const bundle = buildSync({
     stdin: {
-      contents: "export {guestClient} from './packages/skillager-extension/src/bridge.mjs'; export {managementCli} from './packages/skillager-extension/src/management-cli.mjs'",
+      contents:
+        "export {guestClient} from './packages/skillager-extension/src/bridge.mjs'; export {managementCli} from './packages/skillager-extension/src/management-cli.mjs'",
       resolveDir: process.cwd(),
     },
     bundle: true,
@@ -30,39 +32,54 @@ function realGuestFixture() {
   }
   const sent: Array<Record<string, unknown>> = []
   let receive!: (message: unknown) => void
-  const client = module.guestClient({
-    onMessage(callback: typeof receive) {
-      receive = callback
-      return () => undefined
+  const client = module.guestClient(
+    {
+      onMessage(callback: typeof receive) {
+        receive = callback
+        return () => undefined
+      },
+      send(message: Record<string, unknown>) {
+        sent.push(message)
+      },
     },
-    send(message: Record<string, unknown>) {
-      sent.push(message)
-    },
-  }, { performance, setTimeout, clearTimeout })
+    { performance, setTimeout, clearTimeout },
+  )
   return { client, module, sent, receive: (message: unknown) => receive(message) }
 }
 afterEach(() => vi.useRealTimers())
 
-it.each(['hidden', 'revoked'])('aborts the actual ordinary bridge observation deferral on %s without another native request', async (kind) => {
-  vi.useFakeTimers()
-  const f = realGuestFixture()
-  try {
-    f.receive({ kind: 'context', context: { visible: true } })
-    const read = f.module.managementCli(f.client).run(['library', 'status', '--json'])
-    const rejected = expect(read).rejects.toThrow(/hidden|closed/)
-    await vi.advanceTimersByTimeAsync(0)
-    f.receive({ kind: 'result', id: f.sent[0]!.id, ok: true, value: { outcome: 'not-started', reason: 'frequency' } })
-    await vi.advanceTimersByTimeAsync(0)
-    expect(vi.getTimerCount()).toBe(1)
-    f.receive(kind === 'hidden' ? { kind: 'context', context: { visible: false } } : { kind: 'revoked' })
-    await rejected
-    expect(vi.getTimerCount()).toBe(0)
-    await vi.advanceTimersByTimeAsync(2000)
-    expect(f.sent).toHaveLength(1)
-  } finally {
-    f.client.dispose()
-  }
-})
+it.each(['hidden', 'revoked'])(
+  'aborts the actual ordinary bridge observation deferral on %s without another native request',
+  async (kind) => {
+    vi.useFakeTimers()
+    const f = realGuestFixture()
+    try {
+      f.receive({ kind: 'context', context: { visible: true } })
+      const read = f.module.managementCli(f.client).run(['library', 'status', '--json'])
+      const rejected = expect(read).rejects.toThrow(/hidden|closed/)
+      await vi.advanceTimersByTimeAsync(0)
+      f.receive({
+        kind: 'result',
+        id: f.sent[0]!.id,
+        ok: true,
+        value: { outcome: 'not-started', reason: 'frequency' },
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(vi.getTimerCount()).toBe(1)
+      f.receive(
+        kind === 'hidden'
+          ? { kind: 'context', context: { visible: false } }
+          : { kind: 'revoked' },
+      )
+      await rejected
+      expect(vi.getTimerCount()).toBe(0)
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(f.sent).toHaveLength(1)
+    } finally {
+      f.client.dispose()
+    }
+  },
+)
 
 it('does not defer an action-scoped observation through the ordinary guest delay', async () => {
   vi.useFakeTimers()
@@ -73,12 +90,20 @@ it('does not defer an action-scoped observation through the ordinary guest delay
     const read = f.module.managementCli(action).run(['library', 'status', '--json'])
     const rejected = expect(read).rejects.toThrow(/did not start/)
     await vi.advanceTimersByTimeAsync(0)
-    f.receive({ kind: 'result', id: f.sent[0]!.id, ok: true, value: { outcome: 'not-started', reason: 'frequency' } })
+    f.receive({
+      kind: 'result',
+      id: f.sent[0]!.id,
+      ok: true,
+      value: { outcome: 'not-started', reason: 'frequency' },
+    })
     await rejected
     expect(vi.getTimerCount()).toBe(0)
     await vi.advanceTimersByTimeAsync(2000)
     expect(f.sent).toHaveLength(1)
-    expect(f.sent[0]).toMatchObject({ capability: 'connector.execute', actionId: 'main-issued' })
+    expect(f.sent[0]).toMatchObject({
+      capability: 'connector.execute',
+      actionId: 'main-issued',
+    })
     action.dispose()
   } finally {
     f.client.dispose()
@@ -104,6 +129,7 @@ function fixture() {
     truncated: false,
   }
   let stdout = '{"schema":"fixture"}'
+  const native = connectorOutputFixture()
   const calls: Array<{ capability: string; input: Record<string, unknown> }> = []
   const client = {
     alive: true,
@@ -111,12 +137,9 @@ function fixture() {
     delay: undefined as undefined | ((milliseconds: number) => Promise<void>),
     request(capability: string, input: Record<string, unknown>) {
       calls.push({ capability, input })
-      if (capability === 'connector.execute') return Promise.resolve(execution)
-      if (input['release']) return Promise.resolve(null)
-      return Promise.resolve({
-        data: input['stream'] === 'stdout' ? stdout : '',
-        nextOffset: null,
-      })
+      if (capability === 'connector.execute')
+        return Promise.resolve(native.complete(execution as object, stdout))
+      return Promise.resolve(native.read(input))
     },
   }
   const io = module.managementCli(client)
@@ -143,12 +166,18 @@ it('defers a never-started human metadata observation once and obtains fresh out
     f.stdout('{"schema":"fresh-observation"}')
     return Promise.resolve()
   }
-  await expect(f.io.run(['library', 'accept', 'lib/exact', '--review-manifest', '--json'])).resolves.toEqual({ schema: 'fresh-observation' })
+  await expect(
+    f.io.run(['library', 'accept', 'lib/exact', '--review-manifest', '--json']),
+  ).resolves.toEqual({ schema: 'fresh-observation' })
   expect(waits).toEqual([1100])
-  expect(f.calls.filter((call) => call.capability === 'connector.execute')).toHaveLength(2)
+  expect(f.calls.filter((call) => call.capability === 'connector.execute')).toHaveLength(
+    2,
+  )
   expect(f.io.pending).toBeUndefined()
   f.execution({ outcome: 'not-started', reason: 'frequency' })
-  await expect(f.io.run(['library', 'init'], { action: 'initialize-library' })).rejects.toThrow(/did not start/)
+  await expect(
+    f.io.run(['library', 'init'], { action: 'initialize-library' }),
+  ).rejects.toThrow(/did not start/)
   expect(waits).toEqual([1100])
   expect(f.io.pending).toBeUndefined()
 })
@@ -160,7 +189,9 @@ it('does not loop on a second observation refusal or dispatch after the deferred
     waits.push(milliseconds)
     return Promise.resolve()
   }
-  await expect(refused.io.run(['library', 'status', '--json'])).rejects.toThrow(/did not start/)
+  await expect(refused.io.run(['library', 'status', '--json'])).rejects.toThrow(
+    /did not start/,
+  )
   expect(waits).toEqual([1100])
   expect(refused.calls).toHaveLength(2)
   const revoked = fixture()
@@ -169,7 +200,9 @@ it('does not loop on a second observation refusal or dispatch after the deferred
     revoked.client.alive = false
     return Promise.resolve()
   }
-  await expect(revoked.io.run(['library', 'status', '--json'])).rejects.toThrow(/no longer admitted/)
+  await expect(revoked.io.run(['library', 'status', '--json'])).rejects.toThrow(
+    /no longer admitted/,
+  )
   expect(revoked.calls).toHaveLength(1)
   const hidden = fixture()
   hidden.execution({ outcome: 'not-started', reason: 'frequency' })
@@ -264,8 +297,11 @@ it('retains descriptor when completed native output is malformed, oversized, or 
 it('reports changed-program refusal as actionable without retrying or retaining a submitted mutation', async () => {
   const f = fixture()
   f.execution({ outcome: 'not-started', reason: 'executable-changed' })
-  await expect(f.io.run(['library', 'init'], { action: 'initialize-library' })).rejects.toMatchObject({
-    setupState: 'program-updated', message: 'Skillager was updated. Review its program access before running it again.',
+  await expect(
+    f.io.run(['library', 'init'], { action: 'initialize-library' }),
+  ).rejects.toMatchObject({
+    setupState: 'program-updated',
+    message: 'Skillager was updated. Review its program access before running it again.',
   })
   expect(f.io.pending).toBeUndefined()
   expect(f.calls).toHaveLength(1)

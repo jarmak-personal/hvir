@@ -1,3 +1,4 @@
+import { verifyExtensionOutputTransfer } from './extension-output-transfer'
 import { extensionSettingsControls } from './extension-settings-controls'
 import { verifySkillagerExtension } from './skillager-extension'
 import { verifySkillagerManagement } from './skillager-management'
@@ -75,6 +76,14 @@ export async function verifyExtensionScenario(
     },
     onHostStateChange: (listener) => host.onConnectionState(listener),
   })
+  if (
+    await verifyExtensionOutputTransfer(win, extensions, scopes, host, {
+      click: (name) => click(win, name),
+      wait: waitFor,
+      guest: guestFor,
+    })
+  )
+    return true
   const project = sources.context.projectState()
   if (
     await verifySkillagerManagement(

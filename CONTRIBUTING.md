@@ -322,6 +322,12 @@ keyboard focus, confined document presentation and access/endpoint revocation. I
 acceptance separately runs offline reference commands with no display; signed native release
 requirements remain unchanged.
 
+`HVIR_EXTENSION_OUTPUT_EVIDENCE=1 HVIR_SMOKE_SCENARIO=extensions npm run smoke:scenario`
+runs the focused task-owned connector transfer proof through a scaffolded guest and actual native
+processes. It covers a 650 KiB result, four maximum escaped stdout/stderr receipts, ordinary
+traffic, visible input/paint, hidden finite actions, withdrawal and capacity recovery. Its bounded
+timing/paint observations are environment evidence, not a controlled quantitative performance gate.
+
 `extensions` exercises the ordinary directory-package Settings workflow, captured-byte
 isolation, public guest protocol, reachable HTTP/WebSocket and TCP/UDP WebRTC denial,
 presentation, inactive timer suspension, and trusted lifecycle controls against Electron.

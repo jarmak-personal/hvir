@@ -1,55 +1,9 @@
-import { runInNewContext } from 'node:vm'
-import { buildSync } from 'esbuild'
 import { afterEach, expect, it, vi } from 'vitest'
+import {
+  guestClientFixture as fixture,
+  type PackageClient,
+} from './fixtures/extension-guest-client'
 
-interface PackageClient {
-  request(capability: string, input?: unknown): Promise<unknown>
-  dispose(): void
-  readonly signal: AbortSignal
-}
-interface ActionClient extends PackageClient {
-  reply(value?: unknown, error?: string): Promise<boolean>
-}
-interface GuestClient extends PackageClient {
-  forAction(invocation: { readonly id: string }): ActionClient
-  hello(): void
-}
-function fixture(clamped = false) {
-  const sent: Array<Record<string, unknown>> = []
-  const times: number[] = []
-  let receive!: (message: unknown) => void
-  const bundled = buildSync({
-    entryPoints: ['packages/skillager-extension/src/bridge.mjs'],
-    bundle: true,
-    format: 'iife',
-    globalName: 'Bridge',
-    write: false,
-  })
-  const context = { Date, AbortController, Bridge: undefined as unknown }
-  runInNewContext(bundled.outputFiles[0]!.text, context)
-  const module = context.Bridge as {
-    guestClient(bridge: unknown, clock: unknown): GuestClient
-  }
-  const client = module.guestClient(
-    {
-      onMessage(callback: typeof receive) {
-        receive = callback
-        return () => undefined
-      },
-      send(message: Record<string, unknown>) {
-        sent.push(message)
-        times.push(performance.now())
-      },
-    },
-    {
-      setTimeout: (callback: () => void, delay: number) =>
-        setTimeout(callback, clamped ? Math.max(delay, 1000) : delay),
-      clearTimeout,
-      performance,
-    },
-  )
-  return { client, receive: (message: unknown) => receive(message), sent, times }
-}
 async function consumeMessages(
   f: ReturnType<typeof fixture>,
   client: PackageClient,
@@ -64,6 +18,18 @@ async function consumeMessages(
   f.sent.length = 0
 }
 afterEach(() => vi.useRealTimers())
+
+it('submits hello synchronously once before consumers inspect negotiated state', () => {
+  const f = fixture()
+  try {
+    f.client.hello()
+    expect(f.sent).toEqual([{ kind: 'hello', contract: '1.0' }])
+    f.client.hello()
+    expect(f.sent).toHaveLength(1)
+  } finally {
+    f.client.dispose()
+  }
+})
 
 it('completes four public CLI receipt cycles without inter-page timers even when background timers are clamped', async () => {
   vi.useFakeTimers()
@@ -120,7 +86,7 @@ it('bounds all outbound messages through repeated hide/resume and sequential sho
         return value
       })
       await vi.advanceTimersByTimeAsync(0)
-      if (!settled) await vi.advanceTimersByTimeAsync(1000)
+      if (!settled) await vi.advanceTimersByTimeAsync(1050)
       await expect(reply).resolves.toBe(true)
       action.dispose()
     }
@@ -132,7 +98,9 @@ it('bounds all outbound messages through repeated hide/resume and sequential sho
     expect(cancels.every((message) => submitted.has(message.id))).toBe(true)
     expect(f.sent.filter((message) => message.kind === 'action-result')).toHaveLength(35)
     for (const time of f.times)
-      expect(f.times.filter((value) => value >= time && value < time + 1000).length).toBeLessThanOrEqual(24)
+      expect(
+        f.times.filter((value) => value >= time && value < time + 1000).length,
+      ).toBeLessThanOrEqual(24)
     expect(vi.getTimerCount()).toBe(0)
   } finally {
     f.client.dispose()
@@ -150,7 +118,7 @@ it('does not recycle a full monotonic transport window after a wall clock jump',
     const reply = action.reply({ outcome: 'verified' })
     await vi.advanceTimersByTimeAsync(0)
     expect(f.sent).toEqual([])
-    await vi.advanceTimersByTimeAsync(999)
+    await vi.advanceTimersByTimeAsync(1049)
     expect(f.sent).toEqual([])
     await vi.advanceTimersByTimeAsync(1)
     await expect(reply).resolves.toBe(true)
@@ -161,26 +129,29 @@ it('does not recycle a full monotonic transport window after a wall clock jump',
   }
 })
 
-it.each(['action-cancelled', 'revoked'])('settles a saturated action reply and releases its wait without a late wire result on %s', async (kind) => {
-  vi.useFakeTimers()
-  const f = fixture()
-  try {
-    f.receive({ kind: 'action', invocation: { id: 'main-issued' } })
-    const action = f.client.forAction({ id: 'main-issued' })
-    await consumeMessages(f, action, 24)
-    const reply = action.reply({ outcome: 'verified' })
-    await vi.advanceTimersByTimeAsync(0)
-    expect(vi.getTimerCount()).toBe(1)
-    f.receive({ kind, id: 'main-issued' })
-    await vi.advanceTimersByTimeAsync(0)
-    await expect(reply).resolves.toBe(false)
-    expect(vi.getTimerCount()).toBe(0)
-    await vi.advanceTimersByTimeAsync(2000)
-    expect(f.sent).toEqual([])
-  } finally {
-    f.client.dispose()
-  }
-})
+it.each(['action-cancelled', 'revoked'])(
+  'settles a saturated action reply and releases its wait without a late wire result on %s',
+  async (kind) => {
+    vi.useFakeTimers()
+    const f = fixture()
+    try {
+      f.receive({ kind: 'action', invocation: { id: 'main-issued' } })
+      const action = f.client.forAction({ id: 'main-issued' })
+      await consumeMessages(f, action, 24)
+      const reply = action.reply({ outcome: 'verified' })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(vi.getTimerCount()).toBe(1)
+      f.receive({ kind, id: 'main-issued' })
+      await vi.advanceTimersByTimeAsync(0)
+      await expect(reply).resolves.toBe(false)
+      expect(vi.getTimerCount()).toBe(0)
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(f.sent).toEqual([])
+    } finally {
+      f.client.dispose()
+    }
+  },
+)
 
 it('paces admitted hidden action requests with exact provenance while ordinary body requests remain visibility gated', async () => {
   vi.useFakeTimers()
@@ -223,7 +194,7 @@ it('hiding an ordinary view cancels its paced read without recycling or cancelin
     await vi.advanceTimersByTimeAsync(0)
     f.receive({ kind: 'context', context: { visible: false } })
     await rejected
-    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(1050)
     const request = f.sent.find((message) => message.actionId === 'main-issued')!
     f.receive({ kind: 'result', id: request.id, ok: true, value: 'completed' })
     await expect(mutation).resolves.toBe('completed')
@@ -239,7 +210,9 @@ it('retains a submitted human invocation through D4 view selection but refuses h
   const f = fixture()
   try {
     f.receive({ kind: 'context', context: { visible: true } })
-    const invocation = f.client.request('actions.invoke', { action: 'initialize-library' })
+    const invocation = f.client.request('actions.invoke', {
+      action: 'initialize-library',
+    })
     await vi.advanceTimersByTimeAsync(0)
     const submitted = f.sent[0]!
     const queued = f.client.request('actions.invoke', { action: 'add-copy' })
@@ -249,7 +222,12 @@ it('retains a submitted human invocation through D4 view selection but refuses h
     await expect(f.client.request('actions.invoke')).rejects.toThrow(/hidden/)
     await expect(f.client.request('source.read')).rejects.toThrow(/hidden/)
     expect(f.sent).not.toContainEqual({ kind: 'cancel', id: submitted.id })
-    f.receive({ kind: 'result', id: submitted.id, ok: true, value: { outcome: 'verified' } })
+    f.receive({
+      kind: 'result',
+      id: submitted.id,
+      ok: true,
+      value: { outcome: 'verified' },
+    })
     await expect(invocation).resolves.toMatchObject({ outcome: 'verified' })
     expect(f.sent.filter((message) => message.kind === 'request')).toHaveLength(1)
   } finally {
@@ -273,30 +251,32 @@ it('revocation cancels the submitted outer invocation even after its caller is h
   expect(f.client.signal.aborted).toBe(true)
 })
 
-it.each(['action-cancelled', 'revoked'])('rejects late paced completion and releases timers on %s', async (kind) => {
-  vi.useFakeTimers()
-  const f = fixture()
-  try {
-    f.receive({ kind: 'action', invocation: { id: 'main-issued' } })
-    const action = f.client.forAction({ id: 'main-issued' })
-    await consumeMessages(f, action, 23)
-    const first = action.request('connector.execute')
-    const second = action.request('connector.output')
-    const rejectedFirst = expect(first).rejects.toThrow(),
-      rejectedSecond = expect(second).rejects.toThrow()
-    await vi.advanceTimersByTimeAsync(0)
-    f.receive({ kind, id: 'main-issued' })
-    await rejectedFirst
-    await rejectedSecond
-    expect(action.signal.aborted).toBe(true)
-    await vi.advanceTimersByTimeAsync(100)
-    expect(f.sent.filter((message) => message.kind === 'request')).toHaveLength(1)
-    expect(vi.getTimerCount()).toBe(0)
-  } finally {
-    f.client.dispose()
-  }
-})
-
+it.each(['action-cancelled', 'revoked'])(
+  'rejects late paced completion and releases timers on %s',
+  async (kind) => {
+    vi.useFakeTimers()
+    const f = fixture()
+    try {
+      f.receive({ kind: 'action', invocation: { id: 'main-issued' } })
+      const action = f.client.forAction({ id: 'main-issued' })
+      await consumeMessages(f, action, 23)
+      const first = action.request('connector.execute')
+      const second = action.request('connector.output')
+      const rejectedFirst = expect(first).rejects.toThrow(),
+        rejectedSecond = expect(second).rejects.toThrow()
+      await vi.advanceTimersByTimeAsync(0)
+      f.receive({ kind, id: 'main-issued' })
+      await rejectedFirst
+      await rejectedSecond
+      expect(action.signal.aborted).toBe(true)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(f.sent.filter((message) => message.kind === 'request')).toHaveLength(1)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      f.client.dispose()
+    }
+  },
+)
 
 it('keeps only submitted Connect through passive picker focus loss, while hiding still cancels reads and disposal cancels Connect', async () => {
   const f = fixture()
@@ -338,4 +318,91 @@ it('keeps only submitted Connect through passive picker focus loss, while hiding
   f.client.dispose()
   await ended
   expect(f.sent).toContainEqual({ kind: 'cancel', id: nextId })
+})
+
+it('bounds queued requests and cancellation obligations, deduplicates action replies, and frees slots only after sending', async () => {
+  vi.useFakeTimers()
+  const f = fixture()
+  try {
+    f.receive({ kind: 'context', context: { visible: true } })
+    await consumeMessages(f, f.client, 16)
+    const pending = Array.from({ length: 8 }, () => f.client.request('source.read'))
+    const settled = Promise.allSettled(pending)
+    await vi.advanceTimersByTimeAsync(0)
+    await expect(f.client.request('source.read')).rejects.toThrow('capacity')
+    f.receive({ kind: 'context', context: { visible: false } })
+    expect((await settled).every((entry) => entry.status === 'rejected')).toBe(true)
+    f.receive({ kind: 'context', context: { visible: true } })
+    await expect(f.client.request('source.read')).rejects.toThrow('capacity')
+    f.receive({ kind: 'action', invocation: { id: 'main-issued' } })
+    const action = f.client.forAction({ id: 'main-issued' })
+    const reply = action.reply({ done: true })
+    expect(action.reply({ done: false })).toBe(reply)
+    await vi.advanceTimersByTimeAsync(1050)
+    await expect(reply).resolves.toBe(true)
+    expect(f.sent.filter((message) => message.kind === 'cancel')).toHaveLength(8)
+    expect(f.sent.filter((message) => message.kind === 'action-result')).toHaveLength(1)
+    const next = f.client.request('source.read')
+    await vi.advanceTimersByTimeAsync(0)
+    f.receive({ kind: 'result', id: f.sent.at(-1)!.id, ok: true, value: 'current' })
+    await expect(next).resolves.toBe('current')
+  } finally {
+    f.client.dispose()
+  }
+})
+
+it('contains transport failure and rejects late cancelled completion without affecting another live action', async () => {
+  vi.useFakeTimers()
+  let throws = true
+  const f = fixture(false, () => {
+    if (throws) throw new Error('transport unavailable')
+  })
+  try {
+    for (const id of ['first', 'second'])
+      f.receive({ kind: 'action', invocation: { id } })
+    const first = f.client.forAction({ id: 'first' }),
+      second = f.client.forAction({ id: 'second' })
+    await expect(first.request('connector.execute')).rejects.toThrow(
+      'transport unavailable',
+    )
+    throws = false
+    const one = first.request('connector.output'),
+      two = second.request('connector.output')
+    const rejected = expect(one).rejects.toThrow('action ended')
+    await vi.advanceTimersByTimeAsync(0)
+    f.receive({ kind: 'action-cancelled', id: 'first' })
+    await rejected
+    const requests = f.sent.filter((message) => message.kind === 'request').slice(-2)
+    for (const request of requests)
+      f.receive({ kind: 'result', id: request.id, ok: true, value: 'late-or-current' })
+    await expect(two).resolves.toBe('late-or-current')
+    expect(first.signal.aborted).toBe(true)
+    expect(second.signal.aborted).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  } finally {
+    f.client.dispose()
+  }
+})
+
+it('disposal rejects queued action completion while flushing only submitted cancellation within the shared budget', async () => {
+  vi.useFakeTimers()
+  const f = fixture()
+  f.receive({ kind: 'context', context: { visible: true } })
+  f.receive({ kind: 'action', invocation: { id: 'main-issued' } })
+  const action = f.client.forAction({ id: 'main-issued' })
+  const read = f.client.request('source.read')
+  const rejected = expect(read).rejects.toThrow('closed')
+  await vi.advanceTimersByTimeAsync(0)
+  const id = f.sent[0]!.id
+  const reply = action.reply({ complete: true })
+  f.client.dispose()
+  await rejected
+  await expect(reply).resolves.toBe(false)
+  expect(f.sent).toEqual([
+    { kind: 'request', id, capability: 'source.read' },
+    { kind: 'cancel', id },
+  ])
+  expect(action.signal.aborted).toBe(true)
+  expect(f.client.signal.aborted).toBe(true)
+  expect(vi.getTimerCount()).toBe(0)
 })

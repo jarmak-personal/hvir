@@ -549,6 +549,7 @@ context through ordinary non-focusing viewer placement, hiding, and explicit clo
 ### [ADR-051 — Approved finite connector execution](adr/ADR-051-approved-finite-connector-execution.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-076](adr/ADR-076-bounded-connector-output-transfer.md) | partial | Connector output pages sharing the general 16 KiB reply envelope and unrestricted repeated public page delivery.
 > Superseded by: [ADR-075](adr/ADR-075-session-launcher-update-trust.md) | partial | Mandatory canonical-target reapproval only for an explicit session-bound decision to trust updates at one exact launcher.
 > Superseded by: [ADR-070](adr/ADR-070-explicit-local-workspace-program-connection.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for explicit ordinary-human local-workspace connections only.
 > Superseded by: [ADR-065](adr/ADR-065-passive-extension-program-connection.md) | partial | Mandatory manually supplied absolute executable input and separate Inspect step for application-local first-use connections only.
@@ -770,6 +771,14 @@ admitted workspace while trusted Settings presents independent saved host bindin
 
 Explicit session trust covers future targets of one exact launcher; contextual metadata makes
 normal canonical-target changes actionable without rewriting the saved approval.
+
+### [ADR-076 — Bounded connector output transfer](adr/ADR-076-bounded-connector-output-transfer.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-051](adr/ADR-051-approved-finite-connector-execution.md) | partial | Connector output pages sharing the general 16 KiB reply envelope and unrestricted repeated public page delivery.
+
+Connector-only larger replies, finite delivered-byte accounting and one shared browser reader
+make bounded output usable while preserving independent flood guards and receipt authority.
 
 ## 5. Architecture
 

@@ -31,9 +31,38 @@ Match each result by id. Input is `{connector,host,args,workspace?}`. There is n
 
 ### connector.output
 
-For a returned receipt, send {kind:'request',id:'tool-output',capability:'connector.output',input:{receipt:RECEIPT,stream:'stdout',offset:0}}. The result is {data,nextOffset,result}; nextOffset is the next byte offset or null. Read stderr independently; pages are at most8KiB and UTF-8 boundaries are preserved. Then send {kind:'request',id:'tool-release',capability:'connector.output',input:{receipt:RECEIPT,release:true}}; the result is null. Receipts are caller/activation/action-bound and finite; changed/stale receipts refuse instead of becoming authority.
+For a returned receipt, send {kind:'request',id:'tool-output',capability:'connector.output',input:{receipt:RECEIPT,stream:'stdout',offset:0}}. The result is {data,nextOffset,result}; nextOffset is the next byte offset or null. Read stderr independently; pages target at most 128 KiB raw UTF-8 and shrink as needed so the complete encoded reply fits 512 KiB. UTF-8 boundaries are preserved. Then send {kind:'request',id:'tool-release',capability:'connector.output',input:{receipt:RECEIPT,release:true}}; the result is null. Receipts are caller/activation/action-bound and finite; changed/stale receipts refuse instead of becoming authority.
 
-Output receipts expire after 30 seconds; read/release promptly. There are at most 16 receipts and 32 MiB retained output globally. Execute permits at most 4 concurrent operations/extension and 16 globally, with a one-second observation refresh interval. Structured args are at most 128 strings and 8 KiB encoded; configuration is at most 8 KiB. A disconnected or interrupted execution may have effects; never replay it automatically. See `guide bridge` for transport deadlines.
+Output receipts expire after 30 seconds; reading never extends expiry. Every successful nonempty page, including repeated or overlapping offsets, consumes a delivered-byte allowance equal to the receipt's combined retained stdout+stderr bytes. A page exceeding the remainder refuses in full. Retain already-read data rather than rereading it. Empty EOF replies still count toward both 30-message guards. Read/release promptly. There are at most 16 receipts and 32 MiB retained output globally. Execute permits at most 4 concurrent operations/extension and 16 globally, with a one-second observation refresh interval. Structured args are at most 128 strings and 8 KiB encoded; configuration is at most 8 KiB. A disconnected or interrupted execution may have effects; never replay it automatically. See `guide bridge` for transport deadlines.
+
+The scaffold's browser helper supplies ordinary complete reads without copying a rate limiter:
+
+```js
+import { guestClient } from './guest-client.mjs'
+import { readConnectorOutput } from './connector-output.mjs'
+const client = guestClient(window.hvirExtension)
+// Subscribe before hello; call observe only after admitted capabilities and visible context.
+client.hello()
+window.addEventListener('pagehide', () => client.dispose(), { once: true })
+async function observe() {
+  const result = await client.request('connector.execute', {
+    connector: 'tool', host: 'local', args: ['--version'],
+  })
+  try {
+    if (!result.receipt) throw new Error(`Native operation ${result.outcome}`)
+    const stdout = await readConnectorOutput(client, result, { maxBytes: 1024 * 1024 })
+    const stderr = await readConnectorOutput(client, result, { stream: 'stderr', maxBytes: 1024 * 1024 })
+    // Interpret outcome, code, signal, truncated and the tool's own schema here.
+    return { result, stdout, stderr }
+  } finally {
+    if (result.receipt) await client.request('connector.output', {
+      receipt: result.receipt, release: true,
+    }).catch(() => {})
+  }
+}
+```
+
+`readConnectorOutput(client,result,{stream,maxBytes,signal})` validates matching result/receipt metadata, exact advancing UTF-8 byte offsets, complete EOF and the chosen byte bound (default 4 MiB). It returns one complete stream, never retries execution and never decides tool success. Read stdout and stderr once; main-owned delivery.capture still needs the unreleased native receipt, so capture inside the caller's try block before finally releases it. For finite action work pass the actual action client. All drains share that guest's existing scheduler; four maximum receipts fit the bounded transfer design without separate reader queues. A stalled machine can still exceed the fixed lifetime; report refusal rather than replaying the command.
 
 ### terminal.start
 
