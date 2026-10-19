@@ -38,7 +38,12 @@ export function bindExposureMembers(document, client, ports) {
     }
   }
   function choose(row, checked) {
-    if (!active || loading || !ports.available()) return
+    if (!active) return
+    if (loading || !ports.available()) {
+      summary()
+      render()
+      return
+    }
     const next = new Map(selected)
     if (checked) next.set(row.id, row)
     else next.delete(row.id)

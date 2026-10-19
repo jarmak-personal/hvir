@@ -800,6 +800,49 @@ it('starts Group with the selected skill and requires explicit actual standalone
   expect(f.actions).toEqual([])
 })
 
+it.each(['add-checkbox', 'remove-checkbox', 'remove-selected'])(
+  'keeps visible membership and the reviewed request aligned after %s while preparing',
+  async (interaction) => {
+    const f = fixture()
+    f.selectLibrary()
+    f.click('group')
+    await f.pickerReady()
+    f.el('name').value = 'Owned'
+    f.holdPlan()
+    f.click('preview')
+    await vi.waitFor(() => expect(f.planWaiting).toBe(true))
+    if (interaction === 'remove-selected')
+      f.el('selected-members').querySelector('button')!.click()
+    else
+      document
+        .querySelector<HTMLInputElement>(
+          `[data-skill-id="${interaction === 'add-checkbox' ? 'lib/second' : f.source.id}"]`,
+        )!
+        .click()
+    expect(
+      document.querySelector<HTMLInputElement>(`[data-skill-id="${f.source.id}"]`)!
+        .checked,
+    ).toBe(true)
+    expect(
+      document.querySelector<HTMLInputElement>('[data-skill-id="lib/second"]')!.checked,
+    ).toBe(false)
+    expect(
+      [...f.el('selected-members').querySelectorAll('button')].map((item) => item.title),
+    ).toEqual([`${f.library.id} · ${f.source.id}`])
+    expect(f.el('selected-count').textContent).toBe('1 selected')
+    f.releasePlan()
+    await vi.waitFor(() => expect(f.el('confirm').disabled).toBe(false))
+    expect((JSON.parse(f.el('plan').textContent) as Plan).request.members).toEqual([
+      f.source.id,
+    ])
+    f.click('confirm')
+    await vi.waitFor(() => expect(f.actions).toHaveLength(1))
+    expect((JSON.parse(f.actions[0]!.input.request) as Request).members).toEqual([
+      f.source.id,
+    ])
+  },
+)
+
 it('refuses a changed selection while preparing the complete plan', async () => {
   const f = fixture()
   f.selectLibrary()
