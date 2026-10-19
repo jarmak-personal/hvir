@@ -4,7 +4,11 @@ import {
   metadataText as text,
   metadataSourcePath as sourcePath,
 } from './public-metadata.mjs'
-import { SkillagerSetupError, projectInventoryRequirement } from './library-first-use.mjs'
+import {
+  SkillagerSetupError,
+  projectInventoryRequirement,
+  projectQueryRequirement,
+} from './library-first-use.mjs'
 export const MINIMUM_SKILLAGER = '0.9.3'
 export function requireVersion(text) {
   const match = /skillager\s+(\d+)\.(\d+)\.(\d+)/u.exec(text)
@@ -137,13 +141,12 @@ export function searchPage(value, workspace) {
     presence: data.context?.installed_observation ?? 'unknown',
   }
 }
-/** Only this command owns the meaning of argparse's unsupported project scope. */
+/** This command owns argparse's unsupported project inventory and filtering facts. */
 export function projectInventoryFailure(error) {
-  if (
-    error.cli?.outcome === 'completed' &&
-    error.cli.code === 2 &&
-    /argument --scope: invalid choice: ['"]project['"]/u.test(error.cli.stderr)
-  )
+  if (error.cli?.outcome !== 'completed' || error.cli.code !== 2) return error
+  if (/unrecognized arguments: --query(?: |$)/u.test(error.cli.stderr))
+    return new SkillagerSetupError('update-required', projectQueryRequirement)
+  if (/argument --scope: invalid choice: ['"]project['"]/u.test(error.cli.stderr))
     return new SkillagerSetupError('update-required', projectInventoryRequirement)
   return error
 }
@@ -191,12 +194,29 @@ export function projectInventory(value, workspace) {
       )
         throw new Error('Skillager returned an invalid project occurrence')
       identities.add(id)
-      const exposure = managed ? object(row.exposure) : undefined
+      const observedExposure = managed ? object(row.exposure) : undefined
+      const exposure = observedExposure && {
+        exposure_id: text(observedExposure.exposure_id, 256),
+        skill_id: text(observedExposure.skill_id, 256),
+        target: sourcePath(observedExposure.target),
+        agent: text(observedExposure.agent, 80),
+        scope: observedExposure.scope,
+        mode: observedExposure.mode,
+        ...(row.kind === 'router'
+          ? {}
+          : {
+              source_library_id: sourceLibraryId(observedExposure.source_library_id),
+            }),
+      }
       if (
         exposure &&
-        (exposure.scope !== 'project' ||
+        (observedExposure.schema !== 'skillager.exposure.v1' ||
+          !exposure.exposure_id ||
+          !exposure.agent ||
+          exposure.skill_id !== row.id ||
+          exposure.scope !== 'project' ||
           exposure.agent !== native.agent ||
-          `${text(exposure.target)}/SKILL.md` !== path ||
+          `${exposure.target}/SKILL.md` !== path ||
           exposure.mode !== (row.kind === 'full' ? 'native' : row.kind))
       )
         throw new Error('Managed project occurrence does not match its exposure')
@@ -214,6 +234,7 @@ export function projectInventory(value, workspace) {
         source: 'project',
         host: 'local',
         workspaceId: workspace.id,
+        ...(exposure ? { exposure } : {}),
         kind:
           row.kind === 'native'
             ? 'Project original'
@@ -229,6 +250,10 @@ export function projectInventory(value, workspace) {
     coverage: observation.status,
     detail: `${observation.error_count} observation issue${observation.error_count === 1 ? '' : 's'}${errors.length ? `\n${errors.join('\n')}` : ''}`,
   }
+}
+function sourceLibraryId(value) {
+  if (value === null || validLibraryId(value)) return value
+  throw new Error('Managed project occurrence has an invalid source library identity')
 }
 export function searchArgs(
   query,
@@ -269,6 +294,7 @@ export function detailInputFor(row, library) {
     throw new Error('Selected source lacks an exact observing host/workspace')
   const identity = {
     id: row.id,
+    ...(row.skillId ? { skillId: row.skillId } : {}),
     path: row.path,
     source: row.source,
     host: row.host,
@@ -277,6 +303,7 @@ export function detailInputFor(row, library) {
     kind: row.kind,
     status: row.status,
     ...(validCanonical(row.canonical) ? { canonical: row.canonical } : {}),
+    ...(row.exposure ? { exposure: row.exposure } : {}),
   }
   const input = {
     selection: `${Date.now()}-${++selectionSerial}`,
@@ -297,10 +324,15 @@ export function detailInputFor(row, library) {
 function validCanonical(value) {
   return (
     value &&
-    typeof value.library_id === 'string' &&
-    /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(value.library_id) &&
+    validLibraryId(value.library_id) &&
     typeof value.skill_id === 'string' &&
     /^lib\/[a-z0-9][a-z0-9._/-]{0,251}$/iu.test(value.skill_id)
+  )
+}
+function validLibraryId(value) {
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(value)
   )
 }
 

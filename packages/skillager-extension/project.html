@@ -36,29 +36,9 @@
           id="query"
           class="hvir-input"
           type="search"
-          aria-label="Skillager indexed search"
+          aria-label="Search project skills"
           placeholder="Search skills"
         /><button class="hvir-button" type="submit">Search</button>
-        <details class="search-options">
-          <summary>Search options</summary>
-          <div>
-            <label
-              ><input id="include-installed" type="checkbox" checked /><span
-                id="installed-label"
-                >Include installed</span
-              ></label
-            ><label><input id="separate-copies" type="checkbox" /> Separate copies</label
-            ><label
-              >Preferred agent
-              <select id="preferred-agent" class="hvir-input">
-                <option value="">All agents</option>
-                <option value="codex">Codex</option>
-                <option value="claude">Claude</option>
-              </select></label
-            >
-          </div>
-          <p id="installed-note" class="hvir-meta"></p>
-        </details>
       </form>
       <details id="program-setup" hidden>
         <summary>Set up Skillager with your agent</summary>

@@ -1,3 +1,4 @@
+import type { ExtensionSourceBinding } from '../../src/shared/extensions/source-access'
 import type { ExtensionManifest } from '../../src/shared/extensions/contract'
 import type { DocumentMarkdownOwner } from '../../src/main/viewer/document-markdown-owner'
 import { vi } from 'vitest'
@@ -71,13 +72,21 @@ export function sourceFixture(
     }),
   }
   const workspaces = [{ id: 'workspace', name: 'Workspace', host: hostId, root }]
+  const revoked = vi.fn(
+    (
+      id: string,
+      source?: string,
+      binding?: ExtensionSourceBinding,
+      _cancelRequests?: boolean,
+    ) => reading.revoke(id, source, binding),
+  )
   const approvals = new ExtensionSourceApprovalOwner(
     {
       local: { hostId: asHostId('local') },
       hostById: (id) => (id === hostId ? host : undefined),
     },
     authority,
-    (id, source) => reading.revoke(id, source),
+    revoked,
     { workspaces: () => workspaces },
   )
   const reading = new ExtensionSourceReadingOwner(approvals, markdown)
@@ -111,6 +120,7 @@ export function sourceFixture(
     workspaces,
     authority,
     approvals,
+    revoked,
     reading,
     caller,
     controller,

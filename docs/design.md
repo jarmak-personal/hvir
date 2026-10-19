@@ -606,6 +606,7 @@ local storage while public starter lifetimes and ordinary enablement retain thei
 ### [ADR-057 — Selected extension source reading](adr/ADR-057-selected-extension-source-reading.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-073](adr/ADR-073-exact-workspace-source-grants.md) | partial | Read-only workspace grant retention and contextual workspace read consent only.
 > Superseded by: [ADR-068](adr/ADR-068-in-context-human-source-read-decisions.md) | partial | Settings-only application-local read-only root decision surface only.
 
 Explicit source grants and selection-bound reads keep current instruction viewing separate
@@ -698,7 +699,8 @@ custom intent remains available, and unknown-target completion requires public r
 
 ### [ADR-068 — In-context human source read decisions](adr/ADR-068-in-context-human-source-read-decisions.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-073](adr/ADR-073-exact-workspace-source-grants.md) | partial | Read-only workspace grant retention and contextual workspace read consent only.
 > Supersedes: [ADR-057](adr/ADR-057-selected-extension-source-reading.md) | partial | Settings-only application-local read-only root decision surface only.
 
 Current ordinary human instruction reads propose a canonical local scope through the existing
@@ -741,6 +743,15 @@ complete-file inspection, and explicit trusted project targeting for independent
 Packages may declare sixteen semantic actions within the existing manifest and discovery bounds;
 invocation capacity, payloads, deadlines, caller provenance and grants remain independently bounded.
 
+
+### [ADR-073 — Exact workspace source grants and contextual read requests](adr/ADR-073-exact-workspace-source-grants.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-057](adr/ADR-057-selected-extension-source-reading.md) | partial | Read-only workspace grant retention and contextual workspace read consent only.
+> Supersedes: [ADR-068](adr/ADR-068-in-context-human-source-read-decisions.md) | partial | Read-only workspace grant retention and contextual workspace read consent only.
+
+Read-only workspace source grants remain independently reusable and revocable; contextual requests use
+only the caller's main-admitted exact workspace. Application scope and body confinement remain unchanged.
 
 ## 5. Architecture
 

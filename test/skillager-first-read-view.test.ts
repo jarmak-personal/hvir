@@ -11,6 +11,7 @@ afterEach(() => {
 })
 function fixture(
   options: {
+    project?: boolean
     cadence?: boolean
     omitRoot?: boolean
     inline?: boolean
@@ -215,10 +216,20 @@ function fixture(
       kind: 'context',
       context: {
         visible,
+        ...(options.project
+          ? {
+              workspace: {
+                id: 'project',
+                host: 'local',
+                root: { hostId: 'local', path: '/library' },
+              },
+            }
+          : {}),
         input: {
           selection,
           row: {
-            source: 'library',
+            source: options.project ? 'project' : 'library',
+            ...(options.project ? { workspaceId: 'project' } : {}),
             host: 'local',
             path: '/library/skill/SKILL.md',
             name: 'Skill',
@@ -731,3 +742,23 @@ it.each([true, false])(
       )
   },
 )
+
+it('requests a project read using only its declared source, then selects the exact project occurrence', async () => {
+  const f = fixture({ project: true })
+  f.context()
+  await f.flush()
+  expect(f.sent.find((entry) => entry.capability === 'source.request')?.input).toEqual({
+    source: 'project',
+  })
+  expect(f.sent.some((entry) => entry.capability === 'source.select')).toBe(false)
+  f.decide(true)
+  await f.flush()
+  expect(f.sent.find((entry) => entry.capability === 'source.select')?.input).toEqual({
+    source: 'project',
+    path: { hostId: 'local', path: '/library/skill/SKILL.md' },
+    workspaceId: 'project',
+  })
+  expect(document.getElementById('instructions')?.textContent).toBe(
+    '# Current instruction',
+  )
+})

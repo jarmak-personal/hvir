@@ -160,7 +160,7 @@ it('replaces queued paging with explicit search/filter intent through a pending 
 })
 
 it.each(['library', 'ssh', 'local'])(
-  'defaults installed controls only for available exact local workspace (%s)',
+  'keeps Library options on Library and omits them from Project (%s)',
   async (kind) => {
     const f = packageView(kind === 'library' ? 'library' : 'project')
     f.context(
@@ -174,10 +174,19 @@ it.each(['library', 'ssh', 'local'])(
           },
     )
     await f.flush()
-    const installed = document.getElementById('include-installed') as HTMLInputElement
-    expect(installed.checked).toBe(kind === 'local')
-    expect(installed.disabled).toBe(kind !== 'local')
-    if (kind !== 'local') expect(installed.title).toContain('unknown')
+    const installed = document.getElementById(
+      'include-installed',
+    ) as HTMLInputElement | null
+    if (kind === 'library') {
+      expect(installed?.checked).toBe(false)
+      expect(installed?.disabled).toBe(true)
+      expect(installed?.title).toContain('unknown')
+    } else {
+      expect(installed).toBeNull()
+      expect(document.querySelector('.search-options')).toBeNull()
+      expect(document.getElementById('separate-copies')).toBeNull()
+      expect(document.getElementById('preferred-agent')).toBeNull()
+    }
     if (kind === 'ssh') expect(f.calls).toEqual([])
   },
 )
@@ -277,7 +286,7 @@ const projectConnection = (outcome = 'connected') => ({
     { connector: 'project-cli', outcome, explanation: 'Opaque core connection fact' },
   ],
 })
-it('connects the current project and automatically preserves exact query/options without library program approval', async () => {
+it('connects the current project and automatically preserves project query without library program approval or search options', async () => {
   const f = packageView('project')
   f.projectApproval(false)
   f.libraryApproval(false)
@@ -285,8 +294,6 @@ it('connects the current project and automatically preserves exact query/options
   await f.flush()
   expect(f.button('connect-program').hidden).toBe(false)
   expect(document.getElementById('state')?.textContent).toContain('for this project')
-  ;(document.getElementById('separate-copies') as HTMLInputElement).checked = true
-  ;(document.getElementById('preferred-agent') as HTMLSelectElement).value = 'claude'
   submitQuery('exact query')
   await f.flush()
   f.button('connect-program').click()
@@ -306,13 +313,18 @@ it('connects the current project and automatically preserves exact query/options
     ),
   ).toBe(true)
   const search = commands.at(-1)!.input.args as string[]
-  expect(search[0]).toBe('search')
-  expect(search[1]).toBe('exact query')
-  expect(search[search.indexOf('--installed-project') + 1]).toBe('/project-a')
-  expect(search[search.indexOf('--view') + 1]).toBe('copies')
-  expect(search[search.indexOf('--agent') + 1]).toBe('claude')
+  expect(search).toEqual([
+    'list',
+    '--scope',
+    'project',
+    '--json',
+    '--limit',
+    '100',
+    '--query',
+    'exact query',
+  ])
   expect(f.button('connect-program').hidden).toBe(true)
-  expect(document.getElementById('state')?.dataset.state).toBe('ready')
+  expect(document.getElementById('state')?.dataset.state).toBe('empty')
   expect(f.initializationRequests).toEqual([])
 })
 it('opens the library from an explicit project surface through existing context inheritance', async () => {
@@ -337,7 +349,6 @@ it.each(['timer', 'query'] as const)(
     await f.flush()
     if (edge === 'timer') await vi.advanceTimersByTimeAsync(31_000)
     else {
-      ;(document.getElementById('separate-copies') as HTMLInputElement).checked = true
       submitQuery('new query')
       await f.flush()
     }
@@ -348,9 +359,11 @@ it.each(['timer', 'query'] as const)(
     const command = f.requests.filter((r) => r.capability === 'connector.execute').at(-1)!
     const args = command.input.args as string[]
     expect(command.input.connector).toBe('project-cli')
-    expect(args[1]).toBe(edge === 'timer' ? 'retained query' : 'new query')
-    expect(args[args.indexOf('--view') + 1]).toBe(edge === 'timer' ? 'skills' : 'copies')
-    expect(document.getElementById('state')?.dataset.state).toBe('ready')
+    expect(args[args.indexOf('--query') + 1]).toBe(
+      edge === 'timer' ? 'retained query' : 'new query',
+    )
+    expect(args).not.toContain('--view')
+    expect(document.getElementById('state')?.dataset.state).toBe('empty')
   },
 )
 it.each(['declined', 'unavailable', 'interrupted-uncertain'] as const)(
@@ -437,7 +450,7 @@ it.each(['switch', 'roundtrip', 'root', 'hide'] as const)(
     expect(f.calls).toHaveLength(resumed) // Retired result does not trigger refresh.
     await vi.advanceTimersByTimeAsync(31_000)
     expect(f.calls.length).toBeGreaterThan(resumed)
-    expect(document.getElementById('state')?.dataset.state).toBe('ready')
+    expect(document.getElementById('state')?.dataset.state).toBe('empty')
     expect((document.getElementById('query') as HTMLInputElement).value).toBe(
       'kept query',
     )
@@ -517,14 +530,16 @@ it('shows supported-release update guidance in the project tab without initializ
   expect(
     (document.getElementById('setup-request') as HTMLTextAreaElement).value,
   ).toContain('Project inventory requires Skillager 0.9.7 or a supported source build.')
+  expect(
+    (document.getElementById('setup-request') as HTMLTextAreaElement).value,
+  ).toContain('Verify list --scope project --query with pagination.')
   expect(f.initializationRequests).toEqual([])
 })
 
 it.each(['ssh', 'missing-root'] as const)(
-  'guides an unapproved independent library query in %s context to application Program access',
+  'keeps project queries in %s context unavailable instead of falling through to Library',
   async (kind) => {
     const f = packageView('project')
-    f.libraryApproval(false)
     f.context(
       true,
       kind === 'ssh'
@@ -532,32 +547,14 @@ it.each(['ssh', 'missing-root'] as const)(
         : { id: 'project-a', host: 'local' },
     )
     await f.flush()
-    expect(f.calls).toEqual([]) // Unknown project presence did not run a local project command.
-    expect(document.getElementById('state')?.textContent).toContain('this project')
-    submitQuery('independent library query')
+    submitQuery('project query')
     await f.flush()
-    const commands = f.requests.filter(
-      (request) => request.capability === 'connector.execute',
-    )
-    expect(commands.length).toBeGreaterThan(0)
-    expect(
-      commands.every(
-        (request) =>
-          request.input.connector === 'library-cli' &&
-          request.input.host === 'local' &&
-          !request.input.workspace,
-      ),
-    ).toBe(true)
-    expect(
-      commands.every(
-        (request) => !(request.input.args as string[]).includes('--installed-project'),
-      ),
-    ).toBe(true)
-    expect(document.getElementById('state')?.textContent).toContain('Program access')
-    expect(document.getElementById('state')?.textContent).not.toContain(
-      'Project program access',
-    )
+    expect(f.calls).toEqual([])
+    expect(document.getElementById('state')?.textContent).toContain('this project')
     expect(f.button('connect-program').hidden).toBe(true)
+    f.button('open-library').click()
+    await f.flush()
+    expect(f.opened).toEqual([{ contributionId: 'library' }])
   },
 )
 
@@ -663,74 +660,42 @@ it('requires renewed package visibility before retained ready rows can open a re
   expect(document.querySelectorAll('#skills [role="option"]')).toHaveLength(1)
 })
 
-it('qualifies library search selections from an SSH project through public application status without substituting the host', async () => {
-  const f = packageView('project'),
-    id = '720e24b1-53e0-45f6-a84e-3df65177b38c'
-  f.identities(id)
+it('keeps explicit Library search local when the selected project is SSH', async () => {
+  const f = packageView('library')
   f.context(true, { id: 'ssh', host: 'ssh-host', name: 'Remote' })
   await f.flush()
-  ;(document.getElementById('query') as HTMLInputElement).value = 'skill'
-  document
-    .getElementById('search-form')!
-    .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  submitQuery('skill')
   await f.flush()
   ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
   await f.flush()
-  expect(f.opened).toHaveLength(1)
-  expect(f.opened[0]).toMatchObject({
-    input: {
-      library: { id, root: '/library' },
-      row: { host: 'local', source: 'library' },
-    },
-  })
-  expect(f.calls.some((args) => args[0] === 'library')).toBe(true)
+  expect((document.getElementById('reader-content') as HTMLElement).hidden).toBe(false)
+  expect(f.calls.some((args) => args[0] === 'search')).toBe(true)
   expect(f.calls.some((args) => args.includes('--installed-project'))).toBe(false)
+  expect(
+    f.requests
+      .filter((r) => r.capability === 'connector.execute')
+      .every((r) => r.input.connector === 'library-cli'),
+  ).toBe(true)
 })
-
-async function searchedProjectLibrary() {
-  const f = packageView('project'),
-    id = '720e24b1-53e0-45f6-a84e-3df65177b38c'
-  f.identities(id)
-  f.context(true, { id: 'ssh', host: 'ssh-host', name: 'Remote' })
+it('refuses a Library search occurrence from a different public library identity', async () => {
+  const f = packageView('library')
+  f.identities(
+    '720e24b1-53e0-45f6-a84e-3df65177b38c',
+    '720e24b1-53e0-45f6-a84e-3df65177b38d',
+  )
+  f.context()
   await f.flush()
-  ;(document.getElementById('query') as HTMLInputElement).value = 'skill'
-  document
-    .getElementById('search-form')!
-    .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  submitQuery('skill')
   await f.flush()
-  return { ...f, id }
-}
-it('does not retarget a project search occurrence when the public library UUID changed', async () => {
-  const f = await searchedProjectLibrary()
-  f.identities('replacement', f.id)
   ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
   await f.flush()
-  expect(f.opened).toEqual([])
   expect(document.getElementById('state')?.textContent).toContain(
     'personal library changed',
   )
+  expect(f.opened).toEqual([])
 })
-it.each(['hide', 'generation', 'new selection'] as const)(
-  'does not open a project result from a stale explicit selection status reply after %s',
-  async (edge) => {
-    const f = await searchedProjectLibrary()
-    f.hold()
-    ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
-    await vi.advanceTimersByTimeAsync(100)
-    if (edge === 'hide') f.context(false)
-    if (edge === 'generation') f.button('browse').click()
-    if (edge === 'new selection') {
-      ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
-      await f.flush()
-    }
-    f.resume()
-    await f.flush()
-    expect(f.opened).toHaveLength(edge === 'new selection' ? 1 : 0)
-    expect(f.calls.some((args) => args.includes('--installed-project'))).toBe(false)
-  },
-)
 it('does not substitute a selected library occurrence outside the public reported root', async () => {
-  const f = packageView('project'),
+  const f = packageView('library'),
     id = '720e24b1-53e0-45f6-a84e-3df65177b38c'
   f.identities(id)
   f.searchPath('/another/SKILL.md')

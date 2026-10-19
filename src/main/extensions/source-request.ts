@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import {
   SOURCE_LIMITS,
+  sameSourceBinding,
+  type ExtensionSourceBinding,
   type ExtensionSourceRequestProposal,
   type ExtensionSourceRequestResult,
 } from '../../shared/extensions/source-access'
@@ -10,6 +12,9 @@ import { readSourcePath, type ExtensionSourceApprovalOwner } from './source-appr
 import type { SourceCaller } from './source-reading'
 
 interface SourceDecision {
+  readonly installation: string
+  readonly source: string
+  readonly binding?: ExtensionSourceBinding
   readonly owner: RendererOwner
   readonly controller: AbortController
   readonly current: () => void
@@ -31,6 +36,7 @@ export class ExtensionSourceRequestOwner {
       | 'hasPrepared'
       | 'decisionCurrent'
       | 'canReuseGrant'
+      | 'prepareWorkspaceRead'
     >,
     private readonly foreground: (owner: RendererOwner) => boolean,
     private readonly publish: (
@@ -48,22 +54,50 @@ export class ExtensionSourceRequestOwner {
       throw new Error('Read access requires an ordinary human-selected view')
     const input = extensionObject(value)
     if (Object.keys(input).some((key) => !['source', 'root'].includes(key)))
-      throw new Error('Request a declared application source and its local root only')
+      throw new Error(
+        'Request only a declared source and, for application sources, its local root',
+      )
     const source = extensionId(input['source'])
     const declaration = caller.activation.revision.manifest.access.find(
       (entry) => entry.id === source,
     )
-    if (declaration?.context !== 'application' || declaration.mode !== 'read-only')
-      throw new Error(
-        'In-context requests cover application-local read-only sources only',
-      )
-    const root = readSourcePath(input['root'])
+    if (!declaration || declaration.mode !== 'read-only')
+      throw new Error('In-context requests cover read-only sources only')
+    const context = declaration.context === 'workspace' ? caller.context() : undefined
+    if (
+      declaration.context === 'workspace' &&
+      (Object.hasOwn(input, 'root') ||
+        !context?.root ||
+        !context.value.workspace ||
+        !context.current())
+    )
+      throw new Error('Workspace requests use only the current main-admitted workspace')
+    const root = context?.root ?? readSourcePath(input['root'])
+    const binding = context
+      ? { workspaceId: context.value.workspace!.id, root }
+      : undefined
     const controller = new AbortController()
     const signal = AbortSignal.any([caller.signal, controller.signal])
     let proposalToken: string | undefined
+    let workspaceRead:
+      | Awaited<ReturnType<ExtensionSourceApprovalOwner['prepareWorkspaceRead']>>
+      | undefined
     const current = this.approvals.decisionCurrent(() => {
       signal.throwIfAborted()
       caller.current()
+      if (
+        binding &&
+        (!context?.current() ||
+          !caller.context()?.root ||
+          !sameSourceBinding(
+            {
+              workspaceId: caller.context()?.value.workspace?.id,
+              root: caller.context()?.root,
+            },
+            binding,
+          ))
+      )
+        throw new Error('Read access workspace changed')
       this.scopes.assertCurrent(owner)
       if (this.disposed || !this.foreground(owner))
         throw new Error('Read access request ended')
@@ -73,11 +107,22 @@ export class ExtensionSourceRequestOwner {
     current()
     if (this.pending.size >= SOURCE_LIMITS.decisions)
       throw new Error('Too many pending source decisions')
-    const pending: SourceDecision = { owner, controller, current }
+    const pending: SourceDecision = {
+      owner,
+      controller,
+      current: () => {
+        current()
+        if (pending.proposal?.state === 'ready') workspaceRead?.current()
+      },
+      installation: caller.activation.installationId,
+      source,
+      ...(binding ? { binding } : {}),
+    }
     this.pending.add(pending)
     let token: string | undefined
     const retire = (): void => {
       if (token) this.approvals.cancelPrepared(token)
+      workspaceRead?.cancel()
       proposalToken = undefined
       if (!pending.proposal) return
       delete pending.proposal
@@ -113,7 +158,24 @@ export class ExtensionSourceRequestOwner {
       SOURCE_LIMITS.decisionMs,
     )
     try {
-      if (await this.approvals.canReuseGrant(caller.activation, source, root, current))
+      let preparationFailure: { reason: unknown } | undefined
+      if (context) {
+        try {
+          workspaceRead = await this.approvals.prepareWorkspaceRead(
+            caller.activation,
+            source,
+            context,
+            current,
+            signal,
+          )
+          if (workspaceRead.reused) return { granted: true }
+        } catch (reason) {
+          current()
+          preparationFailure = { reason }
+        }
+      } else if (
+        await this.approvals.canReuseGrant(caller.activation, source, root, current)
+      )
         return { granted: true }
       current()
       pending.proposal = {
@@ -127,18 +189,24 @@ export class ExtensionSourceRequestOwner {
       this.publish(owner, this.snapshot(owner))
       current()
       try {
-        const prepared = await this.approvals.prepare(
-          { installationId: caller.activation.installationId, source, root },
-          current,
-        )
-        token = prepared.token
+        if (preparationFailure) throw preparationFailure.reason
+        workspaceRead?.current()
+        let grant = workspaceRead?.grant
+        if (!grant) {
+          const prepared = await this.approvals.prepare(
+            { installationId: caller.activation.installationId, source, root },
+            current,
+          )
+          token = prepared.token
+          grant = prepared.grant
+        }
         current()
         proposalToken = token
         if (pending.proposal)
           pending.proposal = {
             ...pending.proposal,
             state: 'ready',
-            root: prepared.grant.root!,
+            root: grant.root!,
           }
       } catch (reason) {
         current()
@@ -159,7 +227,8 @@ export class ExtensionSourceRequestOwner {
       current()
       if (!accepted) return { granted: false }
       // Await the owning physical write; cancellation cannot prove its rollback.
-      await this.approvals.approve(token!)
+      if (workspaceRead) await workspaceRead.approve()
+      else await this.approvals.approve(token!)
       current()
       return { granted: true }
     } finally {
@@ -169,6 +238,7 @@ export class ExtensionSourceRequestOwner {
         retire()
       } finally {
         if (token) this.approvals.cancelPrepared(token)
+        workspaceRead?.cancel()
         this.pending.delete(pending)
         controller.abort()
       }
@@ -199,6 +269,15 @@ export class ExtensionSourceRequestOwner {
       throw reason
     }
     settle(accepted)
+  }
+  revoke(installation: string, source?: string, binding?: ExtensionSourceBinding): void {
+    for (const entry of this.pending)
+      if (
+        entry.installation === installation &&
+        (!source || entry.source === source) &&
+        (!binding || (entry.binding && sameSourceBinding(entry.binding, binding)))
+      )
+        entry.controller.abort(new Error('Read access decision was revoked'))
   }
   revalidate(): void {
     for (const entry of this.pending) {

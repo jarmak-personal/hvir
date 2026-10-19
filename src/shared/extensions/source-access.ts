@@ -3,6 +3,7 @@ import { extensionId, extensionObject, extensionText } from './validation'
 
 export const SOURCE_LIMITS = {
   declarations: 4,
+  grants: 128,
   stateBytes: 128 * 1024,
   textBytes: 2 * 1024 * 1024,
   assetBytes: 2 * 1024 * 1024,
@@ -25,6 +26,20 @@ export interface ExtensionSourceGrant {
   readonly declaration: ExtensionSourceDeclaration
   readonly root?: HostPath
   readonly workspaceId?: string
+}
+export interface ExtensionSourceBinding {
+  readonly workspaceId: string
+  readonly root: HostPath
+}
+export function sameSourceBinding(
+  value: { readonly workspaceId?: string; readonly root?: HostPath },
+  binding: ExtensionSourceBinding,
+): boolean {
+  return (
+    value.workspaceId === binding.workspaceId &&
+    value.root?.hostId === binding.root.hostId &&
+    value.root.path === binding.root.path
+  )
 }
 export interface ExtensionSourceSelection {
   readonly installationId: string

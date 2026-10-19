@@ -29,7 +29,7 @@ export async function requestGuestSource(
 ): Promise<unknown> {
   if (capability === 'source.status')
     return sources.approvals
-      .status(record.activation)
+      .status(record.activation, record.context)
       .map(({ root: _root, ...status }) => status)
   const caller = {
     activation: record.activation,

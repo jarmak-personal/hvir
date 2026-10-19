@@ -43,7 +43,7 @@ let lastPage,
   query = '',
   cursor,
   previous = [],
-  searchOptions = {},
+  searchOptions = view === 'library' ? {} : undefined,
   selectedRow,
   pageRequest
 const state = element('state'),
@@ -131,22 +131,7 @@ async function choose(row, sourceLibrary) {
     throw new Error(
       'Selected installed presence is unknown for this workspace; no host was substituted',
     )
-  let selectedLibrary = sourceLibrary ?? library
-  if (row.source === 'library' && view === 'project') {
-    if (!row.canonical)
-      throw new Error(
-        'Selected library result lacks its public library identity; no source was substituted.',
-      )
-    try {
-      selectedLibrary = sameCurrentLibrary(
-        { id: row.canonical.library_id },
-        libraryStatus(await cli(['library', 'status', '--json'])),
-      )
-    } catch (error) {
-      if (!current()) return
-      throw error
-    }
-  }
+  const selectedLibrary = sourceLibrary ?? library
   if (!current()) return
   if (row.source === 'library') {
     sameCurrentLibrary(
@@ -218,7 +203,7 @@ function rows(page) {
   const observed = new Date().toLocaleTimeString()
   if (element('observation-details'))
     element('observation-details').textContent =
-      `${page.rows.length} rows · Page ${previous.length + 1} · observed ${observed}${view === 'project' && !query ? ` · ${page.coverage} project observation\n${page.detail}` : query ? ` · ${page.presence ?? 'unknown'} installed presence` : ''}`
+      `${page.rows.length} rows · Page ${previous.length + 1} · observed ${observed}${view === 'project' ? ` · ${page.coverage} project observation\n${page.detail}` : query ? ` · ${page.presence ?? 'unknown'} installed presence` : ''}`
   if (page.coverage === 'partial')
     say(
       `${page.rows.length ? `${page.rows.length} skills · ` : ''}Some project skills could not be loaded.`,
@@ -244,7 +229,8 @@ function pagingControls() {
   const changingSearch =
     pageRequest &&
     (pageRequest.query !== query ||
-      JSON.stringify(pageRequest.options) !== JSON.stringify(searchOptions))
+      (view === 'library' &&
+        JSON.stringify(pageRequest.options) !== JSON.stringify(searchOptions)))
   if (element('next')) element('next').disabled = !!changingSearch || !lastPage?.next
   if (element('previous'))
     element('previous').disabled = !!changingSearch || previous.length === 0
@@ -252,7 +238,7 @@ function pagingControls() {
 function requestRefresh(
   target = pageRequest ?? {
     query,
-    options: searchOptions,
+    ...(view === 'library' ? { options: searchOptions } : {}),
     cursor,
     previous: [...previous],
   },
@@ -263,7 +249,12 @@ function requestRefresh(
     connectionDetail = ''
     refreshConnectionAvailability()
   }
-  pageRequest = { query, options: searchOptions, ...pageRequest, ...target }
+  pageRequest = {
+    query,
+    ...(view === 'library' ? { options: searchOptions } : {}),
+    ...pageRequest,
+    ...target,
+  }
   // A newer page intent cannot discard a refresh whose status has not settled.
   libraryStatusNeeded ||= observeLibrary
   pagingControls()
@@ -280,7 +271,7 @@ async function refresh() {
     connecting = connectionPhase === 'observing' ? connectionIntent : undefined,
     target = pageRequest ?? {
       query,
-      options: searchOptions,
+      ...(view === 'library' ? { options: searchOptions } : {}),
       cursor,
       previous: [...previous],
     }
@@ -296,8 +287,7 @@ async function refresh() {
   )
   const project = scope(),
     workspace = view === 'project' ? localWorkspace(project?.workspace) : undefined,
-    failureDestination =
-      view === 'project' && target.query && !workspace ? 'library' : view
+    failureDestination = view
   let observedSuccessfully = false
   try {
     let page
@@ -334,20 +324,7 @@ async function refresh() {
         return
       }
     }
-    if (target.query) {
-      const root = workspace?.root.path
-      page = searchPage(
-        await cli(
-          searchArgs(target.query, {
-            ...target.options,
-            cursor: target.cursor ?? '',
-            ...(root ? { installedProject: root } : {}),
-          }),
-          workspace ? project : undefined,
-        ),
-        workspace,
-      )
-    } else if (view === 'project') {
+    if (view === 'project') {
       if (!workspace)
         throw new Error(
           'Project presence is unknown without an available exact local root. Open Your library for independent local browsing; no remote CLI is run.',
@@ -361,11 +338,18 @@ async function refresh() {
             '--json',
             '--limit',
             '100',
+            ...(target.query ? ['--query', target.query] : []),
             ...(target.cursor ? ['--cursor', target.cursor] : []),
           ],
           project,
         ),
         workspace,
+      )
+    } else if (target.query) {
+      page = searchPage(
+        await cli(
+          searchArgs(target.query, { ...target.options, cursor: target.cursor ?? '' }),
+        ),
       )
     } else {
       page = libraryPage(
@@ -395,7 +379,7 @@ async function refresh() {
   } catch (error) {
     if (available() && generation === revision) {
       const failure = firstUseFailure(
-        view === 'project' && !target.query ? projectInventoryFailure(error) : error,
+        view === 'project' ? projectInventoryFailure(error) : error,
         !!lastPage,
         failureDestination,
         connectAvailable && (view !== 'project' || !!localWorkspace(context.workspace)),
@@ -548,15 +532,18 @@ on('connect-program', 'click', async () => {
 })
 on('search-form', 'submit', (event) => {
   event.preventDefault()
-  const options = {
-    includeInstalled: element('include-installed').checked,
-    separateCopies: element('separate-copies').checked,
-    preferredAgent: element('preferred-agent').value || undefined,
-  }
   requestRefresh(
     {
       query: element('query').value.trim(),
-      options,
+      ...(view === 'library'
+        ? {
+            options: {
+              includeInstalled: element('include-installed').checked,
+              separateCopies: element('separate-copies').checked,
+              preferredAgent: element('preferred-agent').value || undefined,
+            },
+          }
+        : {}),
       cursor: undefined,
       previous: [],
     },
@@ -565,7 +552,15 @@ on('search-form', 'submit', (event) => {
 })
 on('browse', 'click', () => {
   element('query').value = ''
-  requestRefresh({ query: '', options: {}, cursor: undefined, previous: [] }, false)
+  requestRefresh(
+    {
+      query: '',
+      ...(view === 'library' ? { options: {} } : {}),
+      cursor: undefined,
+      previous: [],
+    },
+    false,
+  )
 })
 on('refresh', 'click', () => {
   // Opaque cursors may expire as skills change; an explicit refresh starts a new page set.

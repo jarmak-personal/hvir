@@ -67,6 +67,7 @@ it('automatically lists and selects the exact pending project occurrence through
       input: {
         row: {
           id: original.occurrence_id,
+          skillId: original.id,
           path: original.skill_file,
           source: 'project',
           host: 'local',
@@ -100,6 +101,7 @@ it('uses the CLI page cursor without merging or repeating managed copies', async
     trust: null,
     native: { scope: 'project', managed: true, agent: 'claude' },
     exposure: {
+      schema: 'skillager.exposure.v1',
       exposure_id: 'copy-id',
       agent: 'claude',
       scope: 'project',
@@ -130,9 +132,19 @@ it('uses the CLI page cursor without merging or repeating managed copies', async
     input: {
       row: {
         id: managed.occurrence_id,
+        skillId: managed.id,
         path: managed.skill_file,
         kind: 'Installed Stub',
         status: 'present',
+        exposure: {
+          exposure_id: managed.exposure.exposure_id,
+          skill_id: managed.id,
+          agent: 'claude',
+          scope: 'project',
+          mode: 'stub',
+          target: managed.exposure.target,
+          source_library_id: managed.exposure.source_library_id,
+        },
         canonical: {
           library_id: managed.exposure.source_library_id,
           skill_id: 'lib/example',
@@ -269,3 +281,69 @@ it.each([false, true])(
     expect(f.initializationRequests).toEqual([])
   },
 )
+
+it('filters the project inventory before opaque pagination without importing library results', async () => {
+  const first = inventory()
+  first.next_cursor = 'filtered-next'
+  const f = view(first)
+  f.context(true, workspace)
+  await f.flush()
+  const input = document.getElementById('query') as HTMLInputElement
+  input.value = 'pending project'
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  const before = f.calls.length
+  await f.flush()
+  expect(f.calls).toHaveLength(before)
+  document
+    .getElementById('search-form')!
+    .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await f.flush()
+  expect(f.calls.at(-1)).toEqual([
+    'list',
+    '--scope',
+    'project',
+    '--json',
+    '--limit',
+    '100',
+    '--query',
+    'pending project',
+  ])
+  expect(rows()[0]?.dataset.id).toBe(original.occurrence_id)
+  f.projectInventory(inventory([]))
+  f.button('next').click()
+  await f.flush()
+  expect(f.calls.at(-1)).toEqual([
+    'list',
+    '--scope',
+    'project',
+    '--json',
+    '--limit',
+    '100',
+    '--query',
+    'pending project',
+    '--cursor',
+    'filtered-next',
+  ])
+  expect(f.calls.some((args) => args[0] === 'search')).toBe(false)
+  expect(rows()).toHaveLength(0)
+  expect(state().textContent).toContain('No matches')
+})
+
+it('names the required project query capability when inventory works but filtering is unsupported', async () => {
+  const f = view()
+  f.unsupportedProjectQuery()
+  f.context(true, workspace)
+  await f.flush()
+  ;(document.getElementById('query') as HTMLInputElement).value = 'example'
+  document
+    .getElementById('search-form')!
+    .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await f.flush()
+  expect(state().dataset.state).toBe('stale')
+  expect(state().textContent).toContain('Update Skillager')
+  expect(document.getElementById('observation-details')?.textContent).toContain(
+    'Project filtering requires Skillager 0.9.7 or a supported source build with list --scope project --query.',
+  )
+  expect(rows()[0]?.dataset.id).toBe(original.occurrence_id)
+  expect(f.calls.some((args) => args[0] === 'search')).toBe(false)
+})

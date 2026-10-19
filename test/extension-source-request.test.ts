@@ -465,9 +465,9 @@ describe('in-context canonical human read decision', () => {
       expect(f.state()).toEqual([])
     },
   )
-  it('does not admit workspace, agent, or caller-supplied authority requests', async () => {
+  it('does not admit guest-chosen workspace roots, agent, or caller-supplied authority requests', async () => {
     const f = await fixture('workspace')
-    await expect(f.request()).rejects.toThrow(/application-local/)
+    await expect(f.request()).rejects.toThrow(/main-admitted/)
     await expect(
       f.owner.request(
         { ...f.caller, allowed: false },

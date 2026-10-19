@@ -177,7 +177,7 @@ describe('trusted extension source grants', () => {
       },
     ])
     await f.approvals.start()
-    expect(f.approvals.get(f.activation, 'source')).toMatchObject({
+    expect(f.approvals.get(f.activation, 'source', f.caller.context())).toMatchObject({
       workspaceId: 'workspace',
       root: f.root,
     })

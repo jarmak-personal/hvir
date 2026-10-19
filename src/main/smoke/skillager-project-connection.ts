@@ -6,6 +6,7 @@ import {
 } from 'electron'
 import { joinHostPath, localPath, type HostPath } from '../../shared/host-path'
 import { pathToFileURL } from 'node:url'
+import { createHash } from 'node:crypto'
 import type { ProjectHost } from '../project-host/project-host'
 import { trustedRendererControl } from './trusted-renderer-control'
 
@@ -21,6 +22,8 @@ export async function verifySkillagerProjectConnection(
     ready(predicate: () => Promise<boolean>, label: string): Promise<void>
     within<T>(work: Promise<T>): Promise<T>
     reopen(): Promise<WebContents>
+    reader(): Promise<WebContents>
+    hasReadDecision(): boolean
   },
 ): Promise<void> {
   const skill = joinHostPath(root, '.agents', 'skills', 'project-connection-proof')
@@ -34,10 +37,9 @@ export async function verifySkillagerProjectConnection(
         if ((reason as { code?: string }).code !== 'EEXIST') throw reason
       })
   await host.createDirectoryExclusive(skill, { mode: 0o755 })
-  await host.writeFile(
-    joinHostPath(skill, 'SKILL.md'),
-    '---\nname: project-connection-proof\ndescription: Use the recorded project examples to verify ordinary project discovery.\n---\n\n# Project connection proof\n\nRead only after an explicit current selection.\n',
-  )
+  const instruction =
+    '---\nname: project-connection-proof\ndescription: Use catalogneedle and the recorded project examples to verify ordinary project discovery.\n---\n\n# Project connection proof\n\nRead only after an explicit current selection.\n'
+  await host.writeFile(joinHostPath(skill, 'SKILL.md'), instruction)
   // Real editable discovery reproduces the provenance collision without installing
   // anything or changing the user's environment. The package copy is unrelated.
   const packages = joinHostPath(root, '.venv', 'lib', 'python3.13', 'site-packages')
@@ -104,11 +106,9 @@ export async function verifySkillagerProjectConnection(
         )) === true,
       'maintained local project offers in-context Connect without Settings',
     )
-    // Retain a genuine public search intent and its options through both decisions.
+    // Retain the project filter through both decisions; this form has no Library options.
     await inspect(`(() => {
       document.getElementById('query').value='catalogneedle';
-      document.getElementById('separate-copies').checked=true;
-      document.getElementById('preferred-agent').selectedIndex=1;
       document.getElementById('search-form').requestSubmit();
     })()`)
     await controls.wait(
@@ -144,12 +144,12 @@ export async function verifySkillagerProjectConnection(
       async () =>
         (await inspect(`(() => {
           const state=document.getElementById('state'), query=document.getElementById('query');
-          return state?.dataset.state==='ready' && document.querySelectorAll('#skills [role=option]').length===50 &&
-            query.value==='catalogneedle' && document.getElementById('separate-copies').checked &&
-            document.getElementById('preferred-agent').selectedIndex===1 && document.getElementById('connect-program').hidden && document.getElementById('connection-status').textContent==='Connected' &&
+          return state?.dataset.state==='ready' && document.querySelectorAll('#skills [role=option]').length===1 && ${currentInventory} &&
+            query.value==='catalogneedle' && !document.querySelector('.search-options') &&
+            document.getElementById('connect-program').hidden && document.getElementById('connection-status').textContent==='Connected' &&
             globalThis.__hvirProjectConnectionProof.connecting && globalThis.__hvirProjectConnectionProof.observing;
         })()`)) === true,
-      'current project connection automatically observes genuine search metadata and preserves options',
+      'current project connection automatically filters exact project metadata while retaining the submitted query',
     )
     await inspect("document.getElementById('browse').click()")
     await controls.ready(
@@ -162,7 +162,7 @@ export async function verifySkillagerProjectConnection(
     if (programSelections > 2)
       throw new Error('Project connection repeatedly requested native program selection')
     console.log(
-      '[smoke] maintained left project Connect → trusted decline/retry/allow → automatic genuine metadata; preserved public query/options and actual owned project discovery, no Settings/path/JSON/Inspect/init OK (successful OS program choice substituted)',
+      '[smoke] maintained left project Connect → trusted decline/retry/allow → automatic genuine metadata; preserved public project query and actual owned project discovery, no Settings/path/JSON/Inspect/init OK (successful OS program choice substituted)',
     )
     console.log(
       '[smoke] bounded project public replies',
@@ -178,6 +178,46 @@ export async function verifySkillagerProjectConnection(
     )
     console.log(
       '[smoke] project inventory: editable overlap, unrelated package exclusion and automatic connected document reuse OK',
+    )
+    await inspect(
+      `([...document.querySelectorAll('#skills [role=option]')].find(row=>row.dataset.sourcePath===${JSON.stringify(joinHostPath(skill, 'SKILL.md').path)})).click()`,
+    )
+    const reader = await controls.reader()
+    await controls.wait(
+      () =>
+        trustedRendererControl(
+          win,
+          `function(expectedRoot) {
+      const modal=document.querySelector('[aria-labelledby="source-confirmation-title"]');
+      const button=modal&&[...modal.querySelectorAll('button')].find(item=>item.textContent.trim()==='Allow read-only access');
+      if(!modal?.checkVisibility()||!modal.textContent.includes(expectedRoot)||!button||button.disabled)return false;
+      button.click();return true;
+    }`,
+          [root.path],
+          (work) => controls.within(work),
+        ),
+      'trusted current project source-only read consent',
+    )
+    const readerReady = () =>
+      controls.within(
+        reader.executeJavaScript(
+          `document.getElementById('reader-state')?.dataset.state==='ready' && document.getElementById('source-label')?.textContent?.endsWith(${JSON.stringify(`local: ${joinHostPath(skill, 'SKILL.md').path}`)}) && document.getElementById('details')?.dataset.sha256===${JSON.stringify(createHash('sha256').update(instruction).digest('hex'))} && document.getElementById('instructions')?.textContent?.includes('Project connection proof')`,
+        ),
+      ) as Promise<boolean>
+    await controls.wait(
+      readerReady,
+      'exact selected project file reads after contextual consent',
+    )
+    await controls.within(
+      reader.executeJavaScript(
+        "document.getElementById('read-current').closest('details').open=true;document.getElementById('read-current').click()",
+      ),
+    )
+    await controls.wait(readerReady, 'approved project source reuses its exact grant')
+    if (controls.hasReadDecision())
+      throw new Error('Unchanged project read repeated its consent')
+    console.log(
+      '[smoke] project source-only contextual consent and exact selected read/reuse OK',
     )
   } catch (error) {
     console.log(

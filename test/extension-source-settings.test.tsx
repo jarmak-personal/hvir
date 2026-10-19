@@ -98,3 +98,72 @@ it('shows trusted registered host/root choices and sends only the exact selected
     host.remove()
   }
 })
+
+it('lists real retained workspace bindings and revokes only the chosen host/root', async () => {
+  const declaration = {
+    id: 'project',
+    context: 'workspace',
+    mode: 'read-only',
+    description: 'Project instructions',
+  }
+  const a = {
+    source: 'project',
+    granted: true,
+    workspaceId: 'a',
+    root: { hostId: 'local', path: '/a' },
+  }
+  const b = {
+    source: 'project',
+    granted: false,
+    workspaceId: 'b',
+    root: { hostId: 'ssh', path: '/b' },
+  }
+  let retained = [a, b]
+  const invoke = vi.fn((channel: string, input: unknown) => {
+    if (channel === 'extensions:source-settings')
+      return Promise.resolve({ sources: retained, workspaces: [] })
+    expect(channel).toBe('extensions:source-revoke')
+    expect(input).toEqual({
+      installationId: 'installation',
+      source: 'project',
+      binding: { workspaceId: 'b', root: b.root },
+    })
+    retained = [a]
+    return Promise.resolve(undefined)
+  })
+  vi.stubGlobal('hvir', { invoke })
+  const host = document.createElement('div'),
+    root = createRoot(host)
+  document.body.append(host)
+  try {
+    await act(() =>
+      Promise.resolve(
+        root.render(
+          createElement(SourceSettings, {
+            installation: {
+              source: 'reference',
+              warnings: [],
+              enabled: true,
+              installationId: 'installation',
+              manifest: validateExtensionManifest(
+                exampleManifest({ access: [declaration] }),
+              ).manifest,
+            },
+          }),
+        ),
+      ),
+    )
+    expect(host.textContent).toContain('local: /a')
+    expect(host.textContent).toContain('Saved · unavailable · ssh: /b')
+    const buttons = [...host.querySelectorAll('button')].filter(
+      (button) => button.textContent === 'Revoke read access',
+    )
+    expect(buttons).toHaveLength(2)
+    await act(() => Promise.resolve(buttons[1]!.click()))
+    expect(host.textContent).toContain('local: /a')
+    expect(host.textContent).not.toContain('ssh: /b')
+  } finally {
+    act(() => root.unmount())
+    host.remove()
+  }
+})

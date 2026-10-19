@@ -39,7 +39,7 @@ export function registerExtensionsIpc(
     const activation = extensions?.activations?.active.get(req.installationId)
     if (!activation || !extensions?.sources) return unavailable()
     return {
-      sources: extensions.sources.approvals.status(activation),
+      sources: extensions.sources.approvals.settings(activation),
       workspaces: extensions.contexts?.workspaces() ?? [],
     }
   })
@@ -65,8 +65,11 @@ export function registerExtensionsIpc(
   ipc.handle('extensions:source-revoke', (req, context) => {
     context.owner()
     return (
-      extensions?.sources?.approvals.revoke(req.installationId, req.source) ??
-      unavailable()
+      extensions?.sources?.approvals.revoke(
+        req.installationId,
+        req.source,
+        req.binding,
+      ) ?? unavailable()
     )
   })
   ipc.handle('extensions:connector-settings', (req, context) => {

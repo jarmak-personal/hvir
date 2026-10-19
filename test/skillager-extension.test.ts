@@ -325,15 +325,22 @@ describe('ordinary maintained Skillager package contract', () => {
         skill_file: `/selected/.agents/skills/${kind}/SKILL.md`,
         native: { scope: 'project', managed: true, agent: 'codex' },
         exposure: {
+          schema: 'skillager.exposure.v1',
+          exposure_id: `selected-${kind}`,
+          skill_id: kind === 'router' ? 'router/example' : 'lib/example',
           scope: 'project',
           agent: 'codex',
           mode: kind === 'full' ? 'native' : kind,
           target: `/selected/.agents/skills/${kind}`,
           ...(kind === 'router'
-            ? {}
+            ? {
+                member_sources: Array.from({ length: 500 }, (_, index) => ({
+                  skill_id: `project/member-${index}`,
+                  source_library_id: null,
+                })),
+              }
             : {
                 source_library_id: '720e24b1-53e0-45f6-a84e-3df65177b38c',
-                skill_id: 'lib/example',
               }),
         },
       }
@@ -355,19 +362,77 @@ describe('ordinary maintained Skillager package contract', () => {
         kind === 'router'
           ? null
           : {
-              library_id: row.exposure.source_library_id,
+              library_id: '720e24b1-53e0-45f6-a84e-3df65177b38c',
               skill_id: 'lib/example',
             },
       )
-      expect(() =>
-        cli.projectInventory(
+      const selected = cli.detailInputFor(current!).row
+      expect(selected).toMatchObject({
+        id: row.occurrence_id,
+        skillId: row.id,
+        path: row.skill_file,
+        workspaceId: workspace.id,
+        exposure: {
+          exposure_id: row.exposure.exposure_id,
+          skill_id: row.id,
+          target: row.exposure.target,
+          agent: 'codex',
+          scope: 'project',
+          mode: row.exposure.mode,
+          ...(kind === 'router'
+            ? {}
+            : { source_library_id: '720e24b1-53e0-45f6-a84e-3df65177b38c' }),
+        },
+      })
+      expect(selected.exposure).not.toHaveProperty('member_sources')
+      expect(() => validateExtensionViewInput({ row: selected })).not.toThrow()
+      if (kind === 'router') {
+        expect(selected.canonical).toBeUndefined()
+        expect(selected.exposure).not.toHaveProperty('source_library_id')
+      } else {
+        const unknown = cli.projectInventory(
           {
             ...data,
-            skills: [{ ...row, exposure: { ...row.exposure, agent: 'claude' } }],
+            skills: [{ ...row, exposure: { ...row.exposure, source_library_id: null } }],
           },
           workspace,
-        ),
-      ).toThrow()
+        ).rows[0]!
+        expect(cli.detailInputFor(unknown).row.exposure).toMatchObject({
+          source_library_id: null,
+        })
+        expect(cli.detailInputFor(unknown).row.canonical).toBeUndefined()
+      }
+      const second = {
+        ...row,
+        occurrence_id: `second-${kind}`,
+        skill_file: `/selected/.agents/skills/second-${kind}/SKILL.md`,
+        exposure: {
+          ...row.exposure,
+          exposure_id: `second-${kind}`,
+          target: `/selected/.agents/skills/second-${kind}`,
+        },
+      }
+      const copies = cli.projectInventory({ ...data, skills: [row, second] }, workspace)
+      expect(copies.rows.map((copy) => cli.detailInputFor(copy).row)).toMatchObject([
+        { id: row.occurrence_id, exposure: { exposure_id: row.exposure.exposure_id } },
+        {
+          id: second.occurrence_id,
+          exposure: { exposure_id: second.exposure.exposure_id },
+        },
+      ])
+      for (const changed of [
+        { agent: 'claude' },
+        { exposure_id: null },
+        { skill_id: 'lib/other' },
+        { target: '/selected/other' },
+        { schema: 'unknown' },
+      ])
+        expect(() =>
+          cli.projectInventory(
+            { ...data, skills: [{ ...row, exposure: { ...row.exposure, ...changed } }] },
+            workspace,
+          ),
+        ).toThrow()
     },
   )
   it('preserves distinct occurrence identity, current paths, and pending or blocked metadata', () => {
