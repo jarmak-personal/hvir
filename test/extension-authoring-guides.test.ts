@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
+import { Window, type HTMLButtonElement, type HTMLInputElement } from 'happy-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { AGENT_GUIDE_TOPICS } from '../src/shared/agent/reference-catalog'
 import { AGENT_COMMANDS, parseAgentCommand } from '../src/shared/agent/commands'
@@ -16,6 +17,82 @@ import { readAgentGuide } from '../src/agent-transport/reference-assets'
 import { sourceFixture } from './fixtures/extension-source'
 import { deliveryFixture } from './fixtures/extension-delivery'
 import type { HostPath } from '../src/shared/host-path'
+
+it('executes the installed reader recipe with keyboard selection, busy feedback and owned cancellation', async () => {
+  const guide = (readAgentGuide('ui') as { content: string }).content
+  const window = new Window()
+  window.document.body.innerHTML = guide.match(/```html\n([\s\S]*?)```/)![1]!
+  const pending: {
+    input: { id: string; heading: string; details: boolean; signal: AbortSignal }
+    resolve(text: string): void
+    reject(error: Error): void
+  }[] = []
+  const readSelected = vi.fn(
+    (input: (typeof pending)[number]['input']) =>
+      new Promise<string>((resolve, reject) => pending.push({ input, resolve, reject })),
+  )
+  const dispose = runInNewContext(
+    `${readFileSync('src/shared/presentation/guest-ui.js', 'utf8')}\n${guide.match(/```js\n([\s\S]*?)```/)![1]!}\nmountReader(document.querySelector('#reader-example'), readSelected)`,
+    { window, document: window.document, readSelected, AbortController, Error },
+  ) as () => void
+  const root = window.document.querySelector('#reader-example')!
+  const button = window.document.querySelector<HTMLButtonElement>('#read')!
+  const feedback = window.document.querySelector('#feedback')!
+  const reader = window.document.querySelector('#reader')!
+  const rows = window.document.querySelectorAll<HTMLButtonElement>('[role=option]')
+  try {
+    window.document.querySelector<HTMLInputElement>('#heading')!.value = 'Selected'
+    window.document.querySelector<HTMLInputElement>('#details')!.checked = true
+    rows[0]!.focus()
+    rows[0]!.dispatchEvent(
+      new window.KeyboardEvent('keydown', {
+        key: 'ArrowDown',
+        bubbles: true,
+      }),
+    )
+    expect(window.document.activeElement).toBe(rows[1])
+    button.click()
+    expect(pending[0]!.input).toMatchObject({
+      id: 'two',
+      heading: 'Selected',
+      details: true,
+    })
+    expect(button.disabled).toBe(true)
+    expect(root.getAttribute('aria-busy')).toBe('true')
+    expect(feedback.textContent).toBe('Reading…')
+    button.click()
+    expect(readSelected).toHaveBeenCalledOnce()
+    pending[0]!.resolve('Current second note')
+    await vi.waitFor(() => expect(reader.textContent).toBe('Current second note'))
+    expect(feedback.textContent).toBe('Read complete')
+    expect(button.disabled).toBe(false)
+    button.click()
+    pending[1]!.reject(new Error('Source unavailable'))
+    await vi.waitFor(() => expect(feedback.textContent).toBe('Source unavailable'))
+    expect(feedback.getAttribute('data-state')).toBe('error')
+    expect(button.disabled).toBe(false)
+    button.click()
+    rows[0]!.click()
+    expect(pending[2]!.input.signal.aborted).toBe(true)
+    pending[2]!.resolve('Stale second note')
+    await Promise.resolve()
+    expect(reader.textContent).toBe('First note')
+    button.click()
+    expect(pending[3]!.input.id).toBe('one')
+    dispose()
+    dispose()
+    expect(pending[3]!.input.signal.aborted).toBe(true)
+    pending[3]!.resolve('Late first note')
+    await Promise.resolve()
+    rows[1]!.click()
+    button.click()
+    expect(reader.textContent).toBe('First note')
+    expect(readSelected).toHaveBeenCalledTimes(4)
+  } finally {
+    dispose()
+    await window.happyDOM.close()
+  }
+})
 
 describe('installed authoring guides and executable public examples', () => {
   it('indexes every maintained topic, keeps command examples parseable and uses the current starter contract', () => {

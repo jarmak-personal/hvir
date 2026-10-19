@@ -42,7 +42,8 @@ export class ExtensionAuthoring {
           throw new Error('Installed skill is invalid')
         return agentOutput({ skill: read.content, extensionContract: EXTENSION_CONTRACT })
       }
-      const selected = command.flags[command.name === 'validate' ? 'path' : 'output']
+      const option = command.name === 'validate' ? 'path' : 'output'
+      const selected = command.flags[option]
       if (
         !selected ||
         !selected.startsWith('/') ||
@@ -50,7 +51,7 @@ export class ExtensionAuthoring {
         selected.length > 4096
       )
         throw new Error(
-          'Select an explicit absolute local --path or --output destination',
+          `Select an explicit absolute local --${option} destination. Use hvir-agent ${command.name} --help`,
         )
       const destination = localPath(selected)
       if (command.name === 'validate') {

@@ -10,6 +10,18 @@ A static item runs no guest. One separate updater supplies live values while a t
 
 Use `guide ui` for default controls, `guide lifetimes` for demand and `guide actions` for named view actions. All surfaces use the same public guest bridge and admission owners.
 
+Placement and execution context are separate:
+
+| Task | View and target | Connector context |
+| --- | --- | --- |
+| Show a clock anywhere | Application view; no workspace | None |
+| Show local library data | Application view | Application; always local |
+| Show data from a registered SSH project | Application top view; user selects that connected project/worktree in hvir's trusted target control | Workspace; exact admitted workspace and separately approved SSH host |
+
+An application view receives no ambient project target. Use the context returned after trusted selection, not the desktop's current project. A workspace connector does not become application-local because its view is placed at the top. See `guide connectors` for configuration.
+
+A header value is shared per installation/item. Session values use exact current session IDs and the updater's demanded sessions, not every workspace. There is no per-workspace header key. Put longer lists in your own popup/view; `viewer.open-own` below opens only this installation's declarations. Selectable text can present a URL or command, but there is no public URL-opening, clipboard, existing-PTY-input or workspace-management capability.
+
 ### viewer.open-own
 
 Input: `{contributionId:'detail',input?,context?:'application'}`. Returns `{viewId}` for the hvir-owned tab. The contribution must exist in this package. Input is JSON bounded to 6144 encoded bytes; context:'application' applies only to an application contribution. Neither grants access or changes caller origin. Hidden ordinary requests and updaters cannot open further views; a current finite action must carry actionId as described in `guide bridge`.

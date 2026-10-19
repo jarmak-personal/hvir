@@ -1,4 +1,8 @@
-# Installed command walkthrough
+# From a clock request to a working package
+
+Start with “Please add a clock to hvir”. The optional skill in `guide skill` points here through the installed reference; it grants no access. With the app closed, read `hvir-agent guide authoring`, inspect `hvir-agent scaffold --help`, scaffold a new local directory, customize its HTML/JS/CSS, and validate it. Open hvir and use Settings → Extensions → Add extension… for the validated directory or ZIP. Add enables the copied revision; open Clock. The complete commands and platform picker choices are in `guide authoring`.
+
+For repeated editing, deliberately choose the development-link/Reload loop in `guide development`. Reading guides and making this clock need no live Agent access. The remaining steps explore optional live commands.
 
 With hvir closed, run `hvir-agent help`, `hvir-agent commands`, `hvir-agent help report`,
 and `hvir-agent guide targeting`. These read installed reference only and need no display.
@@ -23,4 +27,4 @@ visible rail or open Sessions destination is needed. Run `hvir-agent actions`, t
 Use its reported action ID and schema with `hvir-agent run --extension INSTALLATION --action ID
 --input null`. Outside hvir also supply the instance, workspace and reported session ID for
 this session-qualified action. If an action is unavailable, workspace inspection and reports
-remain usable. Read `hvir-agent guide authoring` to scaffold a UI-only clock independently of live access.
+remain usable. Use `guide actions` and `guide access` for the independent action permissions.

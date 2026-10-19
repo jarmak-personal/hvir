@@ -4,6 +4,40 @@ import { AGENT_CONTRACT, validateAgentRequest } from '../src/shared/agent/contra
 import { readAgentGuide } from '../src/agent-transport/reference-assets'
 
 describe('installed agent contract discovery', () => {
+  it.each(['scaffold', 'validate', 'skill'])(
+    'resolves %s help before authoring arguments or effects',
+    (name) => {
+      const focused = parseAgentCommand(['help', name])
+      for (const flag of ['--help', '-h']) {
+        const command = parseAgentCommand([name, flag])
+        expect(command).toEqual(focused)
+        expect(staticAgentReference(command, readAgentGuide)).toEqual(
+          staticAgentReference(focused, readAgentGuide),
+        )
+      }
+      for (const args of [
+        ['--help', '--help'],
+        ['--help=true'],
+        ['--help', 'unexpected'],
+        ['--help', '--instance', '/endpoint'],
+      ])
+        expect(() => parseAgentCommand([name, ...args])).toThrow(`help ${name}`)
+    },
+  )
+  it('names valid options and focused help without echoing arbitrary arguments', () => {
+    expect(() => parseAgentCommand(['scaffold', '--output'])).toThrow(
+      'Missing --output value. Use hvir-agent help scaffold',
+    )
+    expect(() => parseAgentCommand(['validate', '--path', '/a', '--path', '/b'])).toThrow(
+      'Duplicate --path option. Use hvir-agent help validate',
+    )
+    expect(() => parseAgentCommand(['skill', '--' + 'x'.repeat(5000)])).toThrow(
+      'Unknown option for skill. Use hvir-agent help skill',
+    )
+    expect(() => parseAgentCommand(['scaffold', '--output', '--help'])).toThrow(
+      'Missing --output value',
+    )
+  })
   it('accepts handle-qualified withdrawal and rejects content or invented close values', () => {
     expect(
       parseAgentCommand([

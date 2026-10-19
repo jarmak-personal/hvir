@@ -4,7 +4,7 @@ import {
   agentFailure,
   agentOutput,
   type AgentResponse,
-} from './contract'
+} from './contract.ts'
 
 const targetFlags = ['workspace', 'session'] as const
 export const AGENT_COMMANDS = [
@@ -167,6 +167,13 @@ export function parseAgentCommand(argv: readonly string[]): ParsedAgentCommand {
   if (name === '--help' || name === '-h') name = 'help'
   const declaration = AGENT_COMMANDS.find((entry) => entry.name === name)
   if (!declaration) throw new Error('Unknown command; use hvir-agent commands')
+  if (
+    isLocalAuthoringCommand(name) &&
+    argv.length === 2 &&
+    (argv[1] === '--help' || argv[1] === '-h')
+  )
+    return parseAgentCommand(['help', name])
+  const help = `Use hvir-agent help ${name}`
   const flags: Record<string, string> = {},
     positionals: string[] = []
   for (let index = 1; index < argv.length; index++) {
@@ -180,17 +187,18 @@ export function parseAgentCommand(argv: readonly string[]): ParsedAgentCommand {
       !key ||
       (key !== 'instance' && !(declaration.flags as readonly string[]).includes(key))
     )
-      throw new Error(`Unknown option for ${name}`)
-    if (Object.hasOwn(flags, key)) throw new Error('Duplicate command option')
+      throw new Error(`Unknown option for ${name}. ${help}`)
+    if (Object.hasOwn(flags, key)) throw new Error(`Duplicate --${key} option. ${help}`)
     const booleanOption = key === 'stdin' || key === 'close'
     if (booleanOption && inline !== undefined)
       throw new Error(`The ${key} option takes no value`)
     const value = booleanOption ? 'true' : (inline ?? argv[++index])
-    if (!value || value.startsWith('--')) throw new Error(`Missing ${key} value`)
+    if (!value || value.startsWith('--'))
+      throw new Error(`Missing --${key} value. ${help}`)
     flags[key] = value
   }
   if (positionals.length > (['help', 'guide'].includes(name) ? 1 : 0))
-    throw new Error('Unexpected command arguments')
+    throw new Error(`Unexpected command arguments. ${help}`)
   const required =
     name === 'run' || name === 'action'
       ? ['extension', 'action']
@@ -269,7 +277,7 @@ export function staticAgentReference(
   const name = command.positionals[0]
   if (!name)
     return agentOutput({
-      help: `hvir-agent · installed contract ${AGENT_CONTRACT}\nInspect context, present work, run admitted actions, or scaffold local extensions.\nUse commands for the index, help COMMAND for focused reference, guide for topics.\nLive operations require Settings > Extensions > Agent access; --instance selects an endpoint.`,
+      help: `hvir-agent · installed contract ${AGENT_CONTRACT}\nInspect context, present work, run admitted actions, or scaffold local extensions.\nUse commands for the index, help COMMAND for focused reference, guide for topics.\nCreate an extension: guide authoring; scaffold/validate/skill also accept --help.\nLive operations require Settings > Extensions > Agent access; --instance selects an endpoint.`,
     })
   const declaration = AGENT_COMMANDS.find((entry) => entry.name === name)
   return declaration
