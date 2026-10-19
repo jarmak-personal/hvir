@@ -65,7 +65,7 @@ export const AGENT_COMMANDS = [
   },
   {
     name: 'instances',
-    summary: 'List running local instance endpoints.',
+    summary: 'List listening local endpoints with app-wide Agent access enabled.',
     flags: [],
     access: 'local endpoint discovery',
     input: 'None',
@@ -191,6 +191,21 @@ export function parseAgentCommand(argv: readonly string[]): ParsedAgentCommand {
   }
   if (positionals.length > (['help', 'guide'].includes(name) ? 1 : 0))
     throw new Error('Unexpected command arguments')
+  const required =
+    name === 'run' || name === 'action'
+      ? ['extension', 'action']
+      : name === 'view'
+        ? ['extension', 'view']
+        : name === 'open'
+          ? ['path']
+          : []
+  for (const key of required)
+    if (!flags[key]) throw new Error(`Select --${key} ${key.toUpperCase()}`)
+  if (flags['limit'] !== undefined) {
+    const limit = Number(flags['limit'])
+    if (!Number.isInteger(limit) || limit < 1 || limit > AGENT_LIMITS.pageSize)
+      throw new Error('Page limit must be 1–32')
+  }
   if (flags['filter']?.length && flags['filter'].length > 160)
     throw new Error('Filter is too long')
   if (
@@ -219,6 +234,16 @@ export function isLocalAuthoringCommand(name: string): boolean {
     (entry) => entry.name === name && entry.access === 'offline local authoring',
   )
 }
+const exitStatusMeanings = {
+  success:
+    'Completed request; action values are untrusted domain data, not proof of domain success.',
+  invalid: 'Invalid command arguments or action JSON, size or declared input schema.',
+  unavailable:
+    'Authority or availability refusal, including paths outside the selected workspace.',
+  interrupted: 'Recognized request interruption; completed effects may remain.',
+  retry:
+    'A failure or interruption never authorizes automatic retry or implies rollback.',
+} as const
 export function staticAgentReference(
   command: ParsedAgentCommand,
   guide: (topic?: string) => unknown,
@@ -227,6 +252,7 @@ export function staticAgentReference(
     return agentOutput({
       commands: AGENT_COMMANDS,
       exitStatuses: { success: 0, invalid: 64, unavailable: 69, interrupted: 75 },
+      exitStatusMeanings,
     })
   if (command.name === 'guide') {
     try {
@@ -269,6 +295,7 @@ export function staticAgentReference(
                       : ' Workspace/session target flags are not accepted.'
                   } Selection never supplies authority.`,
           exitStatuses: { success: 0, invalid: 64, unavailable: 69, interrupted: 75 },
+          exitStatusMeanings,
         },
       })
     : agentFailure('unknown-command', 'Use hvir-agent commands', 64)

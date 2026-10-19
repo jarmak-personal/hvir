@@ -99,6 +99,16 @@ export function AgentAccessSettings({
             }
           />
           Agent access for this extension
+          {!error && (!state || !state.ready || !state.enabled) ? (
+            <span className="hvir-meta" role="status">
+              {' '}
+              {!state
+                ? 'Checking app-wide agent access…'
+                : !state.ready
+                  ? 'App-wide Agent access is unavailable.'
+                  : 'App-wide Agent access is off. Turn it on above to let agents connect.'}
+            </span>
+          ) : null}
           {state && !state.extensionsWritable ? (
             <span className="hvir-meta">
               {' '}

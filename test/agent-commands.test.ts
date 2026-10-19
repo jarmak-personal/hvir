@@ -127,3 +127,48 @@ describe('installed agent contract discovery', () => {
     )
   })
 })
+
+it.each([
+  ['run'],
+  ['run', '--extension', 'installed'],
+  ['action', '--action', 'named'],
+  ['view', '--extension', 'installed'],
+  ['open'],
+  ...['0', '33', '1.5', 'invalid'].map((limit) => ['workspaces', '--limit', limit]),
+])('rejects statically invalid arguments %j', (...argv) => {
+  expect(() => parseAgentCommand(argv)).toThrow()
+})
+
+it('keeps focused and index exit semantics aligned with opaque action values', () => {
+  type ExitReference = {
+    exitStatuses: Readonly<Record<string, number>>
+    exitStatusMeanings: {
+      invalid: string
+      unavailable: string
+      success: string
+      retry: string
+    }
+  }
+  const index = JSON.parse(
+    staticAgentReference(parseAgentCommand(['commands']), readAgentGuide)!.stdout,
+  ) as ExitReference
+  const focused = (
+    JSON.parse(
+      staticAgentReference(parseAgentCommand(['help', 'run']), readAgentGuide)!.stdout,
+    ) as { reference: ExitReference }
+  ).reference
+  expect(index.exitStatuses).toEqual({
+    success: 0,
+    invalid: 64,
+    unavailable: 69,
+    interrupted: 75,
+  })
+  expect(focused.exitStatuses).toEqual(index.exitStatuses)
+  expect(focused.exitStatusMeanings).toEqual(index.exitStatusMeanings)
+  expect(focused.exitStatusMeanings.invalid).toContain('declared input schema')
+  expect(focused.exitStatusMeanings.unavailable).toContain(
+    'outside the selected workspace',
+  )
+  expect(focused.exitStatusMeanings.success).toContain('not proof of domain success')
+  expect(focused.exitStatusMeanings.retry).toContain('never authorizes automatic retry')
+})

@@ -12,6 +12,8 @@ import {
   type ParsedAgentCommand,
 } from '../../shared/agent/commands'
 import { hostPath, joinHostPath, type HostPath } from '../../shared/host-path'
+import { validateActionInput } from '../../shared/extensions/action-input'
+import { EXTENSION_LIMITS } from '../../shared/extensions/contract'
 import type { ExtensionContextOwner } from '../extensions/context-owner'
 import type { ExtensionActivation } from '../extensions/activation'
 import type {
@@ -307,9 +309,19 @@ export class AgentWorkbenchCommandOwner {
         return agentOutput({ untrusted: true, declaration: action, installation })
       if (command.name !== 'run') throw new Error('Command is unavailable')
       const serialized = command.flags['input'] ?? 'null'
-      if (Buffer.byteLength(serialized) > 8192)
-        throw new Error('Action input exceeds its bound')
-      const input: unknown = JSON.parse(serialized)
+      if (Buffer.byteLength(serialized) > EXTENSION_LIMITS.actionBytes)
+        return agentFailure('invalid-input', 'Action input exceeds its bound', 64)
+      let input: unknown
+      try {
+        input = JSON.parse(serialized)
+      } catch {
+        return agentFailure('invalid-input', 'Action --input must be valid JSON', 64)
+      }
+      try {
+        if (action.inputSchema) validateActionInput(input, action.inputSchema)
+      } catch (reason) {
+        return agentFailure('invalid-input', message(reason), 64)
+      }
       // Input/context are captured once, before confirmation; the decision is never a caller claim.
       const authorization = await this.ports.access.authorizeAction(
         {
@@ -444,8 +456,6 @@ export class AgentWorkbenchCommandOwner {
       .digest('hex')
       .slice(0, 24)
     const limit = Number(command.flags['limit'] ?? AGENT_LIMITS.pageSize)
-    if (!Number.isInteger(limit) || limit < 1 || limit > AGENT_LIMITS.pageSize)
-      throw new Error('Page limit must be 1–32')
     let offset = 0
     if (command.flags['cursor']) {
       const [signature, index] = command.flags['cursor'].split(':')

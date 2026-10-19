@@ -98,20 +98,22 @@ try {
     )
       throw new Error('request')
   }
-  response = {
-    stdout: 'native protocol 😃\n',
-    stderr: 'server warning\n',
-    exitStatus: 23,
+  for (const exitStatus of [0, 64, 69, 75, 23]) {
+    response = {
+      stdout: 'native protocol 😃\n',
+      stderr: 'server warning\n',
+      exitStatus,
+    }
+    const forwarded = await invoke(['future-command'])
+    if (
+      !observed ||
+      failed ||
+      forwarded.stdout !== 'native protocol 😃\n' ||
+      forwarded.stderr !== 'server warning\n' ||
+      forwarded.code !== exitStatus
+    )
+      throw new Error('Native client changed server output/status')
   }
-  const forwarded = await invoke(['future-command'])
-  if (
-    !observed ||
-    failed ||
-    forwarded.stdout !== 'native protocol 😃\n' ||
-    forwarded.stderr !== 'server warning\n' ||
-    forwarded.code !== 23
-  )
-    throw new Error('Native client changed server output/status')
   check = (request) => {
     if (request.stdin !== 'report 😃\n' || request.argv[0] !== 'report')
       throw new Error('request')
@@ -159,7 +161,7 @@ try {
     !failure.error.message.includes('uncertain')
   )
     throw new Error('Interrupted request was reported as complete')
-  if (requests !== 4) throw new Error('Client replayed a request')
+  if (requests !== 8) throw new Error('Client replayed a request')
   console.log(
     'HVIR_NATIVE_AGENT_CLIENT_PROTOCOL_OK relay/stdin/explicit-instance/uncertain-no-replay',
   )
