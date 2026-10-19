@@ -64,29 +64,21 @@ export async function verifyOwnedAdvancedExposure(
       await host.writeFile(entry, bytes)
       await host.createFileExclusive(joinHostPath(original, 'helper.sh'), { mode: 0o755 })
       await host.writeFile(joinHostPath(original, 'helper.sh'), '#!/bin/sh\ntrue\n')
-      if (suffix === 'one') {
-        // Existing public Unicode imports must remain usable by the selected consumer.
-        const args = [
-            'import',
-            `project/${name}`,
-            '--as',
-            `保存-𐐨-${agent}`,
-            '--source-file',
-            entry.path,
-            '--review-manifest',
-            '--json',
-          ],
-          preview = await cli(args),
-          manifest = preview['review_manifest'] as { confirmation_token: string }
-        if (!/^[a-f0-9]{64}$/u.test(manifest?.confirmation_token))
-          throw new Error('Public Unicode import did not supply its exact review token')
-        await cli([...args, '--yes', '--confirmation-token', manifest.confirmation_token])
-      } else if (suffix === 'two') {
+      if (suffix === 'one' || suffix === 'two') {
         const ui = await selectProject(entry, name)
         await ui.ready(
           "!document.getElementById('import-save').disabled",
           `${agent} selected original Save and accept`,
         )
+        if (suffix === 'one') {
+          await ui.inspect("document.querySelector('#import-options > summary').click()")
+          await ui.set('import-name', `保存-𐐨-${agent}`)
+          await ui.click('import-refresh')
+          await ui.ready(
+            `!document.getElementById('import-save').disabled && document.getElementById('import-destination').textContent===${JSON.stringify(`lib/保存-𐐨-${agent}`)}`,
+            'exact Unicode Save and accept destination',
+          )
+        }
         await ui.ready(
           "document.getElementById('exposure-preservation-reason').textContent.length>0 && !document.getElementById('exposure-preservation-reason').textContent.includes('Checking')",
           'automatic unavailable preservation',
@@ -392,6 +384,7 @@ export async function verifyOwnedAdvancedExposure(
       fullAdoption,
       exactAcceptedImport: true,
       exactUnicodeCanonicalIdentity: one.skillId,
+      unicodeSavedThroughUi: true,
       approvedSync: true,
       canonicalBytesAndModesPreserved: true,
       unselectedOriginalsPreserved: true,

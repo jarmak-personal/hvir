@@ -3,6 +3,7 @@ import {
   importContractFixture,
   importModule,
   importOperationFixture,
+  publicImportCases,
 } from './fixtures/skillager-import'
 const contract = importModule<{
   exactImportManifest(
@@ -20,6 +21,83 @@ it('consumes the public external manifest, exact occurrence and ordinary token-b
   expect(['skillager', ...contract.importArgs(f.input, f.input.token)]).toEqual(
     f.preview.next_command_argv,
   )
+})
+it.each(publicImportCases())(
+  'preserves captured public $case identity, destination and complete confirmation argv',
+  ({ preview }) => {
+    const f = importContractFixture(preview)
+    expect(contract.exactImportManifest(f.preview, f.input, f.workspace).eligible).toBe(
+      true,
+    )
+    expect(['skillager', ...contract.importArgs(f.input, f.input.token)]).toEqual(
+      preview.next_command_argv,
+    )
+    expect(
+      contract.exactImportManifest(
+        f.preview,
+        { ...f.input, name: undefined },
+        f.workspace,
+      ).eligible,
+    ).toBe(true)
+  },
+)
+it.each([
+  123,
+  { toString: () => 'valid-name' },
+  '',
+  '保存-𐐀',
+  '𐐨'.repeat(32) + 'a'.repeat(33),
+  'cafe\u0301',
+  'a--b',
+  'a_b',
+  '../a',
+  'a/b',
+  'a\n',
+  'a\ud800',
+])('rejects noncanonical destination %j without coercion or normalization', (name) => {
+  const f = importContractFixture(),
+    destination = `${f.preview.review_manifest.library.root}/skills/${String(name)}`
+  expect(() => contract.importArgs({ ...f.input, name })).toThrow()
+  expect(() =>
+    contract.exactImportManifest(
+      {
+        ...f.preview,
+        destination: {
+          ...f.preview.destination,
+          name,
+          id: `lib/${String(name)}`,
+          path: destination,
+        },
+        review_manifest: {
+          ...f.preview.review_manifest,
+          destination_id: `lib/${String(name)}`,
+          destination_path: destination,
+        },
+      },
+      { ...f.input, name: undefined },
+      f.workspace,
+    ),
+  ).toThrow()
+})
+it.each([
+  'lib/保存',
+  'Project/item',
+  'project//item',
+  '/project/item',
+  'project/item/',
+  'project/./item',
+  'project/../item',
+  'project/item_name',
+  'project/item.name',
+  'project/item\\name',
+  'project/item\0',
+  'project/item\n',
+  'project/item\u2028',
+  'project/item\ud800',
+  're\u0301visions--保存/保存/𐐨-guide',
+])('rejects unsupported external identity %j without rewriting it', (skillId) => {
+  const f = importContractFixture()
+  expect(() => contract.importArgs({ ...f.input, skillId })).toThrow()
 })
 it.each([
   'source',

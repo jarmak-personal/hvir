@@ -4,7 +4,11 @@ import { runInNewContext } from 'node:vm'
 import { createHash, webcrypto } from 'node:crypto'
 import { buildSync } from 'esbuild'
 import { afterEach, expect, it, vi } from 'vitest'
-import { importContractFixture } from './fixtures/skillager-import'
+import {
+  importContractFixture,
+  publicImportCases,
+  type ImportPreview,
+} from './fixtures/skillager-import'
 import { connectorOutputFixture } from './fixtures/connector-output'
 
 type Value = Record<string, unknown>
@@ -13,12 +17,12 @@ afterEach(() => {
   stop?.()
   document.body.replaceChildren()
 })
-function fixture() {
+function fixture(preview?: ImportPreview) {
   const template = document.createElement('template')
   template.innerHTML = readFileSync('packages/skillager-extension/detail.html', 'utf8')
   for (const node of template.content.querySelectorAll('script, link')) node.remove()
   document.body.replaceChildren(template.content.cloneNode(true))
-  const f = importContractFixture(),
+  const f = importContractFixture(preview),
     native = connectorOutputFixture(),
     calls: Array<{ capability: string; input: Value }> = []
   let serial = 0,
@@ -175,6 +179,31 @@ it('offers a complete optional inventory and one human Save and accept without f
   expect(f.calls.some((call) => call.capability === 'source.select')).toBe(false)
   const action = f.calls.find((call) => call.input['action'] === 'save-and-accept')!
   expect(action.input['input']).toEqual(f.input)
+})
+it('carries the exact public Unicode occurrence and chosen name through refresh and one Save and accept', async () => {
+  const f = fixture(publicImportCases()[0]!.preview)
+  await ready()
+  const name = document.getElementById('import-name') as HTMLInputElement
+  name.value = f.input.name
+  name.dispatchEvent(new Event('input', { bubbles: true }))
+  expect(button('import-save').disabled).toBe(true)
+  button('import-refresh').click()
+  await ready()
+  expect(document.getElementById('import-destination')!.textContent).toBe(
+    f.preview.destination.id,
+  )
+  button('import-save').click()
+  await vi.waitFor(() =>
+    expect(
+      f.calls.filter((call) => call.input['action'] === 'save-and-accept'),
+    ).toHaveLength(1),
+  )
+  const reads = f.calls.filter((call) => call.capability === 'connector.execute')
+  for (const read of reads.slice(-2))
+    expect(read.input['args']).toEqual(f.preview.next_command_argv.slice(1, -3))
+  expect(
+    f.calls.find((call) => call.input['action'] === 'save-and-accept')!.input['input'],
+  ).toEqual(f.input)
 })
 it('inspects the external file through the independently granted exact project source', async () => {
   const f = fixture()

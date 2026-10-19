@@ -5,19 +5,27 @@ import {
 } from './management-contract.mjs'
 import { exactTreeFiles } from './review-files-contract.mjs'
 import { metadataEncoding } from './management-sync-review.mjs'
+import { isCanonicalSkillId } from './public-metadata.mjs'
 
 export function importArgs(selection, confirmation) {
   if (
     typeof selection.skillId !== 'string' ||
     selection.skillId.startsWith('lib/') ||
-    !/^[\w.-]+(?:\/[\w.-]+)+$/u.test(selection.skillId) ||
+    selection.skillId !== selection.skillId.toLowerCase() ||
+    // Collection paths and discovery suffixes are not canonical library names.
+    !/^[\p{L}\p{N}]+(?:-+[\p{L}\p{N}]+)*(?:\/[\p{L}\p{N}]+(?:-+[\p{L}\p{N}]+)*)+$/u.test(
+      selection.skillId,
+    ) ||
     selection.file?.hostId !== 'local'
   )
     throw new Error('Select one exact local external skill occurrence')
   const file = absoluteLocalPath(selection.file.path).path
   if (!file.endsWith('/SKILL.md'))
     throw new Error('Select the original canonical SKILL.md')
-  if (selection.name !== undefined && !/^[\w.-]+$/u.test(selection.name))
+  if (
+    selection.name !== undefined &&
+    (typeof selection.name !== 'string' || !isCanonicalSkillId(`lib/${selection.name}`))
+  )
     throw new Error('Choose one exact collision-free library name')
   return [
     'import',
@@ -68,9 +76,10 @@ export function exactImportManifest(value, selection, workspace) {
     value.destination?.id !== manifest.destination_id ||
     value.destination.path !== manifest.destination_path ||
     value.destination.exists !== false ||
+    typeof value.destination.name !== 'string' ||
     value.destination.id !== `lib/${value.destination.name}` ||
     (selection.name !== undefined && value.destination.name !== selection.name) ||
-    !/^[\w.-]+$/u.test(value.destination.name) ||
+    !isCanonicalSkillId(value.destination.id) ||
     manifest.destination_path !==
       `${manifest.library?.root}/skills/${value.destination.name}` ||
     value.project !== workspace.root.path
