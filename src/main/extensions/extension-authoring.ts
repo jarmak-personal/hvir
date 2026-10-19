@@ -51,7 +51,7 @@ export class ExtensionAuthoring {
         selected.length > 4096
       )
         throw new Error(
-          `Select an explicit absolute local --${option} destination. Use hvir-agent ${command.name} --help`,
+          `Select an explicit absolute local --${option} destination. Use hvir-agent help ${command.name}`,
         )
       const destination = localPath(selected)
       if (command.name === 'validate') {

@@ -125,8 +125,6 @@ try {
     (await readFile(exported, 'utf8')) !== skill
   )
     throw new Error('Occupied-output refusal changed user bytes')
-  await invoke(['scaffold'], 64)
-  await invoke(['scaffold', '--output', 'relative'], 64)
   await invoke(
     ['scaffold', '--output', join(directory, 'other'), '--instance', '/not-an-instance'],
     64,
@@ -138,6 +136,8 @@ try {
   await writeFile(invalid, 'not an extension archive')
   await invoke(['validate', '--path', invalid], 64)
   for (const argv of [
+    ['scaffold'],
+    ['scaffold', '--output', 'relative'],
     ['scaffold', '--output'],
     ['scaffold', '--output', output, '--output', output],
     ['validate', '--help', '--path', output],
