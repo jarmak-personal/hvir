@@ -341,6 +341,51 @@ and does not add remote package authority. Normal builds include its exact nativ
 payload. Real Electron coverage proves the environment boundary in addition to direct
 policy, storage, and lifecycle tests.
 
+## Review an agent-authored setup file
+
+Select an enabled extension in **Settings → Extensions**, open **Setup…**, and choose
+**Get setup template**. The clipboard receives schema-1 JSON generated from that installation's
+current declarations: its extension and connector/source IDs, scope hints, allowed environment
+key names, and unresolved path/host fields. It contains no saved configuration, private roots,
+environment values, approval tokens, or session trust. Give this template to an agent, fill the
+requested paths, and remove unwanted rows. Omitted settings stay unchanged.
+
+Choose **Review setup…** and select the resulting local JSON file. hvir reads one UTF-8 snapshot
+of at most 384 KiB through ProjectHost. `extension` must match the selected installation;
+`schema` must be `1`. Connector rows use `connector`, `host`, `executable` and optional
+`configuration: { "args": [], "env": {} }`; omitting configuration in an included row selects
+empty arguments and environment overrides. Omit the entire row to keep its saved binding.
+Application source rows use
+`source` and `root: { "host": "local", "path": "/absolute/folder" }`; workspace sources use
+`source` and `workspace: { "host": "configured-host", "path": "/exact/workspace" }`.
+An optional top-level `requestAgentAccess: true` or `false` requests a separate per-extension
+setting. Templates omit that choice. The optional row `help` text is an authoring hint only.
+
+Hosts must already be configured. A workspace path must match exactly one registered workspace
+on that host. The file cannot register projects, install programs, create hosts, enable app-wide
+Agent access, or enable session development trust. Unknown fields, undeclared IDs, duplicate
+bindings and excessive input are rejected. Literal arguments and environment overrides use the
+same bounds and declared-key validation as manual setup; there is no shell or variable expansion.
+Environment values are persisted configuration, not encrypted secret storage. Prefer inherited
+environment and leave secret-bearing overrides out of agent-authored files.
+
+The review shows canonical program paths, selected hosts, file scopes and replacements. Programs
+are not run and source contents are not read to prepare it. **Details** contains selected versus
+resolved paths, arguments and masked environment values, including previous configuration when
+replacing access. Unchanged bindings are collapsed and reused. Source labels distinguish reading,
+export capture and managed delivery. Choose the requested rows and apply once. Every changed
+binding is freshly checked against the displayed identity and its exact prior saved setting;
+other hosts and unrelated workspace bindings remain independent.
+
+The review expires after ten minutes and ends on closure, lost foreground or authority, or a
+changed installation/host/workspace. Editing the JSON after import cannot alter an open review.
+The native, source and per-extension agent owners save independently, so cancellation or a later
+failure can leave earlier rows saved. Results retain completed, skipped, failed and uncertain
+outcomes and re-read current retained access after settlement. An uncertain write is never
+automatically replayed: inspect its current setting, then import again for a fresh review.
+The complete selected batch must fit the existing global native/source record and byte limits;
+each writer checks capacity again when saving.
+
 ## Approved finite native connectors
 
 An optional `connectors` array declares at most eight installed-tool connectors:

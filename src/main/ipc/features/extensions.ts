@@ -11,6 +11,30 @@ export function registerExtensionsIpc(
     throw new Error('Extensions are unavailable')
   }
   ipc.handle(
+    'extensions:setup-template',
+    (req, context) =>
+      extensions?.setup?.template(context.owner(), req.installationId) ?? unavailable(),
+  )
+  ipc.handle(
+    'extensions:setup-import',
+    (req, context) =>
+      extensions?.setup?.import(context.owner(), req.installationId, req.request) ??
+      unavailable(),
+  )
+  ipc.handle(
+    'extensions:setup-select',
+    (req, context) =>
+      extensions?.setup?.select(context.owner(), req.request, req.rows) ?? unavailable(),
+  )
+  ipc.handle(
+    'extensions:setup-apply',
+    (req, context) =>
+      extensions?.setup?.apply(context.owner(), req.request) ?? unavailable(),
+  )
+  ipc.handle('extensions:setup-cancel', (req, context) =>
+    extensions?.setup?.cancel(context.owner(), req.request),
+  )
+  ipc.handle(
     'extensions:foreground',
     (_req, context) => extensions?.surface.foreground(context.owner()) ?? false,
   )

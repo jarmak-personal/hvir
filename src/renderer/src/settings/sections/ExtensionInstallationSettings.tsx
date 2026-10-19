@@ -8,6 +8,7 @@ import { ConnectorSettings } from './ConnectorSettings'
 import { SourceSettings } from './SourceSettings'
 import { ExtensionActions } from '../../extensions/ExtensionActions'
 import { ExtensionViewLauncher } from './ExtensionViewLauncher'
+import { ExtensionSetupSettings } from './ExtensionSetupSettings'
 
 /** Stable selected-package lifecycle chrome; access configuration owns proposal retirement. */
 export function ExtensionInstallationSettings({
@@ -217,8 +218,16 @@ function ExtensionConfigurationSettings({
   readonly onRun: (operation: () => Promise<unknown>) => Promise<void>
 }): ReactElement {
   const [tab, setTab] = useState<'programs' | 'files' | 'actions'>('programs')
+  const [accessRevision, setAccessRevision] = useState(0)
   return (
     <>
+      {installation.installationId ? (
+        <ExtensionSetupSettings
+          installation={installation.installationId}
+          disabled={busy || !writable || !!installation.removalPending}
+          onSettled={() => setAccessRevision((value) => value + 1)}
+        />
+      ) : null}
       <nav className="extension-configuration-tabs" aria-label="Extension configuration">
         {(['programs', 'files', 'actions'] as const).map((id) => (
           <button
@@ -236,8 +245,12 @@ function ExtensionConfigurationSettings({
           </button>
         ))}
       </nav>
-      {tab === 'programs' ? <ConnectorSettings installation={installation} /> : null}
-      {tab === 'files' ? <SourceSettings installation={installation} /> : null}
+      {tab === 'programs' ? (
+        <ConnectorSettings key={accessRevision} installation={installation} />
+      ) : null}
+      {tab === 'files' ? (
+        <SourceSettings key={accessRevision} installation={installation} />
+      ) : null}
       {tab === 'actions' ? (
         <>
           <AgentAccessSettings installation={installation.installationId} />

@@ -4,6 +4,92 @@ import { expect, it, vi } from 'vitest'
 import { readInstallationState } from '../src/main/extensions/installation-state'
 import { LocalAgentAccessOwner } from '../src/main/agent/access-owner'
 import { extensionInstallationFixture } from './fixtures/extension-installation'
+import { prepareSetupAgent } from '../src/main/extensions/extension-setup-bindings'
+
+it('setup explicitly restores effective agent access after a failed disable without reviving the old lifetime', async () => {
+  const data = await extensionInstallationFixture(),
+    owner = data.make()
+  let finish: (() => void) | undefined
+  const write = data.host.writeFile.bind(data.host)
+  try {
+    await data.packageAt('valid')
+    await owner.start(data.lock)
+    await owner.enable('valid', owner.snapshot().installations[0]!.revision!)
+    const id = [...owner.active.keys()][0]!
+    await owner.configureAgentAccess(id, true)
+    const oldSignal = owner.agentSignal(id)
+    const writer = vi
+      .spyOn(data.host, 'writeFile')
+      .mockRejectedValueOnce(new Error('State write failed'))
+    await expect(owner.configureAgentAccess(id, false)).rejects.toThrow(
+      'State write failed',
+    )
+    expect(oldSignal.aborted).toBe(true)
+    expect(owner.agentAccess()).toEqual([])
+    expect(owner.captureAgentAccess(id)).toMatchObject({
+      enabled: true,
+      effective: false,
+    })
+    const binding = prepareSetupAgent({ activations: owner }, id, true, () => {})
+    expect(binding.row).toMatchObject({ state: 'ready', selected: true })
+    writer.mockImplementation(async (path, bytes, options) => {
+      if (path.path === join(data.root, 'state.json'))
+        await new Promise<void>((resolve) => {
+          finish = resolve
+        })
+      return write(path, bytes, options)
+    })
+    const submitted = vi.fn(),
+      applying = binding.apply(submitted)
+    await vi.waitFor(() => expect(finish).toBeDefined())
+    expect(submitted).toHaveBeenCalledOnce()
+    expect(owner.agentAccess()).toEqual([])
+    expect(oldSignal.aborted).toBe(true)
+    finish!()
+    await applying
+    expect(owner.agentAccess()).toEqual([id])
+    expect(oldSignal.aborted).toBe(true)
+    expect(owner.agentSignal(id).aborted).toBe(false)
+    expect(
+      prepareSetupAgent({ activations: owner }, id, true, () => {}).row.state,
+    ).toBe('unchanged')
+  } finally {
+    finish?.()
+    vi.restoreAllMocks()
+    await owner.dispose()
+    await data.dispose()
+  }
+})
+
+it('setup compares the exact prior agent setting and activation inside the existing writer', async () => {
+  const data = await extensionInstallationFixture(),
+    owner = data.make()
+  try {
+    await data.packageAt('valid')
+    await owner.start(data.lock)
+    await owner.enable('valid', owner.snapshot().installations[0]!.revision!)
+    const id = [...owner.active.keys()][0]!
+    const prior = owner.captureAgentAccess(id)
+    await owner.configureAgentAccess(id, true)
+    await owner.configureAgentAccess(id, false)
+    await expect(owner.configureAgentAccess(id, true, prior)).rejects.toThrow(/changed/)
+    expect(owner.agentAccess()).toEqual([])
+    const current = owner.captureAgentAccess(id)
+    await owner.configureAgentAccess(id, true, current, () => {})
+    expect(owner.agentAccess()).toEqual([id])
+    const beforeReload = owner.captureAgentAccess(id)
+    const installation = owner.snapshot().installations[0]!
+    await owner.reload(installation.source, installation.revision!)
+    await expect(owner.configureAgentAccess(id, false, beforeReload)).rejects.toThrow(
+      /changed/,
+    )
+    expect(owner.agentAccess()).toEqual([id])
+  } finally {
+    await owner.dispose()
+    await data.host.dispose()
+    await data.dispose()
+  }
+})
 
 it('persists consent through the extension writer, refuses a second writer and revokes pending actions on writer loss while inspection remains available', async () => {
   const data = await extensionInstallationFixture(),

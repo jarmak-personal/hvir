@@ -37,6 +37,8 @@ import { ExtensionConnectorConnectionOwner } from './connector-connection'
 import { createElectronConnectorConnection } from './electron-connector-connection'
 import { createElectronPackagePicker } from './electron-package-picker'
 import { prepareInstallationLanding } from './installation-landing'
+import { ExtensionSetupOwner } from './extension-setup'
+import { createElectronExtensionSetup } from './electron-extension-setup'
 
 /** Application composition and lifetime of the extension platform; no extension package code. */
 export class ExtensionApplicationRuntime {
@@ -45,6 +47,8 @@ export class ExtensionApplicationRuntime {
   sources?: ExtensionSourceReadingOwner
   sourceRequests?: ExtensionSourceRequestOwner
   connections?: ExtensionConnectorConnectionOwner
+  setup?: ExtensionSetupOwner
+  private stopSetup?: () => void
   connectors?: ExtensionConnectorExecutionOwner
   readonly surface = new ElectronExtensionGuestSurface()
   activations?: ExtensionActivationOwner
@@ -69,6 +73,7 @@ export class ExtensionApplicationRuntime {
     this.disposeContext?.()
     this.contexts = new ExtensionContextOwner(sources)
     this.disposeContext = this.contexts.observe(() => {
+      this.setup?.revalidate()
       if (!this.activations?.active.size) return
       this.actions?.revalidate()
       this.guests?.updateContext()
@@ -105,6 +110,8 @@ export class ExtensionApplicationRuntime {
     return (this.starting ??= this.initialize(host, sources, hosts).catch(
       async (reason: unknown) => {
         this.failure = `Extensions could not start: ${reason instanceof Error ? reason.message.slice(0, 240) : 'storage unavailable'}. Check the extensions and extension-state folders in this data directory.`
+        this.stopSetup?.()
+        this.setup?.dispose()
         await this.deliveries?.dispose()
         this.sources?.dispose()
         this.sourceRequests?.dispose()
@@ -142,6 +149,8 @@ export class ExtensionApplicationRuntime {
     this.disposed = true
     this.disposeContext?.()
     await this.starting?.catch(() => undefined)
+    this.stopSetup?.()
+    this.setup?.dispose()
     await this.deliveries?.dispose()
     this.sources?.dispose()
     this.sourceRequests?.dispose()
@@ -183,6 +192,7 @@ export class ExtensionApplicationRuntime {
       joinHostPath(storage, 'state.json'),
       packages,
       (id, reloading) => {
+        this.setup?.revoke(id)
         this.deliveries?.revoke(id)
         this.sources?.approvals.discardPrepared(id)
         this.sources?.revoke(id)
@@ -251,6 +261,24 @@ export class ExtensionApplicationRuntime {
         ),
       sourceApprovals,
     )
+    this.setup = new ExtensionSetupOwner(
+      this.scopes,
+      activations,
+      { programs: approvals, sources: sourceApprovals, activations, hosts, contexts },
+      createElectronExtensionSetup(host),
+      (owner) => this.surface.foreground(owner),
+      (owner) => this.surface.windowVisible(owner),
+      (owner, review) =>
+        this.events.toRenderer(owner, 'extensions:setup-changed', review),
+    )
+    const stopSetupHosts = hosts.onHostStateChange(() => this.setup?.revalidate())
+    const stopSetupForeground = this.surface.observeForeground(() =>
+      this.setup?.revalidate(),
+    )
+    this.stopSetup = () => {
+      stopSetupHosts()
+      stopSetupForeground()
+    }
     this.additions = new ExtensionPackageAdditionOwner(
       this.scopes,
       activations,

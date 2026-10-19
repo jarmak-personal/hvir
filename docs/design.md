@@ -791,6 +791,13 @@ make bounded output usable while preserving independent flood guards and receipt
 One human Connect decision composes independently owned native and exact workspace read grants;
 explicit application-view destinations remain independent of ambient navigation.
 
+### [ADR-078 — Reviewed extension setup files](adr/ADR-078-reviewed-extension-setup-files.md)
+
+> Lifecycle: Active
+
+Declaration-derived templates and immutable trusted reviews configure selected extension access
+through the existing independent native, source and agent setting owners.
+
 ## 5. Architecture
 
 ### Process model

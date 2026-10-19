@@ -3,6 +3,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ExtensionsSettings } from '../src/renderer/src/settings/sections/ExtensionsSettings'
+import type { AgentAccessState } from '../src/shared/agent/contract'
 import type {
   ExtensionInstallation,
   ExtensionPlatformState,
@@ -13,8 +14,11 @@ vi.mock('../src/renderer/src/settings/sections/AgentAccessSettings', () => ({
 }))
 
 let root: Root | undefined
-afterEach(() => {
-  act(() => root?.unmount())
+afterEach(async () => {
+  await act(async () => {
+    root?.unmount()
+    await Promise.resolve()
+  })
   root = undefined
   document.body.replaceChildren()
   vi.unstubAllGlobals()
@@ -54,11 +58,21 @@ async function fixture(installation = candidate) {
     writable: true,
     installations: [entry],
   })
-  const invoke = vi.fn((channel: string) =>
-    channel === 'extensions:enable'
-      ? pending
-      : Promise.resolve(channel === 'extensions:state' ? state(installation) : []),
-  )
+  const invoke = vi.fn((channel: string) => {
+    if (channel === 'extensions:enable') return pending
+    if (channel === 'extensions:state') return Promise.resolve(state(installation))
+    if (channel === 'agent:access')
+      return Promise.resolve({
+        enabled: false,
+        confirmDestructive: true,
+        extensions: [],
+        extensionsWritable: true,
+        ready: false,
+        instance: 'fixture',
+        confirmations: [],
+      } satisfies AgentAccessState)
+    return Promise.resolve([])
+  })
   vi.stubGlobal('hvir', {
     invoke,
     on: (channel: string, listener: typeof publish) => {
@@ -83,7 +97,12 @@ async function fixture(installation = candidate) {
     summary,
     button,
     invoke,
-    publish: (entry: ExtensionInstallation) => act(() => publish(state(entry))),
+    publish: async (entry: ExtensionInstallation) => {
+      await act(async () => {
+        publish(state(entry))
+        await Promise.resolve()
+      })
+    },
     finish: async (entry: ExtensionInstallation) => {
       await act(async () => {
         finish(state(entry))
@@ -104,7 +123,7 @@ it('keeps visible lifecycle focus through first Enable creating its installation
     source: candidate.source,
     revision: candidate.revision,
   })
-  f.publish(enabled)
+  await f.publish(enabled)
   expect(f.host.querySelector('.extension-lifecycle')).toBe(f.details)
   expect(f.details.open).toBe(true)
   expect(document.activeElement).toBe(f.summary)
@@ -124,7 +143,7 @@ it.each(['error', 'removalPending'] as const)(
     })
     const remove = f.button('Remove')
     remove.focus()
-    f.publish(enabled)
+    await f.publish(enabled)
     expect(f.host.querySelector('.extension-lifecycle')).toBe(f.details)
     expect(f.details.open).toBe(true)
     expect(document.activeElement).toBe(remove)
@@ -136,11 +155,15 @@ it('preserves an explicit disclosure choice through later lifecycle publications
   const f = await fixture()
   act(() => f.summary.click())
   expect(f.details.open).toBe(false)
-  f.publish(enabled)
+  await f.publish(enabled)
   expect(f.details.open).toBe(false)
   act(() => f.summary.click())
   expect(f.details.open).toBe(true)
-  f.publish({ ...enabled, acceptedRevision: 'next-revision', revision: 'next-revision' })
+  await f.publish({
+    ...enabled,
+    acceptedRevision: 'next-revision',
+    revision: 'next-revision',
+  })
   expect(f.details.open).toBe(true)
 })
 
@@ -154,7 +177,7 @@ it('does not steal focus after the user moves while Enable is pending', async ()
     '.extension-installation-list button',
   )!
   selected.focus()
-  f.publish(enabled)
+  await f.publish(enabled)
   expect(document.activeElement).toBe(selected)
   await f.finish(enabled)
   expect(document.activeElement).toBe(selected)

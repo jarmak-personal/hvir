@@ -1,3 +1,4 @@
+import { ActivationAgentAccess, type AgentAccessPrior } from './activation-agent-access'
 import { DELIVERY_LIMITS } from '../../shared/extensions/managed-delivery'
 import type { ExtensionConnectorApproval } from '../../shared/extensions/connectors'
 import { CONNECTOR_LIMITS } from '../../shared/extensions/connectors'
@@ -52,9 +53,16 @@ export class ExtensionActivationOwner {
   private releaseTask: Promise<void> = Promise.resolve()
   private stopping?: Promise<void>
   private readonly authority = new AbortController()
-  private readonly agentLifetimes = new Map<string, AbortController>()
-  private readonly agentRevoked = new Set<string>()
-  private readonly agentIntents = new Map<string, object>()
+  private readonly agents = new ActivationAgentAccess({
+    accepted: () => this.accepted,
+    activation: (id) => this.active.get(id),
+    writable: () => !!this.writer && !this.disposed,
+    authority: this.authority.signal,
+    assertWritable: () => this.assertWritable(),
+    serialize: (work) => this.serialize(work),
+    save: (next, current) => this.save(next, this.removals, current),
+    publish: () => this.publish(),
+  })
 
   constructor(
     private readonly host: ProjectHost,
@@ -653,10 +661,7 @@ export class ExtensionActivationOwner {
     this.accepted = next
     this.removals = removals
     const retained = new Set(next.map((entry) => entry.installationId))
-    for (const id of this.agentRevoked)
-      if (!retained.has(id)) this.agentRevoked.delete(id)
-    for (const id of this.agentIntents.keys())
-      if (!retained.has(id)) this.agentIntents.delete(id)
+    this.agents.retain(retained)
   }
 
   private collect(candidate?: ExtensionRevision): Promise<void> {
@@ -687,55 +692,21 @@ export class ExtensionActivationOwner {
   }
 
   agentAccess(): readonly string[] {
-    if (!this.writer || this.disposed) return []
-    return this.accepted
-      .filter(
-        (entry) => entry.agentAccess && !this.agentRevoked.has(entry.installationId),
-      )
-      .map((entry) => entry.installationId)
+    return this.agents.allowed()
   }
-
   agentSignal(installationId: string): AbortSignal {
-    if (!this.agentAccess().includes(installationId))
-      throw new Error('Agent access for this extension is off')
-    let lifetime = this.agentLifetimes.get(installationId)
-    if (!lifetime) {
-      lifetime = new AbortController()
-      this.agentLifetimes.set(installationId, lifetime)
-    }
-    return AbortSignal.any([this.authority.signal, lifetime.signal])
+    return this.agents.signal(installationId)
   }
-
-  configureAgentAccess(installationId: string, enabled: boolean): Promise<void> {
-    if (typeof installationId !== 'string' || typeof enabled !== 'boolean')
-      return Promise.reject(new Error('Invalid extension agent access'))
-    if (this.disposed || !this.writer) return this.assertWritable()
-    if (!this.accepted.some((entry) => entry.installationId === installationId))
-      return Promise.reject(new Error('Extension installation is unavailable'))
-    const intent = {}
-    this.agentIntents.set(installationId, intent)
-    // Stricter trusted intent revokes actions before queued persistence can run.
-    if (!enabled) {
-      this.agentRevoked.add(installationId)
-      this.agentLifetimes.get(installationId)?.abort()
-      this.agentLifetimes.delete(installationId)
-      this.publish()
-    }
-    return this.serialize(async () => {
-      await this.assertWritable()
-      if (!this.accepted.some((entry) => entry.installationId === installationId))
-        throw new Error('Extension installation is unavailable')
-      await this.save(
-        this.accepted.map((entry) =>
-          entry.installationId === installationId
-            ? { ...entry, agentAccess: enabled }
-            : entry,
-        ),
-      )
-      if (enabled && this.agentIntents.get(installationId) === intent)
-        this.agentRevoked.delete(installationId)
-      this.publish()
-    })
+  captureAgentAccess(installationId: string): AgentAccessPrior {
+    return this.agents.capture(installationId)
+  }
+  configureAgentAccess(
+    installationId: string,
+    enabled: boolean,
+    prior?: AgentAccessPrior,
+    current?: () => void,
+  ): Promise<void> {
+    return this.agents.configure(installationId, enabled, prior, current)
   }
 
   async assertWritable(): Promise<void> {
@@ -984,8 +955,7 @@ export class ExtensionActivationOwner {
     id: string,
     reloading?: ExtensionActivation['revision']['manifest']['connectors'],
   ): void {
-    this.agentLifetimes.get(id)?.abort()
-    this.agentLifetimes.delete(id)
+    this.agents.end(id)
     this.active.delete(id)
     this.revoke(id, reloading)
   }

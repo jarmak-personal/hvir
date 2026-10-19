@@ -26,6 +26,20 @@ import type {
 /** Trusted Settings/viewer transport. This contract is never exposed to a guest. */
 export const extensionsIpc = {
   invoke: {
+    'extensions:setup-template': invoke<{ readonly installationId: string }, string>(),
+    'extensions:setup-import': invoke<
+      { readonly installationId: string; readonly request: string },
+      import('../extensions/setup-review').ExtensionSetupReview | undefined
+    >(),
+    'extensions:setup-select': invoke<
+      { readonly request: string; readonly rows: readonly string[] },
+      import('../extensions/setup-review').ExtensionSetupReview
+    >(),
+    'extensions:setup-apply': invoke<
+      { readonly request: string },
+      import('../extensions/setup-review').ExtensionSetupReview
+    >(),
+    'extensions:setup-cancel': invoke<{ readonly request: string }, void>(),
     'extensions:source-proposals': invoke<
       void,
       readonly import('../extensions/source-access').ExtensionSourceRequestProposal[]
@@ -188,6 +202,8 @@ export const extensionsIpc = {
     }>(),
   },
   event: {
+    'extensions:setup-changed':
+      payload<import('../extensions/setup-review').ExtensionSetupReview>(),
     'extensions:source-proposals-changed':
       payload<
         readonly import('../extensions/source-access').ExtensionSourceRequestProposal[]

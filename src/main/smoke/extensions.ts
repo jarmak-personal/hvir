@@ -29,6 +29,7 @@ import { verifyExtensionPackages } from './extension-packages'
 import { verifyExtensionConnection } from './extension-connection'
 import { verifyLocalWorkspaceConnection } from './extension-local-workspace-connection'
 import { verifyExtensionImport } from './extension-import'
+import { verifyExtensionSetup } from './extension-setup'
 import { verifyExtensionNetwork } from './extension-network'
 import {
   prepareExtensionViewerFixture,
@@ -76,6 +77,13 @@ export async function verifyExtensionScenario(
     },
     onHostStateChange: (listener) => host.onConnectionState(listener),
   })
+  if (
+    await verifyExtensionSetup(win, extensions, scopes, host, {
+      click: (name) => click(win, name),
+      wait: waitFor,
+    })
+  )
+    return true
   if (
     await verifyExtensionOutputTransfer(win, extensions, scopes, host, {
       click: (name) => click(win, name),

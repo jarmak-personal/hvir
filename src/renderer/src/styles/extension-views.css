@@ -534,3 +534,55 @@
   margin: 0.2em 0 0;
   padding: 0;
 }
+.extension-setup-controls > details > summary {
+  cursor: pointer;
+  font-size: calc(12px * var(--hvir-interface-scale));
+  color: var(--text-secondary);
+}
+.extension-setup-controls .settings-actions {
+  margin-top: 8px;
+}
+.extension-setup-dialog {
+  width: min(570px, calc(100vw - 32px));
+}
+.extension-setup-dialog > h3 {
+  margin: 0;
+}
+.extension-setup-rows {
+  overflow: auto;
+  max-height: 65vh;
+}
+.extension-setup-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.extension-setup-row > input {
+  flex: none;
+  width: calc(14px * var(--hvir-interface-scale));
+  height: calc(14px * var(--hvir-interface-scale));
+  padding: 0;
+  margin-top: 3px;
+}
+.extension-setup-row > div {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.extension-setup-row p {
+  margin: 4px 0;
+}
+.extension-setup-row details {
+  margin-top: 5px;
+  font-size: calc(12px * var(--hvir-interface-scale));
+}
+.extension-setup-row summary,
+.extension-setup-existing > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.extension-setup-existing {
+  margin-top: 12px;
+}
