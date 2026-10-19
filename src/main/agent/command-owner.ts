@@ -237,14 +237,15 @@ export class AgentWorkbenchCommandOwner {
         return agentOutput({ report })
       }
       if (command.name === 'open') {
-        if (!target.root || !target.value.workspace || !command.flags['path'])
-          throw new Error('Document opening requires an explicit workspace and --path')
+        if (!target.root || !target.value.workspace)
+          throw new Error('Document opening requires an explicit workspace')
         const host = this.ports.host(target.root.hostId)
         if (!host || host.connectionState !== 'connected')
           throw new Error('Document host is disconnected')
-        const requested = command.flags['path'].startsWith('/')
-          ? hostPath(target.root.hostId, command.flags['path'])
-          : joinHostPath(target.root, command.flags['path'])
+        const requestedPath = command.flags['path']!
+        const requested = requestedPath.startsWith('/')
+          ? hostPath(target.root.hostId, requestedPath)
+          : joinHostPath(target.root, requestedPath)
         const path = await authorizeAgentDocument(host, target.root, requested, current)
         current()
         this.ports.openDocument(owner, {
@@ -256,8 +257,7 @@ export class AgentWorkbenchCommandOwner {
           document: { workspace: target.value.workspace.id, path, opened: true },
         })
       }
-      const installation = command.flags['extension']
-      if (!installation) throw new Error('Select --extension INSTALLATION')
+      const installation = command.flags['extension']!
       this.ports.access.assertExtension(installation)
       const activation = this.ports.activeInstallation(installation)
       if (!activation) throw new Error('Extension is disabled or unavailable')
@@ -273,8 +273,7 @@ export class AgentWorkbenchCommandOwner {
           throw new Error('Extension activation was revoked')
       }
       if (command.name === 'view') {
-        const view = command.flags['view']
-        if (!view) throw new Error('Select --view VIEW')
+        const view = command.flags['view']!
         const opened = await this.ports.openView(
           owner,
           installation,
