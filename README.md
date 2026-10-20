@@ -50,6 +50,11 @@ Want to manage the installation yourself? [Follow these steps.](docs/manual-inst
 For the 0.3 extension release, follow the [extension and agent setup guide](docs/extension-setup.md)
 to install the separate Skillager ZIP or make a clock using installed `hvir-agent` guides.
 
+In Skillager, right-click a skill or use its **…** menu to save it to your library,
+use a Full copy or Stub, or remove it from the project. Changes are reviewed beside
+the list. Removing a managed copy keeps the library version; removing a local
+original uses hvir’s normal Trash confirmation. **Show in Files** opens its folder.
+
 hvir does expect the system `git` binary. Claude Code and Codex launch options use those CLIs
 from the selected host's login-shell environment; plain shells work without either.
 

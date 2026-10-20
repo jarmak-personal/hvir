@@ -1,3 +1,4 @@
+import { mountSkillTasks } from './skill-task-template.mjs'
 import { managementCli } from './management-cli.mjs'
 import { exactImportManifest, importArgs } from './import-contract.mjs'
 import { sameReviewedManifest } from './review-contract.mjs'
@@ -7,6 +8,7 @@ import { readOperationReport } from './operation-report.mjs'
 
 /** One selected external occurrence; ordinary human inspection and one acceptance decision. */
 export function bindSelectedImport(document, client, ports) {
+  mountSkillTasks(document)
   const el = (id) => document.getElementById(`import-${id}`)
   let row,
     prepared,
@@ -54,6 +56,7 @@ export function bindSelectedImport(document, client, ports) {
       }),
   })
   function controls() {
+    ports.activity?.(submitted)
     if (disposed) return
     document
       .getElementById('selected-import')
@@ -157,7 +160,7 @@ export function bindSelectedImport(document, client, ports) {
       controls()
       if (refreshQueued && available()) {
         refreshQueued = false
-        void refresh()
+        if (!pending) void refresh()
       }
     }
   }
@@ -249,6 +252,12 @@ export function bindSelectedImport(document, client, ports) {
             if (!fresh.eligible) throw new Error(fresh.gate)
           }
           if (!available(revision)) return
+          const origin = context().workspace,
+            original = row,
+            selected = () =>
+              !disposed &&
+              row === original &&
+              JSON.stringify(origin) === JSON.stringify(context().workspace)
           submitted = true
           say('Saving…')
           controls()
@@ -265,10 +274,12 @@ export function bindSelectedImport(document, client, ports) {
             .catch((error) => {
               // Definite message-only refusals use the public action error boundary.
               // Notify the origin to reobserve without inventing completion facts.
-              if (available(revision)) ports.changed?.()
+              ports.changed?.(undefined, origin, error)
+              if (selected()) say(error.message)
               throw error
             })
-          if (!available(revision)) return
+          ports.changed?.(result, origin)
+          if (!selected()) return
           el('result').textContent = JSON.stringify(result, null, 2)
           if (['verified', 'saved-not-replaced'].includes(result.outcome)) {
             el('name').value = ''
@@ -276,13 +287,10 @@ export function bindSelectedImport(document, client, ports) {
           pending = result.operationId
           prepared = undefined
           say(result.message ?? 'Inspect the exact operation result before continuing.')
-          ports.changed?.(result)
         } finally {
           submitted = false
-          if (available(revision)) {
-            prepared = undefined
-            controls()
-          }
+          if (available(revision)) prepared = undefined
+          controls()
         }
       }),
   )
@@ -356,13 +364,19 @@ export function bindSelectedImport(document, client, ports) {
         el('effect').textContent =
         el('version').textContent =
           ''
-      if (row && available() && options.prepare !== false) void refresh()
+      if (row && available() && options.prepare !== false) return refresh()
       else controls()
     },
     contextChanged() {
       preservation = undefined
       invalidate()
       if (row && available()) void refresh()
+    },
+    visibilityChanged() {
+      preservation = undefined
+      invalidate()
+      // Retain an admitted operation's result and recovery identity across hiding.
+      if (row && available() && !pending) void refresh()
     },
     dispose() {
       disposed = true

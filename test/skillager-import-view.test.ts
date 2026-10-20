@@ -67,8 +67,6 @@ function fixture(preview?: ImportPreview, combined = false) {
         return Promise.resolve(output)
       }
       if (capability === 'actions.invoke') {
-        if (actionError && input['action'] !== 'operation-state')
-          return Promise.reject(new Error('This original changed. Review again.'))
         const response =
           input['action'] === 'operation-state'
             ? { ids: [] }
@@ -83,9 +81,14 @@ function fixture(preview?: ImportPreview, combined = false) {
                   message: 'Saved and accepted. Original preserved.',
                 }
         if (heldAction && input['action'] !== 'operation-state')
-          return new Promise((resolve) => {
-            releaseAction = () => resolve(response)
+          return new Promise((resolve, reject) => {
+            releaseAction = () =>
+              actionError
+                ? reject(new Error('This original changed. Review again.'))
+                : resolve(response)
           })
+        if (actionError && input['action'] !== 'operation-state')
+          return Promise.reject(new Error('This original changed. Review again.'))
         return Promise.resolve(response)
       }
       if (capability === 'source.request') return Promise.resolve({ granted: true })
@@ -126,13 +129,16 @@ function fixture(preview?: ImportPreview, combined = false) {
       select(value: unknown, options?: unknown): void
       preserved(value: unknown): void
       contextChanged(): void
+      visibilityChanged(): void
       dispose(): void
     }
   }
-  const changed = vi.fn()
+  const changed = vi.fn(),
+    activity = vi.fn()
   const view = module.bindSelectedImport(document, client, {
     context: () => ({ visible, workspace: f.workspace }),
     changed,
+    activity,
   })
   stop = () => {
     view.dispose()
@@ -154,13 +160,18 @@ function fixture(preview?: ImportPreview, combined = false) {
     calls,
     view,
     changed,
+    activity,
     holdAction: () => {
       heldAction = true
     },
     releaseAction: () => releaseAction?.(),
     hide: () => {
       visible = false
-      view.contextChanged()
+      view.visibilityChanged()
+    },
+    show: () => {
+      visible = true
+      view.visibilityChanged()
     },
     hold: () => {
       hold = true
@@ -460,6 +471,7 @@ it('shows immediate progress and reports uncertain completion to the origin with
   await vi.waitFor(() =>
     expect(f.changed).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: 'uncertain' }),
+      expect.objectContaining({ id: 'compound-project', host: 'local' }),
     ),
   )
   expect(button('import-reconcile').hidden).toBe(false)
@@ -473,7 +485,13 @@ it('notifies the current origin after a public action error without fabricating 
   await ready()
   f.refuseAction()
   button('import-save').click()
-  await vi.waitFor(() => expect(f.changed).toHaveBeenCalledExactlyOnceWith())
+  await vi.waitFor(() =>
+    expect(f.changed).toHaveBeenCalledExactlyOnceWith(
+      undefined,
+      expect.objectContaining({ id: 'compound-project', host: 'local' }),
+      expect.objectContaining({ message: 'This original changed. Review again.' }),
+    ),
+  )
   expect(document.getElementById('import-state')!.textContent).toContain(
     'This original changed. Review again.',
   )
@@ -484,3 +502,82 @@ it('notifies the current origin after a public action error without fabricating 
   expect(button('import-save').disabled).toBe(true)
   expect(button('import-reconcile').hidden).toBe(true)
 })
+
+it('retains an admitted import result after hiding without reviving its preview authority', async () => {
+  const f = fixture(undefined, true)
+  await ready()
+  f.holdAction()
+  button('import-save').click()
+  expect(f.activity).toHaveBeenLastCalledWith(true)
+  f.hide()
+  f.releaseAction()
+  await vi.waitFor(() =>
+    expect(f.changed).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'verified' }),
+      f.workspace,
+    ),
+  )
+  expect(f.activity).toHaveBeenLastCalledWith(false)
+  expect(document.getElementById('import-result')!.textContent).toContain('verified')
+  expect(button('import-save').disabled).toBe(true)
+})
+
+it.each([false, true])(
+  'retains hidden compound uncertainty after partial replacement (show before settlement=%s)',
+  async (showBefore) => {
+    const f = fixture(undefined, true)
+    await ready()
+    f.uncertain()
+    f.holdAction()
+    button('import-save').click()
+    expect(f.activity).toHaveBeenLastCalledWith(true)
+    f.hide()
+    const previews = f.calls.filter(
+      (call) => call.capability === 'connector.execute',
+    ).length
+    // The original may already have been replaced; restoration must not preview it again.
+    f.preview.source.path = '/already-replaced'
+    if (showBefore) {
+      f.show()
+      expect(f.activity).toHaveBeenLastCalledWith(true)
+    }
+    f.releaseAction()
+    await vi.waitFor(() => expect(f.activity).toHaveBeenLastCalledWith(false))
+    if (!showBefore) f.show()
+    expect(button('import-reconcile').hidden).toBe(false)
+    expect(button('import-save').disabled).toBe(true)
+    expect(document.getElementById('import-result')!.textContent).toContain('retained')
+    expect(document.getElementById('import-state')!.textContent).toBe(
+      'Inspect uncertain save.',
+    )
+    expect(
+      f.calls.filter((call) => call.capability === 'connector.execute'),
+    ).toHaveLength(previews)
+    expect(
+      f.calls.filter((call) => call.input['action'] === 'save-and-use-copy'),
+    ).toHaveLength(1)
+  },
+)
+it.each([false, true])(
+  'retains a hidden submitted CLI refusal (show before settlement=%s)',
+  async (showBefore) => {
+    const f = fixture(undefined, true)
+    await ready()
+    f.refuseAction()
+    f.holdAction()
+    button('import-save').click()
+    f.hide()
+    if (showBefore) f.show()
+    f.releaseAction()
+    await vi.waitFor(() => expect(f.changed).toHaveBeenCalledOnce())
+    expect(f.changed).toHaveBeenCalledWith(
+      undefined,
+      f.workspace,
+      expect.objectContaining({ message: 'This original changed. Review again.' }),
+    )
+    if (!showBefore) f.show()
+    expect(
+      f.calls.filter((call) => call.input['action'] === 'save-and-use-copy'),
+    ).toHaveLength(1)
+  },
+)

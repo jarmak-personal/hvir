@@ -38,7 +38,12 @@ export async function runCli(client, args, context, retryFrequency = true) {
               : `Skillager ${result.outcome}: ${result.reason ?? `exit ${result.code ?? 'unknown'}`}${error ? ` · ${error.slice(0, 300)}` : ''}`,
         ),
         {
-          cli: { outcome: result.outcome, code: result.code, stderr: error.slice(-4096) },
+          cli: {
+            outcome: result.outcome,
+            code: result.code,
+            stdout: text.length <= 4096 && !result.truncated ? text : undefined,
+            stderr: error.slice(-4096),
+          },
         },
       )
     return text

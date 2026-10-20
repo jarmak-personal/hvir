@@ -28,11 +28,11 @@ export async function verifyOwnedOriginalReveal(
   await project.set('query', 'owned-original')
   await project.inspect("document.getElementById('search-form').requestSubmit()")
   await project.ready(
-    `!![...document.querySelectorAll('#skills [role=option]')].find(e=>e.dataset.sourcePath===${JSON.stringify(path.path)})`,
+    `!![...document.querySelectorAll('#skills [data-skill-select]')].find(e=>e.dataset.sourcePath===${JSON.stringify(path.path)})`,
     'public unapproved project original',
   )
   await project.inspect(
-    `[...document.querySelectorAll('#skills [role=option]')].find(e=>e.dataset.sourcePath===${JSON.stringify(path.path)}).click()`,
+    `[...document.querySelectorAll('#skills [data-skill-select]')].find(e=>e.dataset.sourcePath===${JSON.stringify(path.path)}).click()`,
   )
   const guest = await detail(),
     reader = skillagerManagementControls(guest, controls)

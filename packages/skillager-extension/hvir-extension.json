@@ -18,6 +18,7 @@
     "source.asset",
     "source.render",
     "source.reveal",
+    "source.request-trash",
     "actions.invoke",
     "terminal.start",
     "delivery.capture",

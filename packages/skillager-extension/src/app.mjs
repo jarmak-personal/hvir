@@ -1,6 +1,6 @@
 /* global window, document */
 import { guestClient } from './bridge.mjs'
-import { catalogCli } from './catalog-cli.mjs'
+import { catalogCli, isStaleCatalogCursor } from './catalog-cli.mjs'
 import {
   libraryStatus,
   libraryPage,
@@ -17,11 +17,12 @@ import {
   sameCurrentLibrary,
 } from './library-first-use.mjs'
 import { bindSkillReader } from './detail-view.mjs'
+import { bindSkillList } from './skill-list-view.mjs'
+import { bindBrowserTaskSheet } from './browser-task-sheet.mjs'
 import { bindCommandMenus } from './command-menus.mjs'
 const bridge = window.hvirExtension,
   client = guestClient(bridge)
 const releasePresentation = window.hvirUI.bindPresentation(bridge)
-bindCommandMenus(document, client.signal)
 const view = document.body.dataset.view
 let browserScope = view === 'project' ? 'project' : 'library'
 const scopes = new Map()
@@ -56,7 +57,22 @@ const cli = catalogCli(
   () => context,
   () => generation,
 )
-const reader = body ? bindSkillReader(document, client, { choose }) : undefined
+const changed = (_result, origin) => {
+  // A hidden same-context refresh queues normally. A different workspace refreshes on return.
+  if (JSON.stringify(origin) === JSON.stringify(context.workspace)) requestRefresh()
+}
+const reader = body ? bindSkillReader(document, client, { choose, changed }) : undefined
+const sheet = list
+  ? bindBrowserTaskSheet(document, client, {
+      context: () => context,
+      reader,
+      choose,
+      changed,
+      activity: refreshConnectionAvailability,
+      returnFocus: () => navigation?.focusCurrent(),
+    })
+  : undefined
+bindCommandMenus(document, client.signal)
 const on = (id, event, callback) => {
   const target = element(id)
   target?.addEventListener(event, callback)
@@ -86,7 +102,8 @@ function refreshManagementAvailability() {
 }
 function refreshConnectionAvailability() {
   for (const id of ['scope-project', 'scope-library'])
-    if (element(id)) element(id).disabled = !available() || connectionPending
+    if (element(id))
+      element(id).disabled = !available() || connectionPending || !!sheet?.busy
   const button = element('connect-program')
   if (!button) return
   button.hidden =
@@ -121,7 +138,7 @@ function scope() {
   return browserScope === 'project' ? context : undefined
 }
 async function choose(row, sourceLibrary) {
-  if (!available()) return
+  if (!available() || sheet?.busy) return
   const intent = ++selectionIntent,
     revision = generation
   const current = () =>
@@ -150,69 +167,30 @@ async function choose(row, sourceLibrary) {
         'Selected occurrence no longer belongs to the reported personal library; no source was substituted.',
       )
   }
+  sheet?.close(false)
   const input = detailInputFor(row, selectedLibrary)
   selectedRow = row
   if (view === 'library') reader.select(input)
   else await client.request('viewer.open-own', { contributionId: 'detail', input })
 }
 const navigation = list
-  ? window.hvirUI.bindList(list, (row) => {
-      selectedRow = lastPage?.rows.find((item) => item.id === row.dataset.id)
+  ? bindSkillList(document, list, {
+      available: () => available() && !sheet?.busy,
+      workspace: () => context.workspace,
+      emptyFocus: () => element('query')?.focus(),
+      selected: (row) => {
+        selectedRow = row
+      },
+      choose: (row) => void choose(row).catch((error) => say(error.message, 'error')),
+      task: (row, action, trigger) =>
+        void sheet
+          .open(detailInputFor(row, library), action, trigger)
+          .catch((error) => say(error.message, 'error')),
     })
   : undefined
-if (list) {
-  list.addEventListener(
-    'click',
-    (event) => {
-      const row = event.target.closest('[role="option"]')
-      const item = lastPage?.rows.find((item) => item.id === row?.dataset.id)
-      if (item) void choose(item).catch((error) => say(error.message, 'error'))
-    },
-    { signal: client.signal },
-  )
-  list.addEventListener(
-    'keydown',
-    (event) => {
-      if ((event.key === 'Enter' || event.key === ' ') && selectedRow) {
-        event.preventDefault()
-        void choose(selectedRow).catch((error) => say(error.message, 'error'))
-      }
-    },
-    { signal: client.signal },
-  )
-}
 function rows(page) {
   lastPage = page
-  const active =
-      selectedRow?.id ?? list?.querySelector('[aria-selected="true"]')?.dataset.id,
-    scroll = list?.scrollTop ?? 0
-  list?.replaceChildren(
-    ...page.rows.map((item) => {
-      const row = document.createElement('button')
-      row.type = 'button'
-      row.className = 'hvir-button hvir-row hvir-focus'
-      row.dataset.variant = 'selectable'
-      row.dataset.id = item.id
-      row.dataset.sourcePath = item.path
-      row.dataset.source = item.source
-      row.setAttribute('role', 'option')
-      row.setAttribute('aria-selected', String(item.id === active))
-      const name = document.createElement('strong'),
-        description = document.createElement('span')
-      name.textContent = item.name
-      description.textContent = item.description || item.kind
-      const identity = document.createElement('small')
-      identity.className = 'hvir-meta'
-      identity.textContent =
-        item.source === 'project'
-          ? `${item.kind.replace('Installed ', '')}${item.exposure?.agent ? ` · ${item.exposure.agent}` : ''}`
-          : ''
-      row.append(name, description, identity)
-      return row
-    }),
-  )
-  navigation?.refresh()
-  if (list) list.scrollTop = scroll
+  navigation?.render(page.rows, selectedRow?.id)
   pagingControls()
   if (element('observation-details'))
     element('observation-details').textContent =
@@ -404,6 +382,11 @@ async function refresh() {
     }
   } catch (error) {
     if (available() && generation === revision) {
+      if (target.cursor && isStaleCatalogCursor(error)) {
+        // A changed snapshot invalidates only its traversal, never the query or a mutation.
+        requestRefresh({ ...target, cursor: undefined, previous: [] }, false)
+        return
+      }
       const failure = firstUseFailure(
         browserScope === 'project' ? projectInventoryFailure(error) : error,
         !!lastPage,
@@ -439,8 +422,16 @@ function schedule() {
     timer = window.setTimeout(() => requestRefresh(), 30_000 - (Date.now() % 30_000))
 }
 function changeScope(next) {
-  if (view !== 'project' || next === browserScope || connectionPending || !available())
+  if (
+    view !== 'project' ||
+    next === browserScope ||
+    connectionPending ||
+    sheet?.busy ||
+    !available()
+  )
     return
+  navigation?.close()
+  sheet?.close(false)
   scopes.set(browserScope, {
     query,
     cursor,
@@ -666,13 +657,17 @@ client.listen((message) => {
     const changed =
       JSON.stringify(message.context.workspace) !== JSON.stringify(context.workspace)
     context = message.context
+    if (changed || !context.visible) navigation?.close()
+    if (changed) sheet?.contextChanged()
     if (view === 'project' && changed) {
       scopes.clear()
       connectionIntent++
       finishConnection()
     }
     refreshManagementAvailability()
-    reader?.context(context)
+    reader?.context(context, { tasks: !sheet?.active })
+    if (!changed && (!context.visible || renewed))
+      sheet?.visibilityChanged(context.visible)
     if (!context.visible) {
       generation++
       window.clearTimeout(timer)
@@ -707,6 +702,7 @@ window.addEventListener('pagehide', dispose, { once: true })
 function dispose() {
   connectionIntent++
   finishConnection()
+  sheet?.dispose()
   reader?.dispose()
   generation++
   window.clearTimeout(timer)
@@ -721,6 +717,7 @@ client.signal.addEventListener(
     navigation?.dispose()
     releasePresentation()
     refreshManagementAvailability()
+    sheet?.dispose()
     reader?.dispose()
   },
   { once: true },

@@ -181,7 +181,8 @@ it.each(['root', 'UUID'] as const)(
     await f.flush()
     expect(state().textContent).toContain('Page 1')
     expect(
-      document.querySelector<HTMLElement>('#skills [role="option"]')?.dataset.sourcePath,
+      document.querySelector<HTMLElement>('#skills [data-skill-select]')?.dataset
+        .sourcePath,
     ).toBe(`${identity === 'root' ? '/replacement' : '/library'}/0/SKILL.md`)
     expect(f.requests.some(({ capability }) => capability.startsWith('source.'))).toBe(
       false,
@@ -190,7 +191,7 @@ it.each(['root', 'UUID'] as const)(
 )
 
 it.each(['list', 'search'] as const)(
-  'recovers an expired %s cursor with explicit Refresh and current query/options, without replay',
+  'restarts an expired %s cursor once with the same query and options',
   async (kind) => {
     const f = await libraryView()
     if (kind === 'search') {
@@ -201,14 +202,8 @@ it.each(['list', 'search'] as const)(
     f.staleCursors()
     f.button('next').click()
     await f.flush()
-    expect(state().dataset.state).toBe('stale')
-    expect(document.getElementById('observation-details')?.textContent).toContain(
-      'Pagination cursor',
-    )
-    expect(f.calls.filter((args) => args[0] === kind)).toHaveLength(2)
-    f.button('refresh').click()
-    await f.flush()
-    expect(statuses(f)).toHaveLength(2)
+    expect(f.calls.filter((args) => args[0] === kind)).toHaveLength(3)
+    expect(statuses(f)).toHaveLength(1)
     expect(state().dataset.state).toBe('ready')
     expect(state().textContent).toContain('Page 1')
     expect(f.button('previous').disabled).toBe(true)
@@ -219,5 +214,24 @@ it.each(['list', 'search'] as const)(
       expect(command[command.indexOf('--cursor') + 1]).toBe('')
       expect(command[command.indexOf('--view') + 1]).toBe('copies')
     }
+  },
+)
+
+it.each([
+  ['invalid_cursor', false, 2],
+  ['stale_cursor', true, 3],
+] as const)(
+  'does not loop or reinterpret %s after a cursor failure',
+  async (code, firstPageAlsoFails, count) => {
+    const f = await libraryView()
+    f.staleCursors(code, firstPageAlsoFails)
+    f.button('next').click()
+    await f.flush()
+    expect(f.calls.filter((args) => args[0] === 'list')).toHaveLength(count)
+    expect(state().dataset.state).toBe('stale')
+    expect(document.getElementById('skills')?.textContent).toContain('Page 0')
+    expect(f.requests.some((request) => request.capability === 'actions.invoke')).toBe(
+      false,
+    )
   },
 )

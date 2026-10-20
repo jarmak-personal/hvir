@@ -68,12 +68,22 @@
       </section>
 
       <p id="state" class="hvir-state" aria-live="polite">Connecting…</p>
-      <div
-        id="skills"
-        class="hvir-list"
-        role="listbox"
-        aria-label="Skill observations"
-      ></div>
+      <div id="skills" class="hvir-list" role="list" aria-label="Skills"></div>
+      <section id="skill-task-sheet" hidden aria-label="Selected skill action">
+        <header>
+          <strong id="skill-task-title"></strong
+          ><button
+            id="skill-task-close"
+            class="hvir-button"
+            aria-label="Close skill action"
+          >
+            ×
+          </button>
+        </header>
+        <p id="skill-task-message" class="hvir-state" role="status"></p>
+        <button id="skill-task-retry" class="hvir-button" hidden>Review again</button>
+        <div data-skill-tasks></div>
+      </section>
       <nav id="skill-pages" class="toolbar" aria-label="Skill pages" hidden>
         <button id="previous" class="hvir-button" disabled>Previous</button
         ><button id="next" class="hvir-button" disabled>Next</button>

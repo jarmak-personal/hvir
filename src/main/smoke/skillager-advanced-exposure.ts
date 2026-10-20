@@ -427,7 +427,7 @@ export async function verifyOwnedAdvancedExposure(
     await project.inspect("document.getElementById('search-form').requestSubmit()")
     try {
       await project.ready(
-        `document.getElementById('state').dataset.state==='ready' && !![...document.querySelectorAll('#skills [role=option]')].find(e=>e.dataset.sourcePath===${JSON.stringify(entry.path)})`,
+        `document.getElementById('state').dataset.state==='ready' && !![...document.querySelectorAll('#skills [data-skill-select]')].find(e=>e.dataset.sourcePath===${JSON.stringify(entry.path)})`,
         'selected exact public project occurrence',
       )
     } catch (error) {
@@ -440,15 +440,15 @@ export async function verifyOwnedAdvancedExposure(
           projectScope: document.getElementById('scope-project').getAttribute('aria-pressed'),
           libraryScope: document.getElementById('scope-library').getAttribute('aria-pressed'),
           state: document.getElementById('state').dataset.state,
-          rowCount: document.querySelectorAll('#skills [role=option]').length,
-          rows: [...document.querySelectorAll('#skills [role=option]')].slice(0,50).map(row=>({id:row.dataset.id,path:row.dataset.sourcePath})),
+          rowCount: document.querySelectorAll('#skills [data-skill-select]').length,
+          rows: [...document.querySelectorAll('#skills [data-skill-select]')].slice(0,50).map(row=>({id:row.dataset.id,path:row.dataset.sourcePath})),
         }))()`),
         }),
       )
       throw error
     }
     await project.inspect(
-      `[...document.querySelectorAll('#skills [role=option]')].find(e=>e.dataset.sourcePath===${JSON.stringify(entry.path)}).click()`,
+      `[...document.querySelectorAll('#skills [data-skill-select]')].find(e=>e.dataset.sourcePath===${JSON.stringify(entry.path)}).click()`,
     )
     const guest = await detail()
     await foreground(guest)

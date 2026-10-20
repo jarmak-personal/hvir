@@ -351,11 +351,11 @@ export async function verifyOwnedSaveUse(
     await project.set('query', name)
     await project.inspect("document.getElementById('search-form').requestSubmit()")
     await project.ready(
-      `!![...document.querySelectorAll('#skills [role=option]')].find(e=>e.dataset.sourcePath===${JSON.stringify(instruction.path)})`,
+      `!![...document.querySelectorAll('#skills [data-skill-select]')].find(e=>e.dataset.sourcePath===${JSON.stringify(instruction.path)})`,
       'Save and use exact original occurrence',
     )
     await project.inspect(
-      `[...document.querySelectorAll('#skills [role=option]')].find(e=>e.dataset.sourcePath===${JSON.stringify(instruction.path)}).click()`,
+      `[...document.querySelectorAll('#skills [data-skill-select]')].find(e=>e.dataset.sourcePath===${JSON.stringify(instruction.path)}).click()`,
     )
     const ui = skillagerManagementControls(await detail(), controls)
     await ui.ready(

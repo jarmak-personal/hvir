@@ -41,7 +41,7 @@ function view(data = inventory()) {
   return f
 }
 const rows = () => [
-  ...document.querySelectorAll<HTMLButtonElement>('#skills [role=option]'),
+  ...document.querySelectorAll<HTMLButtonElement>('#skills [data-skill-select]'),
 ]
 const state = () => document.getElementById('state')!
 

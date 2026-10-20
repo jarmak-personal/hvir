@@ -1,10 +1,9 @@
 /* global AbortController */
-import { libraryStatus } from './catalog.mjs'
+import { libraryStatus, occurrenceFolder } from './catalog.mjs'
 import { catalogCli } from './catalog-cli.mjs'
 import { sameCurrentLibrary } from './library-first-use.mjs'
 import { sourcePages, loadInstructionImages } from './reader.mjs'
-import { bindSelectedSkill } from './selected-skill-view.mjs'
-import { bindExposureView } from './exposure-view.mjs'
+import { bindSelectedTaskSurface } from './selected-task-surface.mjs'
 
 /** One selected occurrence owns its body, position and contextual task lifecycle. */
 export function bindSkillReader(document, client, ports) {
@@ -25,25 +24,12 @@ export function bindSkillReader(document, client, ports) {
   const on = (id, event, callback) =>
     element(id)?.addEventListener(event, callback, { signal: client.signal })
   element('reader-manage').disabled = true
-  let exposure
-  const task = bindSelectedSkill(document, client, {
-    context: () => context,
-    changed: (result) => {
-      exposure?.refresh()
-      ports.changed?.(result)
-    },
-  })
-  exposure = bindExposureView(document, client, {
+  const tasks = bindSelectedTaskSurface(document, client, {
     context: () => context,
     choose: ports.choose,
-    preservation: (value) => task.preserved(value),
-    saveAndUse: (mode) => task.saveAndUse(mode),
     changed: ports.changed,
-    expanded: (active) =>
-      task.select(
-        active || detailInput?.row.kind === 'Installed Router' ? undefined : detailInput,
-      ),
   })
+  const { exposure } = tasks
   let detailInput,
     selectedRead,
     sourceReceipt,
@@ -315,7 +301,7 @@ export function bindSkillReader(document, client, ports) {
       await client.request('source.reveal', {
         source: 'project',
         workspaceId: row.workspaceId,
-        path: { hostId: row.host, path: row.path.slice(0, row.path.lastIndexOf('/')) },
+        path: occurrenceFolder(row),
       })
       say(
         'Original folder revealed in Files. Its separate file actions own deletion; no original was removed.',
@@ -385,8 +371,7 @@ export function bindSkillReader(document, client, ports) {
     generation++
     pendingSelection = false
     detailInput = undefined
-    task.select(undefined)
-    exposure.select(undefined)
+    tasks.select(undefined)
     element('reader-content').hidden = true
     element('reader-empty')?.removeAttribute('hidden')
   })
@@ -434,8 +419,7 @@ export function bindSkillReader(document, client, ports) {
     element('source-label').textContent =
       `${input.row.kind} · ${input.row.host}: ${input.row.path}`
     element('details').textContent = ''
-    task.select(router ? undefined : input)
-    exposure.select(input)
+    tasks.select(input)
     if (router) {
       pendingSelection = false
       say('')
@@ -443,8 +427,10 @@ export function bindSkillReader(document, client, ports) {
     if (available()) void readSelected()
   }
   return {
+    tasks,
+    restoreTasks: () => tasks.select(detailInput, { prepare: false }),
     select,
-    context(next) {
+    context(next, options = {}) {
       const changed =
           JSON.stringify(next.workspace) !== JSON.stringify(context.workspace),
         hidden = !next.visible,
@@ -458,9 +444,9 @@ export function bindSkillReader(document, client, ports) {
         renderedRead?.controller.abort()
         generation++
       }
-      if (changed || hidden || renewed) {
-        task.contextChanged()
-        exposure.contextChanged()
+      if (options.tasks !== false) {
+        if (renewed && detailInput) tasks.select(detailInput, { prepare: false })
+        else if (changed || hidden) tasks.contextChanged()
       }
       if (next.input && next.input.selection !== detailInput?.selection)
         select(next.input)
@@ -473,8 +459,7 @@ export function bindSkillReader(document, client, ports) {
       instructionText = ''
       body.replaceChildren()
       generation++
-      exposure.dispose()
-      task.dispose()
+      tasks.dispose()
       element('reader-manage').disabled = true
     },
   }

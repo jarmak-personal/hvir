@@ -249,7 +249,7 @@ body[data-view='management'] h2 {
   display: grid;
   gap: 4px;
   padding: 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
   background: var(--surface-1);
   box-shadow: 0 4px 12px var(--shadow);
@@ -746,5 +746,171 @@ body[data-view='project'] #open-library {
 }
 #destination-identity {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Occurrence selection and row actions are sibling buttons, not nested controls. */
+#skills .skill-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  flex-shrink: 0;
+  border-radius: 4px;
+  align-items: start;
+}
+#skills .skill-list-row:has([aria-current='true']) {
+  background: var(--surface-2);
+}
+#skills .skill-list-row .hvir-row {
+  min-width: 0;
+  border-color: transparent;
+  background: transparent;
+}
+#skills .skill-row-more {
+  padding: 4px 6px;
+  margin: 3px 2px 0 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+#skills .skill-row-more:is(:hover, :focus-visible, [aria-expanded='true']) {
+  color: var(--text-strong);
+  background: var(--surface-2);
+}
+.skill-row-menu {
+  position: fixed;
+  z-index: 10;
+  min-width: min(196px, calc(100vw - 8px));
+  max-width: calc(100vw - 8px);
+  max-height: calc(100vh - 8px);
+  overflow: auto;
+  display: grid;
+  gap: 1px;
+  padding: 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+  box-shadow: 0 4px 12px var(--shadow);
+}
+.skill-row-menu > button {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 5px;
+  padding: 5px 7px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  white-space: normal;
+}
+.skill-row-menu > button::before {
+  content: '';
+}
+.skill-row-menu > button[aria-checked='true']::before {
+  content: '✓';
+}
+.skill-row-menu > button[aria-checked='true'] {
+  opacity: 1;
+  color: var(--text-muted);
+}
+[data-skill-tasks] {
+  display: contents;
+}
+#reader-content:has(#import-inspection:not([hidden])) #instructions {
+  display: none;
+}
+#skill-task-sheet {
+  flex-shrink: 0;
+  max-height: 65%;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+#skill-task-sheet > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+}
+#skill-task-title {
+  overflow-wrap: anywhere;
+}
+#skill-task-close {
+  border: 0;
+  background: transparent;
+  padding: 0 4px;
+  color: var(--text-muted);
+}
+#skill-task-message {
+  padding: 0;
+  margin: 6px 0 0;
+}
+#skill-task-message:empty {
+  display: none;
+}
+#skill-task-sheet [data-skill-tasks] {
+  display: block;
+}
+#skill-task-sheet :is(#selected-task, #selected-import, #exposure-task) {
+  max-height: none;
+  overflow: visible;
+  border: 0;
+  padding: 0;
+  margin: 6px 0 0;
+}
+#skill-task-sheet :is(#task-destination, #task-confirm-target, #exposure-destination) {
+  font-size: calc(11px * var(--hvir-interface-scale));
+  margin: 4px 0;
+}
+#skill-task-sheet .task-review {
+  margin: 4px 0;
+  padding-top: 4px;
+  border: 0;
+}
+#skill-task-sheet :is(#task-options, #task-agent-name, #task-mode, #exposure-context) {
+  display: none;
+}
+#skill-task-sheet .task-controls > label:has(#task-mode) {
+  display: none;
+}
+#skill-task-sheet .task-controls {
+  gap: 4px;
+  flex-wrap: wrap;
+}
+#skill-task-sheet #task-confirmation:not([hidden]) ~ #exact-review {
+  display: none;
+}
+#skill-task-sheet .review-actions {
+  gap: 6px;
+  padding-top: 6px;
+}
+#skill-task-sheet :is(#task-effects, #exposure-effects) {
+  max-height: 160px;
+  overflow: auto;
+  font-size: calc(11px * var(--hvir-interface-scale));
+}
+#skill-task-sheet :is(#import-inspection, #import-file-body) {
+  min-height: 80px;
+}
+#skill-task-sheet #import-inspection {
+  max-height: 45vh;
+  overflow: auto;
+}
+#skill-task-sheet .review-file-row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+#skill-task-sheet #import-options {
+  margin-left: 0;
+}
+
+#skill-task-sheet #import-destination {
+  flex: 0 0 100%;
+  order: -1;
+  white-space: normal;
+  overflow: visible;
   overflow-wrap: anywhere;
 }
