@@ -152,7 +152,10 @@ export async function verifyExtensionTerminalHandoff(
   await selected('Approve native execution')
   await controls.wait(
     () =>
-      extensions.connectors!.approvals.status(active)[0]?.availability === 'supported',
+      extensions.connectors!.approvals
+        .status(active, root.hostId)
+        .find((entry) => entry.connector === 'setup-tool' && entry.host === root.hostId)
+        ?.availability === 'supported',
     'terminal connector approval',
   )
   await extensionSettingsControls(win, 'Terminal reference', {
