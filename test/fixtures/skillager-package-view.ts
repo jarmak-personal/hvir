@@ -104,7 +104,7 @@ export function createSkillagerPackageView(view = 'library') {
         unapproved = undefined
       } else if (frequency) {
         frequency = false
-        value = { outcome: 'not-started', reason: 'frequency' }
+        value = { outcome: 'not-started', reason: 'frequency', retryAfterMs: 250 }
       } else if (
         (!projectScopeSupported ||
           (!projectQuerySupported && args.includes('--query'))) &&

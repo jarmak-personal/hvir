@@ -115,10 +115,12 @@ describe('finite connector execution', () => {
         expect.objectContaining({ outcome: 'not-started', reason: 'deadline' }),
       ),
     )
-    expect(await f.execution.execute(f.caller, f.input)).toMatchObject({
+    const capacity = await f.execution.execute(f.caller, f.input)
+    expect(capacity).toMatchObject({
       outcome: 'not-started',
       reason: 'capacity',
     })
+    expect(capacity).not.toHaveProperty('retryAfterMs')
     expect(f.host.exec).not.toHaveBeenCalled()
     resolve(path)
     await vi.advanceTimersByTimeAsync(0)
@@ -296,6 +298,58 @@ describe('finite connector execution', () => {
       reason: 'frequency',
     })
   })
+  it('reports only the remaining start-to-start delay and admits at its exact boundary', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(10_000)
+    const f = fixture(),
+      deferred = pending()
+    await f.approve()
+    let started = 0
+    f.host.exec.mockImplementationOnce(() => {
+      started = Date.now()
+      return deferred.promise
+    })
+    const first = f.execution.execute(f.caller, f.input)
+    await vi.waitFor(() => expect(f.host.exec).toHaveBeenCalledOnce())
+    vi.setSystemTime(started + 250)
+    deferred.resolve(successful)
+    const completed = await first
+    expect(completed).not.toHaveProperty('retryAfterMs')
+    f.execution.output(f.caller, { receipt: completed.receipt, release: true })
+    await Promise.resolve()
+    for (const [elapsed, retryAfterMs] of [
+      [250, 750],
+      [900, 100],
+      [999, 1],
+      [-5000, 1000],
+    ] as const) {
+      vi.setSystemTime(started + elapsed)
+      expect(await f.execution.execute(f.caller, f.input)).toMatchObject({
+        outcome: 'not-started',
+        reason: 'frequency',
+        retryAfterMs,
+      })
+      expect(f.host.exec).toHaveBeenCalledOnce()
+    }
+    vi.setSystemTime(started + 1000)
+    const admitted = await f.execution.execute(f.caller, f.input)
+    expect(admitted.outcome).toBe('completed')
+    expect(admitted).not.toHaveProperty('retryAfterMs')
+    expect(f.host.exec).toHaveBeenCalledTimes(2)
+  })
+  it.each(['unapproved', 'disconnected', 'context-ended'] as const)(
+    'does not attach a retry hint to %s refusal',
+    async (reason) => {
+      const f = fixture()
+      if (reason !== 'unapproved') await f.approve()
+      if (reason === 'disconnected') f.disconnect()
+      if (reason === 'context-ended') f.endDemand()
+      const result = await f.execution.execute(f.caller, f.input)
+      expect(result).toMatchObject({ outcome: 'not-started', reason })
+      expect(result).not.toHaveProperty('retryAfterMs')
+      expect(f.host.exec).not.toHaveBeenCalled()
+    },
+  )
   it('canceling one shared consumer does not interrupt another consumer', async () => {
     const f = fixture(),
       deferred = pending(),

@@ -65,6 +65,8 @@ export interface ExtensionConnectorResult {
     | 'output-limit'
     | 'transport'
   readonly receipt?: string
+  /** Advisory remaining source interval, 1–1000 ms, only for not-started/frequency. */
+  readonly retryAfterMs?: number
   readonly stdoutBytes: number
   readonly stderrBytes: number
 }

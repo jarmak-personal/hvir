@@ -93,7 +93,11 @@ function fixture(
           ((options.cadence && Date.now() - statusStarted < 1000) ||
             (collideAfterBody && afterBody))
         ) {
-          reply(message.id, { outcome: 'not-started', reason: 'frequency' })
+          reply(message.id, {
+            outcome: 'not-started',
+            reason: 'frequency',
+            retryAfterMs: Math.max(1, 1000 - (Date.now() - statusStarted)),
+          })
           return
         }
         if (!version) {
@@ -389,10 +393,32 @@ it('uses selected metadata only as a proposal and obtains two fresh observations
   f.decide(true)
   await f.flush()
   expect(f.statusStarts).toHaveLength(2)
-  expect(f.statusStarts[1]! - f.statusStarts[0]!).toBe(1100)
+  expect(f.statusStarts[1]! - f.statusStarts[0]!).toBe(1000)
   expect(document.getElementById('instructions')?.textContent).toBe(
     '# Current instruction',
   )
+})
+it.each([
+  ['/another', 'original'],
+  ['/library', 'replacement'],
+])('rejects library drift during the remaining delay (%s, %s)', async (root, id) => {
+  const f = fixture({ cadence: true })
+  f.context()
+  await f.flush()
+  f.decide(true)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(f.statusStarts).toHaveLength(1)
+  expect(document.getElementById('reader-state')!.dataset['state']).toBe('loading')
+  f.change(root, id)
+  await vi.advanceTimersByTimeAsync(999)
+  expect(f.statusStarts).toHaveLength(1)
+  expect(document.getElementById('instructions')!.textContent).toBe('')
+  await vi.advanceTimersByTimeAsync(1)
+  expect(f.statusStarts).toHaveLength(2)
+  expect(document.getElementById('reader-state')!.textContent).toContain(
+    'personal library changed',
+  )
+  expect(document.getElementById('instructions')!.textContent).toBe('')
 })
 it('resolves an omitted bounded input root before proposing access', async () => {
   const f = fixture({ omitRoot: true })
