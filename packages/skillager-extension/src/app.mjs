@@ -1,6 +1,6 @@
 /* global window, document */
 import { guestClient } from './bridge.mjs'
-import { catalogCli } from './catalog-cli.mjs'
+import { catalogCli, isStaleCatalogCursor } from './catalog-cli.mjs'
 import {
   libraryStatus,
   libraryPage,
@@ -59,8 +59,7 @@ const cli = catalogCli(
 )
 const changed = (_result, origin) => {
   // A hidden same-context refresh queues normally. A different workspace refreshes on return.
-  if (JSON.stringify(origin) === JSON.stringify(context.workspace))
-    requestRefresh({ cursor: undefined, previous: [] })
+  if (JSON.stringify(origin) === JSON.stringify(context.workspace)) requestRefresh()
 }
 const reader = body ? bindSkillReader(document, client, { choose, changed }) : undefined
 const sheet = list
@@ -383,6 +382,11 @@ async function refresh() {
     }
   } catch (error) {
     if (available() && generation === revision) {
+      if (target.cursor && isStaleCatalogCursor(error)) {
+        // A changed snapshot invalidates only its traversal, never the query or a mutation.
+        requestRefresh({ ...target, cursor: undefined, previous: [] }, false)
+        return
+      }
       const failure = firstUseFailure(
         browserScope === 'project' ? projectInventoryFailure(error) : error,
         !!lastPage,
@@ -653,17 +657,17 @@ client.listen((message) => {
     const changed =
       JSON.stringify(message.context.workspace) !== JSON.stringify(context.workspace)
     context = message.context
-    if (changed || !context.visible) {
-      navigation?.close()
-      sheet?.contextChanged()
-    }
+    if (changed || !context.visible) navigation?.close()
+    if (changed) sheet?.contextChanged()
     if (view === 'project' && changed) {
       scopes.clear()
       connectionIntent++
       finishConnection()
     }
     refreshManagementAvailability()
-    reader?.context(context)
+    reader?.context(context, { tasks: !sheet?.active })
+    if (!changed && (!context.visible || renewed))
+      sheet?.visibilityChanged(context.visible)
     if (!context.visible) {
       generation++
       window.clearTimeout(timer)

@@ -1,5 +1,5 @@
 /* global AbortController */
-import { libraryStatus } from './catalog.mjs'
+import { libraryStatus, occurrenceFolder } from './catalog.mjs'
 import { catalogCli } from './catalog-cli.mjs'
 import { sameCurrentLibrary } from './library-first-use.mjs'
 import { sourcePages, loadInstructionImages } from './reader.mjs'
@@ -301,7 +301,7 @@ export function bindSkillReader(document, client, ports) {
       await client.request('source.reveal', {
         source: 'project',
         workspaceId: row.workspaceId,
-        path: { hostId: row.host, path: row.path.slice(0, row.path.lastIndexOf('/')) },
+        path: occurrenceFolder(row),
       })
       say(
         'Original folder revealed in Files. Its separate file actions own deletion; no original was removed.',
@@ -430,7 +430,7 @@ export function bindSkillReader(document, client, ports) {
     tasks,
     restoreTasks: () => tasks.select(detailInput, { prepare: false }),
     select,
-    context(next) {
+    context(next, options = {}) {
       const changed =
           JSON.stringify(next.workspace) !== JSON.stringify(context.workspace),
         hidden = !next.visible,
@@ -444,8 +444,10 @@ export function bindSkillReader(document, client, ports) {
         renderedRead?.controller.abort()
         generation++
       }
-      if (renewed && detailInput) tasks.select(detailInput, { prepare: false })
-      else if (changed || hidden) tasks.contextChanged()
+      if (options.tasks !== false) {
+        if (renewed && detailInput) tasks.select(detailInput, { prepare: false })
+        else if (changed || hidden) tasks.contextChanged()
+      }
       if (next.input && next.input.selection !== detailInput?.selection)
         select(next.input)
       else if (pendingSelection && available()) void readSelected()

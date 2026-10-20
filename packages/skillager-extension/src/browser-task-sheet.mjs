@@ -1,4 +1,5 @@
 import { bindSelectedTaskSurface } from './selected-task-surface.mjs'
+import { occurrenceFolder } from './catalog.mjs'
 
 /** The browser that starts a task owns its review and inventory refresh. */
 export function bindBrowserTaskSheet(document, client, ports) {
@@ -12,12 +13,17 @@ export function bindBrowserTaskSheet(document, client, ports) {
     action,
     trigger,
     generation = 0,
+    preparationSerial = 0,
     pending = false,
     preparing = false,
     completed = false,
+    suspended = false,
+    resumeNeeded = false,
+    terminalMessage = '',
     disposed = false
-  const available = (revision = generation) =>
-    !disposed && client.alive && context().visible && generation === revision
+  const current = (revision = generation) =>
+    !disposed && client.alive && generation === revision
+  const available = (revision = generation) => current(revision) && context().visible
   const message = (text) => {
     el('skill-task-message').textContent = text
   }
@@ -49,10 +55,23 @@ export function bindBrowserTaskSheet(document, client, ports) {
     ports.activity?.(working())
   }
   // Owner controls settle synchronously; project their final presentation into this sheet.
-  surface.onActivity(() => document.defaultView.queueMicrotask(update))
-  surface.onChanged((result, origin) => {
-    if (!sheet.hidden && JSON.stringify(origin) === JSON.stringify(context().workspace)) {
+  surface.onActivity(() =>
+    document.defaultView.queueMicrotask(() => {
+      update()
+      if (resumeNeeded && !working() && available()) resume()
+    }),
+  )
+  surface.onChanged((result, origin, error) => {
+    if (selection && JSON.stringify(origin) === JSON.stringify(context().workspace)) {
       completed = result?.outcome === 'verified'
+      terminalMessage =
+        error?.message ??
+        result?.message ??
+        result?.reason ??
+        (completed
+          ? 'Completed.'
+          : 'Completion could not be confirmed. Review its state.')
+      if (suspended || resumeNeeded) message(terminalMessage)
       document.defaultView.queueMicrotask(update)
     }
   })
@@ -62,6 +81,8 @@ export function bindBrowserTaskSheet(document, client, ports) {
     generation++
     selection = action = undefined
     preparing = false
+    suspended = resumeNeeded = false
+    terminalMessage = ''
     sheet.hidden = true
     if (slot.parentNode !== home) home.append(slot)
     if (ports.reader && restore) ports.reader.restoreTasks()
@@ -113,7 +134,7 @@ export function bindBrowserTaskSheet(document, client, ports) {
         await client.request('source.reveal', {
           source: 'project',
           workspaceId: row.workspaceId,
-          path: { hostId: row.host, path: row.path.slice(0, row.path.lastIndexOf('/')) },
+          path: occurrenceFolder(row),
         })
       } catch (error) {
         if (available(revision)) {
@@ -132,6 +153,8 @@ export function bindBrowserTaskSheet(document, client, ports) {
     selection = input
     action = task
     completed = false
+    suspended = resumeNeeded = false
+    terminalMessage = ''
     trigger = source
     sheet.hidden = false
     sheet.dataset.task = task
@@ -143,6 +166,7 @@ export function bindBrowserTaskSheet(document, client, ports) {
       sheet.dataset.task = 'remove-original'
       surface.select(undefined)
       if (task === 'remove' && row.host !== 'local') {
+        // Execution also rejects unsupported direct callers; menu eligibility is presentation.
         message('Recoverable removal is available on local projects. Use Show in Files.')
         return
       }
@@ -153,13 +177,10 @@ export function bindBrowserTaskSheet(document, client, ports) {
         const result = await client.request('source.request-trash', {
           source: 'project',
           workspaceId: row.workspaceId,
-          path: {
-            hostId: row.host,
-            path: row.path.slice(0, row.path.lastIndexOf('/')),
-          },
+          path: occurrenceFolder(row),
         })
         ports.changed(result, origin)
-        if (available(revision)) {
+        if (current(revision)) {
           message(
             result.outcome === 'completed'
               ? 'Moved to Trash.'
@@ -170,7 +191,7 @@ export function bindBrowserTaskSheet(document, client, ports) {
         }
       } catch (error) {
         ports.changed(undefined, origin)
-        if (available(revision)) message(error.message)
+        if (current(revision)) message(error.message)
       } finally {
         pending = false
         update()
@@ -180,26 +201,41 @@ export function bindBrowserTaskSheet(document, client, ports) {
     await prepare(input, task, revision)
   }
   async function prepare(input, task, revision) {
+    const preparation = ++preparationSerial,
+      currentPreparation = () => available(revision) && preparation === preparationSerial
     preparing = true
     completed = false
     message('Preparing…')
     update()
     try {
       await surface.prepare(input, task)
-      if (available(revision) && selection === input && action === task) {
+      if (currentPreparation() && selection === input && action === task) {
         message('')
         decision()?.focus({ preventScroll: true })
       }
     } catch (error) {
-      if (available(revision)) message(error.message)
+      if (currentPreparation()) message(error.message)
     } finally {
-      if (available(revision)) preparing = false
+      if (currentPreparation()) preparing = false
       update()
     }
+  }
+  function resume() {
+    if (!selection || !available() || working()) return
+    resumeNeeded = false
+    if (!completed && !['remove-original', 'reveal'].includes(sheet.dataset.task)) {
+      surface.visibilityChanged()
+      if (terminalMessage) message(terminalMessage)
+      else message('')
+    }
+    update()
   }
   return {
     open,
     close,
+    get active() {
+      return !!selection
+    },
     get busy() {
       return working()
     },
@@ -207,10 +243,26 @@ export function bindBrowserTaskSheet(document, client, ports) {
       generation++
       selection = action = undefined
       preparing = false
+      suspended = resumeNeeded = false
+      terminalMessage = ''
       sheet.hidden = true
       if (slot.parentNode !== home) home.append(slot)
       surface.select(undefined)
       trigger = undefined
+      update()
+    },
+    visibilityChanged(visible) {
+      if (!selection) return
+      suspended = !visible
+      sheet.hidden = !visible
+      if (!visible) {
+        preparationSerial++
+        preparing = false
+        surface.visibilityChanged()
+      } else {
+        resumeNeeded = true
+        if (!working()) resume()
+      }
       update()
     },
     dispose() {

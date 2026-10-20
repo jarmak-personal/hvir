@@ -293,6 +293,11 @@ export function searchArgs(
 }
 
 let selectionSerial = 0
+/** The observed entrypoint's containing folder, without inferring another occurrence. */
+export function occurrenceFolder(row) {
+  const path = sourcePath(row.path)
+  return { hostId: row.host, path: path.slice(0, path.lastIndexOf('/')) || '/' }
+}
 /** Descriptions and unused observations never enter an instruction selection. */
 export function detailInputFor(row, library) {
   if (row.host !== 'local' || (row.source === 'project' && !row.workspaceId))

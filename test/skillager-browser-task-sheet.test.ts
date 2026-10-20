@@ -47,19 +47,29 @@ function setup() {
         open(selection: typeof input, task: string, trigger: HTMLElement): Promise<void>
         close(): boolean
         contextChanged(): void
+        visibilityChanged(visible: boolean): void
+        active: boolean
         dispose(): void
         busy: boolean
       }
     },
   }
-  runInNewContext(bundle, { module, document })
-  let finish!: () => void, activity: (() => void) | undefined
+  runInNewContext(bundle, { module, document, TextEncoder })
+  let finish!: () => void,
+    activity: (() => void) | undefined,
+    completion: ((result: unknown, origin: unknown, error?: Error) => void) | undefined
   const surface = {
     submitted: false,
     onActivity: (value: () => void) => {
       activity = value
     },
-    onChanged: vi.fn(),
+    onChanged: (value: typeof completion) => {
+      completion = value
+    },
+    visibilityChanged: vi.fn(() => {
+      ;(document.getElementById('import-save') as HTMLButtonElement).disabled = true
+    }),
+    contextChanged: vi.fn(),
     select: vi.fn(),
     prepare: vi.fn(
       () =>
@@ -78,6 +88,8 @@ function setup() {
     changed: vi.fn(),
     choose: vi.fn(),
     returnFocus,
+    complete: (result: unknown, error?: Error) =>
+      completion?.(result, context.workspace, error),
   })
   dispose = () => sheet.dispose()
   const button = (id: string) => document.getElementById(id) as HTMLButtonElement
@@ -91,6 +103,8 @@ function setup() {
     activity: () => activity?.(),
     client,
     returnFocus,
+    complete: (result: unknown, error?: Error) =>
+      completion?.(result, context.workspace, error),
   }
 }
 it('keeps the reader document and awaits actual preparation before focusing the decision', async () => {
@@ -182,3 +196,106 @@ it('Show in Files retires the prior preparation without leaving a success sheet'
     path: { hostId: 'local', path: '/project/original' },
   })
 })
+
+it.each(['refused', 'uncertain'])(
+  'restores the same logical %s task after hidden completion without restoring reader tasks',
+  async (outcome) => {
+    const f = setup()
+    const initial = f.sheet.open(input, 'save', f.button('invoker'))
+    f.finish()
+    await initial
+    f.surface.submitted = true
+    f.context.visible = false
+    f.sheet.visibilityChanged(false)
+    expect(f.sheet.active).toBe(true)
+    expect(f.surface.visibilityChanged).toHaveBeenCalledOnce()
+    expect(document.getElementById('skill-task-sheet')!.hidden).toBe(true)
+    const error =
+      outcome === 'refused' ? new Error('Source changed. Review again.') : undefined
+    f.complete(
+      outcome === 'uncertain'
+        ? { outcome, message: 'Inspect the uncertain operation.' }
+        : undefined,
+      error,
+    )
+    f.surface.submitted = false
+    f.activity()
+    await Promise.resolve()
+    f.context.visible = true
+    f.sheet.visibilityChanged(true)
+    expect(f.surface.prepare).toHaveBeenCalledOnce()
+    expect(f.surface.visibilityChanged).toHaveBeenCalledTimes(2)
+    if (outcome === 'uncertain') f.button('import-reconcile').hidden = false
+    f.activity()
+    f.finish()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(document.getElementById('skill-task-message')!.textContent).toBe(
+      error?.message ?? 'Inspect the uncertain operation.',
+    )
+    expect(f.reader.restoreTasks).not.toHaveBeenCalled()
+    expect(f.client.request).not.toHaveBeenCalled()
+    expect(document.getElementById('skill-task-sheet')!.hidden).toBe(false)
+    if (outcome === 'uncertain') expect(f.button('skill-task-retry').hidden).toBe(true)
+  },
+)
+it('defers same-workspace renewal until physical submission settles', async () => {
+  const f = setup()
+  const initial = f.sheet.open(input, 'save', f.button('invoker'))
+  f.finish()
+  await initial
+  f.surface.submitted = true
+  f.context.visible = false
+  f.sheet.visibilityChanged(false)
+  f.context.visible = true
+  f.sheet.visibilityChanged(true)
+  expect(f.surface.prepare).toHaveBeenCalledOnce()
+  expect(f.button('skill-task-close').disabled).toBe(true)
+  expect(f.reader.restoreTasks).not.toHaveBeenCalled()
+  f.complete({ outcome: 'uncertain', message: 'Inspect this operation.' })
+  f.surface.submitted = false
+  f.activity()
+  await Promise.resolve()
+  expect(f.surface.prepare).toHaveBeenCalledOnce()
+  expect(f.surface.visibilityChanged).toHaveBeenCalledTimes(2)
+  f.button('import-reconcile').hidden = false
+  f.finish()
+  await Promise.resolve()
+  await Promise.resolve()
+  expect(f.button('import-reconcile').hidden).toBe(false)
+  expect(document.getElementById('skill-task-message')!.textContent).toBe(
+    'Inspect this operation.',
+  )
+})
+
+it.each([false, true])(
+  'keeps verified replacement terminal without renewing the old original (show before=%s)',
+  async (showBefore) => {
+    const f = setup()
+    const prepared = f.sheet.open(input, 'stub', f.button('invoker'))
+    f.finish()
+    await prepared
+    f.surface.submitted = true
+    f.context.visible = false
+    f.sheet.visibilityChanged(false)
+    if (showBefore) {
+      f.context.visible = true
+      f.sheet.visibilityChanged(true)
+    }
+    f.complete({ outcome: 'verified', message: 'Saved and using Stub.' })
+    f.surface.submitted = false
+    f.activity()
+    await Promise.resolve()
+    if (!showBefore) {
+      f.context.visible = true
+      f.sheet.visibilityChanged(true)
+    }
+    expect(f.surface.visibilityChanged).toHaveBeenCalledOnce()
+    expect(f.surface.prepare).toHaveBeenCalledOnce()
+    expect(document.getElementById('skill-task-message')!.textContent).toBe(
+      'Saved and using Stub.',
+    )
+    expect(f.button('skill-task-retry').hidden).toBe(true)
+    expect(f.button('skill-task-close').disabled).toBe(false)
+  },
+)

@@ -9,8 +9,8 @@ export function bindSelectedTaskSurface(document, client, ports) {
     activity[key] = value
     listener?.(activity.copy || activity.exposure)
   }
-  const changed = (result, origin) => {
-    completion?.(result, origin)
+  const changed = (result, origin, error) => {
+    completion?.(result, origin, error)
     ports.changed?.(result, origin)
     if (JSON.stringify(origin) === JSON.stringify(ports.context().workspace))
       void exposure?.refresh()
@@ -63,6 +63,10 @@ export function bindSelectedTaskSurface(document, client, ports) {
     contextChanged() {
       task.contextChanged()
       exposure.contextChanged()
+    },
+    visibilityChanged() {
+      task.visibilityChanged()
+      exposure.visibilityChanged()
     },
     dispose() {
       exposure.dispose()

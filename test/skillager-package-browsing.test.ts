@@ -918,3 +918,33 @@ it('rejects a late Project result after switching to Library and keeps the new s
   )
   expect(f.calls.at(-1)).toContain('delayed-project')
 })
+
+it('keeps the Library sheet occurrence on renewal instead of reselecting the reader occurrence', async () => {
+  const f = packageView('library')
+  f.context(true, localProject)
+  await f.flush()
+  ;(document.querySelector('#skills [data-skill-select]') as HTMLButtonElement).click()
+  await f.flush()
+  expect(document.getElementById('detail-title')?.textContent).toBe('Page 0')
+  f.button('next').click()
+  await f.flush()
+  ;(document.querySelector('#skills [data-skill-actions]') as HTMLButtonElement).click()
+  ;(
+    document.querySelector('#skill-row-menu [data-task=native]') as HTMLButtonElement
+  ).click()
+  await f.flush()
+  expect(document.getElementById('skill-task-title')?.textContent).toBe('Page 1')
+  const before = f.calls.length
+  f.context(false, localProject)
+  f.context(true, localProject)
+  await f.flush()
+  expect(document.getElementById('skill-task-sheet')?.hidden).toBe(false)
+  expect(document.getElementById('detail-title')?.textContent).toBe('Page 0')
+  expect(document.getElementById('skill-task-title')?.textContent).toBe('Page 1')
+  const selectedObservations = f.calls
+    .slice(before)
+    .filter((args) => args[0] === 'library' && args[2]?.startsWith('lib/'))
+  expect(selectedObservations.length).toBeGreaterThan(0)
+  expect(selectedObservations.every((args) => args[2] === 'lib/1')).toBe(true)
+  expect(document.getElementById('state')?.textContent).toContain('Page 2')
+})

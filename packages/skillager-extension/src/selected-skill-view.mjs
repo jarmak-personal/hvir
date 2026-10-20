@@ -477,7 +477,7 @@ export function bindSelectedSkill(document, client, ports) {
     try {
       result = await client.request('actions.invoke', { action, input })
     } catch (error) {
-      ports.changed?.(undefined, origin)
+      ports.changed?.(undefined, origin, error)
       if (current(revision) && library) {
         try {
           const observed = await selectedPendingOperations(
@@ -666,7 +666,7 @@ export function bindSelectedSkill(document, client, ports) {
               refreshQueued = true
             }
           } catch (error) {
-            ports.changed?.(undefined, origin)
+            ports.changed?.(undefined, origin, error)
             throw error
           } finally {
             activeAction = false
@@ -856,6 +856,12 @@ export function bindSelectedSkill(document, client, ports) {
       el('task-result').textContent = ''
       el('task-operation-details').open = false
       source = installed = undefined
+      if (selection && context().visible) void refresh()
+      controls()
+    },
+    visibilityChanged() {
+      importing.visibilityChanged()
+      invalidate()
       if (selection && context().visible) void refresh()
       controls()
     },

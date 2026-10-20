@@ -618,7 +618,12 @@ export function bindExposureView(document, client, ports) {
             'Selection changed. Review the complete current selection again.',
           )
         }
-        const origin = context().workspace
+        const origin = context().workspace,
+          original = selection,
+          selected = () =>
+            !disposed &&
+            selection === original &&
+            JSON.stringify(origin) === JSON.stringify(context().workspace)
         submitted = true
         controls()
         try {
@@ -627,7 +632,7 @@ export function bindExposureView(document, client, ports) {
             input: task.input,
           })
           ports.changed?.(result, origin)
-          if (!available(revision)) return
+          if (!selected()) return
           prepared = undefined
           el('result').textContent = JSON.stringify(result, null, 2)
           el('operation-details').hidden = false
@@ -647,7 +652,8 @@ export function bindExposureView(document, client, ports) {
                 'Completion is unknown. Inspect the operation before another change.',
             )
         } catch (error) {
-          ports.changed?.(undefined, origin)
+          ports.changed?.(undefined, origin, error)
+          if (selected()) say(error.message)
           if (available(revision)) prepared = undefined
           throw error
         } finally {
@@ -746,6 +752,16 @@ export function bindExposureView(document, client, ports) {
       el('task').hidden = true
       controls()
       if (available()) void refresh()
+    },
+    visibilityChanged() {
+      routerEvents?.abort()
+      choiceEvents?.abort()
+      generation++
+      working = prepared = undefined
+      taskReady = false
+      picker.stop()
+      controls()
+      if (available() && el('reconcile').hidden) void refresh()
     },
     dispose() {
       routerEvents?.abort()

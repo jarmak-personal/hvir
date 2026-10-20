@@ -160,7 +160,7 @@ export function bindSelectedImport(document, client, ports) {
       controls()
       if (refreshQueued && available()) {
         refreshQueued = false
-        void refresh()
+        if (!pending) void refresh()
       }
     }
   }
@@ -252,7 +252,12 @@ export function bindSelectedImport(document, client, ports) {
             if (!fresh.eligible) throw new Error(fresh.gate)
           }
           if (!available(revision)) return
-          const origin = context().workspace
+          const origin = context().workspace,
+            original = row,
+            selected = () =>
+              !disposed &&
+              row === original &&
+              JSON.stringify(origin) === JSON.stringify(context().workspace)
           submitted = true
           say('Saving…')
           controls()
@@ -269,11 +274,12 @@ export function bindSelectedImport(document, client, ports) {
             .catch((error) => {
               // Definite message-only refusals use the public action error boundary.
               // Notify the origin to reobserve without inventing completion facts.
-              ports.changed?.(undefined, origin)
+              ports.changed?.(undefined, origin, error)
+              if (selected()) say(error.message)
               throw error
             })
           ports.changed?.(result, origin)
-          if (!available(revision)) return
+          if (!selected()) return
           el('result').textContent = JSON.stringify(result, null, 2)
           if (['verified', 'saved-not-replaced'].includes(result.outcome)) {
             el('name').value = ''
@@ -365,6 +371,12 @@ export function bindSelectedImport(document, client, ports) {
       preservation = undefined
       invalidate()
       if (row && available()) void refresh()
+    },
+    visibilityChanged() {
+      preservation = undefined
+      invalidate()
+      // Retain an admitted operation's result and recovery identity across hiding.
+      if (row && available() && !pending) void refresh()
     },
     dispose() {
       disposed = true
