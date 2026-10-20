@@ -18,7 +18,11 @@ afterEach(() => {
   dispose?.()
   document.body.replaceChildren()
 })
-function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Value>) {
+function fixture(
+  cryptoPort: unknown = webcrypto,
+  initialize?: () => Promise<Value>,
+  initialObservation = false,
+) {
   const template = document.createElement('template')
   template.innerHTML = readFileSync(
     'packages/skillager-extension/management.html',
@@ -117,10 +121,16 @@ function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Val
     controller = new AbortController(),
     outputs = new Map<string, unknown>()
   const actions: Array<{ action: string; input: Value }> = []
+  const views: Value[] = []
   let serial = 0
   let readCount = 0
-  let holdObservation = false
+  let holdObservation: 'next' | 'skill' | undefined = initialObservation
+    ? 'next'
+    : undefined
+  let resolveObservation: (() => void) | undefined
   let rejectObservation: ((reason: Error) => void) | undefined
+  let holdNavigation = false
+  let rejectNavigation: ((reason: Error) => void) | undefined
   let protectedTarget = false
   const native = connectorOutputFixture()
   const client = {
@@ -131,6 +141,14 @@ function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Val
       return () => listeners.delete(callback)
     },
     request(capability: string, input: Value) {
+      if (capability === 'viewer.open-own') {
+        views.push(input)
+        if (holdNavigation)
+          return new Promise((_resolve, reject) => {
+            rejectNavigation = reject
+          })
+        return Promise.resolve({ outcome: 'opened' })
+      }
       if (capability === 'actions.invoke') {
         actions.push(input as { action: string; input: Value })
         if (input['action'] === 'initialize-library' && initialize) return initialize()
@@ -138,12 +156,6 @@ function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Val
       }
       if (capability === 'connector.output') return Promise.resolve(native.read(input))
       readCount++
-      if (holdObservation) {
-        holdObservation = false
-        return new Promise((_resolve, reject) => {
-          rejectObservation = reject
-        })
-      }
       const args = input['args'] as string[],
         receipt = String(++serial)
       outputs.set(
@@ -168,22 +180,29 @@ function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Val
                     : update
                 : status,
       )
-      if (args.includes('--request-json') && holdAdvanced)
-        return new Promise((resolve) => {
-          settleAdvanced = () =>
-            resolve(
-              native.complete(
-                { outcome: 'completed', code: 0, receipt, truncated: false },
-                JSON.stringify(outputs.get(receipt)),
-              ),
-            )
-        })
-      return Promise.resolve(
+      const completed = () =>
         native.complete(
           { outcome: 'completed', code: 0, receipt, truncated: false },
           JSON.stringify(outputs.get(receipt)),
-        ),
-      )
+        )
+      if (
+        holdObservation === 'next' ||
+        (holdObservation === 'skill' &&
+          args[0] === 'library' &&
+          args[1] === 'status' &&
+          args[2] !== '--json')
+      ) {
+        holdObservation = undefined
+        return new Promise((resolve, reject) => {
+          resolveObservation = () => resolve(completed())
+          rejectObservation = reject
+        })
+      }
+      if (args.includes('--request-json') && holdAdvanced)
+        return new Promise((resolve) => {
+          settleAdvanced = () => resolve(completed())
+        })
+      return Promise.resolve(completed())
     },
   }
   const bundle = buildSync({
@@ -234,10 +253,23 @@ function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Val
     ready,
     connect,
     actions,
-    holdObservation: () => {
-      holdObservation = true
+    views,
+    holdObservation: (kind: 'next' | 'skill' = 'next') => {
+      holdObservation = kind
+    },
+    get observationWaiting() {
+      return !!resolveObservation
+    },
+    resolveObservation: () => {
+      const resolve = resolveObservation!
+      resolveObservation = undefined
+      resolve()
     },
     rejectObservation: () => rejectObservation!(new Error('Retired observation failed')),
+    holdNavigation: () => {
+      holdNavigation = true
+    },
+    rejectNavigation: () => rejectNavigation!(new Error('Late navigation failed')),
     setAcceptance: (value: string) => {
       status.skill['acceptance'] = value
     },
@@ -293,6 +325,82 @@ function fixture(cryptoPort: unknown = webcrypto, initialize?: () => Promise<Val
     },
   }
 }
+it.each(['automatic', 'explicit'])(
+  'keeps browsing available throughout delayed %s observation without replaying conflicting actions',
+  async (trigger) => {
+    const f = fixture()
+    await f.connect()
+    f.holdObservation('skill')
+    if (trigger === 'automatic') {
+      f.hide()
+      f.row(f.selected.id)
+    } else f.click('observe-library')
+    await vi.waitFor(() => expect(f.observationWaiting).toBe(true))
+    const button = (id: string) => document.getElementById(id) as HTMLButtonElement
+    expect(document.getElementById('state')!.textContent.trim()).toBe('Working…')
+    expect(document.querySelector('main')!.getAttribute('aria-busy')).toBe('true')
+    expect(button('open-exposure-browser').disabled).toBe(false)
+    expect(button('start-review').disabled).toBe(false)
+    expect(button('review-previous').disabled).toBe(true)
+    for (const id of ['observe-library', 'create-library', 'add-copy'])
+      expect(button(id).disabled).toBe(true)
+    expect(
+      (document.querySelector('#initialize button') as HTMLButtonElement).disabled,
+    ).toBe(true)
+    f.click('open-exposure-browser')
+    expect(f.views).toEqual([{ contributionId: 'library' }])
+    f.click('create-library')
+    button('create-library').dispatchEvent(new Event('click'))
+    expect(f.actions).toEqual([])
+    f.resolveObservation()
+    await f.connect()
+    expect(document.getElementById('state')!.textContent).toBe('')
+    expect(button('create-library').disabled).toBe(false)
+    expect(button('add-copy').disabled).toBe(false)
+    expect(button('review-previous').disabled).toBe(true)
+    expect(f.input.value).toBe(f.selected.id)
+    expect(f.actions).toEqual([])
+  },
+)
+
+it('restores available commands after a failed initial observation without enabling unavailable actions', async () => {
+  const f = fixture(webcrypto, undefined, true)
+  expect(document.getElementById('state')!.textContent.trim()).toBe('Working…')
+  expect((document.getElementById('create-library') as HTMLButtonElement).disabled).toBe(
+    true,
+  )
+  f.rejectObservation()
+  await f.connect()
+  expect(document.getElementById('state')!.textContent).toBe('Retired observation failed')
+  expect((document.getElementById('create-library') as HTMLButtonElement).disabled).toBe(
+    false,
+  )
+  for (const id of ['connect-library', 'add-copy', 'accept-version'])
+    expect((document.getElementById(id) as HTMLButtonElement).disabled).toBe(true)
+  expect(f.actions).toEqual([])
+})
+
+it.each(['hidden', 'disposed'])(
+  'does not navigate or publish a late navigation error after %s lifetime withdrawal',
+  async (withdrawal) => {
+    const f = fixture()
+    await f.connect()
+    f.holdNavigation()
+    f.click('open-exposure-browser')
+    expect(f.views).toHaveLength(1)
+    if (withdrawal === 'hidden') f.hide()
+    else dispose?.()
+    const state = document.getElementById('state')!
+    state.textContent = 'Current public status retained'
+    f.click('open-exposure-browser')
+    f.rejectNavigation()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(state.textContent).toBe('Current public status retained')
+    expect(f.views).toHaveLength(1)
+  },
+)
+
 it('shows protected CLI refusal without a preview or confirmation action', async () => {
   const f = fixture()
   await f.connect()
