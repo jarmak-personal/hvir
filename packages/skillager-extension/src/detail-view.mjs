@@ -447,6 +447,8 @@ export function bindSkillReader(document, client, ports) {
       context = next
       element('reader-manage').disabled = !available()
       if (changed || hidden) {
+        if (reading && element('reader-state').dataset.state === 'loading')
+          say('Read interrupted. Choose … → Refresh instructions.', 'stale')
         selectedRead?.abort()
         renderedRead?.controller.abort()
         generation++
