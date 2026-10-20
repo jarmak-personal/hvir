@@ -31,7 +31,7 @@ export function bindSelectedSkill(document, client, ports) {
   const importing = bindSelectedImport(document, client, {
     context,
     useLibrary: () => chooseImport(false),
-    saved: ports.changed,
+    changed: ports.changed,
   })
   const skillId = () =>
     selection?.row.canonical?.skill_id ??
@@ -146,13 +146,13 @@ export function bindSelectedSkill(document, client, ports) {
     el('task-save-original').hidden = !local || selection?.row.kind !== 'Project original'
     el('task-save-original').disabled = working
   }
-  function chooseImport(selected) {
+  function chooseImport(selected, options) {
     if (busy || activeAction) return
     importSelected = selected
     invalidate()
     el('selected-task').hidden = selected || !skillId()
     el('task-options').open = false
-    importing.select(selected ? selection : undefined)
+    importing.select(selected ? selection : undefined, options)
     if (!selected && skillId()) void refresh()
   }
   function invalidate() {
@@ -781,18 +781,21 @@ export function bindSelectedSkill(document, client, ports) {
   )
   return {
     preserved: (value) => importing.preserved(value),
-    select(input) {
+    saveAndUse(mode) {
+      chooseImport(true, { mode })
+    },
+    select(input, options = {}) {
       invalidate()
       el('task-result').textContent = ''
       el('task-operation-details').open = false
       selection = input
       importSelected = selection?.row.kind === 'Project original' && !skillId()
-      importing.select(importSelected ? input : undefined)
+      importing.select(importSelected ? input : undefined, { prepare: options.prepare })
       if (!exposure()) el('task-mode').value = 'native'
       library = source = installed = undefined
       pending = []
-      el('selected-task').hidden = !skillId()
-      if (skillId()) void refresh()
+      el('selected-task').hidden = importSelected || !skillId()
+      if (!importSelected && skillId()) void refresh()
     },
     contextChanged() {
       importing.contextChanged()

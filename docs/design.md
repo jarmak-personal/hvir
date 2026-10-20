@@ -639,6 +639,7 @@ complete token-bound managed-copy plans; current reading and exact acceptance re
 ### [ADR-060 — Public Skillager advanced local exposure](adr/ADR-060-public-skillager-advanced-exposure.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-082](adr/ADR-082-selected-original-save-and-use.md) | partial | Separate import and adoption decisions for an explicitly selected unsaved native original.
 > Superseded by: [ADR-072](adr/ADR-072-sixteen-declared-extension-actions.md) | partial | Prohibition on increasing the eight-action declaration ceiling only.
 > Supersedes: [ADR-059](adr/ADR-059-public-local-skillager-management.md) | partial | Exclusion of native adoption from local management; complete public preservation-backed adoption is permitted by this decision.
 
@@ -804,7 +805,8 @@ through the existing independent native, source and agent setting owners.
 
 ### [ADR-079 — Selected-original Save and accept](adr/ADR-079-selected-original-save-and-accept.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-082](adr/ADR-082-selected-original-save-and-use.md) | partial | Mandatory separate replacement decision when the human explicitly chooses the combined Save and use task.
 > Supersedes: [ADR-059](adr/ADR-059-public-local-skillager-management.md) | partial | Local management excludes selected external import; complete exact external inspection and one human Save and accept decision are permitted.
 
 One human decision saves and accepts the exact external manifest/token version while preserving the project original and disclosing initialization and uncertainty.
@@ -823,6 +825,15 @@ Complete public sync observations bind review and reconciliation; only exact no-
 > Supersedes: [ADR-030](adr/ADR-030-bounded-project-file-operations.md) | partial | Visible workspace selection for recoverable deletion: permit the exact registered workspace visibly identified by a trusted extension-requested Trash review.
 
 Extensions request one exact project-directory review; trusted Files owns confirmation, recoverable deletion and the target workspace’s viewer cleanup.
+
+### [ADR-082 — Selected-original Save and use](adr/ADR-082-selected-original-save-and-use.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-060](adr/ADR-060-public-skillager-advanced-exposure.md) | partial | Separate import and adoption decisions for an explicitly selected unsaved native original.
+> Supersedes: [ADR-079](adr/ADR-079-selected-original-save-and-accept.md) | partial | Mandatory separate replacement decision when the human explicitly chooses the combined Save and use task.
+
+One human decision saves and accepts an exact native original and uses a managed Full or Stub
+copy through Skillager’s complete compound public contract, with truthful separate stage results.
 
 ---
 

@@ -113,7 +113,15 @@ export function planIdentity(plan, input, workspace) {
     throw new Error(
       'The plan does not cover every selected source; no grouped selection was omitted',
     )
-  const targets = new Set(),
+  exactExposureTargets(plan.targets, workspace)
+  return plan
+}
+/** Shared complete target/effect validation; it confers no source acceptance. */
+export function exactExposureTargets(targets, workspace) {
+  if (!Array.isArray(targets) || !targets.length || targets.length > 128)
+    throw new Error('Complete bounded project targets are required')
+  const plan = { targets }
+  const ids = new Set(),
     paths = new Set()
   let count = 0
   for (const target of plan.targets) {
@@ -122,13 +130,13 @@ export function planIdentity(plan, input, workspace) {
     if (
       !path.startsWith(`${workspace.root.path}/`) ||
       paths.has(path) ||
-      targets.has(target.target_id) ||
+      ids.has(target.target_id) ||
       !['parent', 'tags', 'router', 'direct', 'native-origin'].includes(target.kind) ||
       !['create', 'replace', 'remove', 'keep'].includes(target.action) ||
       !Array.isArray(target.file_effects)
     )
       throw new Error('Complete plan has invalid, repeated or outside-project targets')
-    targets.add(target.target_id)
+    ids.add(target.target_id)
     paths.add(path)
     for (const state of [target.before, target.after])
       if (
@@ -175,7 +183,7 @@ export function planIdentity(plan, input, workspace) {
     throw new Error(
       'Complete file effects exceed the review bound. Use the public CLI; no partial plan was applied.',
     )
-  return plan
+  return plan.targets
 }
 export function exposurePlan(value, input, workspace) {
   if (value?.status === 'refused')
@@ -218,9 +226,28 @@ export async function planCompletion(value, code, plan, input, workspace) {
     throw new Error(
       'Submitted plan has no complete exact result; inspect its retained report and reconcile explicitly',
     )
+  exactTargetResults(value.results, plan.targets)
+  if (
+    value.status === 'applied' &&
+    (code !== 0 ||
+      value.results.some(
+        (item) =>
+          !['applied', 'unchanged'].includes(item.status) || item.recovery_path !== null,
+      ))
+  )
+    throw new Error('Native success disagrees with its per-target outcomes')
+  if (value.status !== 'applied' && code !== 2)
+    throw new Error('Native failure disagrees with its complete result')
+  return value
+}
+
+/** Outcomes shared by complete exposure and compound import-placement contracts. */
+export function exactTargetResults(results, targets) {
+  if (!Array.isArray(results) || results.length !== targets.length)
+    throw new Error('Complete per-target results are required')
   const ids = new Set()
-  for (const item of value.results) {
-    const target = plan.targets.find((t) => t.target_id === item.target_id)
+  for (const item of results) {
+    const target = targets.find((t) => t.target_id === item.target_id)
     if (
       !target ||
       ids.has(item.target_id) ||
@@ -234,16 +261,5 @@ export async function planCompletion(value, code, plan, input, workspace) {
     if (item.observed_state_hash !== null) digest(item.observed_state_hash)
     if (item.recovery_path !== null) absoluteLocalPath(item.recovery_path)
   }
-  if (
-    value.status === 'applied' &&
-    (code !== 0 ||
-      value.results.some(
-        (item) =>
-          !['applied', 'unchanged'].includes(item.status) || item.recovery_path !== null,
-      ))
-  )
-    throw new Error('Native success disagrees with its per-target outcomes')
-  if (value.status !== 'applied' && code !== 2)
-    throw new Error('Native failure disagrees with its complete result')
-  return value
+  return results
 }

@@ -9,6 +9,7 @@ import {
   publicImportCases,
   type ImportPreview,
 } from './fixtures/skillager-import'
+import { importPlacementFixture } from './fixtures/skillager-import-placement'
 import { connectorOutputFixture } from './fixtures/connector-output'
 
 type Value = Record<string, unknown>
@@ -17,12 +18,15 @@ afterEach(() => {
   stop?.()
   document.body.replaceChildren()
 })
-function fixture(preview?: ImportPreview) {
+function fixture(preview?: ImportPreview, combined = false) {
   const template = document.createElement('template')
   template.innerHTML = readFileSync('packages/skillager-extension/detail.html', 'utf8')
   for (const node of template.content.querySelectorAll('script, link')) node.remove()
   document.body.replaceChildren(template.content.cloneNode(true))
-  const f = importContractFixture(preview),
+  const compound = combined ? importPlacementFixture() : undefined
+  const f = compound
+      ? { ...compound, preview: compound.preview.import }
+      : importContractFixture(preview),
     native = connectorOutputFixture(),
     calls: Array<{ capability: string; input: Value }> = []
   let serial = 0,
@@ -30,7 +34,9 @@ function fixture(preview?: ImportPreview) {
     hold = false,
     release: (() => void) | undefined,
     failure = false,
-    uncertain = false
+    uncertain = false,
+    heldAction = false,
+    releaseAction: (() => void) | undefined
   const controller = new AbortController()
   const client = {
     alive: true,
@@ -46,7 +52,11 @@ function fixture(preview?: ImportPreview) {
             receipt: `read-${++serial}`,
             truncated: false,
           },
-          JSON.stringify(f.preview),
+          JSON.stringify(
+            compound && (input['args'] as string[]).includes('--project-mode')
+              ? compound.preview
+              : f.preview,
+          ),
           failure ? 'destination collision' : '',
         )
         if (hold)
@@ -55,8 +65,8 @@ function fixture(preview?: ImportPreview) {
           })
         return Promise.resolve(output)
       }
-      if (capability === 'actions.invoke')
-        return Promise.resolve(
+      if (capability === 'actions.invoke') {
+        const response =
           input['action'] === 'operation-state'
             ? { ids: [] }
             : uncertain
@@ -68,8 +78,13 @@ function fixture(preview?: ImportPreview) {
               : {
                   outcome: 'verified',
                   message: 'Saved and accepted. Original preserved.',
-                },
-        )
+                }
+        if (heldAction && input['action'] !== 'operation-state')
+          return new Promise((resolve) => {
+            releaseAction = () => resolve(response)
+          })
+        return Promise.resolve(response)
+      }
       if (capability === 'source.request') return Promise.resolve({ granted: true })
       if (capability === 'source.select') {
         const text = 'Owned complete support bytes.\n'
@@ -105,14 +120,18 @@ function fixture(preview?: ImportPreview) {
       client: unknown,
       ports: unknown,
     ): {
-      select(value: unknown): void
+      select(value: unknown, options?: unknown): void
       preserved(value: unknown): void
       contextChanged(): void
       dispose(): void
     }
   }
+  const changed = vi.fn(),
+    saved = vi.fn()
   const view = module.bindSelectedImport(document, client, {
     context: () => ({ visible, workspace: f.workspace }),
+    changed,
+    saved,
   })
   stop = () => {
     view.dispose()
@@ -123,15 +142,22 @@ function fixture(preview?: ImportPreview) {
     kind: 'Project original',
     host: 'local',
     workspaceId: f.workspace.id,
+    agent: compound?.input.agent ?? 'codex',
     skillId: f.input.skillId,
     path: f.input.file.path,
   }
-  view.select({ row })
+  view.select({ row }, compound ? { mode: compound.input.mode } : undefined)
   return {
     ...f,
     row,
     calls,
     view,
+    changed,
+    saved,
+    holdAction: () => {
+      heldAction = true
+    },
+    releaseAction: () => releaseAction?.(),
     hide: () => {
       visible = false
       view.contextChanged()
@@ -246,7 +272,7 @@ it('makes actual initialization effects visible without creating a library durin
   button('import-refresh').click()
   await ready()
   expect(document.getElementById('import-effect')!.textContent).toContain(
-    'Creates personal library',
+    'Creates your personal library',
   )
   expect(f.calls.some((call) => call.input['action'] === 'save-and-accept')).toBe(false)
 })
@@ -365,4 +391,77 @@ it('keeps an uncertain import visible even when current public preservation exis
     'Inspect uncertain save.',
   )
   expect(button('import-reconcile').hidden).toBe(false)
+})
+
+it('prepares Stub directly with one complete preview and one human confirmation', async () => {
+  const f = fixture(undefined, true)
+  await ready()
+  const reads = () => f.calls.filter((call) => call.capability === 'connector.execute')
+  expect(reads()).toHaveLength(1)
+  expect(reads()[0]!.input['args']).toContain('--project-mode')
+  expect(button('import-save').textContent).toBe('Save and use Stub')
+  expect(document.getElementById('import-effects')!.textContent).toContain('helper.sh')
+  expect(f.calls.some((call) => call.input['action'] === 'save-and-use-copy')).toBe(false)
+  button('import-save').click()
+  await vi.waitFor(() =>
+    expect(
+      f.calls.filter((call) => call.input['action'] === 'save-and-use-copy'),
+    ).toHaveLength(1),
+  )
+  expect(reads()).toHaveLength(1)
+  expect(
+    reads().every((call) => (call.input['args'] as string[]).includes('--project-mode')),
+  ).toBe(true)
+  expect(
+    f.calls.find((call) => call.input['action'] === 'save-and-use-copy')!.input['input'],
+  ).toMatchObject({
+    mode: 'stub',
+    agent: 'codex',
+    hash: f.input.hash,
+    token: f.input.token,
+  })
+})
+it('cancels a combined task without requesting acceptance or replacement', async () => {
+  const f = fixture(undefined, true)
+  await ready()
+  button('import-cancel').click()
+  button('import-save').click()
+  expect(f.calls.some((call) => call.input['action'] === 'save-and-use-copy')).toBe(false)
+  expect(button('import-save').disabled).toBe(true)
+})
+it('rejects combined late preparation after hiding the originating task', async () => {
+  const f = fixture(undefined, true)
+  await ready()
+  f.hold()
+  button('import-refresh').click()
+  await vi.waitFor(() => expect(button('import-save').disabled).toBe(true))
+  f.hide()
+  f.release()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(button('import-save').disabled).toBe(true)
+  expect(f.calls.some((call) => call.input['action'] === 'save-and-use-copy')).toBe(false)
+})
+
+it('shows immediate progress and reports uncertain completion to the origin without claiming a saved result', async () => {
+  const f = fixture(undefined, true)
+  await ready()
+  f.uncertain()
+  f.holdAction()
+  button('import-save').click()
+  expect(button('import-save').textContent).toBe('Saving…')
+  expect(document.getElementById('selected-import')!.getAttribute('aria-busy')).toBe(
+    'true',
+  )
+  expect(f.changed).not.toHaveBeenCalled()
+  f.releaseAction()
+  await vi.waitFor(() =>
+    expect(f.changed).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'uncertain' }),
+    ),
+  )
+  expect(f.saved).not.toHaveBeenCalled()
+  expect(button('import-reconcile').hidden).toBe(false)
+  expect(document.getElementById('selected-import')!.getAttribute('aria-busy')).toBe(
+    'false',
+  )
 })

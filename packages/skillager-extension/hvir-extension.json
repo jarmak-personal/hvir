@@ -572,6 +572,63 @@
         "required": ["skillId", "file", "name", "hash", "token"],
         "additionalProperties": false
       }
+    },
+    {
+      "id": "save-and-use-copy",
+      "title": "Save and use selected original",
+      "view": "management",
+      "agents": false,
+      "effects": {
+        "delete": true,
+        "replace": true
+      },
+      "description": "Human-only: one complete public decision saves and accepts the exact native original, initializes or reconnects the library if needed, and replaces the original with Full or Stub. Separate save and replacement outcomes remain visible; no source approval or automatic retry.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "skillId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "file": {
+            "type": "object",
+            "properties": {
+              "hostId": {
+                "type": "string",
+                "enum": ["local"]
+              },
+              "path": {
+                "type": "string",
+                "maxLength": 2048
+              }
+            },
+            "required": ["hostId", "path"],
+            "additionalProperties": false
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "hash": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "agent": {
+            "type": "string",
+            "enum": ["codex", "claude"]
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["native", "stub"]
+          }
+        },
+        "required": ["skillId", "file", "name", "hash", "token", "agent", "mode"],
+        "additionalProperties": false
+      }
     }
   ],
   "connectors": [

@@ -28,12 +28,17 @@ export function bindSkillReader(document, client, ports) {
   let exposure
   const task = bindSelectedSkill(document, client, {
     context: () => context,
-    changed: () => exposure?.refresh(),
+    changed: (result) => {
+      exposure?.refresh()
+      ports.changed?.(result)
+    },
   })
   exposure = bindExposureView(document, client, {
     context: () => context,
     choose: ports.choose,
     preservation: (value) => task.preserved(value),
+    saveAndUse: (mode) => task.saveAndUse(mode),
+    changed: ports.changed,
     expanded: (active) =>
       task.select(
         active || detailInput?.row.kind === 'Installed Router' ? undefined : detailInput,

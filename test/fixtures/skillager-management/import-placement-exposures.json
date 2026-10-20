@@ -1,0 +1,19 @@
+{
+  "exposures": [
+    {
+      "agent": "codex",
+      "current_hash": "83d8a90b3acd5227a442ade5cb1f312671eee1d7ed55830308d57d257221b17c",
+      "exposure_id": "demo",
+      "mode": "stub",
+      "reason": null,
+      "restart_required": true,
+      "schema": "skillager.exposure.v1",
+      "scope": "project",
+      "skill_id": "lib/demo",
+      "source_library_id": "2a654fbe-df7c-5224-b835-135bb1e62a13",
+      "status": "current",
+      "target": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents/skills/demo"
+    }
+  ],
+  "schema": "skillager.exposures.v1"
+}

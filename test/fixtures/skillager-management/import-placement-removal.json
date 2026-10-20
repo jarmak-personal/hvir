@@ -1,0 +1,67 @@
+{
+  "results": [
+    {
+      "agent": "codex",
+      "current_status": "current",
+      "exposure_id": "demo",
+      "local_changes": false,
+      "mode": "stub",
+      "next_command_argv": [
+        "skillager",
+        "expose",
+        "--remove",
+        "demo",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--json",
+        "--yes",
+        "--confirmation-token",
+        "e998670d8b24d6b6917f9b4945e9e0352db11139511732e26ce5c461d3ab1e16"
+      ],
+      "preview": {
+        "file_effects": [
+          {
+            "action": "remove",
+            "after": null,
+            "before": {
+              "mode": 420,
+              "sha256": "f34d0e3b4c5cd8f4c6e2cf23471d9b716c6efb72a21d539365ae69c015496032",
+              "size": 451,
+              "type": "file"
+            },
+            "path": "SKILL.md"
+          },
+          {
+            "action": "remove",
+            "after": null,
+            "before": {
+              "mode": 420,
+              "sha256": "47bffb403f42698016029672eaf663930d5e4c7d840792806b63847e30c7af46",
+              "size": 1049,
+              "type": "file"
+            },
+            "path": "skillager.materialized.yaml"
+          }
+        ],
+        "schema": "skillager.exposure-remove-preview.v1",
+        "target_directory": {
+          "after_mode": null,
+          "before_mode": 493
+        },
+        "target_state_hash": "8f6b4dea6af80decd2d5fbd9ac37ce822b5d416d85429b9dd96e9258eb9987b0"
+      },
+      "reason": null,
+      "requires_force": false,
+      "restart_required": true,
+      "schema": "skillager.exposure.v1",
+      "scope": "project",
+      "skill_id": "lib/demo",
+      "source_library_id": "2a654fbe-df7c-5224-b835-135bb1e62a13",
+      "status": "would_remove",
+      "target": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents/skills/demo"
+    }
+  ],
+  "schema": "skillager.exposure-remove.v1"
+}

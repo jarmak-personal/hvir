@@ -16,6 +16,7 @@ import { reviewOwnedSkill } from './skillager-management-review'
 import { verifyOwnedAdvancedExposure } from './skillager-advanced-exposure'
 import { verifyOwnedManagedCopies } from './skillager-management-copies'
 import { verifyOwnedApprovedSync } from './skillager-management-sync'
+import { verifyOwnedSaveUse } from './skillager-save-use'
 import { verifyOwnedImport } from './skillager-import'
 import { verifyOwnedOriginalReveal } from './skillager-management-reveal'
 import { verifyOwnedReviewRefusals } from './skillager-management-refusals'
@@ -150,6 +151,37 @@ export async function verifySkillagerManagement(
   await controls.wait(() => !!view('project'), 'workspace project contribution')
   const projectGuest = await withinExtensionInspection(controls.guest(view('project')!)),
     projectControls = skillagerManagementControls(projectGuest, controls)
+  const saveUse = () =>
+    verifyOwnedSaveUse(
+      projectGuest,
+      async () => {
+        await controls.wait(() => !!view('detail'), 'Save and use detail placement')
+        return withinExtensionInspection(controls.guest(view('detail')!))
+      },
+      host,
+      workspace.root,
+      owned,
+      cli,
+      controls,
+    )
+  if (process.env.HVIR_SKILLAGER_MANAGEMENT_PLACEMENT_ONLY === '1') {
+    const proof = await saveUse()
+    await host.writeFile(
+      joinHostPath(owned, 'save-use-proof.json'),
+      JSON.stringify(
+        {
+          qualification:
+            'Owned installed-CLI isolated-guest Save and use partition; no full management or signed-package claim.',
+          ...proof,
+        },
+        null,
+        2,
+      ),
+    )
+    console.log('[smoke] owned Skillager Save and use: PASS')
+    console.log('HVIR_SMOKE_OK')
+    return true
+  }
   await projectControls.click('manage')
   await controls.wait(() => !!view('management'), 'management inherits exact workspace')
   const guest = await withinExtensionInspection(controls.guest(view('management')!)),
@@ -489,6 +521,7 @@ ${'Follow the existing product boundaries and inspect neighboring consumers befo
           mode!,
           controls,
         )
+    const saveAndUse = browserOnly ? { status: 'not-exercised' } : await saveUse()
     await host.writeFile(
       joinHostPath(owned, 'consumer-proof.json'),
       JSON.stringify(
@@ -511,6 +544,7 @@ ${'Follow the existing product boundaries and inspect neighboring consumers befo
           advanced,
           synchronization,
           imported,
+          saveAndUse,
           refusals,
           reveal,
           commandProof,

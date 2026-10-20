@@ -5,6 +5,7 @@ import { applyExposureChange } from './exposure-operation.mjs'
 import { applyCopy } from './management-copy.mjs'
 import { pendingManagement } from './management-pending.mjs'
 import { reconciliationFacts } from './management-reconcile.mjs'
+import { saveAndUseCopy } from './import-placement-operation.mjs'
 import { saveAndAccept } from './import-operation.mjs'
 import { acceptReviewedVersion } from './review-acceptance.mjs'
 
@@ -87,7 +88,10 @@ export async function executeManagement(client, invocation) {
   const workspace = invocation.context.workspace,
     project =
       ['add-copy', 'change-exposure', 'remove-copy'].includes(invocation.action) ||
-      (['sync-library', 'save-and-accept'].includes(invocation.action) && !!workspace) ||
+      (['sync-library', 'save-and-accept', 'save-and-use-copy'].includes(
+        invocation.action,
+      ) &&
+        !!workspace) ||
       (invocation.action === 'operation-state' &&
         ['observe', 'acknowledge'].includes(invocation.input.mode) &&
         pending.get(invocation.input.operationId).operation.workspace)
@@ -148,6 +152,13 @@ export async function executeManagement(client, invocation) {
       return await saveAndAccept(io, invocation.input, invocation, (descriptor) =>
         pending.assertAvailable(descriptor),
       )
+    if (invocation.action === 'save-and-use-copy')
+      return {
+        ...(await saveAndUseCopy(io, invocation.input, invocation, (descriptor) =>
+          pending.assertAvailable(descriptor),
+        )),
+        ...(io.pending ? { operationId: invocation.id } : {}),
+      }
     if (invocation.action === 'accept-version')
       return await acceptReviewedVersion(io, invocation.input, invocation, (descriptor) =>
         pending.assertAvailable(descriptor),
