@@ -243,11 +243,40 @@ export async function verifyExtensionContributions(
   if (observation()!.observedAt !== frozen)
     throw new Error('No-demand updater continued publishing')
   await controls.click('Restore terminal rail')
-  await controls.wait(
-    () =>
-      observation()?.availability === 'current' && observation()!.observedAt! > frozen!,
-    'current observation renewed after restore',
-  )
+  try {
+    await controls.wait(
+      () =>
+        observation()?.availability === 'current' && observation()!.observedAt! > frozen!,
+      'current observation renewed after restore',
+    )
+  } catch (error) {
+    try {
+      const current = observation(),
+        updaters = guests.snapshot(renderer).filter((view) => view.role === 'updater')
+      console.log(
+        '[smoke] updater restore state',
+        JSON.stringify({
+          window: win.isDestroyed()
+            ? { destroyed: true }
+            : {
+                focused: win.isFocused(),
+                visible: win.isVisible(),
+                minimized: win.isMinimized(),
+              },
+          foreground: extensions.surface.foreground(renderer),
+          demand: extensions.contributions!.connectorDemand(installationId),
+          updaterCount: updaters.length,
+          updaterFailed: updaters.some((view) => !!view.failure),
+          guestDestroyed: updaterGuest.isDestroyed(),
+          availability: current?.availability ?? null,
+          newerObservation: (current?.observedAt ?? 0) > frozen!,
+        }),
+      )
+    } catch {
+      console.log('[smoke] updater restore state unavailable')
+    }
+    throw error
+  }
   if (guests.snapshot(renderer).filter((view) => view.role === 'updater').length !== 1)
     throw new Error('Restore duplicated updater')
 
