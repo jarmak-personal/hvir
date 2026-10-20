@@ -58,6 +58,7 @@ describe('Linux native package contract', () => {
     expect(builder.deb?.depends).toContain('libstdc++6 (>= 12)')
     expect(builder.deb?.depends).toContain('libasound2 | libasound2t64')
     expect(builder.deb?.depends).toContain('libatspi2.0-0 | libatspi2.0-0t64')
+    expect(builder.deb?.depends).toContain('libgbm1')
     expect(builder.deb?.depends).toContain('libgtk-3-0 | libgtk-3-0t64')
     expect(builder.deb?.appArmorProfile).toBe('build/linux/hvir.apparmor')
   })
