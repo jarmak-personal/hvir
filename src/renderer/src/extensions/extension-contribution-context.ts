@@ -49,10 +49,11 @@ export function useContributionDemand(
   key: string,
   entries: readonly ExtensionDemand[],
 ): void {
-  const publish = useExtensionContributions()?.demand
+  const { demand: publish, foregroundRevision } = useExtensionContributions() ?? {}
   const value = JSON.stringify(entries)
+  // Main withdraws on blur even when React batches the return into unchanged entries.
   useEffect(
     () => publish?.(key, JSON.parse(value) as ExtensionDemand[]),
-    [publish, key, value],
+    [publish, key, value, foregroundRevision],
   )
 }
