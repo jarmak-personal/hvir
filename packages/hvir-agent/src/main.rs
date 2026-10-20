@@ -12,6 +12,8 @@ const CONTRACT: &str = "1.0";
 const FRAME_BYTES: usize = 256 * 1024;
 const STDIN_BYTES: usize = 128 * 1024;
 const DEADLINE: Duration = Duration::from_secs(191);
+const INTERRUPTED: &str =
+    "Connection interrupted; execution may be uncertain; request was not replayed";
 
 #[derive(Serialize)]
 struct Request {
@@ -98,6 +100,14 @@ fn exchange_until(
     request: &Request,
     deadline: Instant,
 ) -> Result<Response, String> {
+    send_request_until(stream, request, deadline)?;
+    receive_response_until(stream, deadline)
+}
+fn send_request_until(
+    stream: &mut UnixStream,
+    request: &Request,
+    deadline: Instant,
+) -> Result<(), String> {
     let mut frame = serde_json::to_vec(request).map_err(|_| "Could not frame command")?;
     frame.push(b'\n');
     if frame.len() > FRAME_BYTES {
@@ -107,35 +117,28 @@ fn exchange_until(
     while offset < frame.len() {
         stream
             .set_write_timeout(Some(remaining(deadline)?))
-            .map_err(|_| "Could not set request deadline")?;
+            .map_err(|_| INTERRUPTED)?;
         match stream.write(&frame[offset..]) {
-            Ok(0) => {
-                return Err(
-                    "Connection interrupted; execution may be uncertain; request was not replayed"
-                        .into(),
-                )
-            }
+            Ok(0) => return Err(INTERRUPTED.into()),
             Ok(bytes) => offset += bytes,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(_) => {
-                return Err(
-                    "Connection interrupted; execution may be uncertain; request was not replayed"
-                        .into(),
-                )
-            }
+            Err(_) => return Err(INTERRUPTED.into()),
         }
     }
+    Ok(())
+}
+fn receive_response_until(stream: &mut UnixStream, deadline: Instant) -> Result<Response, String> {
     let mut response = Vec::new();
     loop {
         stream
             .set_read_timeout(Some(remaining(deadline)?))
-            .map_err(|_| "Could not set request deadline")?;
+            .map_err(|_| INTERRUPTED)?;
         let mut chunk = [0; 4096];
         let bytes = match stream.read(&mut chunk) {
             Ok(0) => return Err("Connection ended without a result; execution may be uncertain; request was not replayed".into()),
             Ok(bytes) => bytes,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(_) => return Err("Connection interrupted; execution may be uncertain; request was not replayed".into()),
+            Err(_) => return Err(INTERRUPTED.into()),
         };
         response.extend_from_slice(&chunk[..bytes]);
         if response.len() > FRAME_BYTES {
@@ -308,8 +311,49 @@ mod tests {
         )
         .err()
         .unwrap();
-        assert!(error.contains("not replayed"));
         thread.join().unwrap();
+        assert!(error.contains("uncertain"), "{error}");
+        assert!(error.contains("not replayed"), "{error}");
+    }
+    #[test]
+    fn peer_closed_before_response_deadline_preserves_uncertainty() {
+        let (mut client, mut server) = UnixStream::pair().unwrap();
+        let request = Request {
+            contract: CONTRACT,
+            argv: vec!["run".into()],
+            stdin: String::new(),
+            defaults: Defaults::default(),
+        };
+        let deadline = Instant::now() + DEADLINE;
+        send_request_until(&mut client, &request, deadline).unwrap();
+        let mut line = String::new();
+        BufReader::new(&mut server).read_line(&mut line).unwrap();
+        assert_eq!(line, serde_json::to_string(&request).unwrap() + "\n");
+        drop(server);
+
+        // Peer closure precedes timeout configuration; macOS may reject the
+        // socket option itself before the response read can observe EOF.
+        let error = receive_response_until(&mut client, deadline).err().unwrap();
+        assert!(error.contains("uncertain"), "{error}");
+        assert!(error.contains("not replayed"), "{error}");
+    }
+    #[test]
+    fn peer_closed_before_request_deadline_reports_no_replay() {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        drop(server);
+        let error = send_request_until(
+            &mut client,
+            &Request {
+                contract: CONTRACT,
+                argv: vec!["run".into()],
+                stdin: String::new(),
+                defaults: Defaults::default(),
+            },
+            Instant::now() + DEADLINE,
+        )
+        .unwrap_err();
+        assert!(error.contains("uncertain"), "{error}");
+        assert!(error.contains("not replayed"), "{error}");
     }
     #[test]
     fn fragments_cannot_renew_the_absolute_exchange_deadline() {
