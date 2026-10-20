@@ -16,7 +16,7 @@ function fixture(
     cadence?: boolean
     omitRoot?: boolean
     inline?: boolean
-    holdSource?: 'source.select' | 'source.render'
+    holdSource?: 'source.select' | 'source.read' | 'source.render'
     rendered?: string
     holdAsset?: number
     holdAssetRead?: boolean
@@ -499,6 +499,91 @@ it('requires restored public visibility before an explicit retry after hiding', 
   expect(document.getElementById('instructions')?.textContent).toBe('')
 })
 
+it.each([
+  'decision',
+  'identity',
+  'source.select',
+  'source.read',
+  'freshness',
+  'source.render',
+] as const)(
+  'settles interrupted %s loading through rapid hide/restore and explicit retry',
+  async (phase) => {
+    const f = fixture({
+      cadence: phase === 'freshness',
+      holdSource:
+        phase === 'source.select' || phase === 'source.read' || phase === 'source.render'
+          ? phase
+          : undefined,
+    })
+    f.context()
+    await f.flush()
+    if (phase === 'identity') f.holdStatus()
+    if (phase !== 'decision') {
+      f.decide(true)
+      if (phase === 'freshness') await vi.advanceTimersByTimeAsync(0)
+      else await f.flush()
+    }
+    const state = document.getElementById('reader-state')!
+    const selectedTitle = document.getElementById('detail-title')!.textContent
+    const pending = f.sent.filter((entry) => entry.kind === 'request').at(-1)!
+    expect(state.dataset['state']).toBe('loading')
+    f.context('one', false)
+    f.context('one', true)
+    await f.flush()
+    expect(state.dataset['state']).toBe('stale')
+    expect(state.textContent).toBe('Read interrupted. Choose … → Refresh instructions.')
+    expect(document.getElementById('detail-title')!.textContent).toBe(selectedTitle)
+    expect(document.getElementById('instructions')!.textContent).toBe('')
+    expect(f.sent.filter((entry) => entry.capability === 'source.request')).toHaveLength(
+      1,
+    )
+    f.receive({ kind: 'result', id: pending.id, ok: true, value: { receipt: 'late' } })
+    f.resumeStatus()
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(state.textContent).toBe('Read interrupted. Choose … → Refresh instructions.')
+    expect(document.getElementById('instructions')!.textContent).toBe('')
+    f.read()
+    await f.flush()
+    f.decide(true)
+    await f.flush()
+    expect(document.getElementById('instructions')!.textContent).toBe(
+      '# Current instruction',
+    )
+    expect(state.textContent).not.toContain('interrupted')
+    expect(f.sent.filter((entry) => entry.capability === 'source.request')).toHaveLength(
+      2,
+    )
+  },
+)
+
+it('retains the completed document and reading position when a new current read is interrupted', async () => {
+  const f = fixture()
+  f.context()
+  await f.flush()
+  f.decide(true)
+  await f.flush()
+  const instructions = document.getElementById('instructions')!
+  instructions.scrollTop = 73
+  f.read()
+  await f.flush()
+  f.holdStatus()
+  f.decide(true)
+  await f.flush()
+  f.context('one', false)
+  await f.flush()
+  f.context('one', true)
+  f.resumeStatus()
+  await f.flush()
+  expect(instructions.textContent).toBe('# Current instruction')
+  expect(instructions.scrollTop).toBe(73)
+  expect(document.getElementById('reader-state')!.textContent).toBe(
+    'Read interrupted. Choose … → Refresh instructions.',
+  )
+  expect(f.sent.filter((entry) => entry.capability === 'source.request')).toHaveLength(2)
+  expect(f.sent.filter((entry) => entry.capability === 'source.select')).toHaveLength(1)
+})
+
 it('does not publish body bytes if public library identity changes while the selected read settles', async () => {
   const f = fixture()
   f.context()
@@ -672,6 +757,9 @@ it('preserves completed images and labels an interrupted remainder without reusi
   )
   expect(document.getElementById('instructions')?.textContent).not.toContain(
     'outside the selected source',
+  )
+  expect(document.getElementById('reader-state')!.textContent).not.toContain(
+    'Read interrupted',
   )
   expect(f.sent.filter((entry) => entry.capability === 'source.asset')).toHaveLength(2)
   f.read()
