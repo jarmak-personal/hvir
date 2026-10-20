@@ -87,10 +87,18 @@ export function managementCli(
         const diagnostic =
           error.length > 600 ? `${error.slice(0, 300)}…${error.slice(-300)}` : error
         const summary = error.length > 180 ? `…${error.slice(-179)}` : error
-        if (!validateCompletion && result.code !== 0)
-          throw new Error(
+        if (!validateCompletion && result.code !== 0) {
+          const failure = new Error(
             `Skillager exit ${result.code ?? 'unknown'}${summary ? `: ${summary}` : ''}. ${operation ? 'Submitted effects require reconciliation.' : 'No mutation was requested.'}`,
           )
+          if (!operation)
+            failure.cli = {
+              outcome: result.outcome,
+              code: result.code,
+              stdout: output.length <= 4096 ? output : undefined,
+            }
+          throw failure
+        }
         let value
         try {
           value = boundedManagementJson(JSON.parse(output))

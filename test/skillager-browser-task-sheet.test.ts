@@ -290,7 +290,8 @@ it.each([false, true])(
       f.context.visible = true
       f.sheet.visibilityChanged(true)
     }
-    expect(f.surface.visibilityChanged).toHaveBeenCalledOnce()
+    expect(f.surface.visibilityChanged).toHaveBeenCalledTimes(2)
+    expect(f.surface.visibilityChanged).toHaveBeenLastCalledWith({ completed: true })
     expect(f.surface.prepare).toHaveBeenCalledOnce()
     expect(document.getElementById('skill-task-message')!.textContent).toBe(
       'Saved and using Stub.',

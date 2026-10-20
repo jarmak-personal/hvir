@@ -27,6 +27,8 @@ export function bindSelectedSkill(document, client, ports) {
     projectReady = false,
     refreshQueued = false,
     serial = 0,
+    selectionRevision = 0,
+    terminalMessage,
     importSelected = false,
     disposed = false,
     requestedTask,
@@ -78,6 +80,23 @@ export function bindSelectedSkill(document, client, ports) {
       exposure()?.exposure_id,
       exposure()?.target,
     ])
+  // Submitted results belong to the exact selection, independently of preview authority.
+  function retainedSelection() {
+    const selected = selection,
+      revision = selectionRevision,
+      key = taskKey()
+    return () =>
+      !disposed &&
+      client.alive &&
+      !importSelected &&
+      selection === selected &&
+      selectionRevision === revision &&
+      taskKey() === key
+  }
+  function terminal(message) {
+    terminalMessage = message
+    say(message)
+  }
   const remote = () => !!context().workspace && context().workspace.host !== 'local'
   const unchanged = () =>
     ['current', 'recorded'].includes(installed?.status) &&
@@ -354,9 +373,9 @@ export function bindSelectedSkill(document, client, ports) {
       refreshQueued = true
       return
     }
+    refreshQueued = false
     ready = false
     projectReady = false
-    pending = []
     return guarded(async (revision) => {
       if (!skillId()) return
       if (
@@ -367,7 +386,7 @@ export function bindSelectedSkill(document, client, ports) {
         throw new Error(
           'This skill belongs to a different project. Select it in its original project.',
         )
-      say('Checking this skill…')
+      if (terminalMessage === undefined) say('Checking this skill…')
       const status = await io(false, revision).run([
         'library',
         'status',
@@ -405,6 +424,7 @@ export function bindSelectedSkill(document, client, ports) {
           ? acceptedSource(status, library, skillId())
           : undefined
       installed = undefined
+      let deliveryPending
       let projectIssue = localWorkspace(context().workspace)
         ? await observeProject(revision)
         : undefined
@@ -419,7 +439,7 @@ export function bindSelectedSkill(document, client, ports) {
           })
           if (!current(revision)) return
           installed = observation.installed
-          pending = observation.pending
+          deliveryPending = observation.pending
           projectReady = true
         } catch (error) {
           if (!current(revision)) return
@@ -431,25 +451,38 @@ export function bindSelectedSkill(document, client, ports) {
         pendingSelection(),
       )
       if (!current(revision)) return
-      pending.push(...observedPending)
+      pending = [
+        ...(deliveryPending ??
+          (remote()
+            ? pending.filter((entry) => typeof entry.operation === 'string')
+            : [])),
+        ...observedPending,
+      ]
       if (current(revision)) {
         if (installed) el('task-mode').value = installed.mode
         ready = true
         say(
-          pending.length
-            ? remote() && !pending[0]?.id
-              ? 'Delivery recovery needs attention for this exact target. Inspect its recorded operations before trying again.'
-              : 'This operation has an uncertain outcome. Inspect it before trying again.'
-            : (projectIssue ??
-                (remote()
-                  ? installed
-                    ? 'Full copy recorded · remote state has not been verified.'
-                    : source
-                      ? 'Choose a local export folder to review Full delivery.'
-                      : ''
-                  : '')),
+          projectIssue ??
+            terminalMessage ??
+            (pending.length
+              ? remote() && !pending[0]?.id
+                ? 'Delivery recovery needs attention for this exact target. Inspect its recorded operations before trying again.'
+                : 'This operation has an uncertain outcome. Inspect it before trying again.'
+              : remote()
+                ? installed
+                  ? 'Full copy recorded · remote state has not been verified.'
+                  : source
+                    ? 'Choose a local export folder to review Full delivery.'
+                    : ''
+                : ''),
         )
-        if (!source && !pending.length && requestedTask !== 'remove') await review.start()
+        if (
+          terminalMessage === undefined &&
+          !source &&
+          !pending.length &&
+          requestedTask !== 'remove'
+        )
+          await review.start()
       }
     })
   }
@@ -470,13 +503,19 @@ export function bindSelectedSkill(document, client, ports) {
   }
   async function invoke(action, input) {
     const revision = serial,
-      origin = context().workspace
+      origin = context().workspace,
+      retained = retainedSelection()
+    terminalMessage = undefined
     let result
     activeAction = true
     controls()
     try {
       result = await client.request('actions.invoke', { action, input })
     } catch (error) {
+      if (retained()) {
+        terminal(error.message)
+        refreshQueued = true
+      }
       ports.changed?.(undefined, origin, error)
       if (current(revision) && library) {
         try {
@@ -507,12 +546,12 @@ export function bindSelectedSkill(document, client, ports) {
       }
     }
     ports.changed?.(result, origin)
-    if (!current(revision)) return result
-    if (result?.outcome === 'uncertain') {
+    if (!retained()) return result
+    if (result?.outcome === 'uncertain' || !current(revision)) {
       if (busy) refreshQueued = true
       else void refresh()
     }
-    say(
+    terminal(
       result?.outcome === 'verified'
         ? result.restartRequired
           ? 'Restart your agent to use the change.'
@@ -526,6 +565,7 @@ export function bindSelectedSkill(document, client, ports) {
     return result
   }
   async function prepare(remove, revision, requestedMode = el('task-mode').value) {
+    terminalMessage = undefined
     if (remote()) {
       const input = {
         library,
@@ -624,9 +664,10 @@ export function bindSelectedSkill(document, client, ports) {
     void guarded(async (revision) => {
       if (installed || remote()) await prepare(false, revision)
       else {
-        const input = copyInput()
+        const input = copyInput(),
+          retained = retainedSelection()
         const result = await invoke('add-copy', input)
-        if (current(revision) && result?.outcome === 'verified') {
+        if (retained() && result?.outcome === 'verified') {
           installed = {
             exposure_id: result.exposureId,
             target: result.target.path,
@@ -650,7 +691,9 @@ export function bindSelectedSkill(document, client, ports) {
         prepared = undefined
         el('task-confirmation').hidden = true
         if (task.delivery) {
-          const origin = context().workspace
+          const origin = context().workspace,
+            retained = retainedSelection()
+          terminalMessage = undefined
           activeAction = true
           controls()
           try {
@@ -659,13 +702,17 @@ export function bindSelectedSkill(document, client, ports) {
               task.delivery,
             )
             ports.changed?.(result, origin)
-            if (current(revision)) {
+            if (retained()) {
               el('task-result').textContent = JSON.stringify(result, null, 2)
-              say(result.message)
+              terminal(result.message)
               el('task-export').value = ''
               refreshQueued = true
             }
           } catch (error) {
+            if (retained()) {
+              terminal(error.message)
+              refreshQueued = true
+            }
             ports.changed?.(undefined, origin, error)
             throw error
           } finally {
@@ -674,18 +721,16 @@ export function bindSelectedSkill(document, client, ports) {
           }
           return
         }
+        const retained = retainedSelection()
         const result = await invoke(task.action, task.input)
+        if (!retained()) return
         if (task.action === 'operation-state') {
           refreshQueued = true
           return
         }
-        if (
-          current(revision) &&
-          result?.outcome === 'verified' &&
-          task.action === 'remove-copy'
-        )
+        if (result?.outcome === 'verified' && task.action === 'remove-copy')
           installed = undefined
-        else if (current(revision) && result?.outcome === 'verified')
+        else if (result?.outcome === 'verified')
           installed = {
             ...installed,
             mode: task.requestedMode,
@@ -713,6 +758,7 @@ export function bindSelectedSkill(document, client, ports) {
     void guarded((revision) => prepare(false, revision, requestedMode))
   })
   on('task-refresh', 'click', () => {
+    terminalMessage = undefined
     invalidate()
     void refresh()
   })
@@ -810,6 +856,8 @@ export function bindSelectedSkill(document, client, ports) {
       return chooseImport(true, { mode })
     },
     async select(input, options = {}) {
+      selectionRevision++
+      terminalMessage = undefined
       invalidate()
       el('task-result').textContent = ''
       el('task-operation-details').open = false
@@ -852,17 +900,20 @@ export function bindSelectedSkill(document, client, ports) {
         controls()
         return
       }
+      selectionRevision++
+      terminalMessage = undefined
       invalidate()
       el('task-result').textContent = ''
       el('task-operation-details').open = false
       source = installed = undefined
+      pending = []
       if (selection && context().visible) void refresh()
       controls()
     },
-    visibilityChanged() {
-      importing.visibilityChanged()
+    visibilityChanged({ completed = false } = {}) {
+      if (!completed) importing.visibilityChanged()
       invalidate()
-      if (selection && context().visible) void refresh()
+      if (!importSelected && selection && context().visible) void refresh()
       controls()
     },
     dispose() {

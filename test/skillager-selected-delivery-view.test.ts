@@ -17,13 +17,24 @@ function fixture() {
   for (const node of template.content.querySelectorAll('script, link')) node.remove()
   document.body.replaceChildren(template.content.cloneNode(true))
   let context = { visible: true, workspace: { ...f.workspace, name: 'Remote' } }
-  let pendingAcceptance = false
+  let pendingAcceptance = false,
+    observationFails = false,
+    holdApply: string | undefined,
+    releaseApply: (() => void) | undefined
   const client = {
     ...f.client,
     signal: controller.signal,
     listen: () => () => {},
-    request: (capability: string, input: Record<string, unknown>) =>
-      capability === 'actions.invoke'
+    request: async (capability: string, input: Record<string, unknown>) => {
+      if (capability === 'delivery.status' && observationFails)
+        throw new Error('Delivery status is unavailable for this workspace')
+      if (capability === holdApply) {
+        holdApply = undefined
+        await new Promise<void>((resolve) => {
+          releaseApply = resolve
+        })
+      }
+      return capability === 'actions.invoke'
         ? Promise.resolve(
             input['input'] &&
               (input['input'] as Record<string, unknown>)['mode'] === 'report'
@@ -43,12 +54,13 @@ function fixture() {
                 }
               : { ids: pendingAcceptance ? ['accepting'] : [] },
           )
-        : f.client.request(capability, input),
+        : f.client.request(capability, input)
+    },
   }
-  const sandbox = { TextEncoder, Module: undefined as unknown }
+  const sandbox = { AbortController, TextEncoder, Module: undefined as unknown }
   runInNewContext(
     buildSync({
-      entryPoints: ['packages/skillager-extension/src/selected-skill-view.mjs'],
+      entryPoints: ['packages/skillager-extension/src/selected-task-surface.mjs'],
       bundle: true,
       format: 'iife',
       globalName: 'Module',
@@ -60,13 +72,25 @@ function fixture() {
     activity = vi.fn()
   const view = (
     sandbox.Module as {
-      bindSelectedSkill(
+      bindSelectedTaskSurface(
         document: Document,
         client: unknown,
         ports: unknown,
-      ): { select(input: unknown): void; contextChanged(): void; dispose(): void }
+      ): {
+        select(input: unknown): void
+        contextChanged(): void
+        visibilityChanged(options?: { completed: boolean }): void
+        submitted: boolean
+        onActivity(callback: unknown): void
+        dispose(): void
+      }
     }
-  ).bindSelectedSkill(document, client, { context: () => context, changed, activity })
+  ).bindSelectedTaskSurface(document, client, {
+    context: () => context,
+    changed,
+    activity,
+  })
+  view.onActivity(activity)
   dispose = () => {
     view.dispose()
     controller.abort()
@@ -102,6 +126,18 @@ function fixture() {
     ready,
     exportFolder,
     prepared,
+    failObservation: () => {
+      observationFails = true
+    },
+    hold: (capability = 'delivery.apply') => {
+      holdApply = capability
+    },
+    waiting: () => !!releaseApply,
+    release: () => releaseApply?.(),
+    show: (visible: boolean, completed = false) => {
+      context = { ...context, visible }
+      view.visibilityChanged({ completed })
+    },
     pendingAcceptance: () => {
       pendingAcceptance = true
     },
@@ -135,7 +171,7 @@ it('keeps canonical source and exact SSH destination through Full Add, changed-v
   f.button('task-confirm').click()
   await vi.waitFor(() => expect(f.button('task-primary').textContent).toBe('Recorded'))
   expect(document.getElementById('task-state')?.textContent).toContain(
-    'not been verified',
+    'Full add completed',
   )
   expect(f.records()[0]).toMatchObject({
     target: { hostId: 'ssh:remote', path: '/project/.agents/skills/skill' },
@@ -249,5 +285,122 @@ it.each(['completed', 'uncertain', 'rejected'] as const)(
     else expect(f.changed.mock.calls[0]?.[0]).toMatchObject({ outcome })
     expect(f.activity).toHaveBeenCalledWith(true)
     expect(f.activity).toHaveBeenLastCalledWith(false)
+  },
+)
+
+it.each(['completed', 'refused', 'uncertain'] as const)(
+  'retains actual composed remote %s result across hidden completion and metadata renewal',
+  async (outcome) => {
+    const f = fixture()
+    f.view.select(f.selection)
+    await f.ready()
+    f.exportFolder()
+    f.button('task-primary').click()
+    await f.prepared()
+    if (outcome === 'uncertain') f.lostReply()
+    if (outcome === 'refused') f.result({ outcome })
+    f.hold()
+    f.button('task-confirm').click()
+    await vi.waitFor(() => expect(f.waiting()).toBe(true))
+    f.show(false)
+    f.release()
+    await vi.waitFor(() => expect(f.view.submitted).toBe(false))
+    expect(JSON.parse(document.getElementById('task-result')!.textContent)).toMatchObject(
+      { outcome, operation: 'operation' },
+    )
+    f.show(true, outcome === 'completed')
+    await vi.waitFor(() => expect(f.button('task-refresh').disabled).toBe(false))
+    if (outcome === 'completed') {
+      await vi.waitFor(() =>
+        expect(f.button('task-primary').textContent).toBe('Recorded'),
+      )
+      expect(f.button('task-remove').hidden).toBe(false)
+    } else if (outcome === 'uncertain') {
+      await vi.waitFor(() => expect(f.button('task-reconcile').hidden).toBe(false))
+      expect(f.button('task-primary').disabled).toBe(true)
+    }
+    expect(f.calls.filter((call) => call.capability === 'delivery.apply')).toHaveLength(1)
+    expect(f.calls.filter((call) => call.capability === 'delivery.preview')).toHaveLength(
+      1,
+    )
+    expect(f.button('task-confirmation').hidden).toBe(true)
+  },
+)
+it('keeps remote delivery physically busy on early return and quarantines another workspace', async () => {
+  const f = fixture()
+  f.view.select(f.selection)
+  await f.ready()
+  f.exportFolder()
+  f.button('task-primary').click()
+  await f.prepared()
+  f.hold()
+  f.button('task-confirm').click()
+  await vi.waitFor(() => expect(f.waiting()).toBe(true))
+  f.show(false)
+  f.show(true)
+  expect(f.view.submitted).toBe(true)
+  expect(f.button('task-primary').disabled).toBe(true)
+  f.target()
+  f.release()
+  await vi.waitFor(() => expect(f.view.submitted).toBe(false))
+  expect(document.getElementById('task-result')!.textContent).toBe('')
+  expect(f.changed.mock.calls.at(-1)?.[1]).toMatchObject(f.workspace)
+  expect(f.calls.filter((call) => call.capability === 'delivery.apply')).toHaveLength(1)
+})
+
+it('retains a hidden remote pre-submit rejection without delivering or reviving the preview', async () => {
+  const f = fixture()
+  f.view.select(f.selection)
+  await f.ready()
+  f.exportFolder()
+  f.button('task-primary').click()
+  await f.prepared()
+  f.hold('connector.execute')
+  f.button('task-confirm').click()
+  await vi.waitFor(() => expect(f.waiting()).toBe(true))
+  f.show(false)
+  f.release()
+  await vi.waitFor(() => expect(f.view.submitted).toBe(false))
+  expect(f.changed.mock.calls.at(-1)?.[0]).toBeUndefined()
+  const message = document.getElementById('task-state')!.textContent
+  expect(message).toContain('changed')
+  f.show(true)
+  await f.ready()
+  expect(document.getElementById('task-state')!.textContent).toBe(message)
+  expect(f.button('task-confirmation').hidden).toBe(true)
+  expect(f.calls.filter((call) => call.capability === 'delivery.apply')).toHaveLength(0)
+  expect(f.calls.filter((call) => call.capability === 'delivery.preview')).toHaveLength(1)
+})
+
+it.each([false, true])(
+  'retains delivery uncertainty only for the same selection after failed observation (replace workspace=%s)',
+  async (replace) => {
+    const f = fixture()
+    f.view.select(f.selection)
+    await f.ready()
+    f.exportFolder()
+    f.button('task-primary').click()
+    await f.prepared()
+    f.lostReply()
+    f.button('task-confirm').click()
+    await vi.waitFor(() => expect(f.button('task-reconcile').hidden).toBe(false))
+    expect(document.getElementById('task-result')!.textContent).toContain('operation')
+    f.failObservation()
+    if (replace) f.target()
+    else {
+      f.show(false)
+      f.show(true)
+    }
+    await vi.waitFor(() =>
+      expect(document.getElementById('task-state')!.textContent).toBe(
+        'Delivery status is unavailable for this workspace',
+      ),
+    )
+    expect(f.button('task-reconcile').hidden).toBe(replace)
+    expect(f.button('task-primary').disabled).toBe(true)
+    if (replace) expect(document.getElementById('task-result')!.textContent).toBe('')
+    else
+      expect(document.getElementById('task-result')!.textContent).toContain('operation')
+    expect(f.calls.filter((call) => call.capability === 'delivery.apply')).toHaveLength(1)
   },
 )

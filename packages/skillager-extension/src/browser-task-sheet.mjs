@@ -223,8 +223,8 @@ export function bindBrowserTaskSheet(document, client, ports) {
   function resume() {
     if (!selection || !available() || working()) return
     resumeNeeded = false
-    if (!completed && !['remove-original', 'reveal'].includes(sheet.dataset.task)) {
-      surface.visibilityChanged()
+    if (!['remove-original', 'reveal'].includes(sheet.dataset.task)) {
+      surface.visibilityChanged({ completed })
       if (terminalMessage) message(terminalMessage)
       else message('')
     }
