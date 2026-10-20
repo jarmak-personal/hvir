@@ -611,6 +611,11 @@ export async function verifySkillagerExtension(
   if (!diagnostic) {
     const members = skillagerManagementControls(detail, controls)
     try {
+      // Selected-task metadata settles independently from instruction reading.
+      await members.ready(
+        "!document.getElementById('task-mode').disabled && !document.getElementById('task-options').hidden && !document.getElementById('exposure-group').hidden && !document.getElementById('exposure-group').disabled",
+        'selected task controls and Group action',
+      )
       await members.click('exposure-group')
       await members.ready(
         "!document.getElementById('exposure-member-search-button').disabled && document.querySelectorAll('#exposure-member-results input').length===50",
