@@ -9,9 +9,6 @@ import type {
 import { validateExtensionManifest } from '../src/shared/extensions/manifest'
 import { exampleManifest } from './fixtures/extension-package'
 
-vi.mock('../src/renderer/src/extensions/use-extension-foreground', () => ({
-  useExtensionForeground: () => ({ foreground: true, revision: 0 }),
-}))
 vi.mock('../src/renderer/src/theme', () => ({ useAppTheme: () => 'dark' }))
 vi.mock('../src/renderer/src/settings/settings', () => ({
   useAppSettings: () => ({ interfaceScale: 1, interfaceFont: 'system' }),
@@ -48,6 +45,7 @@ async function fixture() {
   let holdNext = false,
     finish: (() => void) | undefined
   const invoke = vi.fn((channel: string, _input?: unknown) => {
+    if (channel === 'extensions:foreground') return Promise.resolve(true)
     if (channel === 'extensions:contributions') return Promise.resolve([state])
     if (channel === 'extensions:context')
       return Promise.resolve({ sessions: [], terminalIds: {} })
@@ -74,7 +72,7 @@ async function fixture() {
   const element = document.createElement('div')
   document.body.append(element)
   const root = createRoot(element)
-  const render = (obscured = false) =>
+  const render = (obscured = false, active = true) =>
     root.render(
       createElement(ExtensionContributionsProvider, {
         projectContext: { activeWorkspace: { id: 'workspace' } },
@@ -86,7 +84,7 @@ async function fixture() {
         onError: vi.fn(),
         children: createElement(ExtensionTerminalItems, {
           placement: 'header',
-          active: true,
+          active,
         }),
       }),
     )
@@ -134,6 +132,48 @@ async function fixture() {
 }
 
 describe('contribution demand across activation publication', () => {
+  it('renews unchanged visible rail entries after a coalesced native blur and return', async () => {
+    const data = await fixture()
+    try {
+      const prior = data.demands().length,
+        visible = data.demands().at(-1)
+      expect(visible).toHaveLength(1)
+      await act(async () => {
+        data.emit('extensions:foreground-changed', false)
+        data.emit('extensions:foreground-changed', true)
+        await Promise.resolve()
+      })
+      expect(data.demands().slice(prior)).toEqual([visible])
+    } finally {
+      await data.cleanup()
+    }
+  })
+
+  it.each(['hidden', 'obscured', 'removed'])(
+    'keeps renewed demand empty for %s rail entries after a coalesced foreground return',
+    async (withdrawal) => {
+      const data = await fixture()
+      try {
+        expect(data.demands().at(-1)).toHaveLength(1)
+        await act(async () => {
+          if (withdrawal === 'removed') data.emit('extensions:contributions-changed', [])
+          else data.render(withdrawal === 'obscured', withdrawal !== 'hidden')
+          await Promise.resolve()
+        })
+        expect(data.demands().at(-1)).toEqual([])
+        const withdrawn = data.demands().length
+        await act(async () => {
+          data.emit('extensions:foreground-changed', false)
+          data.emit('extensions:foreground-changed', true)
+          await Promise.resolve()
+        })
+        expect(data.demands().slice(withdrawn)).toEqual([[]])
+      } finally {
+        await data.cleanup()
+      }
+    },
+  )
+
   it('renews unchanged visible rail entries when replacement snapshots coalesce', async () => {
     const data = await fixture()
     try {
@@ -211,7 +251,8 @@ describe('contribution demand across activation publication', () => {
   it('drains in-flight renewal to withdrawal and ignores disposed activation or contribution events', async () => {
     const data = await fixture()
     try {
-      const lateActivation = data.listeners.get('extensions:state-changed'),
+      const lateForeground = data.listeners.get('extensions:foreground-changed'),
+        lateActivation = data.listeners.get('extensions:state-changed'),
         lateContributions = data.listeners.get('extensions:contributions-changed')
       data.hold()
       await act(async () => {
@@ -222,16 +263,20 @@ describe('contribution demand across activation publication', () => {
       await data.unmount()
       const disposed = data.demands().length
       await act(async () => {
+        lateForeground?.(false)
+        lateForeground?.(true)
         lateActivation?.(undefined)
         lateContributions?.([data.state])
         data.release()
         await Promise.resolve()
       })
       expect(data.demands().slice(disposed)).toEqual([[]])
-      expect(data.stops).toHaveLength(2)
+      expect(data.stops).toHaveLength(3)
       expect(data.stops.every((stop) => stop.mock.calls.length === 1)).toBe(true)
       const drained = data.demands().length
       await act(async () => {
+        lateForeground?.(false)
+        lateForeground?.(true)
         lateActivation?.(undefined)
         await Promise.resolve()
       })
