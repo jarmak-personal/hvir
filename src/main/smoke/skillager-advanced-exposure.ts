@@ -192,15 +192,23 @@ export async function verifyOwnedAdvancedExposure(
 
     ui = await selectLibrary(one)
     await ui.set('task-agent', agent)
-    if (label === 'Codex')
+    if (label === 'Codex') {
+      const guest = await libraryGuest(),
+        retainedRead = (await ui.inspect(
+          "document.getElementById('details').textContent",
+        )) as string
       await capture(
         'library-selected',
-        await libraryGuest(),
+        guest,
         async () => {
-          ui = await selectLibrary(one)
+          // Appearance restores this completed read; selecting the row would discard it.
+          await controls.click('Skillager library')
+          await foreground(guest)
+          await selectedLibraryReady(one, ui, retainedRead)
         },
         ui,
       )
+    }
     await ui.click('exposure-group')
     await membersReady(ui)
     await ui.set('exposure-name', `Advanced ${agent}`)
@@ -466,10 +474,25 @@ export async function verifyOwnedAdvancedExposure(
     await ui.inspect(
       `document.querySelector('[data-source-path=${JSON.stringify(entry.path)}]').click()`,
     )
+    await selectedLibraryReady(source, ui)
+    return ui
+  }
+  async function selectedLibraryReady(
+    source: Original,
+    ui: Ui,
+    retainedRead?: string,
+  ): Promise<void> {
+    const entry = joinHostPath(source.canonical, 'SKILL.md'),
+      readMatches =
+        retainedRead === undefined
+          ? "document.getElementById('details').textContent.length>0"
+          : `document.getElementById('details').textContent===${JSON.stringify(retainedRead)}`
     try {
       await ui.ready(
-        `document.getElementById('source-label').textContent.endsWith(${JSON.stringify(` · local: ${entry.path}`)}) && !document.getElementById('task-mode').disabled && !document.getElementById('exposure-group').hidden && !document.getElementById('exposure-group').disabled && document.getElementById('instructions').textContent.length>0`,
-        'selected library reading and Group action',
+        `document.getElementById('source-label').textContent.endsWith(${JSON.stringify(` · local: ${entry.path}`)}) && !document.getElementById('reader-manage').disabled && !document.getElementById('task-mode').disabled && !document.getElementById('exposure-group').hidden && !document.getElementById('exposure-group').disabled && document.getElementById('instructions').textContent.length>0 && ${readMatches}`,
+        retainedRead === undefined
+          ? 'selected library reading and Group action'
+          : 'same selected library read and Group action restored',
       )
     } catch (error) {
       console.log(
@@ -477,13 +500,13 @@ export async function verifyOwnedAdvancedExposure(
         JSON.stringify(
           await ui.inspect(`(() => {
         const primary=document.getElementById('task-primary'), group=document.getElementById('exposure-group');
-        return {instructionsPresent:document.getElementById('instructions').textContent.length>0,copyControlDisabled:document.getElementById('task-mode').disabled,primaryHidden:primary.hidden,primaryDisabled:primary.disabled,groupHidden:group.hidden,groupDisabled:group.disabled};
+        const reader=document.getElementById('reader-state'),classes=['frequency','capacity','hidden','closed','cancel','ended','stale','no longer current','timed out','revoked','not granted','unapproved','root changed','library changed'];
+        return {readerState:['ready','loading','stale','error','unapproved'].includes(reader.dataset.state)?reader.dataset.state:null,readerClasses:classes.filter(value=>reader.textContent.toLowerCase().includes(value)),readingAvailable:!document.getElementById('reader-manage').disabled,readMatches:${readMatches},instructionsPresent:document.getElementById('instructions').textContent.length>0,copyControlDisabled:document.getElementById('task-mode').disabled,primaryHidden:primary.hidden,primaryDisabled:primary.disabled,groupHidden:group.hidden,groupDisabled:group.disabled};
       })()`),
         ),
       )
       throw error
     }
-    return ui
   }
   async function foreground(guest: WebContents) {
     await controls.wait(
