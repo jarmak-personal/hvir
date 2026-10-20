@@ -31,6 +31,8 @@ export function createSkillagerPackageView(view = 'library') {
     hold = false,
     holdOn: string | undefined,
     expiredCursors = false,
+    cursorError = 'stale_cursor',
+    failRestart = false,
     frequency = false,
     unapproved = undefined as 'unapproved' | 'executable-changed' | undefined,
     projectApproved = true,
@@ -43,7 +45,8 @@ export function createSkillagerPackageView(view = 'library') {
     unavailableProject = false,
     currentWorkspace: { root?: { path?: string } } | undefined,
     resume: ((error?: string) => void) | undefined,
-    finishConnection: ((value: unknown, error?: string) => void) | undefined
+    finishConnection: ((value: unknown, error?: string) => void) | undefined,
+    finishTrash: ((value: unknown, error?: string) => void) | undefined
   const native = connectorOutputFixture()
   const opened: Record<string, unknown>[] = []
   const initializationRequests: Record<string, unknown>[] = []
@@ -61,6 +64,11 @@ export function createSkillagerPackageView(view = 'library') {
     requests.push({ capability: message.capability, input: message.input })
     let value: unknown
     if (message.capability === 'viewer.open-own') opened.push(message.input)
+    if (message.capability === 'source.request-trash') {
+      finishTrash = (value, error) =>
+        receive({ kind: 'result', id: message.id, ok: !error, value, error })
+      return
+    }
     if (message.capability === 'actions.invoke') {
       initializationRequests.push(message.input)
       if (initialization) {
@@ -158,14 +166,27 @@ export function createSkillagerPackageView(view = 'library') {
         value = { outcome: 'failed', code: 1 }
       } else if (
         expiredCursors &&
-        args.includes('--cursor') &&
-        args[args.indexOf('--cursor') + 1]
+        ['list', 'search'].includes(args[0]!) &&
+        ((args.includes('--cursor') && args[args.indexOf('--cursor') + 1]) || failRestart)
       ) {
         const receipt = String(++serial)
-        outputs.set(receipt, '')
+        outputs.set(
+          receipt,
+          JSON.stringify({
+            schema: 'skillager.error.v1',
+            error: {
+              code: cursorError,
+              message: 'inventory changed; restart from the first page',
+            },
+          }),
+        )
         errors.set(receipt, 'Pagination cursor no longer matches the current library')
         value = native.complete(
-          { outcome: 'completed', code: 2, receipt },
+          {
+            outcome: 'completed',
+            code: cursorError === 'stale_cursor' ? 15 : 2,
+            receipt,
+          },
           outputs.get(receipt)!,
           errors.get(receipt),
         )
@@ -345,6 +366,7 @@ export function createSkillagerPackageView(view = 'library') {
     },
     capabilities: (capabilities: string[]) => receive({ kind: 'hello', capabilities }),
     requests,
+    trashResult: (value: unknown, error?: string) => finishTrash?.(value, error),
     button,
     flush,
     calls,
@@ -370,8 +392,10 @@ export function createSkillagerPackageView(view = 'library') {
     libraryRoot: (value: string) => {
       root = value
     },
-    staleCursors: () => {
+    staleCursors: (code = 'stale_cursor', firstPageAlsoFails = false) => {
       expiredCursors = true
+      cursorError = code
+      failRestart = firstPageAlsoFails
     },
     uninitialized: () => {
       initialized = false

@@ -74,7 +74,7 @@ export async function verifySkillagerExtension(
       () =>
         inspect(
           guest,
-          "document.getElementById('state')?.dataset.state==='no-personal-library'&&document.querySelectorAll('#skills [role=option]').length===0&&!document.getElementById('create-library').disabled",
+          "document.getElementById('state')?.dataset.state==='no-personal-library'&&document.querySelectorAll('#skills [data-skill-select]').length===0&&!document.getElementById('create-library').disabled",
         ) as Promise<boolean>,
       'automatic uninitialized state offers CLI-owned default creation without initializing',
     )
@@ -106,7 +106,7 @@ export async function verifySkillagerExtension(
       () =>
         inspect(
           guest,
-          "document.querySelectorAll('#skills [role=option]').length===100 && document.getElementById('state').dataset.state==='ready'",
+          "document.querySelectorAll('#skills [data-skill-select]').length===100 && document.getElementById('state').dataset.state==='ready'",
         ) as Promise<boolean>,
       diagnostic
         ? 'current first 100 public library observations'
@@ -316,7 +316,7 @@ export async function verifySkillagerExtension(
     for (;;) {
       const entries = (await inspect(
         guest,
-        "[...document.querySelectorAll('#skills [role=option]')].map(row=>row.dataset.id)",
+        "[...document.querySelectorAll('#skills [data-skill-select]')].map(row=>row.dataset.id)",
       )) as string[]
       entries.forEach((id) => observed.add(id))
       pages++
@@ -334,7 +334,7 @@ export async function verifySkillagerExtension(
         () =>
           inspect(
             guest,
-            `document.querySelector('#skills [role=option]')?.dataset.id !== ${JSON.stringify(first)} && document.getElementById('state').dataset.state==='ready'`,
+            `document.querySelector('#skills [data-skill-select]')?.dataset.id !== ${JSON.stringify(first)} && document.getElementById('state').dataset.state==='ready'`,
           ) as Promise<boolean>,
         `public cursor page ${pages + 1}`,
       )
@@ -347,7 +347,7 @@ export async function verifySkillagerExtension(
     await metadataOnly('metadata traversal')
     await inspect(
       guest,
-      "document.querySelector('#skills [role=option]').focus(); document.querySelector('#skills [role=option]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));",
+      "document.querySelector('#skills [data-skill-select]').focus(); document.querySelector('#skills [data-skill-select]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));",
     )
     await metadataOnly('keyboard focus')
     if (extensions.sourceRequests!.snapshot(owner).length)
@@ -387,7 +387,7 @@ export async function verifySkillagerExtension(
         () =>
           inspect(
             guest,
-            "document.getElementById('state').dataset.state==='ready' && document.getElementById('state').textContent.includes('matches') && document.querySelectorAll('#skills [role=option]').length>0",
+            "document.getElementById('state').dataset.state==='ready' && document.getElementById('state').textContent.includes('matches') && document.querySelectorAll('#skills [data-skill-select]').length>0",
           ) as Promise<boolean>,
         `genuine public ranked search via ${mode}`,
       )
@@ -395,10 +395,10 @@ export async function verifySkillagerExtension(
   }
   const clicked = (await inspect(
     guest,
-    "(() => {const row=document.querySelector('#skills [role=option]');return {id:row.dataset.id,source:row.dataset.source,path:row.dataset.sourcePath}})()",
+    "(() => {const row=document.querySelector('#skills [data-skill-select]');return {id:row.dataset.id,source:row.dataset.source,path:row.dataset.sourcePath}})()",
   )) as { id: string; source: string; path: string }
   const canonical = await host.realpath(localPath(clicked.path))
-  await inspect(guest, "document.querySelector('#skills [role=option]').click()")
+  await inspect(guest, "document.querySelector('#skills [data-skill-select]').click()")
   const detail = guest
   phase = 'selected inline reader'
   await controls.wait(
@@ -425,11 +425,11 @@ export async function verifySkillagerExtension(
     () =>
       inspect(
         guest,
-        "!!document.querySelector('#skills [role=option]') && document.getElementById('state').dataset.state==='ready' && document.getElementById('manage').disabled===false",
+        "!!document.querySelector('#skills [data-skill-select]') && document.getElementById('state').dataset.state==='ready' && document.getElementById('manage').disabled===false",
       ) as Promise<boolean>,
     'ordinary library restored after reader close',
   )
-  await inspect(guest, "document.querySelector('#skills [role=option]').click()")
+  await inspect(guest, "document.querySelector('#skills [data-skill-select]').click()")
   await controls.wait(
     () => extensions.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
     'new reader has a distinct root request',
@@ -876,7 +876,7 @@ export async function verifySkillagerExtension(
             `(() => {
           const state=document.getElementById('state'),text=state?.textContent??'';
           return {state:['loading','stale','ready','empty','error'].includes(state?.dataset.state)?state.dataset.state:null,
-            rows:document.querySelectorAll('#skills [role=option]').length,nextDisabled:document.getElementById('next')?.disabled??null,
+            rows:document.querySelectorAll('#skills [data-skill-select]').length,nextDisabled:document.getElementById('next')?.disabled??null,
             approval:text.includes('Approve your Skillager CLI'),frequency:text.includes('frequency'),capacity:text.includes('capacity'),contract:text.includes('contract'),
             initial:globalThis.__hvirInitialLibrary??null};
         })()`,
@@ -940,7 +940,7 @@ export async function verifySkillagerExtension(
           (await inspect(
             guest,
             `(() => {
-          const receipt=globalThis.__hvirFreshLibrary, rows=[...document.querySelectorAll('#skills [role=option]')];
+          const receipt=globalThis.__hvirFreshLibrary, rows=[...document.querySelectorAll('#skills [data-skill-select]')];
           return receipt.received&&!receipt.overflow&&receipt.count===rows.length&&receipt.first===rows[0]?.dataset.id&&document.getElementById('state').dataset.state==='ready';
         })()`,
           )) === true,
@@ -952,7 +952,7 @@ export async function verifySkillagerExtension(
         JSON.stringify(
           await inspect(
             guest,
-            "({receipt:globalThis.__hvirFreshLibrary?.received===true,overflow:globalThis.__hvirFreshLibrary?.overflow===true,rows:document.querySelectorAll('#skills [role=option]').length,state:document.getElementById('state')?.dataset.state,nextDisabled:document.getElementById('next')?.disabled})",
+            "({receipt:globalThis.__hvirFreshLibrary?.received===true,overflow:globalThis.__hvirFreshLibrary?.overflow===true,rows:document.querySelectorAll('#skills [data-skill-select]').length,state:document.getElementById('state')?.dataset.state,nextDisabled:document.getElementById('next')?.disabled})",
           ).catch(() => ({ unavailable: true })),
         ),
       )

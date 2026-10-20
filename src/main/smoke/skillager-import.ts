@@ -30,11 +30,11 @@ export async function verifyOwnedImport(
     await project.inspect("document.getElementById('search-form').requestSubmit()")
     const path = joinHostPath(joinHostPath(root, name), 'SKILL.md').path
     await project.ready(
-      `!![...document.querySelectorAll('#skills [role=option]')].find(e=>e.dataset.sourcePath===${JSON.stringify(path)})`,
+      `!![...document.querySelectorAll('#skills [data-skill-select]')].find(e=>e.dataset.sourcePath===${JSON.stringify(path)})`,
       'selected original public occurrence',
     )
     await project.inspect(
-      `[...document.querySelectorAll('#skills [role=option]')].find(e=>e.dataset.sourcePath===${JSON.stringify(path)}).click()`,
+      `[...document.querySelectorAll('#skills [data-skill-select]')].find(e=>e.dataset.sourcePath===${JSON.stringify(path)}).click()`,
     )
     const guest = await detail(),
       ui = skillagerManagementControls(guest, controls)

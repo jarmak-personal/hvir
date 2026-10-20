@@ -56,6 +56,8 @@ function fixture() {
     }).outputFiles[0]!.text,
     sandbox,
   )
+  const changed = vi.fn(),
+    activity = vi.fn()
   const view = (
     sandbox.Module as {
       bindSelectedSkill(
@@ -64,7 +66,7 @@ function fixture() {
         ports: unknown,
       ): { select(input: unknown): void; contextChanged(): void; dispose(): void }
     }
-  ).bindSelectedSkill(document, client, { context: () => context })
+  ).bindSelectedSkill(document, client, { context: () => context, changed, activity })
   dispose = () => {
     view.dispose()
     controller.abort()
@@ -93,6 +95,8 @@ function fixture() {
   return {
     ...f,
     view,
+    changed,
+    activity,
     selection,
     button,
     ready,
@@ -226,3 +230,24 @@ it('labels library acceptance uncertainty by its owner when an SSH project is se
   )
   expect(f.button('task-primary').disabled).toBe(true)
 })
+
+it.each(['completed', 'uncertain', 'rejected'] as const)(
+  'notifies the exact remote origin for %s delivery without substituting a result',
+  async (outcome) => {
+    const f = fixture()
+    f.view.select(f.selection)
+    await f.ready()
+    f.exportFolder()
+    f.button('task-primary').click()
+    await f.prepared()
+    if (outcome === 'uncertain') f.lostReply()
+    if (outcome === 'rejected') f.changeSource()
+    f.button('task-confirm').click()
+    await vi.waitFor(() => expect(f.changed).toHaveBeenCalledOnce())
+    expect(f.changed.mock.calls[0]?.[1]).toMatchObject(f.workspace)
+    if (outcome === 'rejected') expect(f.changed.mock.calls[0]?.[0]).toBeUndefined()
+    else expect(f.changed.mock.calls[0]?.[0]).toMatchObject({ outcome })
+    expect(f.activity).toHaveBeenCalledWith(true)
+    expect(f.activity).toHaveBeenLastCalledWith(false)
+  },
+)

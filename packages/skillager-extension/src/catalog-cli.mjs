@@ -46,3 +46,14 @@ export function catalogCli(client, context, generation) {
     return JSON.parse(text)
   }
 }
+
+/** Only the public stale-cursor envelope can restart a metadata traversal. */
+export function isStaleCatalogCursor(error) {
+  if (error?.cli?.outcome !== 'completed' || error.cli.code !== 15) return false
+  try {
+    const value = JSON.parse(error.cli.stdout)
+    return value?.schema === 'skillager.error.v1' && value.error?.code === 'stale_cursor'
+  } catch {
+    return false
+  }
+}

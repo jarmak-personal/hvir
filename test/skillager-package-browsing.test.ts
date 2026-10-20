@@ -687,19 +687,19 @@ it('requires renewed package visibility before retained ready rows can open a re
   await f.flush()
   f.context(false)
   expect(document.getElementById('state')?.dataset['state']).toBe('ready')
-  expect(document.querySelectorAll('#skills [role="option"]')).toHaveLength(1)
+  expect(document.querySelectorAll('#skills [data-skill-select]')).toHaveLength(1)
   expect(f.button('manage').disabled).toBe(true)
-  ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
+  ;(document.querySelector('#skills [data-skill-select]') as HTMLButtonElement).click()
   await f.flush()
   expect(f.opened).toEqual([])
   f.context()
   await f.flush()
   expect(f.button('manage').disabled).toBe(false)
-  ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
+  ;(document.querySelector('#skills [data-skill-select]') as HTMLButtonElement).click()
   await f.flush()
   expect(f.opened).toEqual([])
   expect((document.getElementById('reader-content') as HTMLElement).hidden).toBe(false)
-  expect(document.querySelectorAll('#skills [role="option"]')).toHaveLength(1)
+  expect(document.querySelectorAll('#skills [data-skill-select]')).toHaveLength(1)
 })
 
 it('keeps explicit Library search local when the selected project is SSH', async () => {
@@ -708,7 +708,7 @@ it('keeps explicit Library search local when the selected project is SSH', async
   await f.flush()
   submitQuery('skill')
   await f.flush()
-  ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
+  ;(document.querySelector('#skills [data-skill-select]') as HTMLButtonElement).click()
   await f.flush()
   expect((document.getElementById('reader-content') as HTMLElement).hidden).toBe(false)
   expect(f.calls.some((args) => args[0] === 'search')).toBe(true)
@@ -729,7 +729,7 @@ it('refuses a Library search occurrence from a different public library identity
   await f.flush()
   submitQuery('skill')
   await f.flush()
-  ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
+  ;(document.querySelector('#skills [data-skill-select]') as HTMLButtonElement).click()
   await f.flush()
   expect(document.getElementById('state')?.textContent).toContain(
     'personal library changed',
@@ -748,7 +748,7 @@ it('does not substitute a selected library occurrence outside the public reporte
     .getElementById('search-form')!
     .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   await f.flush()
-  ;(document.querySelector('#skills [role="option"]') as HTMLButtonElement).click()
+  ;(document.querySelector('#skills [data-skill-select]') as HTMLButtonElement).click()
   await f.flush()
   expect(f.opened).toEqual([])
   expect(document.getElementById('state')?.textContent).toContain(
@@ -797,8 +797,8 @@ it('keeps Library query, cursor, options and selected occurrence when renewing d
   await f.flush()
   f.button('next').click()
   await f.flush()
-  const row = document.querySelector<HTMLElement>('#skills [role=option]')!
-  row.setAttribute('aria-selected', 'true')
+  const row = document.querySelector<HTMLElement>('#skills [data-skill-select]')!
+  row.setAttribute('aria-current', 'true')
   const selected = row.dataset.id
   f.hold('search')
   await vi.advanceTimersByTimeAsync(30_000)
@@ -817,7 +817,7 @@ it('keeps Library query, cursor, options and selected occurrence when renewing d
     'retained query',
   )
   expect(
-    document.querySelector<HTMLElement>('#skills [aria-selected=true]')?.dataset.id,
+    document.querySelector<HTMLElement>('#skills [aria-current=true]')?.dataset.id,
   ).toBe(selected)
   expect(document.getElementById('state')?.dataset.state).toBe('ready')
   const current = f.calls.length
@@ -857,7 +857,7 @@ it('retains each project browser scope query and exact selection while reusing t
   await f.flush()
   submitQuery('project-only')
   await f.flush()
-  ;(document.querySelector('#skills [role=option]') as HTMLButtonElement).click()
+  ;(document.querySelector('#skills [data-skill-select]') as HTMLButtonElement).click()
   await f.flush()
   expect(f.button('skill-pages').hidden).toBe(true)
   expect(document.getElementById('state')?.textContent).not.toContain('Page 1')
@@ -865,7 +865,7 @@ it('retains each project browser scope query and exact selection while reusing t
   await f.flush()
   submitQuery('library-only')
   await f.flush()
-  ;(document.querySelector('#skills [role=option]') as HTMLButtonElement).click()
+  ;(document.querySelector('#skills [data-skill-select]') as HTMLButtonElement).click()
   await f.flush()
   f.button('scope-project').click()
   await f.flush()
@@ -873,7 +873,7 @@ it('retains each project browser scope query and exact selection while reusing t
     'project-only',
   )
   expect(
-    document.querySelector<HTMLElement>('#skills [aria-selected=true]')?.dataset.id,
+    document.querySelector<HTMLElement>('#skills [aria-current=true]')?.dataset.id,
   ).toBe('original-occurrence')
   expect(f.opened.at(-1)).toMatchObject({
     contributionId: 'detail',
@@ -894,7 +894,7 @@ it('retains each project browser scope query and exact selection while reusing t
     'library-only',
   )
   expect(
-    document.querySelector<HTMLElement>('#skills [aria-selected=true]')?.dataset.id,
+    document.querySelector<HTMLElement>('#skills [aria-current=true]')?.dataset.id,
   ).toBe('search-0')
   expect(f.opened.every((entry) => entry['contributionId'] === 'detail')).toBe(true)
 })
@@ -917,4 +917,34 @@ it('rejects a late Project result after switching to Library and keeps the new s
     'delayed-project',
   )
   expect(f.calls.at(-1)).toContain('delayed-project')
+})
+
+it('keeps the Library sheet occurrence on renewal instead of reselecting the reader occurrence', async () => {
+  const f = packageView('library')
+  f.context(true, localProject)
+  await f.flush()
+  ;(document.querySelector('#skills [data-skill-select]') as HTMLButtonElement).click()
+  await f.flush()
+  expect(document.getElementById('detail-title')?.textContent).toBe('Page 0')
+  f.button('next').click()
+  await f.flush()
+  ;(document.querySelector('#skills [data-skill-actions]') as HTMLButtonElement).click()
+  ;(
+    document.querySelector('#skill-row-menu [data-task=native]') as HTMLButtonElement
+  ).click()
+  await f.flush()
+  expect(document.getElementById('skill-task-title')?.textContent).toBe('Page 1')
+  const before = f.calls.length
+  f.context(false, localProject)
+  f.context(true, localProject)
+  await f.flush()
+  expect(document.getElementById('skill-task-sheet')?.hidden).toBe(false)
+  expect(document.getElementById('detail-title')?.textContent).toBe('Page 0')
+  expect(document.getElementById('skill-task-title')?.textContent).toBe('Page 1')
+  const selectedObservations = f.calls
+    .slice(before)
+    .filter((args) => args[0] === 'library' && args[2]?.startsWith('lib/'))
+  expect(selectedObservations.length).toBeGreaterThan(0)
+  expect(selectedObservations.every((args) => args[2] === 'lib/1')).toBe(true)
+  expect(document.getElementById('state')?.textContent).toContain('Page 2')
 })
