@@ -10,7 +10,7 @@ No input. Returns an array of `{source,granted,workspaceId?,explanation?}` for d
 
 ### source.request
 
-Input: `{source:'source',root:{hostId:'local',path:'/reported/library'}}`. Only a declared application read-only source is eligible. A trusted hvir surface checks canonical scope and asks the human for read-only access; the guest cannot approve it. Returns `{granted:true}` or `{granted:false}`. A current grant already covering that reported root is reused without a new decision; this does not attest the folder's present contents. Preparation failure stays in trusted UI until a decision, cancellation or deadline. Workspace and delivery grants use Settings instead. Hiding, closing or revocation retires this request; there are at most four decisions and each lasts 60 seconds. An interrupted persistence operation may already have committed.
+Input: `{source:'source',root:{hostId:'local',path:'/reported/library'}}`. Application requests select the reported local root. For a declared workspace read-only source, send only `{source:'source'}`; main uses the exact admitted workspace and rejects guest roots/workspace IDs. A trusted hvir surface checks canonical scope and asks the human for read-only access; the guest cannot approve it. Returns `{granted:true}` or `{granted:false}`. A current grant already covering that reported root is reused without a new decision; this does not attest the folder's present contents. Preparation failure stays in trusted UI until a decision, cancellation or deadline. Delivery grants retain their separate Settings surface. Hiding, closing or revocation retires this request; there are at most four decisions and each lasts 60 seconds. An interrupted persistence operation may already have committed.
 
 ### source.select
 
@@ -53,3 +53,23 @@ Input: `{receipt:SELECTED_DOCUMENT}`. Returns `{receipt:RENDERED_RECEIPT,bytes,s
 Input: `{source:'workspace-source',workspaceId:EXACT_WORKSPACE,path:{hostId:HOST,path:ABSOLUTE_DIRECTORY}}`. Requires a declared/granted workspace read-only source and that exact current workspace. Returns `null` after selecting the ordinary canonical directory in Files. Application sources, stale context, non-directories, lexical/canonical escapes and nonhuman origins refuse. This grants no mutation or outside-root access.
 
 Documents and images are each at most 2 MiB; text/base64 pages are at most 2048 bytes. Rendered HTML is bounded to 512 KiB. There are eight physical/retained source reservations and 16 MiB of reserved data globally. Timeout/closure can settle the guest while a non-abortable read or parse still occupies capacity. Do not report an interrupted page sequence complete or retry mutations based on a timeout. See `guide bridge` and `guide lifetimes`.
+
+### source.request-trash
+
+Requests the existing trusted Files **Move to Trash** confirmation for
+one selected ordinary project directory. Send `{source: 'project', workspaceId: EXACT_WORKSPACE,
+path: {hostId: 'local', path: EXACT_DIRECTORY}}` from a visible ordinary human view with that
+workspace's existing read-only source grant. The grant stays read-only: only the human's trusted
+Files confirmation authorizes removal. No action, agent or updater can request it. Workspace
+roots, symbolic-link traversal, changed directory identity, stale grants and contexts refuse.
+Application sources and hosts without recoverable Trash (including current SSH hosts) refuse;
+there is no permanent-delete fallback. The dialog checks unsaved buffers in its exact target
+workspace even when the active Files pane shows another project.
+
+The promise remains pending through review and physical completion. Its bounded result is
+`{outcome: 'completed'|'cancelled'|'refused'|'uncertain', reason?}`. Only `completed` confirms Trash;
+refresh observations afterward. Never retry an uncertain result automatically. There is one
+pending request application-wide, sixty seconds for preparation/review and the existing ten-minute
+Files operation bound after confirmation. Revocation cancels pending review; in-flight physical
+work retains capacity until settlement and cannot imply rollback. `source.reveal` remains useful
+for inspecting the folder without requesting any mutation.

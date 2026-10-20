@@ -40,6 +40,17 @@ export const extensionsIpc = {
       import('../extensions/setup-review').ExtensionSetupReview
     >(),
     'extensions:setup-cancel': invoke<{ readonly request: string }, void>(),
+    'extensions:source-trash-proposals': invoke<
+      void,
+      readonly import('../extensions/source-trash').ExtensionSourceTrashProposal[]
+    >(),
+    'extensions:source-trash-confirm': invoke<
+      { readonly id: string },
+      import('../operation-result').OperationResult<
+        import('../project-file-operations').ProjectFileOperationStartResult
+      >
+    >(),
+    'extensions:source-trash-cancel': invoke<{ readonly id: string }, void>(),
     'extensions:source-proposals': invoke<
       void,
       readonly import('../extensions/source-access').ExtensionSourceRequestProposal[]
@@ -204,6 +215,10 @@ export const extensionsIpc = {
   event: {
     'extensions:setup-changed':
       payload<import('../extensions/setup-review').ExtensionSetupReview>(),
+    'extensions:source-trash-changed':
+      payload<
+        readonly import('../extensions/source-trash').ExtensionSourceTrashProposal[]
+      >(),
     'extensions:source-proposals-changed':
       payload<
         readonly import('../extensions/source-access').ExtensionSourceRequestProposal[]

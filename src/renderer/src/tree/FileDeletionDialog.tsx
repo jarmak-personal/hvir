@@ -5,8 +5,10 @@ import type { FileDeletionActionsController } from './use-file-deletion-actions'
 
 export function FileDeletionDialog({
   controller,
+  allowCancelOperation = false,
 }: {
   readonly controller: FileDeletionActionsController
+  readonly allowCancelOperation?: boolean
 }): ReactElement | null {
   const { dialog } = controller
   const [confirmation, setConfirmation] = useState('')
@@ -73,10 +75,21 @@ export function FileDeletionDialog({
             ref={cancelRef}
             className="confirmation-action confirmation-action-cancel hvir-button hvir-control"
             type="button"
-            disabled={controller.pending}
-            onClick={() => controller.dismiss()}
+            disabled={
+              controller.pending &&
+              (!allowCancelOperation ||
+                !controller.progress ||
+                controller.progress.phase === 'cancelling')
+            }
+            onClick={() =>
+              controller.pending ? controller.cancel() : controller.dismiss()
+            }
           >
-            Cancel
+            {controller.pending && allowCancelOperation
+              ? controller.progress?.phase === 'cancelling'
+                ? 'Cancelling…'
+                : 'Cancel operation'
+              : 'Cancel'}
           </button>
           <button
             type="submit"

@@ -17,7 +17,7 @@ export interface ViewerPathRemovalCapability {
 }
 
 export function reviewViewerPathRemoval(
-  model: ViewerWorkspaceModel,
+  model: Pick<ViewerWorkspaceModel, 'tabs'>,
   target: HostPath,
 ): ViewerPathRemovalReview {
   const affected = model.tabs.filter((tab) => containsHostPath(target, tab.path))
@@ -28,7 +28,7 @@ export function reviewViewerPathRemoval(
 }
 
 export function closeCleanViewerPath(
-  model: ViewerWorkspaceModel,
+  model: Pick<ViewerWorkspaceModel, 'tabs'>,
   target: HostPath,
   closeTab: (id: string) => void,
 ): ViewerPathRemovalResult {

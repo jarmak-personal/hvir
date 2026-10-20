@@ -23,6 +23,7 @@ import {
   viewerWorkspaceReducer,
   type ViewerWorkspaceAction,
 } from './viewer-workspace-model'
+import { workspacePathRemoval } from './workspace-path-removal'
 import { useViewerPathLifecycle } from './use-viewer-path-lifecycle'
 import { collectViewerWatchPaths } from './viewer-document-refresh'
 import {
@@ -527,6 +528,10 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     rebindPath,
     reviewPathRemoval,
     closeCleanPath,
+    ...workspacePathRemoval(() => modelRef.current, warmWorkspaces.current, {
+      reviewPathRemoval,
+      closeCleanPath,
+    }),
     focusPane,
     getActivePane,
     openSplit,

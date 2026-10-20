@@ -12,7 +12,7 @@ The complete installed capability reference is split into focused topics. Each n
 - `guide surfaces`: viewer.open-own, contributions.read, contributions.publish.
 - `guide actions`: actions.invoke and finite action delivery/cancellation.
 - `guide connectors`: connector.status, connector.connect, connector.execute, connector.output, terminal.start.
-- `guide sources`: source.status, source.request, source.select, source.read, source.asset, source.render, source.reveal.
+- `guide sources`: source.status, source.request, source.select, source.read, source.asset, source.render, source.reveal, source.request-trash.
 - `guide delivery`: delivery.capture, delivery.manifest, delivery.preview, delivery.apply, delivery.status, delivery.domain, delivery.reconcile, delivery.cleanup.
 
 Updaters have a narrower observation/presentation role. Native connector use still needs separate user configuration and approval. Declaring a capability neither grants filesystem/network access nor enables agent access. Command help/action discovery describes CLI commands and selected extension actions; the platform request contracts are in these installed guides.

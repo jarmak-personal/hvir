@@ -1,6 +1,7 @@
 # ADR-059: Public local Skillager management
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-081](ADR-081-trusted-selected-source-trash.md) | partial | Requiring an extension-selected project original to be revealed in Files before requesting its separate deletion action.
 > Superseded by: [ADR-079](ADR-079-selected-original-save-and-accept.md) | partial | Local management excludes selected external import; complete exact external inspection and one human Save and accept decision are permitted.
 > Superseded by: [ADR-080](ADR-080-bounded-sync-no-effect-summaries.md) | partial | Individual identity rows for every synchronization outcome; only the exact proven no-effect categories may be summarized.
 > Superseded by: [ADR-071](ADR-071-selected-skill-tasks-and-version-acceptance.md) | partial | Mandatory complete-file presentation and acknowledgment before accepting an exact version, and refusal of acceptance solely because a file format cannot be previewed.

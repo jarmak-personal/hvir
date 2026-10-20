@@ -432,6 +432,7 @@ export class ExtensionGuestOwner {
       record.visible && refreshDemand === true && this.ownerForeground(owner)
     this.ports.connections.revalidate()
     this.ports.sourceRequests.revalidate()
+    this.ports.sourceTrash.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     if (record.refreshDemand !== previousDemand) this.ports.visibleContributionsChanged()
@@ -474,6 +475,7 @@ export class ExtensionGuestOwner {
     }
     this.ports.connections.revalidate()
     this.ports.sourceRequests.revalidate()
+    this.ports.sourceTrash.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     this.ports.visibleContributionsChanged()
@@ -600,6 +602,15 @@ export class ExtensionGuestOwner {
             'contributionId',
             'input',
             'context',
+          ]),
+        ].slice(0, EXTENSION_LIMITS.warnings)
+      if (capability === 'source.request-trash')
+        warnings = [
+          ...warnings,
+          ...unknownExtensionFields(extensionObject(message['input']), [
+            'source',
+            'workspaceId',
+            'path',
           ]),
         ].slice(0, EXTENSION_LIMITS.warnings)
       const controller = new AbortController()
@@ -771,12 +782,14 @@ export class ExtensionGuestOwner {
     if (!record) return
     if (admitted) record.actions.add(id)
     else record.actions.delete(id)
+    this.ports.sourceTrash.revalidate()
     if (record.guestId !== undefined)
       this.surface.runnable?.(record.guestId, record.actions.size > 0)
   }
   updateContext(): void {
     this.ports.connections.revalidate()
     this.ports.sourceRequests.revalidate()
+    this.ports.sourceTrash.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     for (const record of [...this.records.values()]) {
@@ -812,6 +825,7 @@ export class ExtensionGuestOwner {
     record.visible = demanded
     this.ports.connections.revalidate()
     this.ports.sourceRequests.revalidate()
+    this.ports.sourceTrash.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     this.sendContext(record)
@@ -886,6 +900,7 @@ export class ExtensionGuestOwner {
               'source.asset',
               'source.render',
               'source.reveal',
+              'source.request-trash',
               'terminal.start',
               'connector.connect',
             ].includes(capability))),
@@ -934,6 +949,7 @@ export class ExtensionGuestOwner {
     record.authority.dispose()
     this.ports.connections.revalidate()
     this.ports.sourceRequests.revalidate()
+    this.ports.sourceTrash.revalidate()
     this.ports.connectors.revalidate()
     this.ports.sources.revalidate()
     if (record.visible && record.view.role !== 'updater')

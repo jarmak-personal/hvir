@@ -366,6 +366,7 @@ installation.
 ### [ADR-030 — Bounded project file operations and explicit external-source authority](adr/ADR-030-bounded-project-file-operations.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-081](adr/ADR-081-trusted-selected-source-trash.md) | partial | Visible workspace selection for recoverable deletion: permit the exact registered workspace visibly identified by a trusted extension-requested Trash review.
 > Superseded by: [ADR-061](adr/ADR-061-explicit-managed-extension-delivery.md) | partial | External source acquisition and no-replacement rules only for explicitly granted managed extension delivery; ordinary Files remains unchanged.
 
 One main-owned coordinator applies fixed targeting, confinement, collision, transfer,
@@ -625,6 +626,7 @@ transient launch data never enters recovery, and handed-off terminals retain ord
 ### [ADR-059 — Public local Skillager management](adr/ADR-059-public-local-skillager-management.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-081](adr/ADR-081-trusted-selected-source-trash.md) | partial | Requiring an extension-selected project original to be revealed in Files before requesting its separate deletion action.
 > Superseded by: [ADR-079](adr/ADR-079-selected-original-save-and-accept.md) | partial | Local management excludes selected external import; complete exact external inspection and one human Save and accept decision are permitted.
 > Superseded by: [ADR-080](adr/ADR-080-bounded-sync-no-effect-summaries.md) | partial | Individual identity rows for every synchronization outcome; only the exact proven no-effect categories may be summarized.
 > Superseded by: [ADR-071](adr/ADR-071-selected-skill-tasks-and-version-acceptance.md) | partial | Mandatory complete-file presentation and acknowledgment before accepting an exact version, and refusal of acceptance solely because a file format cannot be previewed.
@@ -813,6 +815,14 @@ One human decision saves and accepts the exact external manifest/token version w
 > Supersedes: [ADR-059](adr/ADR-059-public-local-skillager-management.md) | partial | Individual identity rows for every synchronization outcome; only the exact proven no-effect categories may be summarized.
 
 Complete public sync observations bind review and reconciliation; only exact no-effect categories are summarized, while consequential outcomes and recovery paths stay explicit.
+
+### [ADR-081 — Trusted selected-source Trash review](adr/ADR-081-trusted-selected-source-trash.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-059](adr/ADR-059-public-local-skillager-management.md) | partial | Requiring an extension-selected project original to be revealed in Files before requesting its separate deletion action.
+> Supersedes: [ADR-030](adr/ADR-030-bounded-project-file-operations.md) | partial | Visible workspace selection for recoverable deletion: permit the exact registered workspace visibly identified by a trusted extension-requested Trash review.
+
+Extensions request one exact project-directory review; trusted Files owns confirmation, recoverable deletion and the target workspace’s viewer cleanup.
 
 ---
 
