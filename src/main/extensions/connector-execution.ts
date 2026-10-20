@@ -163,8 +163,18 @@ export class ExtensionConnectorExecutionOwner {
       return unavailable('capacity')
     if (existing?.execution)
       return this.join(existing.execution, caller, workspace, context)
-    if (existing && Date.now() - existing.started < CONNECTOR_LIMITS.refreshIntervalMs)
-      return unavailable('frequency')
+    if (existing) {
+      const remaining =
+        CONNECTOR_LIMITS.refreshIntervalMs - (Date.now() - existing.started)
+      if (remaining > 0)
+        return {
+          ...unavailable('frequency'),
+          retryAfterMs: Math.min(
+            CONNECTOR_LIMITS.refreshIntervalMs,
+            Math.max(1, Math.ceil(remaining)),
+          ),
+        }
+    }
     if (source && !existing && this.sources.size >= CONNECTOR_LIMITS.sources)
       return unavailable('capacity')
     if (

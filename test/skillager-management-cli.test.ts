@@ -68,7 +68,7 @@ it.each(['hidden', 'revoked'])(
         kind: 'result',
         id: f.sent[0]!.id,
         ok: true,
-        value: { outcome: 'not-started', reason: 'frequency' },
+        value: { outcome: 'not-started', reason: 'frequency', retryAfterMs: 250 },
       })
       await vi.advanceTimersByTimeAsync(0)
       expect(vi.getTimerCount()).toBe(1)
@@ -100,7 +100,7 @@ it('does not defer an action-scoped observation through the ordinary guest delay
       kind: 'result',
       id: f.sent[0]!.id,
       ok: true,
-      value: { outcome: 'not-started', reason: 'frequency' },
+      value: { outcome: 'not-started', reason: 'frequency', retryAfterMs: 250 },
     })
     await rejected
     expect(vi.getTimerCount()).toBe(0)
@@ -162,37 +162,57 @@ function fixture() {
     },
   }
 }
-it('defers a never-started human metadata observation once and obtains fresh output without replaying a mutation', async () => {
-  const f = fixture(),
-    waits: number[] = []
-  f.execution({ outcome: 'not-started', reason: 'frequency' })
-  f.client.delay = (milliseconds) => {
-    waits.push(milliseconds)
-    f.execution({ outcome: 'completed', code: 0, receipt: 'fresh', truncated: false })
-    f.stdout('{"schema":"fresh-observation"}')
-    return Promise.resolve()
-  }
-  await expect(
-    f.io.run(['library', 'accept', 'lib/exact', '--review-manifest', '--json']),
-  ).resolves.toEqual({ schema: 'fresh-observation' })
-  expect(waits).toEqual([1100])
-  expect(f.calls.filter((call) => call.capability === 'connector.execute')).toHaveLength(
-    2,
-  )
-  expect(f.io.pending).toBeUndefined()
-  f.execution({ outcome: 'not-started', reason: 'frequency' })
-  await expect(
-    f.io.run(['library', 'init'], { action: 'initialize-library' }),
-  ).rejects.toThrow(/did not start/)
-  expect(waits).toEqual([1100])
-  expect(f.io.pending).toBeUndefined()
-})
+it.each([undefined, 0, -1, 1.5, 1001, Infinity, NaN, '250'])(
+  'refuses a missing or invalid observation delay %s without a fallback',
+  async (retryAfterMs) => {
+    const f = fixture()
+    f.execution({
+      outcome: 'not-started',
+      reason: 'frequency',
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    })
+    f.client.delay = vi.fn(() => Promise.resolve())
+    await expect(f.io.run(['library', 'status', '--json'])).rejects.toThrow(
+      /did not start/,
+    )
+    expect(f.calls).toHaveLength(1)
+    expect(f.client.delay).not.toHaveBeenCalled()
+  },
+)
+it.each([1, 250, 1000])(
+  'defers a never-started human observation by %i ms once without replaying a mutation',
+  async (retryAfterMs) => {
+    const f = fixture(),
+      waits: number[] = []
+    f.execution({ outcome: 'not-started', reason: 'frequency', retryAfterMs })
+    f.client.delay = (milliseconds) => {
+      waits.push(milliseconds)
+      f.execution({ outcome: 'completed', code: 0, receipt: 'fresh', truncated: false })
+      f.stdout('{"schema":"fresh-observation"}')
+      return Promise.resolve()
+    }
+    await expect(
+      f.io.run(['library', 'accept', 'lib/exact', '--review-manifest', '--json']),
+    ).resolves.toEqual({ schema: 'fresh-observation' })
+    expect(waits).toEqual([retryAfterMs])
+    expect(
+      f.calls.filter((call) => call.capability === 'connector.execute'),
+    ).toHaveLength(2)
+    expect(f.io.pending).toBeUndefined()
+    f.execution({ outcome: 'not-started', reason: 'frequency', retryAfterMs })
+    await expect(
+      f.io.run(['library', 'init'], { action: 'initialize-library' }),
+    ).rejects.toThrow(/did not start/)
+    expect(waits).toEqual([retryAfterMs])
+    expect(f.io.pending).toBeUndefined()
+  },
+)
 
 it('keeps public completion interpretation and receipt capture after an admitted observation deferral', async () => {
   const f = fixture(),
     validate = vi.fn(),
     capture = vi.fn((value: unknown, receipt: string) => ({ value, receipt }))
-  f.execution({ outcome: 'not-started', reason: 'frequency' })
+  f.execution({ outcome: 'not-started', reason: 'frequency', retryAfterMs: 250 })
   f.client.delay = () => {
     f.execution({ outcome: 'completed', code: 2, receipt: 'fresh', truncated: false })
     f.stdout('{"status":"unavailable"}')
@@ -217,7 +237,7 @@ it('keeps public completion interpretation and receipt capture after an admitted
 it('does not loop on a second observation refusal or dispatch after the deferred observation loses its lifetime', async () => {
   const refused = fixture(),
     waits: number[] = []
-  refused.execution({ outcome: 'not-started', reason: 'frequency' })
+  refused.execution({ outcome: 'not-started', reason: 'frequency', retryAfterMs: 250 })
   refused.client.delay = (milliseconds) => {
     waits.push(milliseconds)
     return Promise.resolve()
@@ -225,10 +245,10 @@ it('does not loop on a second observation refusal or dispatch after the deferred
   await expect(refused.io.run(['library', 'status', '--json'])).rejects.toThrow(
     /did not start/,
   )
-  expect(waits).toEqual([1100])
+  expect(waits).toEqual([250])
   expect(refused.calls).toHaveLength(2)
   const revoked = fixture()
-  revoked.execution({ outcome: 'not-started', reason: 'frequency' })
+  revoked.execution({ outcome: 'not-started', reason: 'frequency', retryAfterMs: 250 })
   revoked.client.delay = () => {
     revoked.client.alive = false
     return Promise.resolve()
@@ -238,7 +258,7 @@ it('does not loop on a second observation refusal or dispatch after the deferred
   )
   expect(revoked.calls).toHaveLength(1)
   const hidden = fixture()
-  hidden.execution({ outcome: 'not-started', reason: 'frequency' })
+  hidden.execution({ outcome: 'not-started', reason: 'frequency', retryAfterMs: 250 })
   hidden.client.delay = () => {
     hidden.client.visible = false
     return Promise.resolve()
@@ -248,7 +268,7 @@ it('does not loop on a second observation refusal or dispatch after the deferred
 })
 it('does not retry frequency refusal; confirmed not-started permits only an explicit new attempt', async () => {
   const f = fixture()
-  f.execution({ outcome: 'not-started', reason: 'frequency' })
+  f.execution({ outcome: 'not-started', reason: 'frequency', retryAfterMs: 250 })
   await expect(
     f.io.run(['library', 'init'], { action: 'initialize-library' }),
   ).rejects.toThrow(/did not start/)
@@ -287,7 +307,7 @@ it.each([
     await expect(f.io.run(['expose'], { action: 'remove-copy' })).rejects.toThrow(
       /Reconcile/,
     )
-    f.execution({ outcome: 'not-started', reason: 'frequency' })
+    f.execution({ outcome: 'not-started', reason: 'frequency', retryAfterMs: 250 })
     await expect(f.io.run(['expose', '--list'])).rejects.toThrow(/did not start/)
     expect(f.io.pending).toBe(original)
     f.execution({ outcome: 'completed', code: 0, receipt: 'observed', truncated: false })

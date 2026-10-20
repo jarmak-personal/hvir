@@ -529,6 +529,14 @@ process returned an exit status, including nonzero: it does not claim tool-domai
 changes may already have occurred. SSH channel closure does not prove descendant termination or
 rollback. Treat `truncated: true` as an incomplete response even when an exit code is present.
 
+A `not-started` result with `reason: 'frequency'` includes integer `retryAfterMs`, from 1 through
+1000, for the remaining one-second interval measured from that identical source's previous start.
+The bounded hint is advisory, including after clock changes; it reserves no slot or authority.
+Other refusals carry no hint. A package may defer a never-started observation once while its
+visibility and lifetime remain current, then request fresh admission. Missing or malformed hints,
+a second refusal, or lost currentness end that attempt. Never apply this observation retry to a
+mutation, interrupted execution or reconnect.
+
 Retrieve output with `connector.output` using `{ receipt, stream: 'stdout', offset: 0 }` (or
 `stderr`). It returns `data`, a UTF-8 byte `nextOffset` or `null`, and the same explicit execution
 result. Continue from exactly the returned offset. Pages target at most 128 KiB raw UTF-8 and
@@ -564,7 +572,7 @@ of ordinary buffered-exec slots and remain charged through actual close. They le
 ordinary work on the primary control transport without claiming availability against
 preexisting saturation. At most four output receipts per extension, sixteen globally and
 32 MiB including reserved execution output are admitted. A shared source has a one-second minimum
-refresh interval and the source table is bounded. Output capacity is reserved before dispatch.
+start-to-start refresh interval and the source table is bounded. Output capacity is reserved before dispatch.
 Canceled transports remain charged until they settle, even after the caller receives an uncertain
 outcome. No stdin, PTY, filesystem API, persistent connector server or automatic command retry is
 exposed.

@@ -1,5 +1,6 @@
 import { connectorSetupError } from './library-first-use.mjs'
 import { readConnectorOutput } from '../../../src/shared/extensions/connector-output.mjs'
+import { CONNECTOR_LIMITS } from '../../../src/shared/extensions/connectors.ts'
 export { guestClient } from '../../../src/shared/extensions/guest-client.mjs'
 export async function runCli(client, args, context, retryFrequency = true) {
   const workspace = context?.workspace
@@ -32,7 +33,7 @@ export async function runCli(client, args, context, retryFrequency = true) {
             : result.outcome === 'not-started' &&
                 ['frequency', 'capacity'].includes(result.reason)
               ? result.reason === 'frequency'
-                ? 'Refresh deferred by the completed-execution frequency limit; freshness unavailable.'
+                ? 'Refresh deferred by the source refresh frequency limit; freshness unavailable.'
                 : 'Refresh deferred by execution capacity; freshness unavailable.'
               : `Skillager ${result.outcome}: ${result.reason ?? `exit ${result.code ?? 'unknown'}`}${error ? ` · ${error.slice(0, 300)}` : ''}`,
         ),
@@ -55,12 +56,15 @@ export async function deferReadFrequency(client, result, permitted) {
     permitted &&
     result.outcome === 'not-started' &&
     result.reason === 'frequency' &&
+    Number.isSafeInteger(result.retryAfterMs) &&
+    result.retryAfterMs >= 1 &&
+    result.retryAfterMs <= CONNECTOR_LIMITS.refreshIntervalMs &&
     typeof client.delay === 'function' &&
     client.visible === true
   ) {
-    // D5 shares only in-flight work. Reobserve after its completed-source limit;
-    // no cached freshness, implicit body access or native mutation replay.
-    await client.delay(1100)
+    // The remaining start-to-start interval reserves no admission or authority.
+    // Reobserve once; no cached freshness, implicit body access or mutation replay.
+    await client.delay(result.retryAfterMs)
     if (!client.alive) throw new Error('This operation is no longer admitted')
     if (!client.visible) throw new Error('This observation is hidden')
     return true
