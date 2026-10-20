@@ -1,4 +1,4 @@
-import { BrowserWindow, type WebContents } from 'electron'
+import { BrowserWindow, webContents, type WebContents } from 'electron'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
 import {
   EXTENSION_LIMITS,
@@ -79,6 +79,24 @@ const pause = (ms: number): Promise<void> =>
 /** Appended only to the owned smoke copy, never the shipped reference package. */
 export const EXTENSION_LIFECYCLE_PROBE_SCRIPT = `
   window.extensionInitialTicks = 0;
+  window.extensionRenderFrames = 0;
+  const frame = () => { window.extensionRenderFrames++; requestAnimationFrame(frame); };
+  requestAnimationFrame(frame);
+  window.extensionRenderClicks = 0;
+  window.extensionRenderReplies = 0;
+  const renderControl = document.createElement('button');
+  renderControl.id = 'extension-render-control';
+  renderControl.textContent = 'Render control';
+  renderControl.style.cssText = 'position:fixed;left:0;top:0;width:120px;height:36px;z-index:999';
+  renderControl.addEventListener('click', () => {
+    window.extensionRenderClicks++;
+    renderControl.textContent = 'Click ' + window.extensionRenderClicks;
+    window.hvirExtension.send({kind:'request',id:'render-' + window.extensionRenderClicks,capability:'presentation.read'});
+  });
+  window.hvirExtension.onMessage(message => {
+    if(message.kind === 'result' && message.id.startsWith('render-') && message.ok) window.extensionRenderReplies++;
+  });
+  document.body.append(renderControl);
   window.extensionLifecycleEvents = [];
   document.addEventListener('freeze', () => {
     window.extensionLifecycleEvents.push({ kind: 'freeze', at: performance.now(), ticks: window.extensionInitialTicks });
@@ -308,6 +326,334 @@ function createExtensionGuestFixture(
     else guest = contents
   })
   return { fixture, owner, guest: () => guest }
+}
+
+/** Hold only real freeze dispatch, so native show can overtake it on the same retained page. */
+export async function verifyExtensionRenderResume(
+  extensions: ExtensionApplicationRuntime,
+  scopes: RendererResourceScopes,
+  installationId: string,
+): Promise<void> {
+  const failures: string[] = []
+  for (const placement of ['top', 'viewer'] as const)
+    await verifyExtensionPlacementRenderResume(
+      extensions,
+      scopes,
+      installationId,
+      placement,
+      failures,
+    )
+  if (failures.length) throw new Error(failures.join('\n'))
+}
+
+async function verifyExtensionPlacementRenderResume(
+  extensions: ExtensionApplicationRuntime,
+  scopes: RendererResourceScopes,
+  installationId: string,
+  surface: 'top' | 'viewer',
+  failures: string[],
+): Promise<void> {
+  const { fixture, owner } = createExtensionGuestFixture(extensions, scopes)
+  const guests: WebContents[] = []
+  fixture.webContents.on('did-attach-webview', (_event, guest) => guests.push(guest))
+  let release: (() => void) | undefined
+  let releaseActive: (() => void) | undefined
+  const wait = async (
+    label: string,
+    ready: () => boolean | Promise<boolean>,
+  ): Promise<void> => {
+    const deadline = Date.now() + EXTENSION_LIMITS.requestTimeoutMs
+    while (Date.now() < deadline) {
+      if (await ready()) return
+      await pause(20)
+    }
+    throw new Error(`Native render restoration timed out: ${label}`)
+  }
+  const read = async (guest: WebContents) => {
+    const result = (await guest.debugger.sendCommand('Runtime.evaluate', {
+      expression: `({visible:Object.getOwnPropertyDescriptor(Document.prototype,'visibilityState').get.call(document),frames:window.extensionRenderFrames,ticks:window.extensionInitialTicks,clicks:window.extensionRenderClicks,replies:window.extensionRenderReplies})`,
+      returnByValue: true,
+    })) as {
+      result: {
+        value: {
+          visible: string
+          frames: number
+          ticks: number
+          clicks: number
+          replies: number
+        }
+      }
+    }
+    return result.result.value
+  }
+  try {
+    fixture.show()
+    fixture.focus()
+    await wait('native foreground', () => extensions.surface.foreground(owner))
+    const view = await extensions.guests!.open(
+      owner,
+      installationId,
+      'reference',
+      undefined,
+      {
+        context: { surface },
+      },
+    )
+    const hidden = await extensions.guests!.open(
+      owner,
+      installationId,
+      'detail',
+      undefined,
+      { select: false },
+    )
+    await fixture.loadURL(
+      `data:text/html,${encodeURIComponent(
+        [view, hidden]
+          .map(
+            (entry) =>
+              `<webview id="${entry.id}" name="${entry.id}" partition="${entry.partition}" src="${entry.url}" style="width:300px;height:300px;display:${entry === view ? 'flex' : 'none'}"></webview>`,
+          )
+          .join(''),
+      )}`,
+    )
+    await wait('captured documents loaded', () =>
+      [view, hidden].every((entry) =>
+        guests.some((guest) => guest.getURL() === entry.url && !guest.isLoading()),
+      ),
+    )
+    const guest = guests.find((entry) => entry.getURL() === view.url)!
+    const sibling = guests.find((entry) => entry.getURL() === hidden.url)!
+    const placement = (visible: boolean): void =>
+      extensions.guests!.presentation(
+        owner,
+        view.id,
+        DEFAULT_EXTENSION_PRESENTATION,
+        visible,
+        false,
+      )
+    const display = (visible: boolean) =>
+      fixture.webContents.executeJavaScript(
+        `document.getElementById(${JSON.stringify(view.id)}).style.display=${JSON.stringify(visible ? 'flex' : 'none')}`,
+      )
+    placement(true)
+    await wait('visible positive control', async () => {
+      const current = await read(guest)
+      return current.visible === 'visible' && current.frames > 2 && current.ticks > 2
+    })
+    const nativeClick = async (): Promise<void> => {
+      const before = await read(guest)
+      guest.sendInputEvent({
+        type: 'mouseDown',
+        x: 30,
+        y: 18,
+        button: 'left',
+        clickCount: 1,
+      })
+      guest.sendInputEvent({
+        type: 'mouseUp',
+        x: 30,
+        y: 18,
+        button: 'left',
+        clickCount: 1,
+      })
+      await wait(
+        'native input and public reply',
+        async () => (await read(guest)).replies > before.replies,
+      )
+    }
+    await nativeClick()
+    const siblingInitial = await read(sibling)
+    extensions.guests!.runnable(hidden.id, 'render-restoration-probe', true)
+    await wait(
+      'hidden finite work positive control',
+      async () => (await read(sibling)).ticks > siblingInitial.ticks,
+    )
+    let focus = webContents.getFocusedWebContents()?.id
+    let hold = false
+    let activeAcks = 0
+    let frozenAcks = 0
+    let holdActive = false
+    const send = guest.debugger.sendCommand.bind(guest.debugger)
+    guest.debugger.sendCommand = async (...args: Parameters<typeof send>) => {
+      const state = (args[1] as { state?: string } | undefined)?.state
+      if (hold && args[0] === 'Page.setWebLifecycleState' && state === 'frozen') {
+        hold = false
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+      }
+      const result: unknown = await send(...args)
+      if (args[0] === 'Page.setWebLifecycleState' && state === 'active') {
+        if (holdActive) {
+          holdActive = false
+          await new Promise<void>((resolve) => {
+            releaseActive = resolve
+          })
+        }
+        activeAcks++
+      }
+      if (args[0] === 'Page.setWebLifecycleState' && state === 'frozen') frozenAcks++
+      return result
+    }
+    for (const background of [false, true]) {
+      hold = true
+      release = undefined
+      placement(false)
+      await display(false)
+      await wait('real frozen dispatch held', () => !!release)
+      await display(true)
+      placement(true)
+      await wait(
+        'native show before frozen dispatch',
+        async () => (await read(guest)).visible === 'visible',
+      )
+      focus = webContents.getFocusedWebContents()?.id
+      if (background) {
+        let hiddenEvent = false
+        fixture.once('hide', () => {
+          hiddenEvent = true
+        })
+        fixture.hide() // Production owner retains viewer placement but withdraws top placement.
+        await wait('native background withdrawal', () => hiddenEvent)
+      }
+      const previousAcks = activeAcks
+      const previousFrozen = frozenAcks
+      release!()
+      if (background) {
+        await wait('background native command', () =>
+          surface === 'top' ? frozenAcks > previousFrozen : activeAcks > previousAcks,
+        )
+        const before = await read(guest)
+        await pause(350)
+        const after = await read(guest)
+        if (
+          after.visible !== 'hidden' ||
+          after.frames !== before.frames ||
+          (surface === 'top' && after.ticks !== before.ticks)
+        )
+          failures.push(
+            `Background return revived the hidden ${surface} guest: ${JSON.stringify({ before, after })}`,
+          )
+        fixture.show()
+        fixture.focus()
+        await wait('restored native foreground', () =>
+          extensions.surface.foreground(owner),
+        )
+        placement(true)
+      }
+      await wait(
+        'latest active acknowledgement',
+        () => activeAcks > previousAcks && guest.getBackgroundThrottling(),
+      )
+      if (!background && webContents.getFocusedWebContents()?.id !== focus)
+        failures.push('Native restoration moved focus')
+      await nativeClick()
+      const before = await read(guest)
+      const siblingBefore = await read(sibling)
+      await pause(350)
+      const after = await read(guest)
+      const siblingAfter = await read(sibling)
+      // Capturing a page can itself heal native visibility. Observe frames first.
+      if (
+        after.visible !== 'visible' ||
+        after.frames <= before.frames ||
+        after.ticks <= before.ticks
+      )
+        failures.push(
+          `Visible guest did not resume native rendering: ${JSON.stringify({ before, after })}`,
+        )
+      // Chromium window restore can mark display:none inner pages visible.
+      // The original adapter has the same state; finite work may run timers,
+      // but hidden siblings must never gain animation frames from this repair.
+      if (
+        (!background && siblingAfter.visible !== 'hidden') ||
+        siblingAfter.frames !== siblingBefore.frames ||
+        !sibling.getBackgroundThrottling()
+      ) {
+        await pause(350)
+        const settled = await read(sibling)
+        const evidence = {
+          surface,
+          background,
+          siblingBefore,
+          siblingAfter,
+          settled,
+          throttling: sibling.getBackgroundThrottling(),
+        }
+        console.log(
+          `[smoke] hidden sibling rendering failure ${JSON.stringify(evidence)}`,
+        )
+        failures.push(
+          `Visible restoration enabled hidden sibling drawing: ${JSON.stringify(evidence)}`,
+        )
+      }
+      console.log(
+        `[smoke] native render restoration ${JSON.stringify({ surface, background, before, after, siblingBefore, siblingAfter })}`,
+      )
+    }
+    // Native window loss must hide the page even while the active result has
+    // not reached the serialized driver; no compositor override may survive.
+    holdActive = true
+    placement(true)
+    await wait('active acknowledgement held', () => !!releaseActive)
+    if (!guest.getBackgroundThrottling())
+      throw new Error('Native active hold retained a temporary drawing override')
+    let hiddenEvent = false
+    fixture.once('hide', () => {
+      hiddenEvent = true
+    })
+    fixture.hide()
+    await wait('window withdrawal during active acknowledgement', () => hiddenEvent)
+    if (!guest.getBackgroundThrottling())
+      throw new Error('Window withdrawal retained the drawing override')
+    const heldBefore = await read(guest)
+    await pause(350)
+    const heldAfter = await read(guest)
+    console.log(
+      `[smoke] native held-active withdrawal ${JSON.stringify({ surface, heldBefore, heldAfter })}`,
+    )
+    if (heldAfter.visible !== 'hidden' || heldAfter.frames !== heldBefore.frames)
+      failures.push(
+        `Hidden ${surface} kept native-visible or drawing while the active acknowledgement was held`,
+      )
+    const previousActive = activeAcks
+    const previousFrozen = frozenAcks
+    releaseActive!()
+    await wait('background owner catches up after active acknowledgement', () =>
+      surface === 'top' ? frozenAcks > previousFrozen : activeAcks > previousActive + 1,
+    )
+    const backgroundBefore = await read(guest)
+    await pause(350)
+    const backgroundAfter = await read(guest)
+    if (
+      backgroundAfter.visible !== 'hidden' ||
+      backgroundAfter.frames !== backgroundBefore.frames ||
+      (surface === 'top' && backgroundAfter.ticks !== backgroundBefore.ticks)
+    )
+      failures.push(
+        `Pending active result restored native visibility or drawing for hidden ${surface}: ${JSON.stringify({ backgroundBefore, backgroundAfter })}`,
+      )
+    console.log(
+      `[smoke] native pending-active withdrawal ${JSON.stringify({ surface, backgroundBefore, backgroundAfter })}`,
+    )
+    await sibling.debugger.sendCommand('Runtime.evaluate', {
+      expression: 'window.extensionLifecycleEvents = []',
+    })
+    extensions.guests!.runnable(hidden.id, 'render-restoration-probe', false)
+    await waitForFreeze(sibling)
+    const frozen = await read(sibling)
+    await pause(350)
+    if ((await read(sibling)).ticks !== frozen.ticks)
+      throw new Error('Hidden admitted work survived demand withdrawal')
+  } finally {
+    release?.()
+    releaseActive?.()
+    try {
+      await scopes.revokeOwner(owner.id)
+    } finally {
+      if (!fixture.isDestroyed()) fixture.destroy()
+    }
+  }
 }
 
 export async function verifyInitiallyHiddenExtension(

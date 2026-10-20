@@ -359,9 +359,38 @@ export class ElectronExtensionGuestSurface implements ExtensionGuestSurfacePort 
           transitionStage = 'state-command'
           attemptedState = state
           try {
-            await this.sendEngineCommand(record, guest, 'Page.setWebLifecycleState', {
-              state,
-            })
+            // A late freeze can overtake native embedder show. Chromium active
+            // only unfreezes; publish visible state for a placed ordinary view.
+            const restoreDrawing =
+              state === 'active' &&
+              record.visible &&
+              record.view.role !== 'updater' &&
+              record.owner &&
+              this.windowVisible(record.owner)
+            let command: Promise<unknown>
+            try {
+              if (restoreDrawing) guest.setBackgroundThrottling(false)
+              // Pinned Electron dispatches this browser command synchronously.
+              // Its lifecycle and scheduler messages use the same ordered pipe.
+              command = this.sendEngineCommand(
+                record,
+                guest,
+                'Page.setWebLifecycleState',
+                { state },
+              )
+              // Restoration may throw before the issued command is awaited.
+              void command.catch(() => undefined)
+            } finally {
+              // Never retain the window-wide compositor override across a yield.
+              // Setting true on an already-throttled hidden widget can show it.
+              if (
+                restoreDrawing &&
+                !guest.isDestroyed() &&
+                !guest.getBackgroundThrottling()
+              )
+                guest.setBackgroundThrottling(true)
+            }
+            await command
           } catch (error) {
             nativeRefusal = 'other'
             try {

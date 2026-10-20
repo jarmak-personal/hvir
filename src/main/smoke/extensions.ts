@@ -40,6 +40,7 @@ import {
   startExtensionTimer,
   verifyHiddenExtensionLifecycle,
   verifyInitiallyHiddenExtension,
+  verifyExtensionRenderResume,
   prepareExtensionReplacementFixtures,
   verifyExtensionDocumentReplacement,
   verifyExtensionEngineStartup,
@@ -331,6 +332,8 @@ export async function verifyExtensionScenario(
   await verifyHiddenExtensionLifecycle(win, guest, detailGuest)
   await reportParentFocus('after-hidden-proof')
   await verifyInitiallyHiddenExtension(extensions, scopes, initial.installationId)
+  await verifyExtensionRenderResume(extensions, scopes, initial.installationId)
+  await focusSmokeWindow(win)
   await reportParentFocus('after-auxiliary-window')
   await verifyExtensionEngineStartup(extensions, scopes, initial.installationId, guest)
   await verifyExtensionDocumentReplacement(
