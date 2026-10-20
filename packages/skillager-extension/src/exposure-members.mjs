@@ -1,6 +1,7 @@
 /* global AbortController */
 import { libraryPage, searchPage, searchArgs } from './catalog.mjs'
 import { exposureRequest } from './exposure-contract.mjs'
+import { isStaleCatalogCursor } from './catalog-cli.mjs'
 import { isCanonicalSkillId } from './public-metadata.mjs'
 
 /** Temporary membership picker: one public page plus exact retained selections. */
@@ -139,7 +140,13 @@ export function bindExposureMembers(document, client, ports) {
       for (const row of page.rows) if (selected.has(row.id)) selected.set(row.id, row)
       summary()
     } catch (error) {
-      if (active && ports.available() && revision === generation) ports.say(error.message)
+      if (active && ports.available() && revision === generation) {
+        if (nextCursor && isStaleCatalogCursor(error)) {
+          // One metadata-only restart; first-page failures cannot recurse.
+          ports.say('Skills changed; showing first page.')
+          await load(nextQuery, undefined, [])
+        } else ports.say(error.message)
+      }
     } finally {
       if (revision === generation) {
         loading = false

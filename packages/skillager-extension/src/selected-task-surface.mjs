@@ -64,9 +64,9 @@ export function bindSelectedTaskSurface(document, client, ports) {
       task.contextChanged()
       exposure.contextChanged()
     },
-    visibilityChanged() {
-      task.visibilityChanged()
-      exposure.visibilityChanged()
+    visibilityChanged(options) {
+      task.visibilityChanged(options)
+      if (!options?.completed) exposure.visibilityChanged()
     },
     dispose() {
       exposure.dispose()
