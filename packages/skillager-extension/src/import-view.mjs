@@ -252,15 +252,22 @@ export function bindSelectedImport(document, client, ports) {
           submitted = true
           say('Saving…')
           controls()
-          const result = await client.request('actions.invoke', {
-            action: mode ? 'save-and-use-copy' : 'save-and-accept',
-            input: {
-              ...chosen.input,
-              hash: chosen.manifest.source_hash,
-              token:
-                chosen.value?.confirmation_token ?? chosen.manifest.confirmation_token,
-            },
-          })
+          const result = await client
+            .request('actions.invoke', {
+              action: mode ? 'save-and-use-copy' : 'save-and-accept',
+              input: {
+                ...chosen.input,
+                hash: chosen.manifest.source_hash,
+                token:
+                  chosen.value?.confirmation_token ?? chosen.manifest.confirmation_token,
+              },
+            })
+            .catch((error) => {
+              // Definite message-only refusals use the public action error boundary.
+              // Notify the origin to reobserve without inventing completion facts.
+              if (available(revision)) ports.changed?.()
+              throw error
+            })
           if (!available(revision)) return
           el('result').textContent = JSON.stringify(result, null, 2)
           if (['verified', 'saved-not-replaced'].includes(result.outcome)) {
@@ -270,8 +277,6 @@ export function bindSelectedImport(document, client, ports) {
           prepared = undefined
           say(result.message ?? 'Inspect the exact operation result before continuing.')
           ports.changed?.(result)
-          if (['verified', 'saved-not-replaced'].includes(result.outcome))
-            ports.saved?.(result)
         } finally {
           submitted = false
           if (available(revision)) {
@@ -353,13 +358,6 @@ export function bindSelectedImport(document, client, ports) {
           ''
       if (row && available() && options.prepare !== false) void refresh()
       else controls()
-    },
-    start(next) {
-      if (!['native', 'stub'].includes(next) || !row || submitted) return
-      mode = next
-      message = ''
-      invalidate()
-      void refresh()
     },
     contextChanged() {
       preservation = undefined

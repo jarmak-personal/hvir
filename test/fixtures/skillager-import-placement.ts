@@ -45,7 +45,9 @@ export function importPlacementFixture() {
     code = 0,
     lost = false,
     old = false,
-    revoked = false
+    revoked = false,
+    recovery: 'absent' | 'pending' | undefined,
+    failure: { code: number; output: string; stderr: string } | undefined
   const client = {
     alive: true,
     request(capability: string, request: Value): Promise<unknown> {
@@ -54,30 +56,79 @@ export function importPlacementFixture() {
       const args = request['args'] as string[],
         mutation = args.includes('--yes')
       if (mutation && revoked) client.alive = false
+      const observing = args.includes('--observe-native'),
+        absentStatus =
+          recovery === 'absent' &&
+          args[0] === 'library' &&
+          args[1] === 'status' &&
+          args.length === 4
+      let reply: unknown
+      if (recovery && !mutation) {
+        if (args[0] === 'expose')
+          reply = observing
+            ? {
+                schema: 'skillager.native-preservation.v1',
+                status: 'unavailable',
+                project: workspace.root.path,
+                agent: input.agent,
+                scope: 'project',
+                library_id: (preview['library_identity'] as Value)['library_id'],
+                origin: preview['original'],
+                candidates: [],
+                reason_code: 'origin-unpreserved',
+              }
+            : { schema: 'skillager.exposures.v1', exposures: [] }
+        else if (args[0] === 'import' && !args.includes('--project-mode')) {
+          const standalone = structuredClone(preview.import)
+          standalone.review_manifest.confirmation_token = input.token
+          standalone['next_command_argv'] = (
+            preview['next_command_argv'] as string[]
+          ).filter(
+            (arg, index, list) =>
+              !['--project-mode', '--agent'].includes(arg) &&
+              !['--project-mode', '--agent'].includes(list[index - 1]!),
+          )
+          reply = standalone
+        }
+      }
       return Promise.resolve(
         native.complete(
           {
             outcome: 'completed',
             receipt: `compound-${++serial}`,
             truncated: false,
-            code: mutation ? code : old ? 2 : 0,
+            code:
+              failure?.code ??
+              (absentStatus || (recovery && observing)
+                ? 2
+                : mutation
+                  ? code
+                  : old
+                    ? 2
+                    : 0),
           },
-          old
-            ? ''
-            : mutation && lost
-              ? 'missing'
-              : JSON.stringify(
-                  args[0] === 'import'
-                    ? mutation
-                      ? applied
-                      : preview
-                    : args[0] === 'expose'
-                      ? args.includes('--remove')
-                        ? removal
-                        : exposures
-                      : status,
-                ),
-          old ? 'unrecognized arguments: --project-mode stub --agent codex' : '',
+          failure
+            ? failure.output
+            : absentStatus
+              ? '{}'
+              : old
+                ? ''
+                : mutation && lost
+                  ? 'missing'
+                  : JSON.stringify(
+                      reply ??
+                        (args[0] === 'import'
+                          ? mutation
+                            ? applied
+                            : preview
+                          : args[0] === 'expose'
+                            ? args.includes('--remove')
+                              ? removal
+                              : exposures
+                            : status),
+                    ),
+          failure?.stderr ??
+            (old ? 'unrecognized arguments: --project-mode stub --agent codex' : ''),
         ),
       )
     },
@@ -106,6 +157,34 @@ export function importPlacementFixture() {
     client,
     calls,
     invoke,
+    existing() {
+      for (const value of [preview, applied]) {
+        const importing = value['import'] as ImportPreview,
+          identity = value['library_identity'] as Value
+        importing.review_manifest.library.status = 'ready'
+        importing.review_manifest.library.library_id = (status['library'] as Value)[
+          'library_id'
+        ] as string
+        ;(importing['library'] as Value)['status'] = 'ready'
+        identity['status'] = 'existing'
+      }
+      delete applied['initialization']
+    },
+    recover(state: 'absent' | 'pending') {
+      recovery = state
+      if (state === 'pending') {
+        const skill = status['skill'] as Value
+        skill['acceptance'] = 'pending'
+        skill['accepted_hash'] = null
+      }
+    },
+    resume() {
+      recovery = undefined
+      lost = false
+    },
+    nativeFailure(value: { code: number; output: string; stderr: string }) {
+      failure = value
+    },
     fail: (next = 2) => {
       code = next
     },

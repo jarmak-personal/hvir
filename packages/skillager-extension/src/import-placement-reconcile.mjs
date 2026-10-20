@@ -60,6 +60,41 @@ export async function placementReconciliation(io, operation, registration, works
   }
   const row = { path: operation.file.path },
     observation = await observeNative(io, row, workspace, operation.agent, library)
+  if (saved.state === 'destination-absent' || saved.acceptance === 'pending') {
+    const origin = observation.origin,
+      expected = operation.plan.original
+    if (
+      observation.project !== workspace.root.path ||
+      observation.agent !== operation.agent ||
+      observation.scope !== 'project' ||
+      observation.library_id !== library.id ||
+      origin?.origin_id !== expected.origin_id ||
+      origin.entrypoint !== operation.file.path ||
+      origin.path !== root ||
+      origin.skill_id !== operation.source.id ||
+      origin.native?.agent !== operation.agent ||
+      origin.native?.scope !== 'project' ||
+      origin.native?.project_root !== workspace.root.path
+    )
+      throw new Error(
+        'Current original identity is unresolved or changed. Inspect this project before acknowledgment.',
+      )
+    return {
+      ...saved,
+      partialFiles: 'unknown',
+      project: {
+        state: 'original-present',
+        target: operation.source.root,
+        originId: origin.origin_id,
+        content: 'not-asserted',
+        publicFacts: await syncReviewHash(observation),
+      },
+      safeNext:
+        saved.acceptance === 'pending'
+          ? 'The project original is present and the saved library version is pending. Inspect or accept that library version before a fresh replacement review; nothing was replayed.'
+          : 'The project original is present and the library destination is currently absent. Partial files and original completion remain unknown. A new explicit task requires fresh review; nothing was replayed.',
+    }
+  }
   const chosen = observation.candidates.find(
     (item) =>
       item.status === 'available' && item.source.skill_id === `lib/${operation.name}`,

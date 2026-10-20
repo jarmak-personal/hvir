@@ -84,12 +84,27 @@ export function managementCli(
         }
         if (operation) retainOutput({ code: result.code, stdout: output, stderr: error })
         current()
+        const diagnostic =
+          error.length > 600 ? `${error.slice(0, 300)}…${error.slice(-300)}` : error
+        const summary = error.length > 180 ? `…${error.slice(-179)}` : error
         if (!validateCompletion && result.code !== 0)
           throw new Error(
-            `Skillager exit ${result.code ?? 'unknown'}${error ? `: ${error.slice(0, 300)}` : ''}. ${operation ? 'Submitted effects require reconciliation.' : 'No mutation was requested.'}`,
+            `Skillager exit ${result.code ?? 'unknown'}${summary ? `: ${summary}` : ''}. ${operation ? 'Submitted effects require reconciliation.' : 'No mutation was requested.'}`,
           )
-        const value = boundedManagementJson(JSON.parse(output))
-        if (validateCompletion) validateCompletion(value, result.code)
+        let value
+        try {
+          value = boundedManagementJson(JSON.parse(output))
+        } catch (cause) {
+          if (!(cause instanceof SyntaxError)) throw cause
+          const failure = new Error(
+            `Skillager exit ${result.code ?? 'unknown'} returned invalid JSON${summary ? `: ${summary}` : '.'}`,
+            { cause },
+          )
+          failure.nativeExit = result.code
+          failure.nativeStderr = diagnostic
+          throw failure
+        }
+        if (validateCompletion) validateCompletion(value, result.code, summary)
         return captureOutput ? await captureOutput(value, result.receipt) : value
       } finally {
         if (result?.receipt)

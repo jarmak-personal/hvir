@@ -35,6 +35,7 @@ function fixture(preview?: ImportPreview, combined = false) {
     release: (() => void) | undefined,
     failure = false,
     uncertain = false,
+    actionError = false,
     heldAction = false,
     releaseAction: (() => void) | undefined
   const controller = new AbortController()
@@ -66,6 +67,8 @@ function fixture(preview?: ImportPreview, combined = false) {
         return Promise.resolve(output)
       }
       if (capability === 'actions.invoke') {
+        if (actionError && input['action'] !== 'operation-state')
+          return Promise.reject(new Error('This original changed. Review again.'))
         const response =
           input['action'] === 'operation-state'
             ? { ids: [] }
@@ -126,12 +129,10 @@ function fixture(preview?: ImportPreview, combined = false) {
       dispose(): void
     }
   }
-  const changed = vi.fn(),
-    saved = vi.fn()
+  const changed = vi.fn()
   const view = module.bindSelectedImport(document, client, {
     context: () => ({ visible, workspace: f.workspace }),
     changed,
-    saved,
   })
   stop = () => {
     view.dispose()
@@ -153,7 +154,6 @@ function fixture(preview?: ImportPreview, combined = false) {
     calls,
     view,
     changed,
-    saved,
     holdAction: () => {
       heldAction = true
     },
@@ -171,6 +171,9 @@ function fixture(preview?: ImportPreview, combined = false) {
     },
     uncertain: () => {
       uncertain = true
+    },
+    refuseAction: () => {
+      actionError = true
     },
     preservation: {
       file: f.input.file,
@@ -459,9 +462,25 @@ it('shows immediate progress and reports uncertain completion to the origin with
       expect.objectContaining({ outcome: 'uncertain' }),
     ),
   )
-  expect(f.saved).not.toHaveBeenCalled()
   expect(button('import-reconcile').hidden).toBe(false)
   expect(document.getElementById('selected-import')!.getAttribute('aria-busy')).toBe(
     'false',
   )
+})
+
+it('notifies the current origin after a public action error without fabricating a result', async () => {
+  const f = fixture(undefined, true)
+  await ready()
+  f.refuseAction()
+  button('import-save').click()
+  await vi.waitFor(() => expect(f.changed).toHaveBeenCalledExactlyOnceWith())
+  expect(document.getElementById('import-state')!.textContent).toContain(
+    'This original changed. Review again.',
+  )
+  expect(document.getElementById('import-result')!.textContent).toBe('')
+  expect(document.getElementById('selected-import')!.getAttribute('aria-busy')).toBe(
+    'false',
+  )
+  expect(button('import-save').disabled).toBe(true)
+  expect(button('import-reconcile').hidden).toBe(true)
 })

@@ -173,6 +173,7 @@ export async function verifySkillagerManagement(
           qualification:
             'Owned installed-CLI isolated-guest Save and use partition; no full management or signed-package claim.',
           ...proof,
+          commandProof,
         },
         null,
         2,
@@ -589,13 +590,16 @@ ${'Follow the existing product boundaries and inspect neighboring consumers befo
           item.role !== 'updater',
       )
   }
-  async function cli(args: readonly string[]): Promise<Record<string, unknown>> {
+  async function cli(
+    args: readonly string[],
+    expectedExit = 0,
+  ): Promise<Record<string, unknown>> {
     const result = await host.exec(executable!, args, {
       cwd: workspace.root,
       env: environment,
       maxBuffer: 256 * 1024,
     })
-    if (result.code !== 0)
+    if (result.code !== expectedExit)
       throw new Error(
         `Owned fixture public CLI command failed: ${args.slice(0, 2).join(' ')} (exit ${result.code})`,
       )

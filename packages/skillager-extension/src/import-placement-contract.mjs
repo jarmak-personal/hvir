@@ -149,18 +149,36 @@ export function exactImportPlacement(value, input, workspace) {
 export async function prepareImportPlacement(io, input, workspace) {
   let value
   try {
-    value = await io.run(importPlacementArgs(input), undefined, true, (reply, code) => {
-      if (
-        ![0, 2].includes(code) ||
-        reply?.schema !== schema ||
-        (code === 2 && reply.status !== 'refused')
-      )
-        throw new Error(placementUpdate)
-    })
+    value = await io.run(
+      importPlacementArgs(input),
+      undefined,
+      true,
+      (reply, code, stderr) => {
+        if (
+          typeof reply?.schema === 'string' &&
+          reply.schema.startsWith('skillager.import-placement.') &&
+          reply.schema !== schema
+        )
+          throw new Error(placementUpdate)
+        if (![0, 2].includes(code) || reply?.schema !== schema) {
+          const cause =
+            typeof reply?.error?.message === 'string'
+              ? reply.error.message.slice(0, 300)
+              : stderr
+          throw new Error(
+            `Skillager could not prepare this skill (exit ${code ?? 'unknown'})${cause ? `: ${cause}` : '.'}`,
+          )
+        }
+        if (code === 2 && reply.status !== 'refused')
+          throw new Error(
+            'Skillager returned an incomplete preparation result. Refresh this skill before continuing.',
+          )
+      },
+    )
   } catch (error) {
     if (
-      error instanceof SyntaxError ||
-      /unrecognized arguments.*--project-mode/u.test(error.message)
+      error.nativeExit === 2 &&
+      /unrecognized arguments:[^\n]*--project-mode\b/u.test(error.nativeStderr ?? '')
     )
       throw new Error(placementUpdate, { cause: error })
     throw error

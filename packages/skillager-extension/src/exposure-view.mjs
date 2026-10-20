@@ -683,9 +683,6 @@ export function bindExposureView(document, client, ports) {
         .catch((error) => say(error.message)),
   )
   return {
-    start(mode) {
-      return start('adopt-native', mode)
-    },
     async select(input, options = {}) {
       routerEvents?.abort()
       choiceEvents?.abort()
