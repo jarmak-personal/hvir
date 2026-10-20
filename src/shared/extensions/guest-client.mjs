@@ -31,7 +31,9 @@ export function guestClient(bridge, clock = globalThis) {
             !request.actionId &&
             !(
               request.submitted &&
-              ['actions.invoke', 'connector.connect'].includes(request.capability)
+              ['actions.invoke', 'connector.connect', 'source.request-trash'].includes(
+                request.capability,
+              )
             ),
         )
     }

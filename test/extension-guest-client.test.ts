@@ -206,35 +206,110 @@ it('hiding an ordinary view cancels its paced read without recycling or cancelin
   }
 })
 
-it('retains a submitted human invocation through D4 view selection but refuses hidden or not-yet-submitted work', async () => {
+it.each(['actions.invoke', 'connector.connect', 'source.request-trash'])(
+  'retains submitted %s through view selection but refuses hidden or not-yet-submitted work',
+  async (capability) => {
+    vi.useFakeTimers()
+    const f = fixture()
+    try {
+      f.receive({ kind: 'context', context: { visible: true } })
+      const invocation = f.client.request(capability)
+      await vi.advanceTimersByTimeAsync(0)
+      const submitted = f.sent[0]!
+      const queued = f.client.request(capability)
+      const queuedRejection = expect(queued).rejects.toThrow(/hidden/)
+      f.receive({ kind: 'context', context: { visible: false } })
+      await queuedRejection
+      await expect(f.client.request(capability)).rejects.toThrow(/hidden/)
+      await expect(f.client.request('source.read')).rejects.toThrow(/hidden/)
+      expect(f.sent).not.toContainEqual({ kind: 'cancel', id: submitted.id })
+      f.receive({
+        kind: 'result',
+        id: submitted.id,
+        ok: true,
+        value: { outcome: 'verified' },
+      })
+      await expect(invocation).resolves.toMatchObject({ outcome: 'verified' })
+      expect(f.sent.filter((message) => message.kind === 'request')).toHaveLength(1)
+    } finally {
+      f.client.dispose()
+    }
+  },
+)
+
+it('delivers a submitted Trash decision once through hide/show without resubmission', async () => {
   vi.useFakeTimers()
   const f = fixture()
   try {
     f.receive({ kind: 'context', context: { visible: true } })
-    const invocation = f.client.request('actions.invoke', {
-      action: 'initialize-library',
-    })
+    const completed = vi.fn()
+    const request = f.client.request('source.request-trash').then(completed)
     await vi.advanceTimersByTimeAsync(0)
     const submitted = f.sent[0]!
-    const queued = f.client.request('actions.invoke', { action: 'add-copy' })
-    const queuedRejection = expect(queued).rejects.toThrow(/hidden/)
-    f.receive({ kind: 'context', context: { visible: false } })
-    await queuedRejection
-    await expect(f.client.request('actions.invoke')).rejects.toThrow(/hidden/)
-    await expect(f.client.request('source.read')).rejects.toThrow(/hidden/)
-    expect(f.sent).not.toContainEqual({ kind: 'cancel', id: submitted.id })
+    for (let index = 0; index < 2; index++) {
+      f.receive({ kind: 'context', context: { visible: false } })
+      await vi.advanceTimersByTimeAsync(1050)
+      expect(completed).not.toHaveBeenCalled()
+      f.receive({ kind: 'context', context: { visible: true } })
+    }
+    expect(f.sent).toEqual([submitted])
     f.receive({
       kind: 'result',
       id: submitted.id,
       ok: true,
-      value: { outcome: 'verified' },
+      value: { outcome: 'cancelled' },
     })
-    await expect(invocation).resolves.toMatchObject({ outcome: 'verified' })
-    expect(f.sent.filter((message) => message.kind === 'request')).toHaveLength(1)
+    await request
+    f.receive({
+      kind: 'result',
+      id: submitted.id,
+      ok: true,
+      value: { outcome: 'completed' },
+    })
+    expect(completed).toHaveBeenCalledExactlyOnceWith({ outcome: 'cancelled' })
+    expect(vi.getTimerCount()).toBe(0)
   } finally {
     f.client.dispose()
   }
 })
+
+it.each(['dispose', 'revoked'] as const)(
+  '%s ends a hidden submitted Trash request and ignores its late result',
+  async (ending) => {
+    vi.useFakeTimers()
+    const f = fixture()
+    try {
+      f.receive({ kind: 'context', context: { visible: true } })
+      const fulfilled = vi.fn()
+      const request = f.client.request('source.request-trash').then(fulfilled)
+      const rejected = expect(request).rejects.toThrow(/closed/)
+      await vi.advanceTimersByTimeAsync(0)
+      const submitted = f.sent[0]!
+      f.receive({ kind: 'context', context: { visible: false } })
+      if (ending === 'dispose') f.client.dispose()
+      else f.receive({ kind: 'revoked' })
+      await rejected
+      expect(f.sent.filter((message) => message.kind === 'cancel')).toEqual(
+        ending === 'dispose' ? [{ kind: 'cancel', id: submitted.id }] : [],
+      )
+      f.receive({
+        kind: 'result',
+        id: submitted.id,
+        ok: true,
+        value: { outcome: 'completed' },
+      })
+      f.receive({ kind: 'context', context: { visible: true } })
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(fulfilled).not.toHaveBeenCalled()
+      expect(f.client.alive).toBe(false)
+      expect(f.client.signal.aborted).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+      await expect(f.client.request('source.request-trash')).rejects.toThrow(/closed/)
+    } finally {
+      f.client.dispose()
+    }
+  },
+)
 
 it('revocation cancels the submitted outer invocation even after its caller is hidden', async () => {
   vi.useFakeTimers()
