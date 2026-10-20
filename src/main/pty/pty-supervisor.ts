@@ -18,6 +18,7 @@ import {
 } from '../project-host/project-host'
 import { harnessProviderCapabilities } from '../harness/harness-provider-capabilities'
 import { harnessShellCommandArgs } from '../harness/harness-shell-environment'
+import { AGENT_TERMINAL_ENVIRONMENT } from '../harness/protected-terminal-environment'
 import {
   PtyStartUnavailableError,
   type PtySpawnRequest,
@@ -212,11 +213,7 @@ export class PtySupervisor {
         },
         unsetEnv: [
           ...(req.unsetEnvironment ?? []),
-          'HVIR_AGENT_ENDPOINT',
-          'HVIR_AGENT_WORKSPACE',
-          'HVIR_AGENT_SESSION',
-          'HVIR_AGENT_CLIENT',
-          'HVIR_AGENT_UNAVAILABLE',
+          ...AGENT_TERMINAL_ENVIRONMENT,
         ],
         pathPrefix: agent?.pathPrefix,
         cols: req.cols,
