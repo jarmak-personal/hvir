@@ -1,3 +1,4 @@
+import { mountSkillTasks } from './skill-task-template.mjs'
 import { bindSelectedImport } from './import-view.mjs'
 import { managementCli } from './management-cli.mjs'
 import { registeredLibrary, acceptedSource, sameLibrary } from './management-contract.mjs'
@@ -11,6 +12,7 @@ import { prepareDelivery, applyPreparedDelivery } from './delivery-operation.mjs
 
 /** Selected-skill task composition. Public CLI owners retain all mutation policy. */
 export function bindSelectedSkill(document, client, ports) {
+  mountSkillTasks(document)
   const el = (id) => document.getElementById(id)
   let selection,
     library,
@@ -26,12 +28,18 @@ export function bindSelectedSkill(document, client, ports) {
     refreshQueued = false,
     serial = 0,
     importSelected = false,
-    disposed = false
+    disposed = false,
+    requestedTask,
+    importBusy = false
   const context = ports.context
   const importing = bindSelectedImport(document, client, {
     context,
     useLibrary: () => chooseImport(false),
     changed: ports.changed,
+    activity: (value) => {
+      importBusy = value
+      ports.activity?.(activeAction || importBusy)
+    },
   })
   const skillId = () =>
     selection?.row.canonical?.skill_id ??
@@ -76,6 +84,7 @@ export function bindSelectedSkill(document, client, ports) {
     installed.sourceHash === source?.hash
   function controls() {
     if (disposed) return
+    ports.activity?.(activeAction || importBusy)
     const local = localWorkspace(context().workspace),
       workspace = context().workspace,
       working = busy || activeAction
@@ -152,8 +161,9 @@ export function bindSelectedSkill(document, client, ports) {
     invalidate()
     el('selected-task').hidden = selected || !skillId()
     el('task-options').open = false
-    importing.select(selected ? selection : undefined, options)
+    const preparation = importing.select(selected ? selection : undefined, options)
     if (!selected && skillId()) void refresh()
+    return preparation
   }
   function invalidate() {
     serial++
@@ -439,7 +449,7 @@ export function bindSelectedSkill(document, client, ports) {
                       : ''
                   : '')),
         )
-        if (!source && !pending.length) await review.start()
+        if (!source && !pending.length && requestedTask !== 'remove') await review.start()
       }
     })
   }
@@ -459,13 +469,15 @@ export function bindSelectedSkill(document, client, ports) {
     }
   }
   async function invoke(action, input) {
-    const revision = serial
+    const revision = serial,
+      origin = context().workspace
     let result
     activeAction = true
     controls()
     try {
       result = await client.request('actions.invoke', { action, input })
     } catch (error) {
+      ports.changed?.(undefined, origin)
       if (current(revision) && library) {
         try {
           const observed = await selectedPendingOperations(
@@ -494,6 +506,7 @@ export function bindSelectedSkill(document, client, ports) {
         void refresh()
       }
     }
+    ports.changed?.(result, origin)
     if (!current(revision)) return result
     if (result?.outcome === 'uncertain') {
       if (busy) refreshQueued = true
@@ -637,15 +650,27 @@ export function bindSelectedSkill(document, client, ports) {
         prepared = undefined
         el('task-confirmation').hidden = true
         if (task.delivery) {
-          const result = await applyPreparedDelivery(
-            scopedClient(revision),
-            task.delivery,
-          )
-          if (current(revision)) {
-            el('task-result').textContent = JSON.stringify(result, null, 2)
-            say(result.message)
-            el('task-export').value = ''
-            refreshQueued = true
+          const origin = context().workspace
+          activeAction = true
+          controls()
+          try {
+            const result = await applyPreparedDelivery(
+              scopedClient(revision),
+              task.delivery,
+            )
+            ports.changed?.(result, origin)
+            if (current(revision)) {
+              el('task-result').textContent = JSON.stringify(result, null, 2)
+              say(result.message)
+              el('task-export').value = ''
+              refreshQueued = true
+            }
+          } catch (error) {
+            ports.changed?.(undefined, origin)
+            throw error
+          } finally {
+            activeAction = false
+            controls()
           }
           return
         }
@@ -782,20 +807,44 @@ export function bindSelectedSkill(document, client, ports) {
   return {
     preserved: (value) => importing.preserved(value),
     saveAndUse(mode) {
-      chooseImport(true, { mode })
+      return chooseImport(true, { mode })
     },
-    select(input, options = {}) {
+    async select(input, options = {}) {
       invalidate()
       el('task-result').textContent = ''
       el('task-operation-details').open = false
       selection = input
-      importSelected = selection?.row.kind === 'Project original' && !skillId()
-      importing.select(importSelected ? input : undefined, { prepare: options.prepare })
+      requestedTask = options.task
+      const revision = serial
+      importSelected =
+        selection?.row.kind === 'Project original' &&
+        (!skillId() || options.task === 'save')
+      const preparation = importing.select(importSelected ? input : undefined, {
+        prepare: options.prepare,
+      })
       if (!exposure()) el('task-mode').value = 'native'
       library = source = installed = undefined
       pending = []
       el('selected-task').hidden = importSelected || !skillId()
-      if (!importSelected && skillId()) void refresh()
+      if (importSelected) await preparation
+      if (!importSelected && skillId()) {
+        await refresh()
+        if (
+          !current(revision) ||
+          selection !== input ||
+          !ready ||
+          !projectReady ||
+          pending.length
+        )
+          return
+        if (options.task === 'remove' && installed)
+          await guarded((active) => prepare(true, active))
+        else if (['native', 'stub'].includes(options.task)) {
+          if (installed && source && installed.mode !== options.task)
+            await guarded((active) => prepare(false, active, options.task))
+          else if (!installed) el('task-mode').value = options.task
+        }
+      }
     },
     contextChanged() {
       importing.contextChanged()

@@ -129,10 +129,12 @@ function fixture(preview?: ImportPreview, combined = false) {
       dispose(): void
     }
   }
-  const changed = vi.fn()
+  const changed = vi.fn(),
+    activity = vi.fn()
   const view = module.bindSelectedImport(document, client, {
     context: () => ({ visible, workspace: f.workspace }),
     changed,
+    activity,
   })
   stop = () => {
     view.dispose()
@@ -154,6 +156,7 @@ function fixture(preview?: ImportPreview, combined = false) {
     calls,
     view,
     changed,
+    activity,
     holdAction: () => {
       heldAction = true
     },
@@ -460,6 +463,7 @@ it('shows immediate progress and reports uncertain completion to the origin with
   await vi.waitFor(() =>
     expect(f.changed).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: 'uncertain' }),
+      expect.objectContaining({ id: 'compound-project', host: 'local' }),
     ),
   )
   expect(button('import-reconcile').hidden).toBe(false)
@@ -473,7 +477,12 @@ it('notifies the current origin after a public action error without fabricating 
   await ready()
   f.refuseAction()
   button('import-save').click()
-  await vi.waitFor(() => expect(f.changed).toHaveBeenCalledExactlyOnceWith())
+  await vi.waitFor(() =>
+    expect(f.changed).toHaveBeenCalledExactlyOnceWith(
+      undefined,
+      expect.objectContaining({ id: 'compound-project', host: 'local' }),
+    ),
+  )
   expect(document.getElementById('import-state')!.textContent).toContain(
     'This original changed. Review again.',
   )
@@ -483,4 +492,23 @@ it('notifies the current origin after a public action error without fabricating 
   )
   expect(button('import-save').disabled).toBe(true)
   expect(button('import-reconcile').hidden).toBe(true)
+})
+
+it('notifies the captured origin after hiding a submitted import without reviving its result', async () => {
+  const f = fixture(undefined, true)
+  await ready()
+  f.holdAction()
+  button('import-save').click()
+  expect(f.activity).toHaveBeenLastCalledWith(true)
+  f.hide()
+  f.releaseAction()
+  await vi.waitFor(() =>
+    expect(f.changed).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'verified' }),
+      f.workspace,
+    ),
+  )
+  expect(f.activity).toHaveBeenLastCalledWith(false)
+  expect(document.getElementById('import-result')!.textContent).toBe('')
+  expect(button('import-save').disabled).toBe(true)
 })

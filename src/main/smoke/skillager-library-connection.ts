@@ -105,7 +105,7 @@ export async function verifySkillagerLibraryConnection(
     await controls.wait(
       async () =>
         (await inspect(
-          "globalThis.__hvirLibraryStage.target && document.getElementById('state')?.dataset.state==='ready' && !!document.querySelector('#skills [role=option]')",
+          "globalThis.__hvirLibraryStage.target && document.getElementById('state')?.dataset.state==='ready' && !!document.querySelector('#skills [data-skill-select]')",
         )) === true,
       'Library metadata ready for selected Connect',
     )
@@ -113,7 +113,7 @@ export async function verifySkillagerLibraryConnection(
       '[smoke] Library metadata after trusted target',
       JSON.stringify(
         await inspect(
-          "({stage:globalThis.__hvirLibraryStage,state:document.getElementById('state')?.dataset.state,rows:Math.min(100,document.querySelectorAll('#skills [role=option]').length)})",
+          "({stage:globalThis.__hvirLibraryStage,state:document.getElementById('state')?.dataset.state,rows:Math.min(100,document.querySelectorAll('#skills [data-skill-select]').length)})",
         ),
       ),
     )
@@ -130,7 +130,7 @@ export async function verifySkillagerLibraryConnection(
         facts.programReady=value.readiness?.program===true;facts.sourceReady=value.readiness?.source===true;
       });
     })()`)
-    await pointer('#skills [role=option]')
+    await pointer('#skills [data-skill-select]')
     await controls.wait(
       () => runtime.sourceRequests!.snapshot(owner)[0]?.state === 'ready',
       'separate selected library-root read decision',
@@ -202,7 +202,7 @@ export async function verifySkillagerLibraryConnection(
         programSelections,
         nativeFocus: win.isFocused(),
         guest: await inspect(
-          `(() => {const button=document.getElementById('task-connect'), state=document.getElementById('task-state');return {stage:globalThis.__hvirLibraryStage,listState:document.getElementById('state')?.dataset.state,rows:Math.min(100,document.querySelectorAll('#skills [role=option]').length),replies:globalThis.__hvirLibraryConnect,focused:document.hasFocus(),connectFocused:document.activeElement===button,connectVisible:!!button?.checkVisibility(),connectDisabled:button?.disabled,connecting:state?.textContent.includes('Connecting'),notCompleted:state?.textContent.includes('not completed'),readNotConfirmed:state?.textContent.includes('read access was not confirmed')}})()`,
+          `(() => {const button=document.getElementById('task-connect'), state=document.getElementById('task-state');return {stage:globalThis.__hvirLibraryStage,listState:document.getElementById('state')?.dataset.state,rows:Math.min(100,document.querySelectorAll('#skills [data-skill-select]').length),replies:globalThis.__hvirLibraryConnect,focused:document.hasFocus(),connectFocused:document.activeElement===button,connectVisible:!!button?.checkVisibility(),connectDisabled:button?.disabled,connecting:state?.textContent.includes('Connecting'),notCompleted:state?.textContent.includes('not completed'),readNotConfirmed:state?.textContent.includes('read access was not confirmed')}})()`,
         ).catch(() => ({ unavailable: true })),
         modal: await trusted(
           `(() => {const modal=document.querySelector('[aria-labelledby="connection-confirmation-title"]');return {present:!!modal,visible:!!modal?.checkVisibility(),focused:!!modal?.contains(document.activeElement),safe:document.activeElement?.textContent==='Not now'}})()`,

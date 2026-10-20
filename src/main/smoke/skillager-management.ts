@@ -17,6 +17,7 @@ import { verifyOwnedAdvancedExposure } from './skillager-advanced-exposure'
 import { verifyOwnedManagedCopies } from './skillager-management-copies'
 import { verifyOwnedApprovedSync } from './skillager-management-sync'
 import { verifyOwnedSaveUse } from './skillager-save-use'
+import { verifyOwnedSkillRowActions } from './skillager-row-actions'
 import { verifyOwnedImport } from './skillager-import'
 import { verifyOwnedOriginalReveal } from './skillager-management-reveal'
 import { verifyOwnedReviewRefusals } from './skillager-management-refusals'
@@ -164,6 +165,37 @@ export async function verifySkillagerManagement(
       cli,
       controls,
     )
+  if (process.env.HVIR_SKILLAGER_MANAGEMENT_ROW_ACTIONS_ONLY === '1') {
+    const proof = await verifyOwnedSkillRowActions(
+      win,
+      projectGuest,
+      async () => {
+        await controls.wait(() => !!view('detail'), 'independent skill reader')
+        return withinExtensionInspection(controls.guest(view('detail')!))
+      },
+      host,
+      workspace.root,
+      owned,
+      cli,
+      controls,
+    )
+    await host.writeFile(
+      joinHostPath(owned, 'row-actions-proof.json'),
+      JSON.stringify(
+        {
+          qualification:
+            'Owned installed-CLI isolated-guest contextual actions; no signed-package claim.',
+          ...proof,
+          commandProof,
+        },
+        null,
+        2,
+      ),
+    )
+    console.log('[smoke] owned Skillager row actions: PASS')
+    console.log('HVIR_SMOKE_OK')
+    return true
+  }
   if (process.env.HVIR_SKILLAGER_MANAGEMENT_PLACEMENT_ONLY === '1') {
     const proof = await saveUse()
     await host.writeFile(

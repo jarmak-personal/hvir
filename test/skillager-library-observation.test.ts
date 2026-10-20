@@ -181,7 +181,7 @@ it.each(['root', 'UUID'] as const)(
     await f.flush()
     expect(state().textContent).toContain('Page 1')
     expect(
-      document.querySelector<HTMLElement>('#skills [role="option"]')?.dataset.sourcePath,
+      document.querySelector<HTMLElement>('#skills [data-skill-select]')?.dataset.sourcePath,
     ).toBe(`${identity === 'root' ? '/replacement' : '/library'}/0/SKILL.md`)
     expect(f.requests.some(({ capability }) => capability.startsWith('source.'))).toBe(
       false,

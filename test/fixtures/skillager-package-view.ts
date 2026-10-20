@@ -43,7 +43,8 @@ export function createSkillagerPackageView(view = 'library') {
     unavailableProject = false,
     currentWorkspace: { root?: { path?: string } } | undefined,
     resume: ((error?: string) => void) | undefined,
-    finishConnection: ((value: unknown, error?: string) => void) | undefined
+    finishConnection: ((value: unknown, error?: string) => void) | undefined,
+    finishTrash: ((value: unknown, error?: string) => void) | undefined
   const native = connectorOutputFixture()
   const opened: Record<string, unknown>[] = []
   const initializationRequests: Record<string, unknown>[] = []
@@ -61,6 +62,11 @@ export function createSkillagerPackageView(view = 'library') {
     requests.push({ capability: message.capability, input: message.input })
     let value: unknown
     if (message.capability === 'viewer.open-own') opened.push(message.input)
+    if (message.capability === 'source.request-trash') {
+      finishTrash = (value, error) =>
+        receive({ kind: 'result', id: message.id, ok: !error, value, error })
+      return
+    }
     if (message.capability === 'actions.invoke') {
       initializationRequests.push(message.input)
       if (initialization) {
@@ -345,6 +351,7 @@ export function createSkillagerPackageView(view = 'library') {
     },
     capabilities: (capabilities: string[]) => receive({ kind: 'hello', capabilities }),
     requests,
+    trashResult: (value: unknown, error?: string) => finishTrash?.(value, error),
     button,
     flush,
     calls,

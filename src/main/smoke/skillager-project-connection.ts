@@ -73,7 +73,7 @@ export async function verifySkillagerProjectConnection(
     '---\nname: project-connection-proof\ndescription: Unrelated package copy.\n---\n\n# Package copy\n',
   )
   const currentInventory = `(() => {
-    const rows=[...document.querySelectorAll('#skills [role=option]')];
+    const rows=[...document.querySelectorAll('#skills [data-skill-select]')];
     return rows.filter(row=>row.dataset.sourcePath===${JSON.stringify(joinHostPath(skill, 'SKILL.md').path)}).length===1 &&
       rows.every(row=>row.dataset.sourcePath!==${JSON.stringify(joinHostPath(packages, 'example', 'skills', 'package-only', 'SKILL.md').path)});
   })()`
@@ -144,7 +144,7 @@ export async function verifySkillagerProjectConnection(
       async () =>
         (await inspect(`(() => {
           const state=document.getElementById('state'), query=document.getElementById('query');
-          return state?.dataset.state==='ready' && document.querySelectorAll('#skills [role=option]').length===1 && ${currentInventory} &&
+          return state?.dataset.state==='ready' && document.querySelectorAll('#skills [data-skill-select]').length===1 && ${currentInventory} &&
             query.value==='catalogneedle' && !document.querySelector('.search-options') &&
             document.getElementById('connect-program').hidden && document.getElementById('connection-status').hidden && document.getElementById('connect-program').getAttribute('aria-busy')==='false' &&
             globalThis.__hvirProjectConnectionProof.connecting && globalThis.__hvirProjectConnectionProof.observing;
@@ -180,7 +180,7 @@ export async function verifySkillagerProjectConnection(
       '[smoke] project inventory: editable overlap, unrelated package exclusion and automatic connected document reuse OK',
     )
     await inspect(
-      `([...document.querySelectorAll('#skills [role=option]')].find(row=>row.dataset.sourcePath===${JSON.stringify(joinHostPath(skill, 'SKILL.md').path)})).click()`,
+      `([...document.querySelectorAll('#skills [data-skill-select]')].find(row=>row.dataset.sourcePath===${JSON.stringify(joinHostPath(skill, 'SKILL.md').path)})).click()`,
     )
     const reader = await controls.reader()
     const readerReady = () =>
@@ -210,7 +210,7 @@ export async function verifySkillagerProjectConnection(
     await controls.ready(
       async () =>
         (await inspect(
-          "document.getElementById('scope-library').getAttribute('aria-pressed')==='true' && document.getElementById('state').dataset.state==='ready' && document.querySelectorAll('#skills [role=option]').length>0",
+          "document.getElementById('scope-library').getAttribute('aria-pressed')==='true' && document.getElementById('state').dataset.state==='ready' && document.querySelectorAll('#skills [data-skill-select]').length>0",
         )) === true,
       'keyboard changes the project sidebar to its Library scope',
     )
@@ -222,7 +222,7 @@ export async function verifySkillagerProjectConnection(
     await controls.ready(
       async () =>
         (await inspect(
-          `document.getElementById('scope-project').getAttribute('aria-pressed')==='true' && ${currentInventory} && !!document.querySelector('#skills [aria-selected=true]')`,
+          `document.getElementById('scope-project').getAttribute('aria-pressed')==='true' && ${currentInventory} && !!document.querySelector('#skills [aria-current=true]')`,
         )) === true,
       'keyboard returns to the exact Project selection in the same list',
     )
@@ -243,7 +243,7 @@ export async function verifySkillagerProjectConnection(
         await inspect(`(() => {
         const state=document.getElementById('state'), connect=document.getElementById('connect-program');
         return {state:state?.dataset.state, connectVisible:!!connect?.checkVisibility(), connectDisabled:connect?.disabled,
-          rows:document.querySelectorAll('#skills [role=option]').length, nativeFocus:document.hasFocus(),
+          rows:document.querySelectorAll('#skills [data-skill-select]').length, nativeFocus:document.hasFocus(),
           queryRetained:document.getElementById('query')?.value==='catalogneedle', publicReplies:globalThis.__hvirProjectConnectionProof??null};
       })()`).catch(() => ({ inspectionUnavailable: true })),
       ),
@@ -338,10 +338,10 @@ export async function verifySkillagerProjectConnection(
     )
     const facts = await inspect(`(() => {
       const scope=document.querySelector('.browser-scopes [aria-pressed=true]');
-      const rows=[...document.querySelectorAll('#skills [role=option]')];
+      const rows=[...document.querySelectorAll('#skills [data-skill-select]')];
       const menu=document.querySelector('.library-options > summary');
       if(!scope?.checkVisibility()||!rows.length||!menu?.getAttribute('aria-label')||!menu.title)throw new Error('Connected browser lacks visible scope, results or discoverable options');
-      return {scope:scope.id,rows:rows.length,selected:rows.find(row=>row.getAttribute('aria-selected')==='true')?.dataset.id??null,menu:menu.title,readerId:${(await controls.reader()).id}};
+      return {scope:scope.id,rows:rows.length,selected:rows.find(row=>row.getAttribute('aria-current')==='true')?.dataset.id??null,menu:menu.title,readerId:${(await controls.reader()).id}};
     })()`)
     await host.writeFile(
       joinHostPath(localPath(directory), `${name}.png`),

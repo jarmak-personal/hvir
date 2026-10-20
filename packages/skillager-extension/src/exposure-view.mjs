@@ -1,3 +1,4 @@
+import { mountSkillTasks } from './skill-task-template.mjs'
 /* global AbortController */
 import { managementCli } from './management-cli.mjs'
 import { registeredLibrary, sameLibrary } from './management-contract.mjs'
@@ -21,8 +22,10 @@ const memberCount = (count) => `${count} ${count === 1 ? 'member' : 'members'}`
 
 /** Selected exposure tasks; CLI plans and D4 retain mutation and uncertainty authority. */
 export function bindExposureView(document, client, ports) {
+  mountSkillTasks(document)
   const el = (id) => document.getElementById(`exposure-${id}`),
-    context = ports.context
+    context = ports.context,
+    choiceHome = el('choice-row').parentNode
   let selection,
     library,
     router,
@@ -82,6 +85,7 @@ export function bindExposureView(document, client, ports) {
         item.source.skill_id === el('choice').value && item.status === 'available',
     )
   function controls() {
+    ports.activity?.(submitted)
     const busy = !!working || submitted,
       original = row()?.kind === 'Project original',
       isRouter = row()?.kind === 'Installed Router',
@@ -311,9 +315,7 @@ export function bindExposureView(document, client, ports) {
     await guard(async (revision) => {
       try {
         if (!['codex', 'claude'].includes(row().exposure?.agent ?? row().agent))
-          throw new Error(
-            'This original has no supported Codex or Claude native location. Save and accept remains available.',
-          )
+          throw new Error('Use Full or Stub in a Codex or Claude project location.')
         if (isRouter) {
           const observed = await observeExposures(io(revision), workspace(), agent())
           if (!available(revision)) return
@@ -345,10 +347,7 @@ export function bindExposureView(document, client, ports) {
         }
       } catch (error) {
         if (!available(revision)) return
-        if (original)
-          renderPreservation(
-            `${error.message} Reading and Save and accept remain available.`,
-          )
+        if (original) renderPreservation(error.message)
         else
           document.getElementById('router-state').textContent =
             `${router ? `${memberCount(router.skill_ids.length)} · ` : ''}${error.message}`
@@ -440,15 +439,22 @@ export function bindExposureView(document, client, ports) {
     if (!available() || working || submitted) return
     if (next === 'adopt-native' && !selectedChoice()) {
       if (preservation?.candidates.some((item) => item.status === 'available')) {
-        say('Choose the saved library version to use.')
+        adoptionMode = mode ?? 'native'
+        action = next
+        ports.expanded(true)
+        taskReady = false
+        el('task').hidden = false
+        el('fields').prepend(el('choice-row'))
+        el('title').textContent = `Use ${names[adoptionMode]}`
+        say('Choose a library version.')
+        controls()
         return
       }
       if (!canImport) {
         say('Refresh this skill before choosing its project copy.')
         return
       }
-      ports.saveAndUse?.(mode ?? 'native')
-      return
+      return ports.saveAndUse?.(mode ?? 'native')
     }
     adoptionMode = mode ?? 'native'
     action = next
@@ -612,6 +618,7 @@ export function bindExposureView(document, client, ports) {
             'Selection changed. Review the complete current selection again.',
           )
         }
+        const origin = context().workspace
         submitted = true
         controls()
         try {
@@ -619,10 +626,10 @@ export function bindExposureView(document, client, ports) {
             action: 'change-exposure',
             input: task.input,
           })
+          ports.changed?.(result, origin)
           if (!available(revision)) return
           prepared = undefined
           el('result').textContent = JSON.stringify(result, null, 2)
-          ports.changed?.(result)
           el('operation-details').hidden = false
           el('reconcile').hidden = result?.outcome !== 'uncertain'
           if (result?.outcome === 'verified') {
@@ -640,6 +647,7 @@ export function bindExposureView(document, client, ports) {
                 'Completion is unknown. Inspect the operation before another change.',
             )
         } catch (error) {
+          ports.changed?.(undefined, origin)
           if (available(revision)) prepared = undefined
           throw error
         } finally {
@@ -661,6 +669,7 @@ export function bindExposureView(document, client, ports) {
     choiceEvents?.abort()
     el('task').hidden = true
     el('cancel').textContent = 'Cancel'
+    choiceHome.append(el('choice-row'))
     ports.expanded(false)
     void refresh()
   }
@@ -670,7 +679,11 @@ export function bindExposureView(document, client, ports) {
   on('ungroup', 'click', () => void start('ungroup'))
   on('full', 'click', () => void start('adopt-native', 'native'))
   on('stub', 'click', () => void start('adopt-native', 'stub'))
-  on('choice', 'change', invalidatePlan)
+  on('choice', 'change', () => {
+    invalidatePlan()
+    if (action === 'adopt-native' && selectedChoice())
+      void start('adopt-native', adoptionMode)
+  })
   on('name', 'input', invalidatePlan)
   on('mode', 'change', invalidatePlan)
   on('refresh', 'click', () => void refresh())
@@ -701,16 +714,27 @@ export function bindExposureView(document, client, ports) {
       document.getElementById('router-content').hidden =
         row()?.kind !== 'Installed Router'
       controls()
+      choiceHome.append(el('choice-row'))
       if (input) {
         const preparation = refresh(),
           revision = generation
         await preparation
-        if (available(revision) && selection === input && options.mode)
+        if (available(revision) && selection === input && options.mode) {
+          if (
+            !canImport &&
+            !preservation?.candidates.some((item) => item.status === 'available')
+          )
+            throw new Error(
+              el('preservation-reason').textContent ||
+                'Refresh this skill before choosing its project copy.',
+            )
           await start('adopt-native', options.mode)
+        }
       }
     },
     refresh,
     contextChanged() {
+      choiceHome.append(el('choice-row'))
       routerEvents?.abort()
       choiceEvents?.abort()
       generation++

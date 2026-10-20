@@ -47,7 +47,7 @@ export async function verifySelectedSkillTasks(
     console.log(
       '[smoke] owned selected reader boundary',
       await ui.inspect(
-        "({selected:document.querySelector('[aria-selected=true]')?.dataset.id,reader:document.getElementById('reader-state').textContent,task:document.getElementById('task-state').textContent,hidden:document.getElementById('reader-content').hidden})",
+        "({selected:document.querySelector('[aria-current=true]')?.dataset.id,reader:document.getElementById('reader-state').textContent,task:document.getElementById('task-state').textContent,hidden:document.getElementById('reader-content').hidden})",
       ),
     )
     throw error
@@ -81,10 +81,10 @@ export async function verifySelectedSkillTasks(
     'selected task search',
   )
   await ui.ready(
-    "document.querySelectorAll('#skills [role=option]').length===1 && document.querySelector('#skills [role=option]').textContent.includes('owned-consumer')",
+    "document.querySelectorAll('#skills [data-skill-select]').length===1 && document.querySelector('#skills [data-skill-select]').textContent.includes('owned-consumer')",
     'accepted indexed search result',
   )
-  await pointer('#skills [role=option]')
+  await pointer('#skills [data-skill-select]')
   await ui
     .ready(
       "document.getElementById('task-primary').textContent==='Add to project' && !document.getElementById('task-primary').disabled && document.getElementById('instructions').textContent.length>0",
@@ -94,7 +94,7 @@ export async function verifySelectedSkillTasks(
       console.log(
         '[smoke] selected search boundary',
         await ui.inspect(
-          "({task:document.getElementById('task-state').textContent,primary:document.getElementById('task-primary').textContent,disabled:document.getElementById('task-primary').disabled,reader:document.getElementById('reader-state').textContent,reading:document.getElementById('instructions').textContent.length,selected:document.querySelector('#skills [aria-selected=true]')?.dataset.id,reviewHidden:document.getElementById('exact-review').hidden})",
+          "({task:document.getElementById('task-state').textContent,primary:document.getElementById('task-primary').textContent,disabled:document.getElementById('task-primary').disabled,reader:document.getElementById('reader-state').textContent,reading:document.getElementById('instructions').textContent.length,selected:document.querySelector('#skills [aria-current=true]')?.dataset.id,reviewHidden:document.getElementById('exact-review').hidden})",
         ),
       )
       throw error
@@ -201,14 +201,14 @@ export async function verifySelectedSkillTasks(
       )
       try {
         await ui.ready(
-          `document.getElementById('state').dataset.state==='ready' && document.getElementById('task-primary').textContent==='Added' && document.getElementById('task-state').textContent==='' && !document.getElementById('task-mode').disabled && document.getElementById('query').value==='owned-consumer' && document.getElementById('task-destination').title.includes(${JSON.stringify(workspace.root.path)}) && document.getElementById('instructions').textContent.length>0 && Math.abs(document.getElementById('instructions').scrollTop-${retainedScroll})<1 && !!document.querySelector('#skills [aria-selected=true]')`,
+          `document.getElementById('state').dataset.state==='ready' && document.getElementById('task-primary').textContent==='Added' && document.getElementById('task-state').textContent==='' && !document.getElementById('task-mode').disabled && document.getElementById('query').value==='owned-consumer' && document.getElementById('task-destination').title.includes(${JSON.stringify(workspace.root.path)}) && document.getElementById('instructions').textContent.length>0 && Math.abs(document.getElementById('instructions').scrollTop-${retainedScroll})<1 && !!document.querySelector('#skills [aria-current=true]')`,
           'return retains query destination selected occurrence and reading position',
         )
       } catch (error) {
         console.log(
           '[smoke] selected return boundary',
           await ui.inspect(
-            "({list:document.getElementById('state').textContent,listKind:document.getElementById('state').dataset.state,primary:document.getElementById('task-primary').textContent,task:document.getElementById('task-state').textContent,query:document.getElementById('query').value,destination:document.getElementById('task-destination').textContent,instructions:document.getElementById('instructions').textContent.length,scroll:document.getElementById('instructions').scrollTop,selected:document.querySelector('#skills [aria-selected=true]')?.dataset.id})",
+            "({list:document.getElementById('state').textContent,listKind:document.getElementById('state').dataset.state,primary:document.getElementById('task-primary').textContent,task:document.getElementById('task-state').textContent,query:document.getElementById('query').value,destination:document.getElementById('task-destination').textContent,instructions:document.getElementById('instructions').textContent.length,scroll:document.getElementById('instructions').scrollTop,selected:document.querySelector('#skills [aria-current=true]')?.dataset.id})",
           ),
         )
         throw error
@@ -296,13 +296,13 @@ export async function verifySelectedSkillTasks(
     await browser.set('query', 'owned-consumer')
     await browser.inspect("document.getElementById('search-form').requestSubmit()")
     await browser.ready(
-      "document.getElementById('state').dataset.state==='ready' && document.querySelectorAll('#skills [role=option]').length===1",
+      "document.getElementById('state').dataset.state==='ready' && document.querySelectorAll('#skills [data-skill-select]').length===1",
       'exact managed project occurrence in the unified browser',
     )
     const projectPath = await browser.inspect(
-      "document.querySelector('#skills [role=option]').dataset.sourcePath",
+      "document.querySelector('#skills [data-skill-select]').dataset.sourcePath",
     )
-    await browser.inspect("document.querySelector('#skills [role=option]').click()")
+    await browser.inspect("document.querySelector('#skills [data-skill-select]').click()")
     await controls.wait(
       () => !!controls.reader(),
       'existing selected instruction contribution',
@@ -333,7 +333,7 @@ export async function verifySelectedSkillTasks(
     await captureSidebar('sidebar-selected-library')
     await browser.click('scope-project')
     await browser.ready(
-      `document.getElementById('query').value==='owned-consumer' && document.querySelector('#skills [aria-selected=true]')?.dataset.sourcePath===${JSON.stringify(projectPath)}`,
+      `document.getElementById('query').value==='owned-consumer' && document.querySelector('#skills [aria-current=true]')?.dataset.sourcePath===${JSON.stringify(projectPath)}`,
       'return restores the exact Project query and selected managed occurrence',
     )
     await detail.ready(

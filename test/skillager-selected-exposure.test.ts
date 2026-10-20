@@ -548,7 +548,7 @@ it('refuses the complete oversized observation without offering its otherwise av
   void f.selectOriginal()
   await vi.waitFor(() =>
     expect(f.el('preservation-reason').textContent).toContain(
-      'Reading and Save and accept remain available',
+      'Complete connector output exceeds the supported bound',
     ),
   )
   expect(f.el('full').hidden).toBe(true)
@@ -885,7 +885,11 @@ it.each([
   void f.selectOriginal()
   await vi.waitFor(() =>
     expect(f.el('preservation-reason').textContent).toContain(
-      'Reading and Save and accept remain available',
+      failure === 'request-drift'
+        ? 'Replacement request differs'
+        : failure === 'too-many'
+          ? 'Replacement needs the current public'
+          : 'Replacement observation does not match',
     ),
   )
   expect(f.el('full').disabled).toBe(true)
@@ -940,4 +944,26 @@ it('does not resurrect a mode-first task after the same row context is refreshed
         (call.input['args'] as string[]).includes('--request-json'),
     ),
   ).toBe(false)
+})
+
+it('keeps ambiguous mode-first source choice inside the task and restores its ordinary home on cancel', async () => {
+  const f = fixture(),
+    second = structuredClone(f.observation.candidates[0]!)
+  second.source.skill_id = 'lib/other'
+  for (const request of Object.values(second.requests)) request.source = second.source
+  f.observation.candidates.push(second)
+  f.observation.status = 'ambiguous'
+  const home = f.el('choice-row').parentElement
+  await f.selectOriginal({ mode: 'stub' })
+  expect(f.el('choice-row').parentElement).toBe(f.el('fields'))
+  expect(f.el('task').hidden).toBe(false)
+  expect(f.el('confirm').disabled).toBe(true)
+  f.change('choice', 'lib/other')
+  await vi.waitFor(() => expect(f.el('review').hidden).toBe(false))
+  expect((JSON.parse(f.el('plan').textContent) as Plan).request.source.skill_id).toBe(
+    'lib/other',
+  )
+  expect(f.actions).toEqual([])
+  f.click('cancel')
+  expect(f.el('choice-row').parentElement).toBe(home)
 })

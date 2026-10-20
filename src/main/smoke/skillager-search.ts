@@ -225,13 +225,13 @@ export async function inspectSkillagerSearch(
       await ports.wait(
         async () =>
           (await ports.inspect(
-            `globalThis.__hvirSearchProof.submissions>${before} && document.getElementById('state')?.dataset.state===${JSON.stringify(mode === 'button-no-match' ? 'empty' : 'ready')} && document.querySelectorAll('#skills [role=option]').length===${mode === 'button-no-match' ? 0 : 100}`,
+            `globalThis.__hvirSearchProof.submissions>${before} && document.getElementById('state')?.dataset.state===${JSON.stringify(mode === 'button-no-match' ? 'empty' : 'ready')} && document.querySelectorAll('#skills [data-skill-select]').length===${mode === 'button-no-match' ? 0 : 100}`,
           )) === true,
         `actual library ${mode} submission`,
       )
       const state = await ports.inspect(`(() => {
         const status=document.getElementById('state');
-        return {state:['ready','empty','error','stale','loading'].includes(status?.dataset.state)?status.dataset.state:'missing',rows:document.querySelectorAll('#skills [role=option]').length,form:!!document.getElementById('search-form'),...globalThis.__hvirSearchProof};
+        return {state:['ready','empty','error','stale','loading'].includes(status?.dataset.state)?status.dataset.state:'missing',rows:document.querySelectorAll('#skills [data-skill-select]').length,form:!!document.getElementById('search-form'),...globalThis.__hvirSearchProof};
       })()`)
       cases.push({
         mode,
@@ -408,7 +408,7 @@ export async function inspectSkillagerSearch(
     await ports.wait(
       async () =>
         (await ports.inspect(
-          "document.getElementById('state').dataset.state==='stale' && document.getElementById('connect-program').checkVisibility() && !document.getElementById('connect-program').disabled && document.getElementById('state').textContent.includes('freshness unavailable') && document.querySelectorAll('#skills [role=option]').length===100",
+          "document.getElementById('state').dataset.state==='stale' && document.getElementById('connect-program').checkVisibility() && !document.getElementById('connect-program').disabled && document.getElementById('state').textContent.includes('freshness unavailable') && document.querySelectorAll('#skills [data-skill-select]').length===100",
         )) === true,
       'unapproved Search explains access and retains the current rows',
     )
@@ -431,7 +431,7 @@ export async function inspectSkillagerSearch(
       .inspect(
         `(() => {
       const form=document.getElementById('search-form'), active=document.activeElement;
-      return {form:!!form,formVisible:!!form?.checkVisibility(),state:['ready','empty','error','stale','loading'].includes(document.getElementById('state')?.dataset.state)?document.getElementById('state').dataset.state:'missing',rows:document.querySelectorAll('#skills [role=option]').length,
+      return {form:!!form,formVisible:!!form?.checkVisibility(),state:['ready','empty','error','stale','loading'].includes(document.getElementById('state')?.dataset.state)?document.getElementById('state').dataset.state:'missing',rows:document.querySelectorAll('#skills [data-skill-select]').length,
         active:active?.id==='query'?'query':active?.matches('#search-form button[type=submit]')?'search':'other',...globalThis.__hvirSearchProof};
     })()`,
       )

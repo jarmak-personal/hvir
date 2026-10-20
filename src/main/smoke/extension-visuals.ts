@@ -103,7 +103,7 @@ export async function captureExtensionVisuals(
           await controls.wait(
             async () =>
               (await guest.executeJavaScript(
-                "document.querySelectorAll('#skills [role=option]').length===100 && !['loading','stale','error'].includes(document.getElementById('state').dataset.state)",
+                "document.querySelectorAll('#skills [data-skill-select]').length===100 && !['loading','stale','error'].includes(document.getElementById('state').dataset.state)",
               )) === true,
             'current public library result after appearance save',
           )
@@ -140,7 +140,7 @@ export async function captureExtensionVisuals(
           const input = document.getElementById('query');
           const scroll = document.getElementById('skills') ?? document.getElementById('instructions');
           return {stateKind:document.getElementById('state')?.dataset.state ?? null,
-            observedRows:document.querySelectorAll('#skills [role=option]').length,
+            observedRows:document.querySelectorAll('#skills [data-skill-select]').length,
             actionableApproval:document.getElementById('state')?.textContent.includes('Settings') ?? false,
             sourceIdentitySecondary:!!document.getElementById('source-label')?.closest('details'),
             width:innerWidth, height:innerHeight, theme:document.documentElement.style.colorScheme,
