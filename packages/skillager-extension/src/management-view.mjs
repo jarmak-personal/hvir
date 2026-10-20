@@ -16,7 +16,10 @@ import { bindExactReview } from './review-view.mjs'
 
 /** Human controls consume metadata/actions; instruction review remains a separate D7 origin. */
 export function bindManagementView(document, client) {
-  const element = (id) => document.getElementById(id)
+  const element = (id) => document.getElementById(id),
+    commandDisabled = new WeakMap(),
+    working = document.createElement('span')
+  working.textContent = 'Working… '
   let context = { visible: false },
     observed,
     connection,
@@ -29,9 +32,36 @@ export function bindManagementView(document, client) {
   const listeners = []
   const say = (message) => {
     element('state').textContent = message
+    if (busy) element('state').prepend(working)
   }
   const show = (value) => {
     element('result').textContent = JSON.stringify(value, null, 2)
+  }
+  function available(current = revision) {
+    return !disposed && client.alive && context.visible && revision === current
+  }
+  function registerCommand(target) {
+    const buttons =
+      target.tagName === 'BUTTON'
+        ? [target]
+        : target.querySelectorAll('button[type="submit"], button:not([type])')
+    for (const button of buttons) {
+      button.dataset.managementCommand = ''
+      commandDisabled.set(button, button.disabled)
+      button.disabled ||= busy
+    }
+  }
+  function setCommandDisabled(id, disabled) {
+    const button = element(id)
+    commandDisabled.set(button, disabled)
+    button.disabled = busy || disabled
+  }
+  function presentWorking() {
+    document.querySelector('main')?.setAttribute('aria-busy', String(busy))
+    if (busy) element('state').prepend(working)
+    else working.remove()
+    for (const button of document.querySelectorAll('[data-management-command]'))
+      button.disabled = busy || commandDisabled.get(button)
   }
   function clearPlan() {
     void prepared?.release?.()
@@ -40,7 +70,7 @@ export function bindManagementView(document, client) {
   }
   function clearSource(revoke = true) {
     source = undefined
-    element('add-copy').disabled = true
+    setCommandDisabled('add-copy', true)
     clearPlan()
     if (revoke) revision++
     element('source-identity').textContent = ''
@@ -63,21 +93,18 @@ export function bindManagementView(document, client) {
     return managementCli(client, project ? context : undefined)
   }
   async function guarded(work) {
-    if (disposed || busy || !context.visible || !client.alive) return
+    if (busy || !available()) return
     busy = true
-    document.querySelector('main').setAttribute('aria-busy', 'true')
+    presentWorking()
     const current = ++revision
     try {
-      await work(
-        () => !disposed && client.alive && context.visible && revision === current,
-      )
+      await work(() => available(current))
     } catch (error) {
-      if (!disposed && client.alive && context.visible && revision === current)
-        say(error.message)
+      if (available(current)) say(error.message)
     } finally {
       busy = false
-      document.querySelector('main')?.setAttribute('aria-busy', 'false')
-      if (!disposed && refreshQueued && context.visible && client.alive) {
+      if (!disposed) presentWorking()
+      if (refreshQueued && available()) {
         refreshQueued = false
         void guarded((current) => observeLibrary(current))
       }
@@ -89,6 +116,7 @@ export function bindManagementView(document, client) {
         event.preventDefault()
         void guarded((current) => work(event, current))
       }
+    registerCommand(target)
     target.addEventListener(event, callback)
     listeners.push(() => target.removeEventListener(event, callback))
   }
@@ -153,7 +181,7 @@ export function bindManagementView(document, client) {
     const changed =
       observed && connection && JSON.stringify(observed) !== JSON.stringify(connection)
     element('connect-library').hidden = !changed
-    element('connect-library').disabled = !observed
+    setCommandDisabled('connect-library', !observed)
     if (changed) {
       clearSource()
       say('The registered library changed. Choose Use this library to continue.')
@@ -187,7 +215,7 @@ export function bindManagementView(document, client) {
     if (!current() || result?.outcome !== 'verified') return
     observed = result.observed
     connection = result.connect ? result.observed : undefined
-    element('connect-library').disabled = false
+    setCommandDisabled('connect-library', false)
     element('connect-library').hidden = !!result.connect
     element('library-identity').textContent =
       `${result.connect ? 'Connected' : 'Observed; explicitly choose Connect'} ${observed.root.hostId}: ${observed.root.path} · ${observed.id} · history ${observed.gitMode}`
@@ -233,7 +261,7 @@ export function bindManagementView(document, client) {
     const selected = acceptedSource(value, library, id)
     if (!current()) return
     source = selected
-    element('add-copy').disabled = false
+    setCommandDisabled('add-copy', false)
     clearPlan()
     element('source-identity').textContent = ''
     say('')
@@ -284,6 +312,7 @@ export function bindManagementView(document, client) {
         const button = document.createElement('button')
         button.className = 'hvir-button'
         button.textContent = remove ? 'Review Remove' : 'Review Update / mode change'
+        registerCommand(button)
         button.addEventListener(
           'click',
           () =>
@@ -353,6 +382,7 @@ export function bindManagementView(document, client) {
       const button = document.createElement('button')
       button.className = 'hvir-button'
       button.textContent = `Inspect and reconcile ${id}`
+      registerCommand(button)
       button.addEventListener(
         'click',
         () =>
@@ -388,9 +418,18 @@ export function bindManagementView(document, client) {
   element('skill-id').addEventListener('input', sourceChanged)
   listeners.push(() => element('skill-id').removeEventListener('input', sourceChanged))
   for (const id of ['copy-agent', 'copy-mode']) onSelection(id, 'change')
-  on('open-exposure-browser', 'click', () =>
-    client.request('viewer.open-own', { contributionId: 'library' }),
-  )
+  const browse = element('open-exposure-browser'),
+    openLibrary = async () => {
+      if (!available()) return
+      const current = revision
+      try {
+        await client.request('viewer.open-own', { contributionId: 'library' })
+      } catch (error) {
+        if (available(current)) say(error.message)
+      }
+    }
+  browse.addEventListener('click', openLibrary)
+  listeners.push(() => browse.removeEventListener('click', openLibrary))
   const delivery = bindDeliveryView(document, client, {
     on,
     onSelection,
@@ -400,7 +439,8 @@ export function bindManagementView(document, client) {
     review,
     say,
     show,
-    onButton: (button, work) =>
+    onButton: (button, work) => {
+      registerCommand(button)
       button.addEventListener(
         'click',
         (event) => {
@@ -408,7 +448,8 @@ export function bindManagementView(document, client) {
           void guarded((current) => work(event, current))
         },
         { signal: client.signal },
-      ),
+      )
+    },
   })
   const unlisten = client.listen((message) => {
     if (message.kind !== 'context') return
@@ -455,6 +496,7 @@ export function bindManagementView(document, client) {
     dispose() {
       if (disposed) return
       disposed = true
+      working.remove()
       clearPlan()
       exactReview.dispose()
       unlisten()
