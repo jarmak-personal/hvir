@@ -7,6 +7,7 @@ import { GitGraphView } from '../git/GitGraphView'
 import { MissingWorkspaceNotice } from '../workspaces/MissingWorkspaceNotice'
 import { WebPaneStack } from '../dashboards/WebPaneStack'
 import { ExtensionViewStack } from '../extensions/ExtensionViewStack'
+import { SourceTrashDialog } from '../tree/SourceTrashDialog'
 import { FileViewer } from './FileViewer'
 import { TabStrip } from './TabStrip'
 import type { useViewerWorkspace } from './use-viewer-workspace'
@@ -295,6 +296,7 @@ export function WorkbenchViewer({
   )
   return (
     <section className="viewer-panel hvir-panel" aria-label="File viewer">
+      <SourceTrashDialog removal={viewer} />
       <div
         className={`viewer-groups${viewerSplit ? ' split' : ''}`}
         ref={viewerGroupsRef}

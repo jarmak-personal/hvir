@@ -8,6 +8,7 @@ import { createDocumentMarkdownOwner } from '../viewer/document-markdown-runtime
 import { ExtensionSourceApprovalOwner, type SourceHostCatalog } from './source-approval'
 import { ExtensionSourceReadingOwner } from './source-reading'
 import { ExtensionSourceReveal } from './source-reveal'
+import { ExtensionSourceTrashRequestOwner } from './source-trash'
 import { ExtensionSourceRequestOwner } from './source-request'
 import {
   ExtensionConnectorApprovalOwner,
@@ -46,6 +47,7 @@ export class ExtensionApplicationRuntime {
   deliveries?: ExtensionManagedDeliveryOwner
   sources?: ExtensionSourceReadingOwner
   sourceRequests?: ExtensionSourceRequestOwner
+  sourceTrash?: ExtensionSourceTrashRequestOwner
   connections?: ExtensionConnectorConnectionOwner
   setup?: ExtensionSetupOwner
   private stopSetup?: () => void
@@ -115,6 +117,7 @@ export class ExtensionApplicationRuntime {
         await this.deliveries?.dispose()
         this.sources?.dispose()
         this.sourceRequests?.dispose()
+        this.sourceTrash?.dispose()
         this.sources?.approvals.dispose()
         this.connections?.dispose()
         this.connectors?.dispose()
@@ -154,6 +157,7 @@ export class ExtensionApplicationRuntime {
     await this.deliveries?.dispose()
     this.sources?.dispose()
     this.sourceRequests?.dispose()
+    this.sourceTrash?.dispose()
     this.sources?.approvals.dispose()
     this.connections?.dispose()
     this.connectors?.dispose()
@@ -243,6 +247,7 @@ export class ExtensionApplicationRuntime {
         this.sources?.revoke(id, source, binding)
         if (cancelRequests) this.sourceRequests?.revoke(id, source, binding)
         this.sourceRequests?.revalidate()
+        this.sourceTrash?.revalidate()
         this.connections?.revalidate()
       },
       contexts,
@@ -319,6 +324,14 @@ export class ExtensionApplicationRuntime {
       (owner, proposals) =>
         this.events.toRenderer(owner, 'extensions:source-proposals-changed', proposals),
     )
+    this.sourceTrash = new ExtensionSourceTrashRequestOwner(
+      this.scopes,
+      sourceApprovals,
+      host,
+      (owner) => this.surface.foreground(owner),
+      (owner, proposals) =>
+        this.events.toRenderer(owner, 'extensions:source-trash-changed', proposals),
+    )
     this.deliveries = new ExtensionManagedDeliveryOwner(
       hosts,
       sourceApprovals,
@@ -359,6 +372,7 @@ export class ExtensionApplicationRuntime {
         connections: this.connections,
         sources: this.sources,
         sourceRequests: this.sourceRequests,
+        sourceTrash: this.sourceTrash,
         deliveries: this.deliveries,
         sourceReveal: new ExtensionSourceReveal(sourceApprovals, (owner, request) =>
           this.events.toRenderer(owner, 'extensions:files-reveal', request),

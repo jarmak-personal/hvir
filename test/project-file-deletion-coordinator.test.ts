@@ -122,6 +122,34 @@ describe('project file deletion coordinator', () => {
     await expect(readFile(source.path, 'utf8')).resolves.toBe('retained')
   })
 
+  it.each(['beforeDelete', 'onSubmitted'] as const)(
+    'refuses a revoked source at %s without submitting Trash',
+    async (boundary) => {
+      const source = joinHostPath(root, 'selected.txt')
+      await writeFile(source.path, 'retained')
+      const guard = vi.fn(() => {
+        throw new Error('The selected source decision was revoked')
+      })
+      const publish = progressPublisher()
+      await coordinator.delete({
+        owner,
+        request: { workspaceRoot: root, source, confirmedRecovery: 'recoverable' },
+        ...(boundary === 'beforeDelete'
+          ? { beforeDelete: () => Promise.resolve().then(guard) }
+          : { onSubmitted: guard }),
+        publish,
+      })
+      const completed = await publish.waitForPhase('completed')
+      expect(guard).toHaveBeenCalledOnce()
+      expect(completed.result?.items[0]).toMatchObject({
+        status: 'failed',
+        effect: 'none',
+      })
+      await expect(readFile(source.path, 'utf8')).resolves.toBe('retained')
+      await expect(readFile(`${source.path}.trash`)).rejects.toThrow()
+    },
+  )
+
   it('fails closed on replaced workspace authority and a changed recovery guarantee', async () => {
     const source = joinHostPath(root, 'retained.txt')
     await writeFile(source.path, 'retained')
@@ -191,11 +219,13 @@ describe('project file deletion coordinator', () => {
     await host.connect()
     resources = new DeletionResources()
     coordinator = createCoordinator(host, resources, root)
-    const publish = progressPublisher()
+    const publish = progressPublisher(),
+      settled = vi.fn()
     await coordinator.delete({
       owner,
       request: { workspaceRoot: root, source, confirmedRecovery: 'recoverable' },
       publish,
+      settled,
     })
     await gate.started
 
@@ -204,6 +234,13 @@ describe('project file deletion coordinator', () => {
     await coordinator.dispose()
 
     expect(publish.mock.calls.map(([event]) => event.phase)).toEqual(['deleting'])
+    expect(settled).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({ status: 'completed', effect: 'trashed-entry' }),
+        ],
+      }),
+    )
     await expect(readFile(source.path)).rejects.toThrow()
     await expect(readFile(`${source.path}.trash`, 'utf8')).resolves.toBe('late')
   })

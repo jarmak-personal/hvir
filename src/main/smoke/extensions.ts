@@ -1,3 +1,4 @@
+import { verifyExtensionSourceTrash } from './extension-source-trash'
 import { verifyExtensionOutputTransfer } from './extension-output-transfer'
 import { extensionSettingsControls } from './extension-settings-controls'
 import { verifySkillagerExtension } from './skillager-extension'
@@ -94,6 +95,19 @@ export async function verifyExtensionScenario(
   )
     return true
   const project = sources.context.projectState()
+  if (process.env['HVIR_SOURCE_TRASH_SMOKE'] === '1') {
+    await click(win, 'Open settings')
+    await click(win, 'Extensions')
+    await verifyExtensionSourceTrash(
+      win,
+      extensions,
+      host,
+      { id: project.activeWorkspaceId, root: project.root },
+      { click: (name) => click(win, name), wait: waitFor, guest: guestFor },
+    )
+    console.log('HVIR_SMOKE_OK')
+    return true
+  }
   if (
     await verifySkillagerManagement(
       win,
@@ -452,6 +466,16 @@ export async function verifyExtensionScenario(
     guest: guestFor,
   })
   await verifyLocalWorkspaceConnection(
+    win,
+    extensions,
+    host,
+    {
+      id: sources.context.projectState().activeWorkspaceId,
+      root: sources.context.projectState().root,
+    },
+    { click: (name) => click(win, name), wait: waitFor, guest: guestFor },
+  )
+  await verifyExtensionSourceTrash(
     win,
     extensions,
     host,

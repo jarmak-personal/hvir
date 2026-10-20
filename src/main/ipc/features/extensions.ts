@@ -1,15 +1,33 @@
 import { extensionId, extensionText } from '../../../shared/extensions/validation'
 import type { ExtensionApplicationRuntime } from '../../extensions/extension-application'
+import { operationResult } from '../operation-result'
+import type { IpcDeps } from '../deps'
 import type { IpcRegistrar } from '../authority-router'
 
 /** Trusted controls and isolated guest messages use distinct caller admission. */
 export function registerExtensionsIpc(
   ipc: IpcRegistrar,
   extensions?: ExtensionApplicationRuntime,
+  files?: IpcDeps['projectFiles'],
 ): void {
   const unavailable = (): never => {
     throw new Error('Extensions are unavailable')
   }
+  ipc.handle(
+    'extensions:source-trash-proposals',
+    (_req, context) => extensions?.sourceTrash?.snapshot(context.owner()) ?? [],
+  )
+  ipc.handle('extensions:source-trash-cancel', (req, context) =>
+    extensions?.sourceTrash?.cancel(context.owner(), req.id),
+  )
+  ipc.handle('extensions:source-trash-confirm', (req, context) =>
+    operationResult(async () => {
+      if (!files || !extensions?.sourceTrash) return unavailable()
+      return extensions.sourceTrash.confirm(context.owner(), req.id, files, (progress) =>
+        context.sender.send('fs:project-file-operation', progress),
+      )
+    }),
+  )
   ipc.handle(
     'extensions:setup-template',
     (req, context) =>

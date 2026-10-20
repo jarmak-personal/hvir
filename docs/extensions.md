@@ -109,7 +109,7 @@ destination; `navigation: 'left'` creates a workspace rail view. `access` declar
 Contract 1.0 provides `presentation.read`, `viewer.open-own`, `context.read`,
 `contributions.read`, `contributions.publish`, `actions.invoke`, `connector.status`,
 `connector.execute`, `connector.output`, `connector.connect`, `terminal.start`, `source.status`, `source.request`, `source.select`,
-`source.read`, `source.asset`, `source.render`, `source.reveal`, `delivery.capture`, `delivery.manifest`, `delivery.preview`, `delivery.apply`, `delivery.status`, `delivery.domain`, `delivery.reconcile`, and `delivery.cleanup`. List required and
+`source.read`, `source.asset`, `source.render`, `source.reveal`, `source.request-trash`, `delivery.capture`, `delivery.manifest`, `delivery.preview`, `delivery.apply`, `delivery.status`, `delivery.domain`, `delivery.reconcile`, and `delivery.cleanup`. List required and
 optional capabilities explicitly. Same-major older or equal minor contracts activate;
 a newer minor also activates when every required capability exists. Unsupported major
 or missing required capabilities refuse only that package, with an explanation.
@@ -630,6 +630,24 @@ that source's existing read-only grant and current registered workspace; main re
 and canonical confinement, including symlink escape. Application sources, action/agent/updater
 origins and stale workspace requests are refused. The one-shot owning-renderer navigation
 reuses Files selection and expansion; it grants no file mutation or outside-root access.
+
+`source.request-trash` requests the existing trusted Files **Move to Trash** confirmation for
+one selected ordinary project directory. Send `{source: 'project', workspaceId: EXACT_WORKSPACE,
+path: {hostId: 'local', path: EXACT_DIRECTORY}}` from a visible ordinary human view with that
+workspace's existing read-only source grant. The grant stays read-only: only the human's trusted
+Files confirmation authorizes removal. No action, agent or updater can request it. Workspace
+roots, symbolic-link traversal, changed directory identity, stale grants and contexts refuse.
+Application sources and hosts without recoverable Trash (including current SSH hosts) refuse;
+there is no permanent-delete fallback. The dialog checks unsaved buffers in its exact target
+workspace even when the active Files pane shows another project.
+
+The promise remains pending through review and physical completion. Its bounded result is
+`{outcome: 'completed'|'cancelled'|'refused'|'uncertain', reason?}`. Only `completed` confirms Trash;
+refresh observations afterward. Never retry an uncertain result automatically. There is one
+pending request application-wide, sixty seconds for preparation/review and the existing ten-minute
+Files operation bound after confirmation. Revocation cancels pending review; in-flight physical
+work retains capacity until settlement and cannot imply rollback. `source.reveal` remains useful
+for inspecting the folder without requesting any mutation.
 
 The maintained ordinary [Skillager package](../packages/skillager-extension/README.md) provides personal-library browsing, project observations and selected current instructions through these public capabilities. It uses Skillager's public CLI schemas and explicit native/source setup; core imports no Skillager implementation. Its local **Skills in this project** tab offers **Connect Skillager**, then automatically observes that exact project after a current trusted decision, preserving search and options. Project and library program approvals stay independent; SSH project presence remains unknown. Connection does not initialize a library or change project setup. Missing or outdated programs show the package's copyable request for the [official current release](https://github.com/jarmak-personal/skillager/releases/tag/v0.9.5).
 

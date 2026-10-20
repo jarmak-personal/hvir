@@ -30,7 +30,7 @@ export function registerIpcHandlers(
   try {
     registerAppIpc(router, deps)
     registerAgentIpc(router, deps.agents)
-    registerExtensionsIpc(router, deps.extensions)
+    registerExtensionsIpc(router, deps.extensions, deps.projectFiles)
     registerDiagnosticReportIpc(router, deps)
     registerDocumentReviewIpc(router, deps)
     registerProjectIpc(router, deps)

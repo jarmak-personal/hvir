@@ -26,6 +26,7 @@ export async function requestGuestSource(
   invocation: ExtensionInvocation | undefined,
   reveal: ExtensionGuestPorts['sourceReveal'],
   requests: ExtensionGuestPorts['sourceRequests'],
+  trash: ExtensionGuestPorts['sourceTrash'],
 ): Promise<unknown> {
   if (capability === 'source.status')
     return sources.approvals
@@ -46,7 +47,7 @@ export async function requestGuestSource(
       assertOrigin()
       if (!record.visible) throw new Error('Selected source view is hidden')
       if (
-        capability === 'source.request' &&
+        ['source.request', 'source.request-trash'].includes(capability) &&
         (record.view.role === 'updater' ||
           record.readingOrigin !== 'human' ||
           record.authority.restricted ||
@@ -57,6 +58,8 @@ export async function requestGuestSource(
     },
     context: () => record.context,
   }
+  if (capability === 'source.request-trash')
+    return trash.request(caller, input, record.owner)
   if (capability === 'source.request')
     return requests.request(caller, input, record.owner)
   if (capability === 'source.reveal') {

@@ -21,6 +21,7 @@ export const EXTENSION_CAPABILITIES = [
   'source.asset',
   'source.render',
   'source.reveal',
+  'source.request-trash',
   'delivery.capture',
   'delivery.manifest',
   'delivery.preview',
