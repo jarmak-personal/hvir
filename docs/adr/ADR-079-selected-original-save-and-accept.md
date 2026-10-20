@@ -1,6 +1,7 @@
 # ADR-079: Selected-original Save and accept
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-082](ADR-082-selected-original-save-and-use.md) | partial | Mandatory separate replacement decision when the human explicitly chooses the combined Save and use task.
 > Supersedes: [ADR-059](ADR-059-public-local-skillager-management.md) | partial | Local management excludes selected external import; complete exact external inspection and one human Save and accept decision are permitted.
 
 ## Context

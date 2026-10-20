@@ -39,7 +39,7 @@ export function importArgs(selection, confirmation) {
   ]
 }
 /** External import is its own public contract, not a library acceptance preview. */
-export function exactImportManifest(value, selection, workspace) {
+export function exactImportIdentity(value, selection, workspace) {
   boundedManagementJson(value)
   importArgs(selection)
   if (
@@ -102,7 +102,6 @@ export function exactImportManifest(value, selection, workspace) {
   absoluteLocalPath(manifest.source_root)
   absoluteLocalPath(manifest.destination_path)
   digest(manifest.source_hash)
-  digest(manifest.confirmation_token)
   exactTreeFiles(manifest)
   if (
     !manifest.source_provenance ||
@@ -113,6 +112,13 @@ export function exactImportManifest(value, selection, workspace) {
     )
   )
     throw new Error('The external import provenance does not match its exact occurrence')
+  return { manifest, name: value.destination.name }
+}
+/** Standalone import retains its own token and ordinary confirmation argv. */
+export function exactImportManifest(value, selection, workspace) {
+  const identity = exactImportIdentity(value, selection, workspace)
+  const { manifest } = identity
+  digest(manifest.confirmation_token)
   const expected = [
     'skillager',
     ...importArgs(
@@ -125,8 +131,7 @@ export function exactImportManifest(value, selection, workspace) {
     value.requires_override === false &&
     metadataEncoding(value.next_command_argv) === metadataEncoding(expected)
   return {
-    manifest,
-    name: value.destination.name,
+    ...identity,
     eligible,
     gate: eligible
       ? undefined

@@ -44,7 +44,7 @@ interface Plan extends Value {
   }>
 }
 interface View {
-  select(value?: unknown): void
+  select(value?: unknown, options?: unknown): Promise<void>
   contextChanged(): void
   dispose(): void
 }
@@ -148,7 +148,8 @@ function fixture(agent = 'codex', canonicalId = 'lib/native-58b72abb645e2767') {
   const requests: Array<{ capability: string; input: Value }> = [],
     actions: Array<{ input: { request: string; token: string } }> = [],
     expanded: boolean[] = [],
-    chosen: Value[] = []
+    chosen: Value[] = [],
+    saveAndUse: string[] = []
   const router = {
     schema: 'skillager.exposure.v1',
     exposure_id: 'owned-router',
@@ -218,10 +219,12 @@ function fixture(agent = 'codex', canonicalId = 'lib/native-58b72abb645e2767') {
         const args = input['args'] as string[]
         let value: Value
         if (args.includes('--observe-native')) {
-          if (holdObservation)
+          if (holdObservation) {
+            holdObservation = false
             await new Promise<void>((resolve) => {
               hold = resolve
             })
+          }
           value = observation
         } else if (args.includes('--request-json')) {
           if (holdPlan)
@@ -312,6 +315,7 @@ function fixture(agent = 'codex', canonicalId = 'lib/native-58b72abb645e2767') {
     context: () => context,
     expanded: (value: boolean) => expanded.push(value),
     choose: (row: Value) => chosen.push(row),
+    saveAndUse: (mode: string) => saveAndUse.push(mode),
   })
   dispose = () => {
     view.dispose()
@@ -343,6 +347,7 @@ function fixture(agent = 'codex', canonicalId = 'lib/native-58b72abb645e2767') {
     actions,
     expanded,
     chosen,
+    saveAndUse,
     el,
     holdInventoryRelease() {
       holdInventoryRelease = true
@@ -364,11 +369,11 @@ function fixture(agent = 'codex', canonicalId = 'lib/native-58b72abb645e2767') {
     setObservation(value: Observation) {
       observation = value
     },
-    selectOriginal() {
-      view.select({ row })
+    selectOriginal(options?: unknown) {
+      return view.select({ row }, options)
     },
     selectRouter() {
-      view.select({
+      void view.select({
         row: {
           ...row,
           path: `${router.target}/SKILL.md`,
@@ -378,7 +383,7 @@ function fixture(agent = 'codex', canonicalId = 'lib/native-58b72abb645e2767') {
       })
     },
     selectLibrary() {
-      view.select({
+      void view.select({
         row: {
           ...row,
           id: source.id,
@@ -453,7 +458,7 @@ it.each(['codex', 'claude'])(
   'automatically observes the exact %s original and reviews one explicit replacement',
   async (agent) => {
     const f = fixture(agent)
-    f.selectOriginal()
+    void f.selectOriginal()
     await f.ready()
     expect(
       f.requests.some(
@@ -484,7 +489,7 @@ it.each(['codex', 'claude'])(
 it('preserves an exact Unicode identity across public observation, review and dispatch', async () => {
   const identity = 'lib/保存-𐐨-１２',
     f = fixture('codex', identity)
-  f.selectOriginal()
+  void f.selectOriginal()
   await f.ready()
   f.click('stub')
   await vi.waitFor(() => expect(f.el('preview').disabled).toBe(false))
@@ -503,7 +508,7 @@ it('requires an explicit actual choice when more than one preservation relation 
   for (const request of Object.values(second.requests)) request.source = second.source
   f.observation['candidates'].push(second)
   f.observation['status'] = 'ambiguous'
-  f.selectOriginal()
+  void f.selectOriginal()
   await vi.waitFor(() => expect(f.el('choice-row').hidden).toBe(false))
   expect(f.el('full').disabled).toBe(true)
   f.change('choice', 'lib/other')
@@ -522,7 +527,7 @@ it('admits every one of 64 complete preservation choices without defaulting an a
     return candidate
   })
   f.observation['status'] = 'ambiguous'
-  f.selectOriginal()
+  void f.selectOriginal()
   await vi.waitFor(() =>
     expect(document.querySelectorAll('#exposure-choice option')).toHaveLength(65),
   )
@@ -540,7 +545,7 @@ it('admits every one of 64 complete preservation choices without defaulting an a
 it('refuses the complete oversized observation without offering its otherwise available first choice', async () => {
   const f = fixture()
   f.observation.origin['provenance'] = { note: 'x'.repeat(256 * 1024) }
-  f.selectOriginal()
+  void f.selectOriginal()
   await vi.waitFor(() =>
     expect(f.el('preservation-reason').textContent).toContain(
       'Reading and Save and accept remain available',
@@ -639,10 +644,10 @@ it.each(['hide', 'select', 'workspace', 'dispose'])(
   async (event) => {
     const f = fixture()
     f.holdObservation()
-    f.selectOriginal()
+    void f.selectOriginal()
     await vi.waitFor(() => expect(f.observationWaiting).toBe(true))
     if (event === 'hide') f.hide()
-    else if (event === 'select') f.view.select(undefined)
+    else if (event === 'select') void f.view.select(undefined)
     else if (event === 'workspace')
       f.setContext({ visible: true, workspace: { ...f.workspace, id: 'other' } })
     else f.view.dispose()
@@ -661,7 +666,7 @@ it.each(['hide', 'select', 'workspace', 'dispose'])(
 
 it('retires original-only preservation when the same reader selects a Router and restores it for an original', async () => {
   const f = fixture()
-  f.selectOriginal()
+  void f.selectOriginal()
   await vi.waitFor(() => expect(f.el('stub').disabled).toBe(false))
   expect(f.el('preservation-details').hidden).toBe(false)
   f.router.skill_ids = [f.source.id]
@@ -676,7 +681,7 @@ it('retires original-only preservation when the same reader selects a Router and
   expect(document.querySelector('#router-members details')!.textContent).toContain(
     f.source.id,
   )
-  f.selectOriginal()
+  void f.selectOriginal()
   await vi.waitFor(() => expect(f.el('stub').disabled).toBe(false))
   expect(f.el('preservation-details').hidden).toBe(false)
   expect(f.el('edit').hidden).toBe(true)
@@ -877,7 +882,7 @@ it.each([
     value.candidates[0]!.requests.stub['origin_id'] = 'b'.repeat(64)
   if (failure === 'too-many')
     value.candidates = Array.from({ length: 65 }, () => value.candidates[0]!)
-  f.selectOriginal()
+  void f.selectOriginal()
   await vi.waitFor(() =>
     expect(f.el('preservation-reason').textContent).toContain(
       'Reading and Save and accept remain available',
@@ -886,4 +891,53 @@ it.each([
   expect(f.el('full').disabled).toBe(true)
   expect(f.el('stub').disabled).toBe(true)
   expect(f.actions).toEqual([])
+})
+
+it('mode-first entry keeps exact saved adoption and prepares only its complete exposure review', async () => {
+  const f = fixture()
+  await f.selectOriginal({ mode: 'stub' })
+  expect(f.el('review').hidden).toBe(false)
+  expect(f.saveAndUse).toEqual([])
+  const reads = f.requests
+    .filter((call) => call.capability === 'connector.execute')
+    .map((call) => call.input['args'] as string[])
+  expect(reads.filter((args) => args.includes('--request-json'))).toHaveLength(1)
+  expect(reads.some((args) => args[0] === 'import')).toBe(false)
+  expect(f.actions).toEqual([])
+})
+it('mode-first unsaved-original entry delegates one combined review without adoption or import side effects', async () => {
+  const f = fixture()
+  f.observation['status'] = 'unavailable'
+  f.observation.candidates = []
+  await f.selectOriginal({ mode: 'native' })
+  expect(f.saveAndUse).toEqual(['native'])
+  expect(f.actions).toEqual([])
+  const reads = f.requests
+    .filter((call) => call.capability === 'connector.execute')
+    .map((call) => call.input['args'] as string[])
+  expect(
+    reads.some((args) => args.includes('--request-json') || args[0] === 'import'),
+  ).toBe(false)
+})
+
+it('does not resurrect a mode-first task after the same row context is refreshed', async () => {
+  const f = fixture()
+  f.holdObservation()
+  const preparation = f.selectOriginal({ mode: 'stub' })
+  await vi.waitFor(() => expect(f.observationWaiting).toBe(true))
+  f.hide()
+  f.setContext({ visible: true, workspace: f.workspace })
+  await f.ready()
+  f.releaseObservation()
+  await preparation
+  expect(f.el('task').hidden).toBe(true)
+  expect(f.saveAndUse).toEqual([])
+  expect(f.actions).toEqual([])
+  expect(
+    f.requests.some(
+      (call) =>
+        call.capability === 'connector.execute' &&
+        (call.input['args'] as string[]).includes('--request-json'),
+    ),
+  ).toBe(false)
 })

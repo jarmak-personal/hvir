@@ -28,6 +28,7 @@ export function bindExposureView(document, client, ports) {
     router,
     exposures = [],
     preservation,
+    canImport = false,
     action,
     prepared,
     departures = new Map(),
@@ -84,7 +85,11 @@ export function bindExposureView(document, client, ports) {
     const busy = !!working || submitted,
       original = row()?.kind === 'Project original',
       isRouter = row()?.kind === 'Installed Router',
-      canReplace = preservation?.candidates.some((item) => item.status === 'available')
+      canReplace = preservation?.candidates.some((item) => item.status === 'available'),
+      canUse =
+        original &&
+        ['codex', 'claude'].includes(row()?.agent) &&
+        (canReplace || canImport)
     document.getElementById('router-content').hidden = !isRouter || !!action
     el('task').dataset.content = isRouter ? 'router' : 'skill'
     el('task').setAttribute('aria-busy', String(!!working?.phase))
@@ -104,8 +109,7 @@ export function bindExposureView(document, client, ports) {
             : action === 'ungroup'
               ? 'Ungroup'
               : `Replace with ${names[adoptionMode]}`
-    el('context').hidden =
-      !available() || !!action || (!isRouter && !(original && canReplace))
+    el('context').hidden = !available() || !!action || (!isRouter && !canUse)
     el('preservation-details').hidden = !original
     el('group').hidden =
       !available() || isRouter || !(row()?.source === 'library' || row()?.canonical)
@@ -119,10 +123,10 @@ export function bindExposureView(document, client, ports) {
         router.member_sources.some((member) => member.source_library_id !== library.id)
     }
     for (const id of ['full', 'stub']) {
-      el(id).hidden = !original || !canReplace
-      el(id).disabled = busy || !selectedChoice()
+      el(id).hidden = !canUse
+      el(id).disabled = busy || (!canImport && !selectedChoice())
     }
-    el('replacement').hidden = !original || !canReplace
+    el('replacement').hidden = !canUse
     el('choice').disabled = busy
     el('refresh').disabled = busy
     for (const id of ['preview', 'confirm'])
@@ -163,10 +167,19 @@ export function bindExposureView(document, client, ports) {
       }
     }
   }
-  async function currentLibrary(revision) {
-    const observed = registeredLibrary(
-        await io(revision).run(['library', 'status', '--json']),
-      ),
+  async function currentLibrary(revision, allowAbsent = false) {
+    const status = await io(revision).run(['library', 'status', '--json'])
+    if (
+      allowAbsent &&
+      status.schema === 'skillager.library-status.v1' &&
+      status.status === 'not-initialized' &&
+      status.initialized === false &&
+      status.library === null &&
+      status.git === null &&
+      status.skill === null
+    )
+      return null
+    const observed = registeredLibrary(status),
       expected =
         selection.library ?? (row().canonical ? { id: row().canonical.library_id } : null)
     if (
@@ -208,9 +221,7 @@ export function bindExposureView(document, client, ports) {
     if (availableChoices.length === 1)
       el('choice').value = availableChoices[0].source.skill_id
     el('choice-row').hidden = availableChoices.length < 2
-    el('availability').textContent = availableChoices.length
-      ? 'Preservation details'
-      : 'Replacement unavailable'
+    el('availability').textContent = 'Preservation details'
     el('preservation-reason').textContent =
       message ??
       (availableChoices.length
@@ -218,7 +229,7 @@ export function bindExposureView(document, client, ports) {
         : [preservation?.reason, ...choices.map((item) => item.reason)]
             .filter(Boolean)
             .join('\n') ||
-          'Save and accept this original first. If it is already saved, use Skillager to inspect missing preservation; the original stays unchanged.')
+          'Use Full or Stub to review saving this original in your library and replacing its project copy.')
     controls()
   }
   function renderRouter() {
@@ -288,6 +299,7 @@ export function bindExposureView(document, client, ports) {
     router = undefined
     library = undefined
     preservation = undefined
+    canImport = false
     const isRouter = row().kind === 'Installed Router',
       original = row().kind === 'Project original'
     if (!isRouter && !original) {
@@ -309,9 +321,14 @@ export function bindExposureView(document, client, ports) {
           router = selectedRouter(exposures, row())
           renderRouter()
         }
-        const observed = await currentLibrary(revision)
+        const observed = await currentLibrary(revision, original)
         if (!available(revision)) return
         library = observed
+        if (original && !library) {
+          canImport = true
+          renderPreservation()
+          return
+        }
         if (original) {
           const value = await observeNative(
             io(revision),
@@ -322,6 +339,8 @@ export function bindExposureView(document, client, ports) {
           )
           if (!available(revision)) return
           preservation = value
+          canImport =
+            value.status === 'unavailable' && value.origin?.entrypoint === row().path
           renderPreservation()
         }
       } catch (error) {
@@ -419,6 +438,18 @@ export function bindExposureView(document, client, ports) {
   }
   async function start(next, mode) {
     if (!available() || working || submitted) return
+    if (next === 'adopt-native' && !selectedChoice()) {
+      if (preservation?.candidates.some((item) => item.status === 'available')) {
+        say('Choose the saved library version to use.')
+        return
+      }
+      if (!canImport) {
+        say('Refresh this skill before choosing its project copy.')
+        return
+      }
+      ports.saveAndUse?.(mode ?? 'native')
+      return
+    }
     adoptionMode = mode ?? 'native'
     action = next
     completed = false
@@ -476,6 +507,7 @@ export function bindExposureView(document, client, ports) {
     }
     renderChoices()
     controls()
+    if (action === 'adopt-native') await review()
   }
   const taskAgent = () => el('task').dataset.agent ?? agent()
   function request() {
@@ -517,58 +549,53 @@ export function bindExposureView(document, client, ports) {
       })),
     }
   }
-  on(
-    'preview',
-    'click',
-    () =>
-      void guard(async (revision) => {
-        invalidatePlan()
-        const selected = JSON.stringify(request()),
-          input = { library, agent: taskAgent(), request: selected },
-          result = await prepareExposureChange(io(revision), input, workspace())
-        if (!available(revision)) return
-        if (selected !== JSON.stringify(request()))
-          throw new Error(
-            'Selection changed. Review the complete current selection again.',
-          )
-        prepared = {
-          input: { ...input, token: result.plan.confirmation_token },
-          plan: result.plan,
-          revision,
-          selected,
-        }
-        const plan = result.plan,
-          wanted = plan.request
-        el('summary').textContent = [
-          `${taskAgent()} · local: ${workspace().root.path}`,
-          action === 'adopt-native'
-            ? `Replace ${row().path.slice(0, -9)} with ${names[adoptionMode]}. Preserved library version: ${wanted.source.skill_id}.`
-            : action === 'ungroup'
-              ? `Create ${names[wanted.mode]} copies for ${(plan.group?.before_members ?? []).join(', ')}. Remove this Router; keep its curated tag.`
-              : `Router members: ${wanted.members.join(', ') || '(none)'}.`,
-          ...(wanted.departures ?? []).map(
-            (item) => `${item.skill_id}: ${names[item.mode]}`,
-          ),
-          ...(wanted.replace ?? []).map(
-            (item) =>
-              `Replace standalone: ${exposures.find((copy) => copy.exposure_id === item.exposure_id)?.target ?? item.exposure_id}`,
-          ),
-        ].join('\n')
-        el('effects').replaceChildren(
-          ...plan.targets.flatMap((target) =>
-            target.file_effects.map((effect) => {
-              const item = document.createElement('li')
-              item.textContent = `${effect.action}: ${target.path}${effect.path === '.' ? '' : '/' + effect.path}`
-              return item
-            }),
-          ),
-        )
-        el('plan').textContent = JSON.stringify(plan, null, 2)
-        say('')
-        controls()
-        el('confirm').focus()
-      }, 'review'),
-  )
+  const review = () =>
+    guard(async (revision) => {
+      invalidatePlan()
+      const selected = JSON.stringify(request()),
+        input = { library, agent: taskAgent(), request: selected },
+        result = await prepareExposureChange(io(revision), input, workspace())
+      if (!available(revision)) return
+      if (selected !== JSON.stringify(request()))
+        throw new Error('Selection changed. Review the complete current selection again.')
+      prepared = {
+        input: { ...input, token: result.plan.confirmation_token },
+        plan: result.plan,
+        revision,
+        selected,
+      }
+      const plan = result.plan,
+        wanted = plan.request
+      el('summary').textContent = [
+        `${taskAgent()} · local: ${workspace().root.path}`,
+        action === 'adopt-native'
+          ? `Replace ${row().path.slice(0, -9)} with ${names[adoptionMode]}. Preserved library version: ${wanted.source.skill_id}.`
+          : action === 'ungroup'
+            ? `Create ${names[wanted.mode]} copies for ${(plan.group?.before_members ?? []).join(', ')}. Remove this Router; keep its curated tag.`
+            : `Router members: ${wanted.members.join(', ') || '(none)'}.`,
+        ...(wanted.departures ?? []).map(
+          (item) => `${item.skill_id}: ${names[item.mode]}`,
+        ),
+        ...(wanted.replace ?? []).map(
+          (item) =>
+            `Replace standalone: ${exposures.find((copy) => copy.exposure_id === item.exposure_id)?.target ?? item.exposure_id}`,
+        ),
+      ].join('\n')
+      el('effects').replaceChildren(
+        ...plan.targets.flatMap((target) =>
+          target.file_effects.map((effect) => {
+            const item = document.createElement('li')
+            item.textContent = `${effect.action}: ${target.path}${effect.path === '.' ? '' : '/' + effect.path}`
+            return item
+          }),
+        ),
+      )
+      el('plan').textContent = JSON.stringify(plan, null, 2)
+      say('')
+      controls()
+      el('confirm').focus()
+    }, 'review')
+  on('preview', 'click', () => void review())
   on(
     'confirm',
     'click',
@@ -595,6 +622,7 @@ export function bindExposureView(document, client, ports) {
           if (!available(revision)) return
           prepared = undefined
           el('result').textContent = JSON.stringify(result, null, 2)
+          ports.changed?.(result)
           el('operation-details').hidden = false
           el('reconcile').hidden = result?.outcome !== 'uncertain'
           if (result?.outcome === 'verified') {
@@ -655,7 +683,7 @@ export function bindExposureView(document, client, ports) {
         .catch((error) => say(error.message)),
   )
   return {
-    select(input) {
+    async select(input, options = {}) {
       routerEvents?.abort()
       choiceEvents?.abort()
       generation++
@@ -665,6 +693,7 @@ export function bindExposureView(document, client, ports) {
       selection = input
       ports.preservation?.(undefined)
       library = router = preservation = undefined
+      canImport = false
       exposures = []
       picker.stop()
       el('task').hidden = true
@@ -672,7 +701,13 @@ export function bindExposureView(document, client, ports) {
       document.getElementById('router-content').hidden =
         row()?.kind !== 'Installed Router'
       controls()
-      if (input) void refresh()
+      if (input) {
+        const preparation = refresh(),
+          revision = generation
+        await preparation
+        if (available(revision) && selection === input && options.mode)
+          await start('adopt-native', options.mode)
+      }
     },
     refresh,
     contextChanged() {

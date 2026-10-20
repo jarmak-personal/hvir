@@ -1,6 +1,7 @@
 import { managementCli } from './management-cli.mjs'
 import { exactImportManifest, importArgs } from './import-contract.mjs'
 import { sameReviewedManifest } from './review-contract.mjs'
+import { prepareImportPlacement } from './import-placement-contract.mjs'
 import { bindReviewFiles } from './review-file-view.mjs'
 import { readOperationReport } from './operation-report.mjs'
 
@@ -12,6 +13,7 @@ export function bindSelectedImport(document, client, ports) {
     pending,
     observation,
     preservation,
+    mode,
     message = '',
     serial = 0,
     busy = false,
@@ -27,7 +29,8 @@ export function bindSelectedImport(document, client, ports) {
     row?.host === 'local' &&
     row.workspaceId === context().workspace?.id &&
     context().workspace?.host === 'local'
-  const saved = () => preservation && !el('name').value.trim() && !pending && !submitted
+  const saved = () =>
+    !mode && preservation && !el('name').value.trim() && !pending && !submitted
   const say = (text) => {
     message = text
     el('state').textContent = saved() ? '' : text
@@ -51,7 +54,19 @@ export function bindSelectedImport(document, client, ports) {
       }),
   })
   function controls() {
+    if (disposed) return
+    document
+      .getElementById('selected-import')
+      .setAttribute('aria-busy', String(busy || submitted))
     const manifest = prepared?.manifest
+    el('save').textContent = submitted
+      ? 'Saving…'
+      : busy
+        ? 'Preparing…'
+        : mode
+          ? `Save and use ${mode === 'stub' ? 'Stub' : 'Full'}`
+          : 'Save and accept'
+    el('replacement').hidden = !prepared?.value
     el('save').hidden = !!saved()
     el('options').hidden = !!saved()
     el('inspect').hidden = !!saved() && !prepared
@@ -65,12 +80,16 @@ export function bindSelectedImport(document, client, ports) {
       : manifest
         ? `local: ${manifest.destination_path}`
         : ''
+    const initialization =
+      manifest?.library.status === 'will-initialize'
+        ? `${manifest.library.library_id ? 'Reconnects' : 'Creates'} your personal library ${manifest.library.git_mode === 'system' ? 'with Git history' : 'without Git history'}. `
+        : ''
     el('effect').textContent = saved()
       ? 'Original unchanged.'
       : manifest
-        ? manifest.library.status === 'will-initialize'
-          ? `Creates personal library ${manifest.library.git_mode === 'system' ? 'with Git history' : 'without Git history'}. Original unchanged.`
-          : 'Original stays unchanged.'
+        ? mode
+          ? `${initialization}Saves in your library and replaces this project original with ${mode === 'stub' ? 'Stub' : 'Full'} for ${row.agent === 'claude' ? 'Claude' : 'Codex'}.`
+          : `${initialization}Original stays unchanged.`
         : ''
     el('state').textContent = saved() ? '' : message
     el('save').disabled =
@@ -120,6 +139,7 @@ export function bindSelectedImport(document, client, ports) {
     return {
       skillId: row.skillId,
       file: { hostId: 'local', path: row.path },
+      ...(mode ? { mode, agent: row.agent } : {}),
       ...(el('name').value.trim() ? { name: el('name').value.trim() } : {}),
     }
   }
@@ -158,25 +178,25 @@ export function bindSelectedImport(document, client, ports) {
         const record = await readOperationReport(client, id)
         if (!available(revision)) return
         if (
-          record.operation.action === 'save-and-accept' &&
+          ['save-and-accept', 'save-and-use-copy'].includes(record.operation.action) &&
           record.operation.file.path === row.path &&
           record.operation.source.id === row.skillId &&
           record.operation.workspace.id === row.workspaceId
         ) {
           pending = id
           el('result').textContent = JSON.stringify(record, null, 2)
-          say(
-            'Save and accept may have completed partly. Inspect this operation before trying again.',
-          )
+          say('This operation may have completed partly. Inspect it before trying again.')
           return
         }
       }
       const input = selection(),
-        result = exactImportManifest(
-          await io(revision).run(importArgs(input)),
-          input,
-          context().workspace,
-        )
+        result = mode
+          ? await prepareImportPlacement(io(revision), input, context().workspace)
+          : exactImportManifest(
+              await io(revision).run(importArgs(input)),
+              input,
+              context().workspace,
+            )
       if (!available(revision)) return
       prepared = { ...result, input: { ...input, name: result.name } }
       inspect(false)
@@ -184,7 +204,22 @@ export function bindSelectedImport(document, client, ports) {
       el('target').textContent = `Destination · local: ${manifest.destination_path}`
       el('version').textContent =
         `${manifest.file_count} files · ${manifest.total_bytes} bytes`
-      el('manifest').textContent = JSON.stringify(result.manifest, null, 2)
+      el('manifest').textContent = JSON.stringify(
+        result.value ?? result.manifest,
+        null,
+        2,
+      )
+      el('effects').replaceChildren(
+        ...(result.value?.replacement.targets ?? []).flatMap((target) =>
+          target.file_effects
+            .filter((effect) => effect.action !== 'keep')
+            .map((effect) => {
+              const item = document.createElement('li')
+              item.textContent = `${effect.action} · ${target.path}${effect.path === '.' ? '' : '/' + effect.path}`
+              return item
+            }),
+        ),
+      )
       files.show(manifest.files)
       say(result.gate ?? '')
     })
@@ -204,33 +239,44 @@ export function bindSelectedImport(document, client, ports) {
         const chosen = prepared
         el('save').disabled = true
         try {
-          const fresh = exactImportManifest(
-            await io(revision).run(importArgs(chosen.input)),
-            chosen.input,
-            context().workspace,
-          )
-          sameReviewedManifest(chosen.manifest, fresh.manifest)
-          if (!fresh.eligible) throw new Error(fresh.gate)
+          if (!mode) {
+            const fresh = exactImportManifest(
+              await io(revision).run(importArgs(chosen.input)),
+              chosen.input,
+              context().workspace,
+            )
+            sameReviewedManifest(chosen.manifest, fresh.manifest)
+            if (!fresh.eligible) throw new Error(fresh.gate)
+          }
           if (!available(revision)) return
           submitted = true
+          say('Saving…')
           controls()
-          const result = await client.request('actions.invoke', {
-            action: 'save-and-accept',
-            input: {
-              ...chosen.input,
-              hash: chosen.manifest.source_hash,
-              token: chosen.manifest.confirmation_token,
-            },
-          })
+          const result = await client
+            .request('actions.invoke', {
+              action: mode ? 'save-and-use-copy' : 'save-and-accept',
+              input: {
+                ...chosen.input,
+                hash: chosen.manifest.source_hash,
+                token:
+                  chosen.value?.confirmation_token ?? chosen.manifest.confirmation_token,
+              },
+            })
+            .catch((error) => {
+              // Definite message-only refusals use the public action error boundary.
+              // Notify the origin to reobserve without inventing completion facts.
+              if (available(revision)) ports.changed?.()
+              throw error
+            })
           if (!available(revision)) return
           el('result').textContent = JSON.stringify(result, null, 2)
-          if (result.outcome === 'verified') {
+          if (['verified', 'saved-not-replaced'].includes(result.outcome)) {
             el('name').value = ''
-            ports.saved?.()
           }
           pending = result.operationId
           prepared = undefined
           say(result.message ?? 'Inspect the exact operation result before continuing.')
+          ports.changed?.(result)
         } finally {
           submitted = false
           if (available(revision)) {
@@ -255,7 +301,7 @@ export function bindSelectedImport(document, client, ports) {
   })
   on('cancel', 'click', () => {
     invalidate()
-    say('Save and accept cancelled. No import was requested.')
+    say('Cancelled. No save or replacement was requested.')
   })
   on(
     'reconcile',
@@ -288,7 +334,10 @@ export function bindSelectedImport(document, client, ports) {
           : undefined
       controls()
     },
-    select(input) {
+    select(input, options = {}) {
+      mode = options.mode
+      if (mode !== undefined && !['native', 'stub'].includes(mode))
+        throw new Error('Choose Full or Stub')
       invalidate()
       preservation = undefined
       message = ''
@@ -307,7 +356,7 @@ export function bindSelectedImport(document, client, ports) {
         el('effect').textContent =
         el('version').textContent =
           ''
-      if (row && available()) void refresh()
+      if (row && available() && options.prepare !== false) void refresh()
       else controls()
     },
     contextChanged() {

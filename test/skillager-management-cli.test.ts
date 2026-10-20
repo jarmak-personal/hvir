@@ -8,7 +8,7 @@ interface ManagementIo {
     args: string[],
     operation?: object,
     retryReadFrequency?: boolean,
-    validateCompletion?: (value: unknown, code: number) => void,
+    validateCompletion?: (value: unknown, code: number, diagnostic: string) => void,
     captureOutput?: (value: unknown, receipt: string) => unknown,
   ): Promise<unknown>
   verified(): void
@@ -134,7 +134,8 @@ function fixture() {
     receipt: 'owned-receipt',
     truncated: false,
   }
-  let stdout = '{"schema":"fixture"}'
+  let stdout = '{"schema":"fixture"}',
+    stderr = ''
   const native = connectorOutputFixture()
   const calls: Array<{ capability: string; input: Record<string, unknown> }> = []
   const client = {
@@ -144,7 +145,7 @@ function fixture() {
     request(capability: string, input: Record<string, unknown>): Promise<unknown> {
       calls.push({ capability, input })
       if (capability === 'connector.execute')
-        return Promise.resolve(native.complete(execution as object, stdout))
+        return Promise.resolve(native.complete(execution as object, stdout, stderr))
       return Promise.resolve(native.read(input))
     },
   }
@@ -159,6 +160,9 @@ function fixture() {
     },
     stdout: (value: string) => {
       stdout = value
+    },
+    stderr: (value: string) => {
+      stderr = value
     },
   }
 }
@@ -216,6 +220,7 @@ it('keeps public completion interpretation and receipt capture after an admitted
   f.client.delay = () => {
     f.execution({ outcome: 'completed', code: 2, receipt: 'fresh', truncated: false })
     f.stdout('{"status":"unavailable"}')
+    f.stderr('Current observation unavailable.')
     return Promise.resolve()
   }
   await expect(
@@ -227,7 +232,11 @@ it('keeps public completion interpretation and receipt capture after an admitted
       capture,
     ),
   ).resolves.toEqual({ value: { status: 'unavailable' }, receipt: 'fresh' })
-  expect(validate).toHaveBeenCalledExactlyOnceWith({ status: 'unavailable' }, 2)
+  expect(validate).toHaveBeenCalledExactlyOnceWith(
+    { status: 'unavailable' },
+    2,
+    'Current observation unavailable.',
+  )
   expect(capture).toHaveBeenCalledExactlyOnceWith({ status: 'unavailable' }, 'fresh')
   expect(f.calls.at(-1)).toEqual({
     capability: 'connector.output',

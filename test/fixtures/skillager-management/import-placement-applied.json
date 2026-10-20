@@ -1,0 +1,343 @@
+{
+  "agent": "codex",
+  "import": {
+    "blocked": false,
+    "destination": {
+      "display_name": "Demo",
+      "exists": false,
+      "id": "lib/demo",
+      "name": "demo",
+      "path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/home/.skillager/library/skills/demo",
+      "slug": "demo"
+    },
+    "library": {
+      "git_mode": "system",
+      "root": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/home/.skillager/library",
+      "status": "will-initialize"
+    },
+    "lint": {
+      "blocking_count": 0,
+      "findings": [],
+      "status": "ok"
+    },
+    "owner_review_required": true,
+    "project": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project",
+    "provenance": {
+      "imported_from": {
+        "content_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77",
+        "skill_id": "project/demo",
+        "source_type": "project"
+      }
+    },
+    "requires_override": false,
+    "review_manifest": {
+      "destination_id": "lib/demo",
+      "destination_path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/home/.skillager/library/skills/demo",
+      "file_count": 2,
+      "files": [
+        {
+          "executable": false,
+          "path": "SKILL.md",
+          "sha256": "08a8e9a636dfc75be75027c780e1201630e81793cf680ae221d6a49186a0338a",
+          "size": 96
+        },
+        {
+          "executable": true,
+          "path": "helper.sh",
+          "sha256": "9ab8fabc8c72bfa0416414631e26bd71b01f9dfae98dcf4656b1e2d78307876a",
+          "size": 15
+        }
+      ],
+      "library": {
+        "git_mode": "system",
+        "library_id": null,
+        "root": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/home/.skillager/library",
+        "status": "will-initialize"
+      },
+      "limits": {
+        "file_bytes": 2097152,
+        "files": 512,
+        "response_bytes": 262144,
+        "tree_bytes": 33554432
+      },
+      "schema": "skillager.import-review-manifest.v1",
+      "source_file": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents/skills/demo/SKILL.md",
+      "source_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77",
+      "source_id": "project/demo",
+      "source_provenance": {
+        "collection": null,
+        "editable": false,
+        "package": null,
+        "type": "project",
+        "version": null
+      },
+      "source_root": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents/skills/demo",
+      "total_bytes": 111,
+      "working_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77"
+    },
+    "scan": {
+      "finding_count": 0,
+      "findings": [],
+      "risk": "low",
+      "scanned_files": 2,
+      "skipped_files": 0
+    },
+    "schema": "skillager.import.v1",
+    "source": {
+      "collection": null,
+      "content_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77",
+      "editable": false,
+      "file": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents/skills/demo/SKILL.md",
+      "id": "project/demo",
+      "name": "Demo",
+      "package": null,
+      "path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents/skills/demo",
+      "summary": "Use the fixture guidance.",
+      "trust": "discovered",
+      "type": "project",
+      "version": null
+    },
+    "source_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77",
+    "status": "preview"
+  },
+  "initialization": {
+    "library_id": "2a654fbe-df7c-5224-b835-135bb1e62a13",
+    "root": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/home/.skillager/library",
+    "status": "initialized"
+  },
+  "library_identity": {
+    "library_id": "2a654fbe-df7c-5224-b835-135bb1e62a13",
+    "status": "will-create"
+  },
+  "mode": "stub",
+  "original": {
+    "entrypoint": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents/skills/demo/SKILL.md",
+    "native": {
+      "agent": "codex",
+      "project_root": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project",
+      "scope": "project"
+    },
+    "origin_id": "42821df1cf38b73172841419aef122ad9ea97994a3e5163d1f849c7c8196baed",
+    "path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents/skills/demo",
+    "provenance": {},
+    "skill_id": "project/demo",
+    "source_type": "project"
+  },
+  "placement": {
+    "reason_code": null,
+    "results": [
+      {
+        "action": "keep",
+        "kind": "parent",
+        "observed_state_hash": "02eeba4f3d87aa333a9d652c36bd9b0c17882e2e2d0292c752594c5b77230997",
+        "path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents",
+        "reason_code": null,
+        "recovery_path": null,
+        "status": "unchanged",
+        "target_id": "6d50bf0ccd43f33ca2ec77f02a627a75ec7c82502bdbad9a78562757e719c64b"
+      },
+      {
+        "action": "keep",
+        "kind": "parent",
+        "observed_state_hash": "02eeba4f3d87aa333a9d652c36bd9b0c17882e2e2d0292c752594c5b77230997",
+        "path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents/skills",
+        "reason_code": null,
+        "recovery_path": null,
+        "status": "unchanged",
+        "target_id": "cad916a216cd8e0b9cf428c78f1cca38f5a4e5ff49b2f467d299bcdd7cb94b2f"
+      },
+      {
+        "action": "replace",
+        "exposure_id": "demo",
+        "kind": "direct",
+        "mode": "stub",
+        "observed_state_hash": "3d4d53dad0f58ad8d1978ca6cfb4d44a95da32a3b73b7f173afddd0c3de5a9d0",
+        "path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents/skills/demo",
+        "reason_code": null,
+        "recovery_path": null,
+        "skill_id": "lib/demo",
+        "status": "applied",
+        "target_id": "fc9d2fe1844fc1073a4eb50453bb17b80e1a1149d24e27800690dc13b433bd77"
+      }
+    ],
+    "status": "applied"
+  },
+  "plan_hash": "1582d9e3b6760a5acdc499021bcf215e5c111d5708e36acf835d7ddbf578f588",
+  "project": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project",
+  "replacement": {
+    "request": {
+      "action": "adopt-native",
+      "mode": "stub",
+      "origin_id": "42821df1cf38b73172841419aef122ad9ea97994a3e5163d1f849c7c8196baed",
+      "schema": "skillager.exposure-request.v1",
+      "source": {
+        "library_id": "2a654fbe-df7c-5224-b835-135bb1e62a13",
+        "skill_id": "lib/demo"
+      }
+    },
+    "staging": {
+      "candidate_bytes": 1500,
+      "limit_bytes": 134217728,
+      "peak_bytes": 1611,
+      "retained_original_bytes": 111,
+      "transfer_reserve_bytes": 0
+    },
+    "targets": [
+      {
+        "action": "keep",
+        "after": {
+          "mode": 493,
+          "state_hash": "02eeba4f3d87aa333a9d652c36bd9b0c17882e2e2d0292c752594c5b77230997"
+        },
+        "before": {
+          "mode": 493,
+          "state_hash": "02eeba4f3d87aa333a9d652c36bd9b0c17882e2e2d0292c752594c5b77230997"
+        },
+        "file_effects": [
+          {
+            "action": "keep",
+            "after": {
+              "mode": 493,
+              "type": "directory"
+            },
+            "before": {
+              "mode": 493,
+              "type": "directory"
+            },
+            "path": "."
+          }
+        ],
+        "kind": "parent",
+        "path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents",
+        "target_id": "6d50bf0ccd43f33ca2ec77f02a627a75ec7c82502bdbad9a78562757e719c64b"
+      },
+      {
+        "action": "keep",
+        "after": {
+          "mode": 493,
+          "state_hash": "02eeba4f3d87aa333a9d652c36bd9b0c17882e2e2d0292c752594c5b77230997"
+        },
+        "before": {
+          "mode": 493,
+          "state_hash": "02eeba4f3d87aa333a9d652c36bd9b0c17882e2e2d0292c752594c5b77230997"
+        },
+        "file_effects": [
+          {
+            "action": "keep",
+            "after": {
+              "mode": 493,
+              "type": "directory"
+            },
+            "before": {
+              "mode": 493,
+              "type": "directory"
+            },
+            "path": "."
+          }
+        ],
+        "kind": "parent",
+        "path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents/skills",
+        "target_id": "cad916a216cd8e0b9cf428c78f1cca38f5a4e5ff49b2f467d299bcdd7cb94b2f"
+      },
+      {
+        "action": "replace",
+        "after": {
+          "mode": 493,
+          "state_hash": "3f93c018898eda905b28dd661c07d781cfbfcb52ac69396e383009ca579ff12e"
+        },
+        "before": {
+          "mode": 493,
+          "state_hash": "a13d67bbf9511597e71257c90846917a19905017c921d0467c091a9793038a1c"
+        },
+        "exposure_id": "demo",
+        "file_effects": [
+          {
+            "action": "replace",
+            "after": {
+              "mode": 420,
+              "sha256": "f34d0e3b4c5cd8f4c6e2cf23471d9b716c6efb72a21d539365ae69c015496032",
+              "size": 451,
+              "type": "file"
+            },
+            "before": {
+              "mode": 420,
+              "sha256": "08a8e9a636dfc75be75027c780e1201630e81793cf680ae221d6a49186a0338a",
+              "size": 96,
+              "type": "file"
+            },
+            "path": "SKILL.md"
+          },
+          {
+            "action": "remove",
+            "after": null,
+            "before": {
+              "mode": 489,
+              "sha256": "9ab8fabc8c72bfa0416414631e26bd71b01f9dfae98dcf4656b1e2d78307876a",
+              "size": 15,
+              "type": "file"
+            },
+            "path": "helper.sh"
+          },
+          {
+            "action": "create",
+            "after": {
+              "generated_fields": {
+                "materialized_at": "UTC installation time",
+                "materialized_fingerprint": "advisory fingerprint of installed file metadata",
+                "materialized_sidecar_hash": "integrity hash of the complete generated sidecar"
+              },
+              "metadata": {
+                "adopted_native_origin": "42821df1cf38b73172841419aef122ad9ea97994a3e5163d1f849c7c8196baed",
+                "agent": "codex",
+                "id": "lib/demo",
+                "materialized_hash": "83d8a90b3acd5227a442ade5cb1f312671eee1d7ed55830308d57d257221b17c",
+                "materialized_target_hash": "99294e54faca4dff41e129b422dbed4637b76fc9e0950a5c77063889ede53c6d",
+                "projection_identity": "direct:570ee66cb670cd114cce156c8c0386e16c1040f92354269ad391913fede9d942",
+                "projection_kind": "direct",
+                "schema": "skillager.materialized.v1",
+                "scope": "project",
+                "source_entrypoint": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/home/.skillager/library/skills/demo/SKILL.md",
+                "source_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77",
+                "source_id": "lib/demo",
+                "source_library_id": "2a654fbe-df7c-5224-b835-135bb1e62a13",
+                "source_package": "lib",
+                "source_trust": "reviewed",
+                "source_type": "skillager-stub"
+              },
+              "mode": 420,
+              "type": "file"
+            },
+            "before": null,
+            "path": "skillager.materialized.yaml"
+          }
+        ],
+        "kind": "direct",
+        "mode": "stub",
+        "path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents/skills/demo",
+        "skill_id": "lib/demo",
+        "target_id": "fc9d2fe1844fc1073a4eb50453bb17b80e1a1149d24e27800690dc13b433bd77"
+      }
+    ]
+  },
+  "save": {
+    "approval": {
+      "content_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77",
+      "lint_override": null,
+      "risk_override": null,
+      "scope": "global",
+      "state": "reviewed"
+    },
+    "copied_file_count": 2,
+    "destination": {
+      "acceptance": "accepted",
+      "accepted_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77",
+      "id": "lib/demo",
+      "path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/home/.skillager/library/skills/demo",
+      "working_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77"
+    },
+    "status": "accepted"
+  },
+  "schema": "skillager.import-placement.v1",
+  "source_decision_state": "fe44a8cccd89edae70b54c5e58399979bd7d8b12643a8396ad62d089a781b692",
+  "status": "saved-and-replaced"
+}

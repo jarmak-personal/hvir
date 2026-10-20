@@ -9,6 +9,7 @@ import { syncArgs, removalArgs } from './management-argv.mjs'
 import { syncReport } from './management-sync-report.mjs'
 import { syncReviewHash } from './management-sync-review.mjs'
 import { syncObservation } from './management-library.mjs'
+import { placementReconciliation } from './import-placement-reconcile.mjs'
 import { importReconciliation } from './import-operation.mjs'
 import { exposureFacts } from './exposure-reconcile.mjs'
 import { prepareCopy } from './management-copy.mjs'
@@ -17,10 +18,13 @@ import { prepareCopy } from './management-copy.mjs'
 export async function reconciliationFacts(io, record, workspace) {
   const operation = record.operation,
     status = await io.run(['library', 'status', '--json']),
-    library =
-      operation.action === 'save-and-accept' ? undefined : registeredLibrary(status)
+    library = ['save-and-accept', 'save-and-use-copy'].includes(operation.action)
+      ? undefined
+      : registeredLibrary(status)
   let current
-  if (operation.action === 'save-and-accept') {
+  if (operation.action === 'save-and-use-copy') {
+    current = await placementReconciliation(io, operation, status, workspace)
+  } else if (operation.action === 'save-and-accept') {
     current = await importReconciliation(io, operation, status)
   } else if (operation.action === 'initialize-library') {
     if (
