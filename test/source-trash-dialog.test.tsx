@@ -202,6 +202,34 @@ it('withdraws a revoked review so a late click cannot confirm it', async () => {
   )
 })
 
+it('retains a consumed launch failure until Close and cannot confirm the invalid request again', async () => {
+  const f = await fixture()
+  f.invoke.mockRejectedValueOnce(
+    new Error('The selected directory changed. Review it again.'),
+  )
+  await f.submit()
+  await f.emit('extensions:source-trash-changed', [])
+  expect(document.querySelector('[role=alert]')?.textContent).toContain(
+    'The selected directory changed',
+  )
+  expect(document.querySelector<HTMLButtonElement>('button[type=submit]')?.disabled).toBe(
+    true,
+  )
+  await f.submit()
+  expect(
+    f.invoke.mock.calls.filter(
+      ([channel]) => channel === 'extensions:source-trash-confirm',
+    ),
+  ).toHaveLength(1)
+  expect(f.removal.closeWorkspaceCleanPath).not.toHaveBeenCalled()
+  await renderTurn(() =>
+    [...document.querySelectorAll('button')]
+      .find((button) => button.textContent === 'Close')!
+      .click(),
+  )
+  expect(document.querySelector('.file-deletion-dialog')).toBeNull()
+})
+
 it('retains the operation owner when completion withdraws the review before the start reply', async () => {
   const f = await fixture()
   let reply!: (value: Awaited<ReturnType<typeof f.invoke>>) => void

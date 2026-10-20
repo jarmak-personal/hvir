@@ -42,6 +42,7 @@ export async function deleteProjectEntry(options: {
   readonly assertCurrent: () => void
   readonly limits: ProjectFileCopyLimits
   readonly beforeDelete?: () => Promise<void>
+  readonly onSubmitted?: () => void
 }): Promise<ProjectFileItemResult> {
   let committed = false
   let removedEntries = 0
@@ -87,6 +88,7 @@ export async function deleteProjectEntry(options: {
       await options.host.fileDeletion.trashEntry(source.canonicalPath, {
         signal: options.signal,
         onSubmitted: () => {
+          options.onSubmitted?.()
           committed = true
         },
       })

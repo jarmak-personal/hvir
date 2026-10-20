@@ -122,25 +122,33 @@ describe('project file deletion coordinator', () => {
     await expect(readFile(source.path, 'utf8')).resolves.toBe('retained')
   })
 
-  it('rechecks a trusted source decision at the physical Trash boundary', async () => {
-    const source = joinHostPath(root, 'selected.txt')
-    await writeFile(source.path, 'retained')
-    const beforeDelete = vi.fn(() =>
-      Promise.reject(new Error('The selected source decision was revoked')),
-    )
-    const publish = progressPublisher()
-    await coordinator.delete({
-      owner,
-      request: { workspaceRoot: root, source, confirmedRecovery: 'recoverable' },
-      beforeDelete,
-      publish,
-    })
-    const completed = await publish.waitForPhase('completed')
-    expect(beforeDelete).toHaveBeenCalledOnce()
-    expect(completed.result?.items[0]).toMatchObject({ status: 'failed', effect: 'none' })
-    await expect(readFile(source.path, 'utf8')).resolves.toBe('retained')
-    await expect(readFile(`${source.path}.trash`)).rejects.toThrow()
-  })
+  it.each(['beforeDelete', 'onSubmitted'] as const)(
+    'refuses a revoked source at %s without submitting Trash',
+    async (boundary) => {
+      const source = joinHostPath(root, 'selected.txt')
+      await writeFile(source.path, 'retained')
+      const guard = vi.fn(() => {
+        throw new Error('The selected source decision was revoked')
+      })
+      const publish = progressPublisher()
+      await coordinator.delete({
+        owner,
+        request: { workspaceRoot: root, source, confirmedRecovery: 'recoverable' },
+        ...(boundary === 'beforeDelete'
+          ? { beforeDelete: () => Promise.resolve().then(guard) }
+          : { onSubmitted: guard }),
+        publish,
+      })
+      const completed = await publish.waitForPhase('completed')
+      expect(guard).toHaveBeenCalledOnce()
+      expect(completed.result?.items[0]).toMatchObject({
+        status: 'failed',
+        effect: 'none',
+      })
+      await expect(readFile(source.path, 'utf8')).resolves.toBe('retained')
+      await expect(readFile(`${source.path}.trash`)).rejects.toThrow()
+    },
+  )
 
   it('fails closed on replaced workspace authority and a changed recovery guarantee', async () => {
     const source = joinHostPath(root, 'retained.txt')

@@ -57,12 +57,14 @@ function RequestedTrash({
   readonly onStart: () => void
   readonly onFinish: () => void
 }): ReactElement | null {
+  const [failed, setFailed] = useState(false)
   const controller = useFileDeletionActions({
     root: proposal.root,
     directRequest: { id: proposal.id, source: proposal.path },
     launch: () =>
       window.hvir.invoke('extensions:source-trash-confirm', { id: proposal.id }),
     onDismiss: () => {
+      onFinish()
       void window.hvir
         .invoke('extensions:source-trash-cancel', { id: proposal.id })
         .catch(() => undefined)
@@ -72,7 +74,13 @@ function RequestedTrash({
     closeCleanPath: (target) => removal.closeWorkspaceCleanPath(proposal.root, target),
     onStart,
     onComplete: onFinish,
-    onError: onFinish,
+    onError: () => setFailed(true),
   })
-  return <FileDeletionDialog controller={controller} allowCancelOperation />
+  return (
+    <FileDeletionDialog
+      controller={controller}
+      allowCancelOperation
+      canConfirm={!failed}
+    />
+  )
 }

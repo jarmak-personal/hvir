@@ -6,11 +6,10 @@ import type {
   ExtensionSourceTrashProposal,
   ExtensionSourceTrashResult,
 } from '../../shared/extensions/source-trash'
-import {
-  PROJECT_FILE_OPERATION_DEADLINE_MS,
-  type ProjectFileOperationProgress,
-  type ProjectFileOperationResult,
-  type ProjectFileOperationStartResult,
+import type {
+  ProjectFileOperationProgress,
+  ProjectFileOperationResult,
+  ProjectFileOperationStartResult,
 } from '../../shared/project-file-operations'
 import { proveProjectEntry } from '../project-file-operations/project-file-confinement'
 import type { ProjectHost } from '../project-host/project-host'
@@ -38,10 +37,11 @@ interface TrashRequest {
   readonly current: () => void
   readonly validate: () => Promise<void>
   readonly settle: (result: ExtensionSourceTrashResult, physical?: boolean) => void
-  readonly resetDeadline: (ms: number) => void
+  readonly stopDecisionDeadline: () => void
   cancelOperation?: () => void
   visible: boolean
   consumed: boolean
+  submitted: boolean
   physical: boolean
 }
 
@@ -144,7 +144,6 @@ export class ExtensionSourceTrashRequestOwner {
     }
     current()
     return new Promise<ExtensionSourceTrashResult>((resolve) => {
-      let timer: ReturnType<typeof setTimeout>
       const aborted = () => {
         try {
           entry.cancelOperation?.()
@@ -152,7 +151,7 @@ export class ExtensionSourceTrashRequestOwner {
           /* Files already revokes retired renderers. */
         }
         entry.settle({
-          outcome: entry.consumed ? 'uncertain' : 'cancelled',
+          outcome: entry.submitted ? 'uncertain' : 'cancelled',
           reason: 'Trash review ended. No automatic retry was made.',
         })
       }
@@ -171,14 +170,9 @@ export class ExtensionSourceTrashRequestOwner {
         },
         visible: false,
         consumed: false,
+        submitted: false,
         physical: true,
-        resetDeadline: (ms) => {
-          clearTimeout(timer)
-          timer = setTimeout(
-            () => controller.abort(new Error('Trash request expired')),
-            ms,
-          )
-        },
+        stopDecisionDeadline: () => clearTimeout(timer),
         settle: (result, physical = false) => {
           resolve(result)
           if (entry.visible) {
@@ -198,7 +192,10 @@ export class ExtensionSourceTrashRequestOwner {
       }
       this.pending = entry
       signal.addEventListener('abort', aborted, { once: true })
-      entry.resetDeadline(SOURCE_LIMITS.decisionMs)
+      const timer = setTimeout(
+        () => controller.abort(new Error('Trash request expired')),
+        SOURCE_LIMITS.decisionMs,
+      )
       void validate()
         .then(() => {
           current()
@@ -236,7 +233,6 @@ export class ExtensionSourceTrashRequestOwner {
     entry.consumed = true
     // Retain admission through preparation and physical settlement, even after revocation.
     entry.physical = true
-    entry.resetDeadline(PROJECT_FILE_OPERATION_DEADLINE_MS)
     try {
       await entry.validate()
       const started = await files.delete({
@@ -247,12 +243,19 @@ export class ExtensionSourceTrashRequestOwner {
           confirmedRecovery: 'recoverable',
         },
         beforeDelete: entry.validate,
+        onSubmitted: () => {
+          // The source can end after async validation but before Files' start reply.
+          entry.current()
+          entry.submitted = true
+          entry.stopDecisionDeadline()
+        },
         publish,
         settled: (result) => entry.settle(outcome(result), true),
       })
       if (started.outcome === 'busy')
         entry.settle({ outcome: 'refused', reason: started.reason }, true)
       else {
+        entry.stopDecisionDeadline()
         entry.cancelOperation = () => {
           files.cancel(owner, started.operationId, started.generation)
         }
@@ -266,7 +269,17 @@ export class ExtensionSourceTrashRequestOwner {
       }
       return started
     } catch (reason) {
-      entry.settle({ outcome: 'refused', reason: message(reason) }, true)
+      entry.settle(
+        {
+          outcome: entry.submitted
+            ? 'uncertain'
+            : entry.signal.aborted
+              ? 'cancelled'
+              : 'refused',
+          reason: message(reason),
+        },
+        true,
+      )
       throw reason
     }
   }

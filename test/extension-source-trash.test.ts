@@ -3,7 +3,10 @@ import { sourceFixture } from './fixtures/extension-source'
 import { ExtensionSourceTrashRequestOwner } from '../src/main/extensions/source-trash'
 import { localPath } from '../src/shared/host-path'
 import type { ProjectFileOperationCoordinator } from '../src/main/project-file-operations'
-import type { ProjectFileOperationProgress } from '../src/shared/project-file-operations'
+import {
+  PROJECT_FILE_OPERATION_DEADLINE_MS,
+  type ProjectFileOperationProgress,
+} from '../src/shared/project-file-operations'
 import { SOURCE_LIMITS } from '../src/shared/extensions/source-access'
 
 const fixtures: Array<() => void> = []
@@ -260,6 +263,129 @@ it('retains physical preparation capacity after cancellation until the host sett
   await vi.waitFor(() => expect(f.publish).not.toHaveBeenCalled())
 })
 
+it.each(['cancel', 'deadline'] as const)(
+  'reports no effect when %s ends confirmation validation and retains admission until validation settles',
+  async (ending) => {
+    const f = await fixture()
+    vi.useFakeTimers()
+    const result = f.requests.request(f.caller, f.input, f.owner)
+    await vi.advanceTimersByTimeAsync(0)
+    const id = f.requests.snapshot(f.owner)[0]!.id
+    let release!: () => void, entered!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const reached = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    f.host.realpath.mockImplementationOnce(async (path) => {
+      entered()
+      await held
+      return path
+    })
+    const confirming = f.requests.confirm(f.owner, id, f.files, vi.fn())
+    const rejected = expect(confirming).rejects.toThrow()
+    await reached
+    if (ending === 'cancel') f.requests.cancel(f.owner, id)
+    else await vi.advanceTimersByTimeAsync(SOURCE_LIMITS.decisionMs)
+    await expect(result).resolves.toMatchObject({ outcome: 'cancelled' })
+    expect(f.files.delete).not.toHaveBeenCalled()
+    await expect(f.requests.request(f.caller, f.input, f.owner)).rejects.toThrow(
+      /pending/,
+    )
+    release()
+    await rejected
+    vi.useRealTimers()
+    const next = await f.begin()
+    f.requests.cancel(f.owner, next.id)
+    await next.result
+  },
+)
+
+it('guards the handoff before submission even when Files has not returned its start reply', async () => {
+  const f = await fixture(),
+    { result, id } = await f.begin()
+  f.files.delete.mockImplementationOnce(async (input) => {
+    f.inputDeleted.push(input)
+    await input.beforeDelete!()
+    f.requests.cancel(f.owner, id)
+    expect(() => input.onSubmitted!()).toThrow()
+    return {
+      outcome: 'started',
+      operationId: 'operation',
+      generation: 2,
+      itemCount: 1,
+    }
+  })
+  await f.requests.confirm(f.owner, id, f.files, vi.fn())
+  await expect(result).resolves.toMatchObject({ outcome: 'cancelled' })
+  expect(f.files.cancel).toHaveBeenCalledWith(f.owner, 'operation', 2)
+  await expect(f.requests.request(f.caller, f.input, f.owner)).rejects.toThrow(/pending/)
+  f.complete('none')
+  const next = await f.begin()
+  f.requests.cancel(f.owner, next.id)
+  await next.result
+})
+
+it('keeps submission uncertainty and admission when cancellation precedes the Files start reply', async () => {
+  const f = await fixture(),
+    { result, id } = await f.begin()
+  let release!: () => void, submitted!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const reached = new Promise<void>((resolve) => {
+    submitted = resolve
+  })
+  f.files.delete.mockImplementationOnce(async (input) => {
+    f.inputDeleted.push(input)
+    await input.beforeDelete!()
+    input.onSubmitted!()
+    submitted()
+    await held
+    return {
+      outcome: 'started',
+      operationId: 'operation',
+      generation: 2,
+      itemCount: 1,
+    }
+  })
+  const confirming = f.requests.confirm(f.owner, id, f.files, vi.fn())
+  await reached
+  f.requests.cancel(f.owner, id)
+  await expect(result).resolves.toMatchObject({ outcome: 'uncertain' })
+  expect(f.files.cancel).not.toHaveBeenCalled()
+  await expect(f.requests.request(f.caller, f.input, f.owner)).rejects.toThrow(/pending/)
+  release()
+  await confirming
+  expect(f.files.cancel).toHaveBeenCalledWith(f.owner, 'operation', 2)
+  f.complete()
+  const next = await f.begin()
+  f.requests.cancel(f.owner, next.id)
+  await next.result
+})
+
+it('leaves the physical deadline to Files after it starts without a competing source timer', async () => {
+  const f = await fixture()
+  vi.useFakeTimers()
+  const result = f.requests.request(f.caller, f.input, f.owner)
+  await vi.advanceTimersByTimeAsync(0)
+  const id = f.requests.snapshot(f.owner)[0]!.id
+  await vi.advanceTimersByTimeAsync(SOURCE_LIMITS.decisionMs - 1)
+  await f.requests.confirm(f.owner, id, f.files, vi.fn())
+  let settled = false
+  void result.then(() => {
+    settled = true
+  })
+  await vi.advanceTimersByTimeAsync(
+    SOURCE_LIMITS.decisionMs + PROJECT_FILE_OPERATION_DEADLINE_MS,
+  )
+  expect(settled).toBe(false)
+  expect(f.files.cancel).not.toHaveBeenCalled()
+  f.complete()
+  await expect(result).resolves.toEqual({ outcome: 'completed' })
+})
+
 it('rejects replaced native directory identity at confirmation and immediately before Trash', async () => {
   const f = await fixture(),
     first = await f.begin()
@@ -295,6 +421,7 @@ it('retains a cancelled physical operation until its terminal event and never cl
     { result, id } = await f.begin()
   const published = vi.fn<(progress: ProjectFileOperationProgress) => void>()
   await f.requests.confirm(f.owner, id, f.files, published)
+  f.inputDeleted[0]!.onSubmitted!()
   f.requests.cancel(f.owner, id)
   await expect(result).resolves.toMatchObject({ outcome: 'uncertain' })
   expect(f.files.cancel).toHaveBeenCalledWith(f.owner, 'operation', 2)
@@ -310,6 +437,7 @@ it('releases physical capacity from the receipt even when a retired renderer rec
   const f = await fixture(),
     { result, id } = await f.begin()
   await f.requests.confirm(f.owner, id, f.files, vi.fn())
+  f.inputDeleted[0]!.onSubmitted!()
   f.scopes.assertCurrent.mockImplementation(() => {
     throw new Error('retired')
   })

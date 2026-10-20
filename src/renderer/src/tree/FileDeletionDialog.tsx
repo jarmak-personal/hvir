@@ -6,9 +6,11 @@ import type { FileDeletionActionsController } from './use-file-deletion-actions'
 export function FileDeletionDialog({
   controller,
   allowCancelOperation = false,
+  canConfirm = true,
 }: {
   readonly controller: FileDeletionActionsController
   readonly allowCancelOperation?: boolean
+  readonly canConfirm?: boolean
 }): ReactElement | null {
   const { dialog } = controller
   const [confirmation, setConfirmation] = useState('')
@@ -29,7 +31,7 @@ export function FileDeletionDialog({
         aria-labelledby="file-deletion-title"
         onSubmit={(event: FormEvent) => {
           event.preventDefault()
-          controller.confirm(confirmation)
+          if (canConfirm) controller.confirm(confirmation)
         }}
         onKeyDown={(event) => {
           if (event.key === 'Escape') controller.dismiss()
@@ -89,12 +91,18 @@ export function FileDeletionDialog({
               ? controller.progress?.phase === 'cancelling'
                 ? 'Cancelling…'
                 : 'Cancel operation'
-              : 'Cancel'}
+              : canConfirm
+                ? 'Cancel'
+                : 'Close'}
           </button>
           <button
             type="submit"
             className="confirmation-action confirmation-action-destructive hvir-button hvir-control"
-            disabled={controller.pending || (permanent && confirmation !== entryName)}
+            disabled={
+              !canConfirm ||
+              controller.pending ||
+              (permanent && confirmation !== entryName)
+            }
           >
             {controller.pending
               ? 'Deleting…'

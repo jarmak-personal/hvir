@@ -17,6 +17,8 @@ export interface ProjectFileDeletionInput {
   readonly owner: RendererOwner
   /** Additional exact-target guard supplied by a trusted one-use source review. */
   readonly beforeDelete?: () => Promise<void>
+  /** Synchronous final admission at the host's recoverable Trash submission boundary. */
+  readonly onSubmitted?: () => void
   /** Physical receipt survives renderer event suppression after revocation. */
   readonly settled?: (result: ProjectFileOperationResult | undefined) => void
   readonly request: ProjectFileDeleteRequest
@@ -86,6 +88,7 @@ export async function startProjectEntryDeletion(
         assertCurrent: () => runtime.assertCurrent(identity, operation.abort.signal),
         limits,
         beforeDelete: input.beforeDelete,
+        onSubmitted: input.onSubmitted,
       })
       return (completed = {
         outcome: 'completed',
