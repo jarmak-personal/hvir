@@ -10,6 +10,7 @@ interface VisualControls {
   select(): Promise<void>
   painted?(): Promise<unknown>
   readonly expectedInstructionImages?: number
+  readonly narrowScale?: string
 }
 
 /** Actual search controls must share the available guest width without covering each other. */
@@ -49,7 +50,8 @@ export async function captureExtensionVisuals(
     | 'router'
     | 'router-members'
     | 'preserved-original'
-    | 'library-selected',
+    | 'library-selected'
+    | 'project-save',
   controls: VisualControls,
   captureDirectory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY,
 ): Promise<void> {
@@ -77,7 +79,7 @@ export async function captureExtensionVisuals(
     for (const theme of ['dark', 'light'] as const) {
       for (const variant of ['ordinary', 'narrow-scaled'] as const) {
         console.log('[smoke] extension visual capture', state, theme, variant)
-        const scale = variant === 'ordinary' ? '1' : '1.3'
+        const scale = variant === 'ordinary' ? '1' : (controls.narrowScale ?? '1.3')
         win.setContentSize(variant === 'ordinary' ? 1280 : 760, 800)
         await controls.click('Open settings')
         await section('Appearance', 'appearance')

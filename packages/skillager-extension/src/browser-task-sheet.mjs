@@ -1,5 +1,6 @@
 import { bindSelectedTaskSurface } from './selected-task-surface.mjs'
 import { occurrenceFolder } from './catalog.mjs'
+import { bindProjectImport } from './project-import-view.mjs'
 
 /** The browser that starts a task owns its review and inventory refresh. */
 export function bindBrowserTaskSheet(document, client, ports) {
@@ -29,7 +30,16 @@ export function bindBrowserTaskSheet(document, client, ports) {
   }
   const on = (id, callback) =>
     el(id).addEventListener('click', callback, { signal: client.signal })
-  const working = () => pending || surface.submitted
+  const batch = document.getElementById('project-save-entry')
+    ? bindProjectImport(document, client, {
+        context,
+        project: ports.project,
+        open: (source) => void openProjectImport(source),
+        changed: ports.changed,
+        activity: () => update(),
+      })
+    : undefined
+  const working = () => pending || surface.submitted || !!batch?.submitted
   const visible = (node) => node && !node.closest('[hidden]')
   const decision = () =>
     [
@@ -45,6 +55,7 @@ export function bindBrowserTaskSheet(document, client, ports) {
     )
     el('skill-task-retry').hidden =
       sheet.hidden ||
+      action === 'project-import' ||
       working() ||
       preparing ||
       completed ||
@@ -80,6 +91,8 @@ export function bindBrowserTaskSheet(document, client, ports) {
     if (sheet.hidden) return true
     generation++
     selection = action = undefined
+    batch?.close()
+    slot.hidden = false
     preparing = false
     suspended = resumeNeeded = false
     terminalMessage = ''
@@ -111,6 +124,7 @@ export function bindBrowserTaskSheet(document, client, ports) {
   )
   async function open(input, task, source) {
     if (!available() || working()) return
+    if (action === 'project-import') close(false)
     if (task === 'router') {
       await ports.choose(input.row, input.library)
       return
@@ -200,6 +214,21 @@ export function bindBrowserTaskSheet(document, client, ports) {
     }
     await prepare(input, task, revision)
   }
+  async function openProjectImport(source) {
+    if (!batch || !available() || working() || !ports.project()) return
+    close(false)
+    generation++
+    action = 'project-import'
+    trigger = source
+    sheet.hidden = false
+    sheet.dataset.task = action
+    el('skill-task-title').textContent = 'Save to library'
+    message('')
+    surface.select(undefined)
+    slot.hidden = true
+    update()
+    await batch.open()
+  }
   async function prepare(input, task, revision) {
     const preparation = ++preparationSerial,
       currentPreparation = () => available(revision) && preparation === preparationSerial
@@ -234,7 +263,7 @@ export function bindBrowserTaskSheet(document, client, ports) {
     open,
     close,
     get active() {
-      return !!selection
+      return !!selection || action === 'project-import'
     },
     get busy() {
       return working()
@@ -242,6 +271,8 @@ export function bindBrowserTaskSheet(document, client, ports) {
     contextChanged() {
       generation++
       selection = action = undefined
+      batch?.contextChanged()
+      slot.hidden = false
       preparing = false
       suspended = resumeNeeded = false
       terminalMessage = ''
@@ -252,6 +283,12 @@ export function bindBrowserTaskSheet(document, client, ports) {
       update()
     },
     visibilityChanged(visible) {
+      batch?.visibilityChanged()
+      if (action === 'project-import') {
+        sheet.hidden = !visible
+        update()
+        return
+      }
       if (!selection) return
       suspended = !visible
       sheet.hidden = !visible
@@ -265,10 +302,20 @@ export function bindBrowserTaskSheet(document, client, ports) {
       }
       update()
     },
+    observeProject() {
+      void batch?.observe()
+    },
+    invalidateProject() {
+      batch?.invalidate()
+    },
+    scopeChanged() {
+      batch?.scopeChanged()
+    },
     dispose() {
       if (disposed) return
       disposed = true
       generation++
+      batch?.dispose()
       surface.onActivity(undefined)
       surface.onChanged(undefined)
       if (!ports.reader) surface.dispose()

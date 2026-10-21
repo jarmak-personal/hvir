@@ -914,3 +914,74 @@ body[data-view='project'] #open-library {
   overflow: visible;
   overflow-wrap: anywhere;
 }
+
+#project-save-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  row-gap: 2px;
+}
+#project-save-open,
+.project-import-inspect {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+}
+#project-save-open {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+#project-import p:empty {
+  display: none;
+}
+#project-import > p,
+#project-import-location-path {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+.project-import-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 0;
+}
+.project-import-choice label {
+  min-width: 0;
+  gap: 7px;
+  overflow-wrap: anywhere;
+}
+.project-import-inspect {
+  white-space: nowrap;
+}
+.project-import-inspect::before {
+  content: '▸ ';
+}
+.project-import-inspect[aria-expanded='true']::before {
+  content: '▾ ';
+}
+#project-import-skipped {
+  color: var(--text-muted);
+  margin: 6px 0;
+}
+#project-import :is(#project-import-conflicts, #project-import-outcomes) {
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+#project-import :is(#project-import-file-body, #project-import-report) {
+  max-height: 30vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#project-import-file-body img {
+  max-width: 100%;
+}
+#project-import .review-actions {
+  position: sticky;
+  bottom: -8px;
+  padding: 6px 0;
+  background: var(--surface-1);
+}

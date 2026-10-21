@@ -40,6 +40,7 @@ export function createSkillagerPackageView(view = 'library') {
     libraryApproved = true,
     version = '0.9.3',
     projectInventory: unknown,
+    projectImportInventory: unknown,
     projectScopeSupported = true,
     projectQuerySupported = true,
     unavailableProject = false,
@@ -198,73 +199,80 @@ export function createSkillagerPackageView(view = 'library') {
           args[0] === '--version'
             ? `skillager ${version}`
             : JSON.stringify(
-                args[0] === 'library'
-                  ? {
-                      schema: supported ? 'skillager.library-status.v1' : 'old-status',
-                      initialized,
-                      library: {
-                        registration: 'valid',
-                        library_id: identifier,
-                        root,
-                      },
-                      counts: { skills: count },
-                    }
-                  : args[0] === 'search'
+                args[0] === 'import-project'
+                  ? (projectImportInventory ?? { schema: 'unsupported' })
+                  : args[0] === 'library'
                     ? {
-                        schema: 'skillager.search.v1',
-                        status: 'completed',
-                        results: [
-                          {
-                            id: 'lib/search',
-                            search: {
-                              ...(canonicalIdentifier
-                                ? {
-                                    canonical: {
-                                      library_id: canonicalIdentifier,
-                                      skill_id: 'lib/search',
-                                    },
-                                  }
-                                : {}),
-                              occurrence: {
-                                id: `search-${index}`,
-                                kind: 'library',
-                                entrypoint: occurrencePath,
+                        schema: supported ? 'skillager.library-status.v1' : 'old-status',
+                        initialized,
+                        library: {
+                          registration: 'valid',
+                          library_id: identifier,
+                          root,
+                        },
+                        counts: { skills: count },
+                      }
+                    : args[0] === 'search'
+                      ? {
+                          schema: 'skillager.search.v1',
+                          status: 'completed',
+                          results: [
+                            {
+                              id: 'lib/search',
+                              search: {
+                                ...(canonicalIdentifier
+                                  ? {
+                                      canonical: {
+                                        library_id: canonicalIdentifier,
+                                        skill_id: 'lib/search',
+                                      },
+                                    }
+                                  : {}),
+                                occurrence: {
+                                  id: `search-${index}`,
+                                  kind: 'library',
+                                  entrypoint: occurrencePath,
+                                },
                               },
                             },
-                          },
-                        ],
-                        next_cursor: index < 2 ? String(index + 1) : null,
-                      }
-                    : args[0] === 'list' &&
-                        args[args.indexOf('--scope') + 1] === 'project'
-                      ? (projectInventory ?? {
-                          schema: 'skillager.list.v1',
-                          scope: 'project',
-                          project_root: currentWorkspace?.root?.path,
-                          observation: { status: 'complete', errors: [], error_count: 0 },
-                          skills: [],
-                          next_cursor: null,
-                        })
-                      : args[0] === 'review'
-                        ? { selected: [], action: { changed: [] } }
-                        : args[0] === 'expose'
-                          ? { schema: 'skillager.exposures.v1', exposures: [] }
-                          : {
-                              schema: 'skillager.list.v1',
-                              scope: 'library',
-                              skills: count
-                                ? [
-                                    {
-                                      id: `lib/${index}`,
-                                      name: `Page ${index}`,
-                                      description: '',
-                                      status: 'pending',
-                                      skill_file: `${root}/${index}/SKILL.md`,
-                                    },
-                                  ]
-                                : [],
-                              next_cursor: count && index < 2 ? String(index + 1) : null,
+                          ],
+                          next_cursor: index < 2 ? String(index + 1) : null,
+                        }
+                      : args[0] === 'list' &&
+                          args[args.indexOf('--scope') + 1] === 'project'
+                        ? (projectInventory ?? {
+                            schema: 'skillager.list.v1',
+                            scope: 'project',
+                            project_root: currentWorkspace?.root?.path,
+                            observation: {
+                              status: 'complete',
+                              errors: [],
+                              error_count: 0,
                             },
+                            skills: [],
+                            next_cursor: null,
+                          })
+                        : args[0] === 'review'
+                          ? { selected: [], action: { changed: [] } }
+                          : args[0] === 'expose'
+                            ? { schema: 'skillager.exposures.v1', exposures: [] }
+                            : {
+                                schema: 'skillager.list.v1',
+                                scope: 'library',
+                                skills: count
+                                  ? [
+                                      {
+                                        id: `lib/${index}`,
+                                        name: `Page ${index}`,
+                                        description: '',
+                                        status: 'pending',
+                                        skill_file: `${root}/${index}/SKILL.md`,
+                                      },
+                                    ]
+                                  : [],
+                                next_cursor:
+                                  count && index < 2 ? String(index + 1) : null,
+                              },
               )
         outputs.set(receipt, text)
         value = native.complete(
@@ -354,6 +362,9 @@ export function createSkillagerPackageView(view = 'library') {
     },
     projectInventory: (value: unknown) => {
       projectInventory = value
+    },
+    projectImportInventory: (value: unknown) => {
+      projectImportInventory = value
     },
     unavailableProject: () => {
       unavailableProject = true

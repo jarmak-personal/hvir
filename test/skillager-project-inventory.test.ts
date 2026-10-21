@@ -55,6 +55,7 @@ it('automatically lists and selects the exact pending project occurrence through
   expect(f.calls).toEqual([
     ['--version'],
     ['list', '--scope', 'project', '--json', '--limit', '100'],
+    ['import-project', '--json', '--limit', '100'],
   ])
   expect(
     f.requests.filter(({ capability }) => capability === 'connector.connect'),
