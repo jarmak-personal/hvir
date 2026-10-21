@@ -33,6 +33,125 @@ it('observes global eligibility once and prepares all off-page originals in one 
   await f.view.observe()
   expect(f.commands()).toHaveLength(3)
 })
+it('reobserves invalidation during an opening read before proposing all current skills', async () => {
+  const f = setup()
+  f.holdInventory(2)
+  const opening = f.view.open()
+  await f.flush()
+  f.all.pop()
+  f.inventory.summary.total = f.inventory.summary.eligible = 1
+  f.inventory.default_selection.pop()
+  f.view.invalidate()
+  void f.view.observe()
+  expect(f.commands()).toHaveLength(1)
+  expect(f.button('save').disabled).toBe(true)
+  f.inventoryResult()
+  await f.flush()
+  expect(f.commands()).toHaveLength(2)
+  expect(document.getElementById('project-save-count')!.textContent).not.toContain(
+    '2 skills',
+  )
+  expect(f.checkboxes()).toHaveLength(0)
+  expect(f.button('save').disabled).toBe(true)
+  f.inventoryResult()
+  await opening
+  expect(f.commands().filter((args) => !args.includes('--review-manifest'))).toHaveLength(
+    2,
+  )
+  expect(document.getElementById('project-save-count')!.textContent).toBe(
+    '1 skill ready to save',
+  )
+  expect(f.checkboxes()).toHaveLength(1)
+  expect(f.button('save').textContent).toBe('Save 1 skill')
+  expect(f.button('save').disabled).toBe(false)
+  await f.view.observe()
+  expect(f.commands()).toHaveLength(3)
+})
+it('joins an entry observation when opening instead of retiring or duplicating that read', async () => {
+  const f = setup()
+  f.holdInventory()
+  const observing = f.view.observe(),
+    opening = f.view.open()
+  await f.flush()
+  expect(f.commands()).toHaveLength(1)
+  f.inventoryResult()
+  await Promise.all([observing, opening])
+  expect(f.commands().filter((args) => !args.includes('--review-manifest'))).toHaveLength(
+    1,
+  )
+  expect(f.checkboxes().every((input) => input.checked)).toBe(true)
+  expect(f.button('save').textContent).toBe('Save 2 skills')
+  expect(f.button('save').disabled).toBe(false)
+})
+it('bounds repeated invalidation and leaves a fresh review action without using stale all-selection', async () => {
+  const f = setup()
+  f.holdInventory(2)
+  const opening = f.view.open()
+  await f.flush()
+  f.view.invalidate()
+  f.inventoryResult()
+  await f.flush()
+  expect(f.commands()).toHaveLength(2)
+  f.view.invalidate()
+  f.inventoryResult()
+  await opening
+  await f.flush()
+  expect(f.commands()).toHaveLength(2)
+  expect(f.checkboxes()).toHaveLength(0)
+  expect(f.button('save').disabled).toBe(true)
+  expect(f.button('state').textContent).toBe('Skills changed. Review this project again.')
+  expect(f.button('refresh').hidden).toBe(false)
+  f.button('refresh').click()
+  await f.flush()
+  expect(f.commands().filter((args) => !args.includes('--review-manifest'))).toHaveLength(
+    3,
+  )
+  expect(document.getElementById('project-save-count')!.textContent).toBe(
+    '2 skills ready to save',
+  )
+  expect(f.saves()).toHaveLength(0)
+})
+it('waits for a fresh inventory when a still-opening review hides and returns', async () => {
+  const f = setup()
+  f.holdInventory()
+  const opening = f.view.open()
+  await f.flush()
+  f.context.visible = false
+  f.view.visibilityChanged()
+  f.context.visible = true
+  f.view.visibilityChanged()
+  await f.flush()
+  expect(f.commands()).toHaveLength(1)
+  f.inventoryResult()
+  await opening
+  await f.flush()
+  expect(f.commands().filter((args) => !args.includes('--review-manifest'))).toHaveLength(
+    2,
+  )
+  expect(f.commands().filter((args) => args.includes('--review-manifest'))).toHaveLength(
+    1,
+  )
+  expect(f.button('save').disabled).toBe(false)
+  expect(f.saves()).toHaveLength(0)
+})
+it('stops on a current inventory error and retries only through explicit fresh review', async () => {
+  const f = setup()
+  f.inventoryFailure(new Error('Native metadata unavailable.'))
+  await f.view.open()
+  await f.flush()
+  expect(f.commands()).toHaveLength(1)
+  expect(f.button('state').textContent).toBe(
+    'Save options unavailable. Refresh skills to check again.',
+  )
+  expect(f.button('refresh').hidden).toBe(false)
+  f.inventoryFailure()
+  f.button('refresh').click()
+  await f.flush()
+  expect(f.commands().filter((args) => !args.includes('--review-manifest'))).toHaveLength(
+    2,
+  )
+  expect(f.saves()).toHaveLength(0)
+})
 it('keeps the bulk owner quiet outside an exact local workspace, including context replacement', async () => {
   const f = setup()
   const local = f.context.workspace
