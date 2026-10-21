@@ -1,3 +1,4 @@
+/* global TextEncoder */
 /** Ephemeral domain records preserve unknown completion, never an automatic replay journal. */
 export function pendingManagement() {
   const records = new Map()
@@ -6,6 +7,14 @@ export function pendingManagement() {
   }
   const initializes = (operation) =>
     operation.action === 'initialize-library' || operation.initializes === true
+  function batchOverlap(a, b) {
+    if (a.action !== 'save-project-skills') return false
+    if (b.action === 'sync-library') return sameRoot(a.library.root, b.library.root)
+    return (
+      b.action === 'accept-version' &&
+      a.targets.some((target) => sameRoot(target, b.source.root))
+    )
+  }
   return {
     ids() {
       return [...records.keys()]
@@ -22,6 +31,8 @@ export function pendingManagement() {
       for (const value of records.values()) {
         const previous = value.operation
         if (
+          batchOverlap(descriptor, previous) ||
+          batchOverlap(previous, descriptor) ||
           [descriptor.target, ...(descriptor.targets ?? [])]
             .filter(Boolean)
             .some((target) =>
@@ -32,7 +43,9 @@ export function pendingManagement() {
           (initializes(descriptor) &&
             initializes(previous) &&
             [descriptor.action, previous.action].some((action) =>
-              ['save-and-accept', 'save-and-use-copy'].includes(action),
+              ['save-and-accept', 'save-and-use-copy', 'save-project-skills'].includes(
+                action,
+              ),
             )) ||
           (descriptor.action === 'initialize-library' &&
             previous.action === descriptor.action &&
@@ -74,9 +87,15 @@ export function pendingManagement() {
       const value = JSON.stringify(this.get(id))
       if (!Number.isSafeInteger(offset) || offset < 0 || offset > value.length)
         throw new Error('Invalid operation report offset')
-      const data = value.slice(offset, offset + 2048),
-        next = offset + data.length
-      return { data, nextOffset: next === value.length ? null : next }
+      let next = Math.min(offset + 2048, value.length)
+      for (;;) {
+        const page = {
+          data: value.slice(offset, next),
+          nextOffset: next === value.length ? null : next,
+        }
+        if (new TextEncoder().encode(JSON.stringify(page)).length <= 6144) return page
+        next = offset + Math.floor((next - offset) / 2)
+      }
     },
     release(id) {
       records.delete(id)

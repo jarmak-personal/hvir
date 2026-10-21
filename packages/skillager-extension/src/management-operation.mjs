@@ -7,6 +7,7 @@ import { pendingManagement } from './management-pending.mjs'
 import { reconciliationFacts } from './management-reconcile.mjs'
 import { saveAndUseCopy } from './import-placement-operation.mjs'
 import { saveAndAccept } from './import-operation.mjs'
+import { saveProjectSkills } from './project-import-operation.mjs'
 import { acceptReviewedVersion } from './review-acceptance.mjs'
 
 const pending = pendingManagement()
@@ -88,9 +89,12 @@ export async function executeManagement(client, invocation) {
   const workspace = invocation.context.workspace,
     project =
       ['add-copy', 'change-exposure', 'remove-copy'].includes(invocation.action) ||
-      (['sync-library', 'save-and-accept', 'save-and-use-copy'].includes(
-        invocation.action,
-      ) &&
+      ([
+        'sync-library',
+        'save-and-accept',
+        'save-and-use-copy',
+        'save-project-skills',
+      ].includes(invocation.action) &&
         !!workspace) ||
       (invocation.action === 'operation-state' &&
         ['observe', 'acknowledge'].includes(invocation.input.mode) &&
@@ -152,6 +156,13 @@ export async function executeManagement(client, invocation) {
       return await saveAndAccept(io, invocation.input, invocation, (descriptor) =>
         pending.assertAvailable(descriptor),
       )
+    if (invocation.action === 'save-project-skills')
+      return {
+        ...(await saveProjectSkills(io, invocation.input, invocation, (descriptor) =>
+          pending.assertAvailable(descriptor),
+        )),
+        ...(io.pending ? { operationId: invocation.id } : {}),
+      }
     if (invocation.action === 'save-and-use-copy')
       return {
         ...(await saveAndUseCopy(io, invocation.input, invocation, (descriptor) =>

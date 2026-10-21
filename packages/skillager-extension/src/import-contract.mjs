@@ -98,20 +98,7 @@ export function exactImportIdentity(value, selection, workspace) {
     ['status', 'root', 'git_mode'].some((key) => value.library?.[key] !== library[key])
   )
     throw new Error('The complete public import library identity/history is unavailable')
-  absoluteLocalPath(library.root)
-  absoluteLocalPath(manifest.source_root)
-  absoluteLocalPath(manifest.destination_path)
-  digest(manifest.source_hash)
-  exactTreeFiles(manifest)
-  if (
-    !manifest.source_provenance ||
-    ['type', 'collection', 'package', 'version', 'editable'].some(
-      (key) =>
-        !Object.hasOwn(manifest.source_provenance, key) ||
-        manifest.source_provenance[key] !== value.source[key],
-    )
-  )
-    throw new Error('The external import provenance does not match its exact occurrence')
+  exactExternalImportTree(manifest, value.source, value.destination)
   return { manifest, name: value.destination.name }
 }
 /** Standalone import retains its own token and ordinary confirmation argv. */
@@ -137,4 +124,38 @@ export function exactImportManifest(value, selection, workspace) {
       ? undefined
       : 'Skillager cannot ordinarily save and accept this source. Inspect its scan/lint or blocked-source guidance and use its audited public CLI repair route.',
   }
+}
+
+/** Shared external tree identity; callers retain their distinct public operation envelopes. */
+export function exactExternalImportTree(manifest, source, destination) {
+  if (
+    manifest?.schema !== 'skillager.import-review-manifest.v1' ||
+    source?.id !== manifest.source_id ||
+    source.path !== manifest.source_root ||
+    source.file !== manifest.source_file ||
+    source.file !== `${manifest.source_root}/SKILL.md` ||
+    source.content_hash !== manifest.source_hash ||
+    manifest.working_hash !== manifest.source_hash ||
+    destination?.id !== manifest.destination_id ||
+    destination.path !== manifest.destination_path ||
+    destination.id !== `lib/${destination.name}` ||
+    !isCanonicalSkillId(destination.id) ||
+    destination.exists !== false ||
+    destination.path !== `${manifest.library?.root}/skills/${destination.name}`
+  )
+    throw new Error('The complete external tree or destination identity changed.')
+  absoluteLocalPath(manifest.library.root)
+  absoluteLocalPath(manifest.source_root)
+  absoluteLocalPath(manifest.destination_path)
+  digest(manifest.source_hash)
+  exactTreeFiles(manifest)
+  if (
+    !manifest.source_provenance ||
+    ['type', 'collection', 'package', 'version', 'editable'].some(
+      (key) =>
+        !Object.hasOwn(manifest.source_provenance, key) ||
+        manifest.source_provenance[key] !== source[key],
+    )
+  )
+    throw new Error('The external import provenance does not match its exact occurrence')
 }

@@ -630,6 +630,32 @@
         "required": ["skillId", "file", "name", "hash", "token", "agent", "mode"],
         "additionalProperties": false
       }
+    },
+    {
+      "id": "save-project-skills",
+      "title": "Save project skills to library",
+      "view": "management",
+      "agents": false,
+      "effects": {
+        "delete": false,
+        "replace": false
+      },
+      "description": "Human-only: save and accept the exact selected local project originals through one complete public batch review. Original files and source approvals stay unchanged. No overwrite or automatic retry.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selection": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "token": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["selection", "token"],
+        "additionalProperties": false
+      }
     }
   ],
   "connectors": [

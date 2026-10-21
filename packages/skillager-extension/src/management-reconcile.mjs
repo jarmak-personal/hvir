@@ -11,13 +11,16 @@ import { syncReviewHash } from './management-sync-review.mjs'
 import { syncObservation } from './management-library.mjs'
 import { placementReconciliation } from './import-placement-reconcile.mjs'
 import { importReconciliation } from './import-operation.mjs'
+import { projectImportReconciliation } from './project-import-reconcile.mjs'
 import { exposureFacts } from './exposure-reconcile.mjs'
 import { prepareCopy } from './management-copy.mjs'
 
 /** Public present-state facts establish safe next operations, never historical completion. */
 export async function reconciliationFacts(io, record, workspace) {
-  const operation = record.operation,
-    status = await io.run(['library', 'status', '--json']),
+  const operation = record.operation
+  if (operation.action === 'save-project-skills')
+    return JSON.stringify(await projectImportReconciliation(io, operation))
+  const status = await io.run(['library', 'status', '--json']),
     library = ['save-and-accept', 'save-and-use-copy'].includes(operation.action)
       ? undefined
       : registeredLibrary(status)

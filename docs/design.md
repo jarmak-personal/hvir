@@ -806,6 +806,7 @@ through the existing independent native, source and agent setting owners.
 ### [ADR-079 — Selected-original Save and accept](adr/ADR-079-selected-original-save-and-accept.md)
 
 > Lifecycle: Partially superseded
+> Superseded by: [ADR-083](adr/ADR-083-project-batch-save-and-accept.md) | partial | Limiting standalone Save and accept to one selected project original.
 > Superseded by: [ADR-082](adr/ADR-082-selected-original-save-and-use.md) | partial | Mandatory separate replacement decision when the human explicitly chooses the combined Save and use task.
 > Supersedes: [ADR-059](adr/ADR-059-public-local-skillager-management.md) | partial | Local management excludes selected external import; complete exact external inspection and one human Save and accept decision are permitted.
 
@@ -834,6 +835,15 @@ Extensions request one exact project-directory review; trusted Files owns confir
 
 One human decision saves and accepts an exact native original and uses a managed Full or Stub
 copy through Skillager’s complete compound public contract, with truthful separate stage results.
+
+### [ADR-083 — Project batch Save and accept](adr/ADR-083-project-batch-save-and-accept.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-079](adr/ADR-079-selected-original-save-and-accept.md) | partial | Limiting standalone Save and accept to one selected project original.
+
+A human selects project originals from Skillager's complete native inventory and saves and
+accepts their exact versions through one bounded public batch decision, preserving originals
+and truthful partial completion.
 
 ---
 
