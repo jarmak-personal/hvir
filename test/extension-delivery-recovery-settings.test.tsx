@@ -238,6 +238,9 @@ it.each(['success', 'failure'])(
         ),
     )
     expect(button('Remove saved staging and old copies').disabled).toBe(true)
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'extensions:delivery-recovery'),
+    ).toHaveLength(1)
     await act(async () => {
       observed = []
       if (completion === 'failure') fail(new Error('Cleanup remains unproven'))
@@ -248,6 +251,9 @@ it.each(['success', 'failure'])(
       completion === 'failure' ? 'Cleanup remains unproven' : 'Cleanup: completed',
     )
     expect(button('Refresh retained deliveries').disabled).toBe(false)
+    expect(
+      invoke.mock.calls.filter(([channel]) => channel === 'extensions:delivery-recovery'),
+    ).toHaveLength(2)
     if (completion === 'failure')
       expect(attention).toHaveBeenLastCalledWith('Recovery needs attention')
     expect(
@@ -256,19 +262,20 @@ it.each(['success', 'failure'])(
   },
 )
 
-it.each([
-  { completion: 'success', failedRead: 'background', successfulReads: 2 },
-  { completion: 'success', failedRead: 'post-operation', successfulReads: 1 },
-  { completion: 'failure', failedRead: 'background', successfulReads: 1 },
-])(
-  'preserves cleanup $completion alongside a $failedRead observation failure',
-  async ({ completion, successfulReads }) => {
+it.each(['success', 'failure'])(
+  'preserves cleanup %s while refreshing its independent inventory error once',
+  async (completion) => {
     let reads = 0
+    let observed: readonly DeliveryRecoveryEntry[] | Error = new Error(
+      'Recovery inventory unavailable',
+    )
     const invoke = vi.fn((channel: string, input?: { kind: string }) => {
-      if (channel === 'extensions:delivery-recovery')
-        return ++reads <= successfulReads
-          ? Promise.resolve([row])
-          : Promise.reject(new Error('Recovery inventory unavailable'))
+      if (channel === 'extensions:delivery-recovery') {
+        if (++reads === 1) return Promise.resolve([row])
+        return observed instanceof Error
+          ? Promise.reject(observed)
+          : Promise.resolve(observed)
+      }
       if (input?.kind === 'cleanup')
         return completion === 'success'
           ? Promise.resolve({ outcome: 'completed' })
@@ -281,14 +288,80 @@ it.each([
       button('Remove saved staging and old copies').click()
       await Promise.resolve()
     })
-    const messages = [...element.querySelectorAll('[role=status]')].map(
-      (message) => message.textContent,
-    )
-    expect(messages).toContain(
+    const messages = () =>
+      [...element.querySelectorAll('[role=status]')].map((message) => message.textContent)
+    const result =
       completion === 'success'
         ? 'Cleanup: completed. Target files stay in place.'
-        : 'Cleanup remains unproven',
-    )
-    expect(messages).toContain('Recovery inventory unavailable')
+        : 'Cleanup remains unproven'
+    expect(messages()).toEqual([result, 'Recovery inventory unavailable'])
+    expect(reads).toBe(2)
+    observed = new Error('Recovery host disconnected')
+    await act(async () => {
+      button('Refresh retained deliveries').click()
+      await Promise.resolve()
+    })
+    expect(messages()).toEqual([result, 'Recovery host disconnected'])
+    expect(reads).toBe(3)
+    observed = []
+    await act(async () => {
+      button('Refresh retained deliveries').click()
+      await Promise.resolve()
+    })
+    expect(messages()).toEqual([result])
+    expect(element.querySelector('article')).toBeNull()
+    expect(reads).toBe(4)
+  },
+)
+
+it.each([
+  {
+    kind: 'reconcile',
+    label: 'Check delivery status',
+    result: 'Reconciliation: completed',
+  },
+  {
+    kind: 'cleanup',
+    label: 'Remove saved staging and old copies',
+    result: 'Cleanup: completed',
+  },
+  {
+    kind: 'keep',
+    label: 'Keep these files and end delivery tracking',
+    result: 'Files kept.',
+  },
+])(
+  'observes the inventory once after an immediately completed $kind',
+  async ({ kind, label, result }) => {
+    let reads = 0
+    let rows = [row]
+    const invoke = vi.fn((channel: string, input?: { kind: string }) => {
+      if (channel === 'extensions:delivery-recovery') {
+        reads++
+        return Promise.resolve(rows)
+      }
+      if (input?.kind === 'inspect')
+        return Promise.resolve({ token: 'fresh', completion: 'unproven', objects: [] })
+      if (input?.kind === kind) {
+        rows = []
+        return Promise.resolve({ outcome: 'completed' })
+      }
+      return Promise.reject(new Error('Unexpected request'))
+    })
+    vi.stubGlobal('hvir', { invoke })
+    await render()
+    if (kind === 'keep')
+      await act(async () => {
+        button('Inspect retained files').click()
+        await Promise.resolve()
+      })
+    const before = reads
+    await act(async () => {
+      button(label).click()
+      await Promise.resolve()
+    })
+    expect(reads).toBe(before + 1)
+    expect(element.querySelector('article')).toBeNull()
+    expect(element.textContent).toContain(result)
   },
 )

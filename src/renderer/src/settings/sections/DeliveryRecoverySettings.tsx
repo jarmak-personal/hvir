@@ -26,6 +26,7 @@ export function DeliveryRecoverySettings({
 }): ReactElement {
   const [entries, setEntries] = useState<readonly DeliveryRecoveryEntry[]>([])
   const [busy, setBusy] = useState(false)
+  const [observation, setObservation] = useState(0)
   const [message, setMessage] = useState('')
   const [observationError, setObservationError] = useState('')
   const [operationFailed, setOperationFailed] = useState(false)
@@ -84,7 +85,10 @@ export function DeliveryRecoverySettings({
         )
       }
     } finally {
-      if (current()) setBusy(false)
+      if (current()) {
+        setBusy(false)
+        setObservation((value) => value + 1)
+      }
     }
   }
   useEffect(() => {
@@ -103,7 +107,7 @@ export function DeliveryRecoverySettings({
     return () => {
       observing = false
     }
-  }, [platformState, busy, refresh])
+  }, [platformState, busy, observation, refresh])
   return (
     <details
       className="extension-delivery-recovery"
@@ -121,7 +125,7 @@ export function DeliveryRecoverySettings({
         type="button"
         className="hvir-button"
         disabled={busy}
-        onClick={() => void run(refresh)}
+        onClick={() => setObservation((value) => value + 1)}
       >
         Refresh retained deliveries
       </button>
@@ -177,7 +181,6 @@ export function DeliveryRecoverySettings({
                   `Reconciliation: ${result.outcome}. No publication was replayed.`,
                 )
                 setDecision(undefined)
-                await refresh(current)
               })
             }
           >
@@ -200,7 +203,6 @@ export function DeliveryRecoverySettings({
                 if (!current()) return
                 setMessage(`Cleanup: ${result.outcome}. Target files stay in place.`)
                 setDecision(undefined)
-                await refresh(current)
               })
             }
           >
@@ -244,7 +246,6 @@ export function DeliveryRecoverySettings({
                 setMessage(
                   'Files kept. Delivery tracking ended without cleanup or adoption.',
                 )
-                await refresh(current)
               })
             }
           >
