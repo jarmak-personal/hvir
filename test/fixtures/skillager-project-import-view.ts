@@ -56,13 +56,16 @@ export function projectImportViewFixture(eligible = 2, managed = 0) {
   let serial = 0,
     project = true,
     holdPreview = false,
+    holdInventory = 0,
     holdSave = false,
     staleCursors = 0,
     previewFailure: Error | undefined,
+    inventoryFailure: Error | undefined,
     finishPreview: (() => void) | undefined,
     finishSave: ((result?: unknown, error?: Error) => void) | undefined,
     result: unknown,
     record: unknown
+  const finishInventories: Array<() => void> = []
   const page = (offset = 0) => ({
     ...inventory,
     items: all.slice(offset, offset + 100),
@@ -177,6 +180,7 @@ export function projectImportViewFixture(eligible = 2, managed = 0) {
             }),
           )
         if (reviewing && previewFailure) throw previewFailure
+        if (!reviewing && inventoryFailure) throw inventoryFailure
         const value = selected
             ? preview(selected)
             : page(
@@ -184,6 +188,7 @@ export function projectImportViewFixture(eligible = 2, managed = 0) {
                   ? Number(args[args.indexOf('--cursor') + 1])
                   : 0,
               ),
+          output = JSON.stringify(value),
           reply = () =>
             native.complete(
               {
@@ -192,8 +197,14 @@ export function projectImportViewFixture(eligible = 2, managed = 0) {
                 receipt: `view-${++serial}`,
                 truncated: false,
               },
-              JSON.stringify(value),
+              output,
             )
+        if (!reviewing && holdInventory > 0) {
+          holdInventory--
+          return new Promise((resolve) => {
+            finishInventories.push(() => resolve(reply()))
+          })
+        }
         if (reviewing && holdPreview) {
           holdPreview = false
           return new Promise((resolve) => {
@@ -251,6 +262,13 @@ export function projectImportViewFixture(eligible = 2, managed = 0) {
       holdPreview = true
     },
     previewResult: () => finishPreview?.(),
+    holdInventory: (count = 1) => {
+      holdInventory = count
+    },
+    inventoryResult: () => finishInventories.shift()?.(),
+    inventoryFailure: (error?: Error) => {
+      inventoryFailure = error
+    },
     holdSave: () => {
       holdSave = true
     },

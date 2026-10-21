@@ -24,6 +24,7 @@ export function bindProjectImport(document, client, ports) {
   let inventory,
     inventoryDirty = true,
     inventoryBusy = false,
+    inventoryObservation,
     inventoryRevision = 0,
     inventoryError = '',
     cursor,
@@ -252,36 +253,60 @@ export function bindProjectImport(document, client, ports) {
     }
     controls()
   }
-  async function observe() {
-    if (!visible() || !inventoryDirty || inventoryBusy || submitted) return
-    const validTask = retained(),
-      revision = inventoryRevision,
-      visibility = visibleRevision,
-      valid = () =>
-        validTask() &&
-        visible() &&
-        visibility === visibleRevision &&
-        revision === inventoryRevision
+  function observe() {
+    if (inventoryObservation) return inventoryObservation
+    if (!visible() || !inventoryDirty || submitted) return Promise.resolve()
+    inventoryObservation = readInventory()
+    return inventoryObservation
+  }
+  async function readInventory() {
     inventoryBusy = true
     entryControls()
     try {
-      const value = await observeProjectImport(scopedIo(valid), context().workspace)
-      if (!valid()) return
-      inventory = value
-      inventoryDirty = false
-      inventoryError = ''
-    } catch (error) {
-      if (!valid()) return
-      inventoryDirty = false
-      inventoryError =
-        error.message === projectImportUpdate
-          ? 'Update Skillager to save skills together.'
-          : 'Save options unavailable. Refresh skills to check again.'
+      // One physical read and at most one fresh read for changes while it was pending.
+      for (
+        let attempt = 0;
+        attempt < 2 && inventoryDirty && visible() && !submitted;
+        attempt++
+      ) {
+        const revision = inventoryRevision,
+          visibility = visibleRevision,
+          workspace = workspaceKey(),
+          valid = () =>
+            visible() &&
+            workspace === workspaceKey() &&
+            visibility === visibleRevision &&
+            revision === inventoryRevision
+        try {
+          const value = await observeProjectImport(scopedIo(valid), context().workspace)
+          if (!valid()) continue
+          inventory = value
+          inventoryDirty = false
+          inventoryError = ''
+        } catch (error) {
+          if (!valid()) continue
+          inventoryDirty = false
+          inventoryError =
+            error.message === projectImportUpdate
+              ? 'Update Skillager to save skills together.'
+              : 'Save options unavailable. Refresh skills to check again.'
+        }
+      }
     } finally {
       inventoryBusy = false
+      inventoryObservation = undefined
       entryControls()
-      if (inventoryDirty && visible()) void observe()
     }
+  }
+  function invalidateInventory() {
+    inventoryDirty = true
+    inventoryRevision++
+    entryControls()
+  }
+  function requireInventory() {
+    if (inventoryDirty || !inventory)
+      throw new Error(inventoryError || 'Skills changed. Review this project again.')
+    if (inventoryError) throw new Error(inventoryError)
   }
   async function loadMore(minimum = 1, restart = true) {
     const validTask = retained(),
@@ -311,8 +336,10 @@ export function bindProjectImport(document, client, ports) {
         cursor = undefined
         loaded = 0
         renderChoices()
-        inventory = await observeProjectImport(scopedIo(valid), context().workspace)
+        invalidateInventory()
+        await observe()
         if (!valid()) return
+        requireInventory()
         addCandidates(inventory)
         await proposeSelection(false)
         if (!valid()) return
@@ -496,13 +523,11 @@ export function bindProjectImport(document, client, ports) {
       await recover()
       if (!validTask() || !available() || pending) return
       if (!inventory || inventoryDirty || inventoryError) {
-        inventory = await observeProjectImport(
-          scopedIo(() => validTask() && available()),
-          context().workspace,
-        )
-        inventoryDirty = false
-        inventoryError = ''
+        if (inventoryError) invalidateInventory()
+        await observe()
       }
+      if (!validTask() || !available()) return
+      requireInventory()
       addCandidates(inventory)
       if (retainSelection) {
         for (const id of retainSelection) {
@@ -667,11 +692,7 @@ export function bindProjectImport(document, client, ports) {
     scopeChanged() {
       entryControls()
     },
-    invalidate() {
-      inventoryDirty = true
-      inventoryRevision++
-      entryControls()
-    },
+    invalidate: invalidateInventory,
     contextChanged() {
       retire()
       inventoryRevision++
