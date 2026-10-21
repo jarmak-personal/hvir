@@ -202,3 +202,56 @@ it('distinguishes owning extensions and actual outcomes without opening technica
     expect(records[index]!.querySelector('details')?.open).toBe(false)
   }
 })
+
+it.each(['success', 'failure'])(
+  'preserves a submitted cleanup through an unrelated publication: %s',
+  async (completion) => {
+    const attention = vi.fn()
+    let finish!: () => void, fail!: (reason: Error) => void
+    const held = new Promise<void>((resolve, reject) => {
+      finish = resolve
+      fail = reject
+    })
+    let observed = [row]
+    const invoke = vi.fn((channel: string, input?: { kind: string }) =>
+      channel === 'extensions:delivery-recovery'
+        ? Promise.resolve(observed)
+        : input?.kind === 'cleanup'
+          ? held.then(() => ({ outcome: 'completed' }))
+          : Promise.reject(new Error('Unexpected request')),
+    )
+    vi.stubGlobal('hvir', { invoke })
+    await render()
+    await act(
+      async () =>
+        await Promise.resolve(button('Remove saved staging and old copies').click()),
+    )
+    await act(
+      async () =>
+        await Promise.resolve(
+          root!.render(
+            createElement(DeliveryRecoverySettings, {
+              platformState: { writable: true, installations: [] },
+              onAttention: attention,
+            }),
+          ),
+        ),
+    )
+    expect(button('Remove saved staging and old copies').disabled).toBe(true)
+    await act(async () => {
+      observed = []
+      if (completion === 'failure') fail(new Error('Cleanup remains unproven'))
+      else finish()
+      await held.catch(() => {})
+    })
+    expect(element.textContent).toContain(
+      completion === 'failure' ? 'Cleanup remains unproven' : 'Cleanup: completed',
+    )
+    expect(button('Refresh retained deliveries').disabled).toBe(false)
+    if (completion === 'failure')
+      expect(attention).toHaveBeenLastCalledWith('Recovery needs attention')
+    expect(
+      invoke.mock.calls.filter(([, input]) => input?.kind === 'cleanup'),
+    ).toHaveLength(1)
+  },
+)

@@ -16,7 +16,7 @@ vi.mock('../src/renderer/src/settings/sections/DeliveryRecoverySettings', () => 
   DeliveryRecoverySettings: () => null,
 }))
 
-it('places app-wide agent access before package configuration and author controls', async () => {
+it('keeps global access with author controls in the shared entry, outside selected package configuration', async () => {
   vi.stubGlobal('hvir', {
     invoke: vi.fn((channel: string) => {
       if (channel === 'extensions:state')
@@ -47,16 +47,20 @@ it('places app-wide agent access before package configuration and author control
       await Promise.resolve()
     })
     const agent = element.querySelector('.agent-access-settings')!
-    const packageConfiguration = element.querySelector(
-      '[data-testid="package-configuration"]',
-    )!
     const authors = element.querySelector('.extension-author-controls')!
+    expect(agent.closest<HTMLElement>('.extension-shared-settings')!.hidden).toBe(true)
+    await act(
+      async () =>
+        await Promise.resolve(
+          element
+            .querySelector<HTMLButtonElement>('[aria-label="Extension settings"]')!
+            .click(),
+        ),
+    )
+    expect(agent.closest<HTMLElement>('.extension-shared-settings')!.hidden).toBe(false)
+    expect(element.querySelector('[data-testid="package-configuration"]')).toBeNull()
     expect(agent.textContent).toContain('Allow agents to inspect')
     expect(agent.closest('details')).toBeNull()
-    expect(
-      agent.compareDocumentPosition(packageConfiguration) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
     expect(
       agent.compareDocumentPosition(authors) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()

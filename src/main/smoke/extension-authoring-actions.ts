@@ -84,6 +84,7 @@ export async function verifyAuthoringActionExamples(
   async function authorization(confirm: boolean): Promise<void> {
     await controls.click('Open settings')
     await controls.click('Extensions')
+    await controls.click('Extension settings')
     await controls.wait(
       async () =>
         Boolean(

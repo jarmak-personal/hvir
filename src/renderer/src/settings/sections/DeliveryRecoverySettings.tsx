@@ -3,6 +3,7 @@ import type {
   DeliveryRecoveryEntry,
   DeliveryRecoveryReply,
 } from '../../../../shared/extensions/managed-delivery'
+import type { ExtensionPlatformState } from '../../../../shared/extensions/workbench'
 
 const deliveryOutcome = (outcome: string): string =>
   outcome === 'completed-with-retained-objects'
@@ -14,11 +15,37 @@ const deliveryOutcome = (outcome: string): string =>
         : outcome
 
 /** Exact recovery remains reachable after package demand and installation identity end. */
-export function DeliveryRecoverySettings(): ReactElement {
+export function DeliveryRecoverySettings({
+  active = true,
+  platformState,
+  onAttention,
+}: {
+  readonly active?: boolean
+  readonly platformState?: ExtensionPlatformState
+  readonly onAttention?: (message: string) => void
+}): ReactElement {
   const [entries, setEntries] = useState<readonly DeliveryRecoveryEntry[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [failed, setFailed] = useState(false)
+  const [operationFailed, setOperationFailed] = useState(false)
   const [decision, setDecision] = useState<DeliveryRecoveryReply>()
+  const inspection = useRef(0)
+  useEffect(() => {
+    if (!active) {
+      inspection.current++
+      setDecision(undefined)
+    }
+  }, [active])
+  useEffect(() => {
+    onAttention?.(
+      failed || operationFailed
+        ? 'Recovery needs attention'
+        : entries.length
+          ? `${entries.length} to inspect`
+          : '',
+    )
+  }, [entries.length, failed, operationFailed, onAttention])
   const revision = useRef(0),
     mounted = useRef(false)
   const refresh = async (current: () => boolean): Promise<void> => {
@@ -27,22 +54,28 @@ export function DeliveryRecoverySettings(): ReactElement {
       throw new Error(
         'Complete retained delivery records are unavailable; files remain in place',
       )
-    if (current()) setEntries(value)
+    if (current()) {
+      setEntries(value)
+      setFailed(false)
+    }
   }
   const run = async (task: (current: () => boolean) => Promise<void>): Promise<void> => {
     const request = ++revision.current,
       current = () => mounted.current && revision.current === request
     setBusy(true)
     setMessage('')
+    setOperationFailed(false)
     try {
       await task(current)
     } catch (reason) {
-      if (current())
+      if (current()) {
+        setOperationFailed(true)
         setMessage(
           reason instanceof Error
             ? reason.message
             : 'Delivery recovery failed; files remain in place',
         )
+      }
     } finally {
       if (current()) setBusy(false)
     }
@@ -50,28 +83,38 @@ export function DeliveryRecoverySettings(): ReactElement {
   useEffect(() => {
     mounted.current = true
     const revisions = revision
-    const request = ++revisions.current
-    void window.hvir
-      .invoke('extensions:delivery-recovery', undefined)
-      .then((value) => {
-        if (!mounted.current || revision.current !== request) return
-        if (!Array.isArray(value))
-          throw new Error(
-            'Complete retained delivery records are unavailable; files remain in place',
-          )
-        setEntries(value)
-      })
-      .catch((reason) => {
-        if (mounted.current && revision.current === request)
-          setMessage(
-            reason instanceof Error ? reason.message : 'Delivery recovery unavailable',
-          )
-      })
     return () => {
       mounted.current = false
       revisions.current++
     }
   }, [])
+  useEffect(() => {
+    if (busy) return
+    let observing = true
+    const request = ++revision.current
+    void window.hvir
+      .invoke('extensions:delivery-recovery', undefined)
+      .then((value) => {
+        if (!observing || !mounted.current || revision.current !== request) return
+        if (!Array.isArray(value))
+          throw new Error(
+            'Complete retained delivery records are unavailable; files remain in place',
+          )
+        setEntries(value)
+        setFailed(false)
+      })
+      .catch((reason) => {
+        if (observing && mounted.current && revision.current === request) {
+          setFailed(true)
+          setMessage(
+            reason instanceof Error ? reason.message : 'Delivery recovery unavailable',
+          )
+        }
+      })
+    return () => {
+      observing = false
+    }
+  }, [platformState, busy])
   return (
     <details
       className="extension-delivery-recovery"
@@ -117,13 +160,14 @@ export function DeliveryRecoverySettings(): ReactElement {
             disabled={busy}
             onClick={() =>
               void run(async (current) => {
+                const inspecting = ++inspection.current
                 const result = await window.hvir.invoke('extensions:delivery-resolve', {
                   kind: 'inspect',
                   id: entry.id,
                 })
                 if (!result.token || !result.objects || !result.completion)
                   throw new Error('Current file details are unavailable; inspect again')
-                if (current()) setDecision(result)
+                if (current() && inspection.current === inspecting) setDecision(result)
               })
             }
           >

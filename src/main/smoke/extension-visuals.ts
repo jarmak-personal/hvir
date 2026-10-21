@@ -371,14 +371,15 @@ export async function captureExtensionVisuals(
             variant,
             state,
             settings: (await win.webContents.executeJavaScript(`(() => {
-            const section = document.querySelector('.extension-settings'), scroll = section.querySelector('.settings-section-scroll');
+            const section = document.querySelector('.extension-settings'), scroll = section.querySelector('.extension-settings-pane');
             const heading = document.getElementById('settings-extensions-title');
             const add = [...section.querySelectorAll('button')].find(e => e.textContent.trim() === 'Add extension…');
-            const checkbox=section.querySelector('.agent-access-settings input[type=checkbox]');
+            const checkbox=[...section.querySelectorAll('.agent-access-settings input[type=checkbox]')].find(e=>e.checkVisibility());
+            const scale=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hvir-interface-scale'));
             const text=checkbox&&[...checkbox.parentElement.childNodes].find(e=>e.nodeType===Node.TEXT_NODE&&e.textContent.trim());
             const range=document.createRange();if(text)range.selectNodeContents(text);
             const check=checkbox?.getBoundingClientRect(), label=text?range.getBoundingClientRect():null;
-            const beside=!!check&&!!label&&check.width<=20&&check.right<=label.left+2&&check.top<label.bottom&&label.top<check.bottom;
+            const beside=check&&label?Math.abs(check.width-14*scale)<.5&&check.right<=label.left+2&&check.top<label.bottom&&label.top<check.bottom:null;
             const bounds = section.getBoundingClientRect(), rect = add.getBoundingClientRect(), style = getComputedStyle(add);
             return {checkboxBesideText:beside, checkboxWidth:check?.width??null, theme:document.documentElement.dataset.theme, headingVisible:heading.checkVisibility(),
               hasScroll:!!scroll, scrollOverflow:scroll ? getComputedStyle(scroll).overflowY : null,
@@ -390,10 +391,10 @@ export async function captureExtensionVisuals(
           const configuration: unknown = await win.webContents.executeJavaScript(`(() => {
             const panel=document.querySelector('.extension-configuration-layout'), list=panel?.querySelector('.extension-installation-list'), detail=panel?.querySelector('.extension-installation');
             if(!panel||!list||!detail)return {present:false};
-            const p=panel.getBoundingClientRect(), l=list.getBoundingClientRect(), r=detail.getBoundingClientRect();
+            const p=panel.getBoundingClientRect(), l=list.getBoundingClientRect(), r=detail.parentElement.getBoundingClientRect();
             const selected=list.querySelector('[aria-current=true]');
             const contained=l.left>=p.left&&r.right<=p.right+1&&l.right<=r.left+1&&l.height<=p.height&&r.height<=p.height;
-            if(!contained||getComputedStyle(list).overflowY!=='auto'||getComputedStyle(detail).overflowY!=='auto')throw new Error('Extension configuration list/detail is not bounded and independently scrollable');
+            if(!contained||getComputedStyle(list).overflowY!=='auto'||getComputedStyle(detail.parentElement).overflowY!=='auto')throw new Error('Extension configuration list/detail is not bounded and independently scrollable');
             return {present:true,count:list.querySelectorAll('button').length,selectedMatches:selected?.querySelector('strong')?.textContent===detail.querySelector('h4')?.textContent,contained,listWidth:l.width,detailWidth:r.width,panelHeight:p.height};
           })()`)
           facts.push({ theme, variant, state, configuration })
@@ -417,7 +418,7 @@ export async function captureExtensionVisuals(
                   'current library reading permission state',
                 )
                 await win.webContents.executeJavaScript(
-                  "document.querySelector('.extension-settings-content').scrollTop=0;document.querySelector('.extension-installation').scrollTop=0",
+                  "document.querySelector('.extension-settings-pane').scrollTop=0",
                 )
               }
               await settled()

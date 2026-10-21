@@ -22,6 +22,7 @@ import { focusSmokeWindow } from './window-focus'
 import { verifyExtensionWebRtc } from './extension-webrtc'
 import {
   verifyExtensionSettingsGeometry,
+  verifyExtensionSettingsVariants,
   verifyExtensionEnableFocus,
   verifyExtensionAttentionFocus,
 } from './extension-presentation-geometry'
@@ -235,6 +236,7 @@ export async function verifyExtensionScenario(
     throw new Error('First Enable focus fixture already has an installation identity')
   await verifyExtensionEnableFocus(win, waitFor)
   await waitFor(() => extensions.activations!.active.size === 1, 'trusted Enable')
+  await verifyExtensionSettingsVariants(win, waitFor, host)
   console.log(
     '[smoke] first Enable identity admission and repaired-package attention clearing retain visible native keyboard focus in Settings OK',
   )
@@ -612,7 +614,8 @@ async function click(win: BrowserWindow, name: string): Promise<void> {
       wait: waitFor,
       within: (work) => work,
     }).select('Extension actions')
-  if (name === 'Discover extensions' || name === 'Open extensions folder')
+  if (name === 'Discover extensions' || name === 'Open extensions folder') {
+    await click(win, 'Extension settings')
     await waitFor(
       async () =>
         Boolean(
@@ -625,6 +628,7 @@ async function click(win: BrowserWindow, name: string): Promise<void> {
         ),
       'ordinary author controls disclosure',
     )
+  }
   try {
     await waitFor(
       async () =>

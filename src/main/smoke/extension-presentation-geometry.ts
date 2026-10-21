@@ -13,36 +13,53 @@ export async function verifyExtensionSettingsGeometry(
   await wait(
     async () =>
       (await win.webContents.executeJavaScript(`(() => {
-    const section=document.querySelector('.extension-settings'), scroll=section?.querySelector('.settings-section-scroll');
+    const section=document.querySelector('.extension-settings'), panel=section?.querySelector('.extension-configuration-layout');
     const heading=document.getElementById('settings-extensions-title');
-    const add=[...(section?.querySelectorAll('button')??[])].find(e=>e.textContent.trim()==='Add extension…');
-    if(!scroll||!heading||!add)return false;
-    const checkbox=section.querySelector('.agent-access-settings input[type=checkbox]');
-    const text=checkbox && [...checkbox.parentElement.childNodes].find(e=>e.nodeType===Node.TEXT_NODE&&e.textContent.trim());
-    if(!checkbox||!text)return false;
-    const range=document.createRange();range.selectNodeContents(text);
-    const check=checkbox.getBoundingClientRect(), label=range.getBoundingClientRect();
-    const beside=check.width>0&&check.width<=20&&check.right<=label.left+2&&check.top<label.bottom&&label.top<check.bottom;
-    const layout=section.querySelector('.extension-configuration-layout'), list=layout?.querySelector('.extension-installation-list'), detail=layout?.querySelector('.extension-installation');
-    let selected=true;
-    if(layout){
-      if(!list||!detail||layout.querySelectorAll('.extension-installation').length!==1)return false;
-      const left=list.getBoundingClientRect(), right=detail.getBoundingClientRect(), panel=layout.getBoundingClientRect();
-      selected=left.width>0&&right.width>0&&left.right<=right.left+1&&left.left>=panel.left&&right.right<=panel.right+1&&left.height<=panel.height&&right.height<=panel.height&&getComputedStyle(list).overflowY==='auto'&&getComputedStyle(detail).overflowY==='auto';
+    const sidebar=panel?.querySelector('.extension-settings-sidebar'), list=sidebar?.querySelector('.extension-installation-list');
+    const add=sidebar?.querySelector('.extension-add-action'), pane=panel?.querySelector('.extension-settings-pane');
+    const shared=pane?.querySelector('.extension-shared-settings'), article=pane?.querySelector('.extension-installation');
+    if(!section||!heading||!panel||!sidebar||!list||!add||!pane||!shared)return false;
+    const p=panel.getBoundingClientRect(), l=sidebar.getBoundingClientRect(), n=list.getBoundingClientRect(), r=pane.getBoundingClientRect(), a=add.getBoundingClientRect();
+    const bounds=section.getBoundingClientRect(), scale=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hvir-interface-scale'));
+    const contained=l.width>0&&r.width>0&&l.right<=r.left+1&&r.right<=p.right+1&&r.bottom<=p.bottom+1&&p.bottom<=bounds.bottom+1&&p.height>0;
+    const pinned=a.bottom<=l.bottom+1&&Math.abs(a.bottom-l.bottom)<2&&a.top>=n.bottom-1&&a.left>=l.left&&a.right<=l.right+1;
+    const scrolls=getComputedStyle(section).overflowY==='hidden'&&getComputedStyle(panel).overflowY==='hidden'&&getComputedStyle(list).overflowY==='auto'&&getComputedStyle(pane).overflowY==='auto'&&(!article||getComputedStyle(article).overflowY!=='auto');
+    const hidden=shared.hidden?getComputedStyle(shared).display==='none'&&!!article:shared.checkVisibility()&&!article;
+    const checkbox=shared.querySelector('.agent-access-settings input[type=checkbox]');
+    let beside=true;
+    if(!shared.hidden){
+      const text=checkbox&&[...checkbox.parentElement.childNodes].find(e=>e.nodeType===Node.TEXT_NODE&&e.textContent.trim());
+      if(!checkbox||!text)return false;
+      const range=document.createRange();range.selectNodeContents(text);
+      const check=checkbox.getBoundingClientRect(), label=range.getBoundingClientRect();
+      beside=check.width>0&&Math.abs(check.width-14*scale)<.5&&check.right<=label.left+2&&check.top<label.bottom&&label.top<check.bottom;
     }
-    const style=getComputedStyle(add), bounds=section.getBoundingClientRect(), box=scroll.getBoundingClientRect();
-    const scale=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hvir-interface-scale'));
-    return Math.abs(parseFloat(style.fontSize)-11*scale)<.1 && selected && beside && heading.checkVisibility() && heading.getBoundingClientRect().bottom <= box.top + 1 && box.bottom <= bounds.bottom + 1 && box.height > 0 && getComputedStyle(scroll).overflowY==='auto' && style.borderTopStyle==='solid' && parseFloat(style.borderTopLeftRadius)>=3;
+    return contained&&pinned&&scrolls&&hidden&&beside&&heading.checkVisibility()&&heading.getBoundingClientRect().bottom<=p.top+1&&Math.abs(parseFloat(getComputedStyle(add).fontSize)-11*scale)<.1;
   })()`)) === true,
-    'Extensions heading, scroll containment and flat rounded Add control',
-  )
+    'single Extensions panel with independent content scroll and pinned Add action',
+  ).catch(async (reason: unknown) => {
+    console.log(
+      '[smoke] settings geometry failure',
+      JSON.stringify(
+        await win.webContents.executeJavaScript(`(() => {
+      const box=selector=>{const e=document.querySelector(selector);return e?{rect:e.getBoundingClientRect().toJSON(),scrollHeight:e.scrollHeight,clientHeight:e.clientHeight,scrollWidth:e.scrollWidth,clientWidth:e.clientWidth,display:getComputedStyle(e).display,overflow:getComputedStyle(e).overflowY}:null};
+      return {scale:getComputedStyle(document.documentElement).getPropertyValue('--hvir-interface-scale'),section:box('.extension-settings'),panel:box('.extension-configuration-layout'),sidebar:box('.extension-settings-sidebar'),list:box('.extension-installation-list'),pane:box('.extension-settings-pane'),shared:box('.extension-shared-settings'),add:box('.extension-add-action'),checkbox:box('.extension-shared-settings input[type=checkbox]')};
+    })()`),
+      ),
+    )
+    throw reason
+  })
   const count = (await win.webContents.executeJavaScript(
-    "document.querySelectorAll('.extension-installation-list button').length",
+    "document.querySelectorAll('.extension-installation-list button[data-source]').length",
   )) as number
-  if (count > 1) {
+  const selected =
+    (await win.webContents.executeJavaScript(
+      "!!document.querySelector('.extension-installation-list [data-source][aria-current=true]')",
+    )) === true
+  if (count > 0 && selected) {
     const original = (await win.webContents.executeJavaScript(`(() => {
-      const buttons=[...document.querySelectorAll('.extension-installation-list button')];
-      const index=buttons.findIndex(e=>e.getAttribute('aria-current')==='true'), selected=buttons[index], next=buttons[(index+1)%buttons.length];
+      const buttons=[...document.querySelectorAll('.extension-installation-list button[data-source]')];
+      const index=buttons.findIndex(e=>e.getAttribute('aria-current')==='true'), selected=buttons[index], next=buttons[0];
       if(!selected||!next)throw new Error('Selected configuration disappeared');
       selected.focus();return {source:selected.dataset.source,name:selected.querySelector('strong')?.textContent,nextSource:next.dataset.source,nextName:next.querySelector('strong')?.textContent};
     })()`)) as
@@ -64,6 +81,15 @@ export async function verifyExtensionSettingsGeometry(
       throw new Error(
         'Configuration keyboard check requires the actual foreground window',
       )
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Home' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Home' })
+    await wait(
+      async () =>
+        (await win.webContents.executeJavaScript(
+          "document.querySelector('[aria-label=\"Extension settings\"]').getAttribute('aria-current')==='true'",
+        )) === true,
+      'native Home selects shared settings without opening Add',
+    )
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Down' })
     const ports = { wait, within: <T>(work: Promise<T>): Promise<T> => work }
@@ -267,5 +293,114 @@ export async function verifyExtensionRailGeometry(
       `document.documentElement.dataset.theme=${JSON.stringify(original.theme)};document.documentElement.style.setProperty('--hvir-interface-scale',${JSON.stringify(original.scale)})`,
     )
     win.setContentSize(size[0]!, size[1]!)
+  }
+}
+
+/** Both settings destinations retain real scroll containment at theme/scale boundaries. */
+export async function verifyExtensionSettingsVariants(
+  win: BrowserWindow,
+  wait: Wait,
+  host: ProjectHost,
+): Promise<void> {
+  const size = win.getContentSize()
+  const original = (await win.webContents.executeJavaScript(
+    `({theme:document.documentElement.dataset.theme,scale:document.documentElement.style.getPropertyValue('--hvir-interface-scale')})`,
+  )) as { theme: string; scale: string }
+  const directory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY
+  if (directory && (!directory.startsWith('/') || directory === '/'))
+    throw new Error('Select an absolute owned extension visual directory')
+  const output = directory ? localPath(directory) : undefined
+  if (output)
+    await host
+      .createDirectoryExclusive(output, { mode: 0o755 })
+      .catch(async (error: unknown) => {
+        if (
+          (error as NodeJS.ErrnoException).code !== 'EEXIST' ||
+          (await host.stat(output)).type !== 'dir'
+        )
+          throw error
+      })
+  const reference = extensionSettingsControls(
+    win,
+    'hvir Reference',
+    { wait, within: (work) => work },
+    'reference',
+  )
+  const facts: unknown[] = []
+  try {
+    for (const theme of ['dark', 'light']) {
+      for (const variant of ['ordinary', 'narrow-scaled', 'short-scaled']) {
+        win.setContentSize(
+          variant === 'ordinary' ? 1280 : 760,
+          variant === 'short-scaled' ? 600 : 800,
+        )
+        await win.webContents.executeJavaScript(
+          `document.documentElement.dataset.theme=${JSON.stringify(theme)};document.documentElement.style.setProperty('--hvir-interface-scale',${JSON.stringify(variant === 'ordinary' ? '1' : '1.5')})`,
+        )
+        for (const destination of ['shared', 'installed']) {
+          await win.webContents.executeJavaScript(
+            "document.querySelector('.extension-settings-pane').scrollTop=99999",
+          )
+          if (destination === 'shared') {
+            await win.webContents.executeJavaScript(
+              `document.querySelector('[aria-label="Extension settings"]').click()`,
+            )
+          } else await reference.select()
+          await verifyExtensionSettingsGeometry(win, wait)
+          await wait(
+            async () =>
+              (await win.webContents.executeJavaScript(
+                "document.querySelector('.extension-settings-pane').scrollTop===0",
+              )) === true,
+            'changed settings destination starts at top',
+          )
+          const geometry = (await win.webContents.executeJavaScript(`(() => {
+            const panel=document.querySelector('.extension-configuration-layout'), pane=panel.querySelector('.extension-settings-pane'), list=panel.querySelector('.extension-installation-list'), add=panel.querySelector('.extension-add-action'), shared=panel.querySelector('.extension-shared-settings');
+            const before=add.getBoundingClientRect().toJSON();pane.scrollTop=pane.scrollHeight;list.scrollTop=list.scrollHeight;
+            const after=add.getBoundingClientRect().toJSON();
+            if(before.top!==after.top||before.bottom!==after.bottom||panel.scrollHeight>panel.clientHeight+1||pane.scrollWidth>pane.clientWidth+1)throw new Error('Settings scrolling moved Add or overflowed the panel');
+            pane.scrollTop=0;list.scrollTop=0;
+            return {panelHeight:panel.clientHeight,paneHeight:pane.clientHeight,contentHeight:pane.scrollHeight,sidebarHeight:list.clientHeight,sidebarContentHeight:list.scrollHeight,pinnedAdd:true,outerScroll:false,sharedHidden:shared.hidden,sharedDisplay:getComputedStyle(shared).display,scale:getComputedStyle(document.documentElement).getPropertyValue('--hvir-interface-scale').trim()};
+          })()`)) as unknown
+          // Native Tab must reach the persistent Add action, skipping hidden shared fields.
+          await win.webContents.executeJavaScript(
+            `document.querySelector('.extension-installation-list button:last-child').focus()`,
+          )
+          win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
+          win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
+          await wait(
+            async () =>
+              (await win.webContents.executeJavaScript(
+                `document.activeElement===document.querySelector('.extension-add-action')&&document.activeElement.matches(':focus-visible')`,
+              )) === true,
+            'pinned Add reachable by native Tab without hidden settings',
+          )
+          facts.push({ theme, variant, destination, geometry, keyboardReachable: true })
+          if (output) {
+            await win.webContents.executeJavaScript(
+              'new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))',
+            )
+            await host.writeFile(
+              joinHostPath(
+                output,
+                `settings-panel-${theme}-${variant}-${destination}.png`,
+              ),
+              (await win.webContents.capturePage()).toPNG(),
+            )
+          }
+        }
+      }
+    }
+    if (output)
+      await host.writeFile(
+        joinHostPath(output, 'settings-panel-geometry.json'),
+        JSON.stringify(facts, null, 2),
+      )
+  } finally {
+    await win.webContents.executeJavaScript(
+      `document.documentElement.dataset.theme=${JSON.stringify(original.theme)};document.documentElement.style.setProperty('--hvir-interface-scale',${JSON.stringify(original.scale)})`,
+    )
+    win.setContentSize(size[0]!, size[1]!)
+    await reference.select()
   }
 }

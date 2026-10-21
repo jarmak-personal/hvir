@@ -21,6 +21,16 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+async function publishState(
+  publish: (state: ExtensionPlatformState) => void,
+  state: ExtensionPlatformState,
+): Promise<void> {
+  await act(async () => {
+    publish(state)
+    await Promise.resolve()
+  })
+}
+
 describe('extension Settings observation order', () => {
   it.each(['snapshot', 'error'] as const)(
     'keeps a newer authority publication when initial %s arrives late',
@@ -54,7 +64,7 @@ describe('extension Settings observation order', () => {
         explanation: 'Extension write ownership was revoked',
         installations: [{ source: 'current-package', enabled: true, warnings: [] }],
       }
-      act(() => publish(newer))
+      await publishState(publish, newer)
       await act(async () => {
         if (completion === 'snapshot') resolve({ writable: true, installations: [] })
         else reject(new Error('Old initialization error'))
@@ -70,7 +80,7 @@ describe('extension Settings observation order', () => {
       act(() => root!.unmount())
       root = undefined
       expect(unsubscribe).toHaveBeenCalledTimes(1)
-      act(() => publish({ writable: true, installations: [] }))
+      await publishState(publish, { writable: true, installations: [] })
     },
   )
 })
@@ -433,13 +443,11 @@ describe('Add extension result authority order', () => {
       (item) => item.textContent === 'Add extension…',
     )!
     act(() => button.click())
-    act(() =>
-      publish({
-        writable: false,
-        explanation: 'Extension write ownership was revoked',
-        installations: [],
-      }),
-    )
+    await publishState(publish, {
+      writable: false,
+      explanation: 'Extension write ownership was revoked',
+      installations: [],
+    })
     await act(async () => {
       finish({ writable: true, installations: [] })
       await pending
@@ -628,6 +636,18 @@ describe('Add selected configuration authority', () => {
     expect(selected()).toBe('added')
     expect(element!.textContent).toContain('unrelated')
   })
+  it('selects the exact added package when publication and receipt arrive before React commits', async () => {
+    const { finish, publish, pending } = await start()
+    await act(async () => {
+      publish(state(['first', 'second', 'added']))
+      finish({
+        ...state(['first', 'second', 'added']),
+        installed: { installationId: 'added' },
+      })
+      await pending
+    })
+    expect(selected()).toBe('added')
+  })
   it('selects a new package from a current reply when no publication has arrived', async () => {
     const { finish, pending } = await start()
     await act(async () => {
@@ -641,11 +661,11 @@ describe('Add selected configuration authority', () => {
   })
   it('does not infer installation from a publication or retarget to a removed package from a late exact reply', async () => {
     const { finish, publish, pending } = await start()
-    act(() => publish(state(['first', 'second'])))
+    await publishState(publish, state(['first', 'second']))
     expect(selected()).toBe('first')
-    act(() => publish(state(['first', 'second', 'added'])))
+    await publishState(publish, state(['first', 'second', 'added']))
     expect(selected()).toBe('first')
-    act(() => publish(state(['first', 'second'])))
+    await publishState(publish, state(['first', 'second']))
     await act(async () => {
       finish({
         ...state(['first', 'second', 'added']),
@@ -670,7 +690,7 @@ describe('Add selected configuration authority', () => {
               new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
             )
       })
-      act(() => publish(state(['first', 'second', 'added'])))
+      await publishState(publish, state(['first', 'second', 'added']))
       await act(async () => {
         finish({
           ...state(['first', 'second', 'added']),
@@ -685,12 +705,13 @@ describe('Add selected configuration authority', () => {
     'retires Add selection after %s so later additions cannot retarget it',
     async (mode) => {
       const { reject, publish, pending } = await start()
-      if (mode === 'revocation') act(() => publish(state(['first', 'second'], false)))
+      if (mode === 'revocation')
+        await publishState(publish, state(['first', 'second'], false))
       await act(async () => {
         reject(new Error('Selection cancelled'))
         await pending.catch(() => undefined)
       })
-      act(() => publish(state(['first', 'second', 'later'])))
+      await publishState(publish, state(['first', 'second', 'later']))
       expect(selected()).toBe('first')
       expect(element!.textContent).toContain('Selection cancelled')
     },
@@ -837,7 +858,7 @@ describe('selected extension configuration lifetime', () => {
       })
     return { publish, invoke, choose, initial }
   }
-  it('shows one selected configuration, preserves identity across reordered publications, and selects the first remaining entry after removal', async () => {
+  it('shows one selected configuration, preserves identity across reordered publications, and returns to shared settings after removal', async () => {
     const { publish, choose } = await renderSelection()
     expect(element!.querySelectorAll('.extension-installation')).toHaveLength(1)
     await choose('Second')
@@ -851,29 +872,37 @@ describe('selected extension configuration lifetime', () => {
       )
       input.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    act(() =>
-      publish({
-        writable: true,
-        installations: [installation('Second'), installation('First')],
-      }),
+    await publishState(publish, {
+      writable: true,
+      installations: [installation('Second'), installation('First')],
+    })
+    expect(element!.querySelector('.extension-installation h4')!.textContent).toBe(
+      'Second',
     )
-    expect(element!.querySelector('h4')!.textContent).toBe('Second')
     expect(
       element!.querySelector<HTMLInputElement>('[aria-label="Executable for tool"]')!
         .value,
     ).toBe('/owned/program')
-    act(() => publish({ writable: true, installations: [installation('First', false)] }))
-    expect(element!.querySelector('h4')!.textContent).toBe('First')
+    await publishState(publish, {
+      writable: true,
+      installations: [installation('First', false)],
+    })
+    expect(element!.querySelector('.extension-installation')).toBeNull()
     expect(element!.querySelector('[aria-label="Executable for tool"]')).toBeNull()
-    act(() =>
-      publish({
-        writable: true,
-        installations: [installation('First', false), installation('Second')],
-      }),
-    )
-    expect(element!.querySelector('h4')!.textContent).toBe('First')
+    await publishState(publish, {
+      writable: true,
+      installations: [installation('First', false), installation('Second')],
+    })
+    expect(element!.querySelector('.extension-installation')).toBeNull()
   })
-  it.each(['retarget', 'revision', 'candidate-revision', 'enabled', 'identity'] as const)(
+  it.each([
+    'retarget',
+    'shared',
+    'revision',
+    'candidate-revision',
+    'enabled',
+    'identity',
+  ] as const)(
     'discards a held unconfirmed program proposal after %s without retargeting approval',
     async (change) => {
       let resolve!: (value: unknown) => void
@@ -887,27 +916,29 @@ describe('selected extension configuration lifetime', () => {
           .click(),
       )
       if (change === 'retarget') await choose('Second')
+      else if (change === 'shared') await choose('Extension settings')
       else
-        act(() =>
-          publish({
-            writable: true,
-            installations: [
-              {
-                ...installation('First'),
-                ...(change === 'revision'
-                  ? { acceptedRevision: 'changed' }
-                  : change === 'candidate-revision'
-                    ? { revision: 'changed' }
-                    : change === 'identity'
-                      ? { installationId: 'replaced' }
-                      : { enabled: false }),
-              },
-              installation('Second'),
-            ],
-          }),
-        )
+        await publishState(publish, {
+          writable: true,
+          installations: [
+            {
+              ...installation('First'),
+              ...(change === 'revision'
+                ? { acceptedRevision: 'changed' }
+                : change === 'candidate-revision'
+                  ? { revision: 'changed' }
+                  : change === 'identity'
+                    ? { installationId: 'replaced' }
+                    : { enabled: false }),
+            },
+            installation('Second'),
+          ],
+        })
       if (change === 'enabled')
-        act(() => publish({ writable: true, installations: [installation('First')] }))
+        await publishState(publish, {
+          writable: true,
+          installations: [installation('First')],
+        })
       await act(async () => {
         resolve({
           token: 'never-approved',
@@ -941,15 +972,14 @@ describe('selected extension configuration lifetime', () => {
     expect(element!.querySelector('[role="alert"]')!.textContent).toBe(
       'First could not be disabled',
     )
-    act(() =>
-      publish({
-        writable: true,
-        installations: [
-          { ...installation('Invalid', false), error: 'Invalid package' },
-          { ...installation('Saved', false), retainedIdentity: true },
-        ],
-      }),
-    )
+    await publishState(publish, {
+      writable: true,
+      installations: [
+        { ...installation('Invalid', false), error: 'Invalid package' },
+        { ...installation('Saved', false), retainedIdentity: true },
+      ],
+    })
+    await choose('Invalid')
     expect(element!.textContent).toContain('Invalid package')
     await choose('Saved')
     expect(element!.textContent).toContain('Saved setup is kept')

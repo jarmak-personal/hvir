@@ -7,6 +7,7 @@ import { ConfirmationDialog } from '../../workbench/ConfirmationDialog'
 import {
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactElement,
@@ -35,26 +36,37 @@ export function ExtensionsSettings({
   const [removing, setRemoving] = useState<ExtensionInstallation>()
   const [forget, setForget] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [selection, setSelection] = useState<ExtensionInstallation>()
+  const [selection, setSelection] = useState<ExtensionInstallation | null>()
+  const [recoveryAttention, setRecoveryAttention] = useState('')
   const landingCallback = useRef(onInstalledLanding)
   landingCallback.current = onInstalledLanding
+  const currentState = useRef(state)
+  currentState.current = state
   const installations = state?.installations ?? []
   const selected =
-    installations.find(
-      (entry) =>
-        (selection?.sourceIdentity &&
-          entry.sourceIdentity === selection.sourceIdentity) ||
-        entry.source === selection?.source,
-    ) ??
-    installations.find(
-      (entry) =>
-        selection?.installationId && entry.installationId === selection.installationId,
-    ) ??
-    installations[0]
+    selection === null
+      ? undefined
+      : (installations.find(
+          (entry) =>
+            (selection?.sourceIdentity &&
+              entry.sourceIdentity === selection.sourceIdentity) ||
+            entry.source === selection?.source,
+        ) ??
+        installations.find(
+          (entry) =>
+            selection?.installationId &&
+            entry.installationId === selection.installationId,
+        ) ??
+        (selection === undefined ? installations[0] : undefined))
   useEffect(() => {
-    if (selected !== selection)
-      setSelection((current) => (current === selection ? selected : current))
+    if (selection !== undefined && selection !== null && selected !== selection)
+      setSelection((current) => (current === selection ? (selected ?? null) : current))
+    else if (selection === undefined && selected) setSelection(selected)
   }, [selected, selection])
+  const pane = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (pane.current) pane.current.scrollTop = 0
+  }, [selected?.source])
   const setupRequest = useRef<string | undefined>(undefined)
   const cancelSetup = (): void => {
     const request = setupRequest.current
@@ -85,6 +97,7 @@ export function ExtensionsSettings({
       if (!current) return
       publication.current++
       updated = true
+      currentState.current = next
       setState(next)
       if (!next.writable) cancelSetup()
     })
@@ -110,11 +123,81 @@ export function ExtensionsSettings({
       className="extension-settings"
       title="Extensions"
       description="Extension changes apply immediately. App preferences use Save below."
-      actions={
-        <div className="settings-actions">
+    >
+      <div className="extension-settings-content extension-configuration-layout">
+        <div className="extension-settings-sidebar">
+          <nav
+            className="extension-installation-list"
+            aria-label="Extensions"
+            onKeyDown={(event) => {
+              const buttons = [
+                ...event.currentTarget.querySelectorAll<HTMLButtonElement>('button'),
+              ]
+              const index = buttons.indexOf(event.target as HTMLButtonElement)
+              if (
+                index < 0 ||
+                !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)
+              )
+                return
+              event.preventDefault()
+              const next =
+                event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? buttons.length - 1
+                    : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) %
+                      buttons.length
+              buttons[next]?.focus()
+              buttons[next]?.click()
+            }}
+          >
+            <button
+              type="button"
+              className="hvir-button"
+              aria-label="Extension settings"
+              aria-current={!selected ? 'true' : undefined}
+              onClick={() => {
+                cancelSetup()
+                setSelection(null)
+                setRemoving(undefined)
+              }}
+            >
+              <strong>Extension settings</strong>
+              {recoveryAttention ? (
+                <small role="status">{recoveryAttention}</small>
+              ) : null}
+            </button>
+            {installations.map((installation) => (
+              <button
+                type="button"
+                className="hvir-button"
+                key={installation.source}
+                data-source={installation.source}
+                aria-current={selected === installation ? 'true' : undefined}
+                onClick={() => {
+                  cancelSetup()
+                  setSelection(installation)
+                  setRemoving(undefined)
+                }}
+              >
+                <strong>{installation.manifest?.name ?? installation.source}</strong>
+                <small>
+                  {installation.removalPending
+                    ? 'Removal unfinished'
+                    : installation.error
+                      ? 'Needs attention'
+                      : installation.enabled
+                        ? 'Enabled'
+                        : installation.retainedIdentity
+                          ? 'Saved setup · not enabled'
+                          : 'Not enabled'}
+                </small>
+              </button>
+            ))}
+          </nav>
           <button
             type="button"
-            className="hvir-button"
+            className="hvir-button extension-add-action"
             disabled={busy || !state?.writable}
             onClick={() =>
               void run(async () => {
@@ -136,7 +219,10 @@ export function ExtensionsSettings({
                     setConnection(next.connection)
                     const added =
                       next.installed &&
-                      next.installations.find(
+                      (observed === publication.current
+                        ? next.installations
+                        : (currentState.current?.installations ?? [])
+                      ).find(
                         (entry) =>
                           entry.installationId === next.installed!.installationId,
                       )
@@ -164,86 +250,72 @@ export function ExtensionsSettings({
             Add extension…
           </button>
         </div>
-      }
-    >
-      <div className="settings-section-scroll extension-settings-content">
-        {state?.explanation ? <p role="status">{state.explanation}</p> : null}
-        {error ? <p role="alert">{error}</p> : null}
-        {connection?.connections
-          .filter((entry) => entry.outcome !== 'connected')
-          .map((entry) => (
-            <p
-              key={entry.connector}
-              role={entry.outcome === 'interrupted-uncertain' ? 'alert' : 'status'}
-            >
-              {entry.connector}:{' '}
-              {entry.explanation ??
-                'Not connected. The extension is installed; choose Connect under Program access when ready.'}
+        <div className="extension-settings-pane" ref={pane}>
+          {state?.explanation ? <p role="status">{state.explanation}</p> : null}
+          {error ? <p role="alert">{error}</p> : null}
+          {connection?.connections
+            .filter((entry) => entry.outcome !== 'connected')
+            .map((entry) => (
+              <p
+                key={entry.connector}
+                role={entry.outcome === 'interrupted-uncertain' ? 'alert' : 'status'}
+              >
+                {entry.connector}:{' '}
+                {entry.explanation ??
+                  'Not connected. The extension is installed; choose Connect under Program access when ready.'}
+              </p>
+            ))}
+          {state?.installations.length === 0 && (state.writable || !state.explanation) ? (
+            <p>
+              No extensions found. Choose Add extension to select a directory or ZIP
+              package.
             </p>
-          ))}
-        {state?.installations.length === 0 && (state.writable || !state.explanation) ? (
-          <p>
-            No extensions found. Choose Add extension to select a directory or ZIP
-            package.
-          </p>
-        ) : null}
-        <AgentAccessSettings />
-        <DeliveryRecoverySettings />
-        {selected ? (
-          <div className="extension-configuration-layout">
-            <nav
-              className="extension-installation-list"
-              aria-label="Installed extensions"
-              onKeyDown={(event) => {
-                const buttons = [
-                  ...event.currentTarget.querySelectorAll<HTMLButtonElement>('button'),
-                ]
-                const index = buttons.indexOf(event.target as HTMLButtonElement)
-                if (
-                  index < 0 ||
-                  !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)
-                )
-                  return
-                event.preventDefault()
-                const next =
-                  event.key === 'Home'
-                    ? 0
-                    : event.key === 'End'
-                      ? buttons.length - 1
-                      : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) %
-                        buttons.length
-                buttons[next]?.focus()
-                buttons[next]?.click()
-              }}
-            >
-              {installations.map((installation) => (
+          ) : null}
+          <div className="extension-shared-settings" hidden={!!selected}>
+            <h4>Extension settings</h4>
+            <AgentAccessSettings />
+            <DeliveryRecoverySettings
+              active={!selected}
+              platformState={state}
+              onAttention={setRecoveryAttention}
+            />
+            <details className="extension-author-controls">
+              <summary>Author and discovery controls</summary>
+              <p>
+                For development links or packages copied manually, open the extensions
+                folder and discover them.
+              </p>
+              <div className="settings-actions">
                 <button
                   type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(() =>
+                      window.hvir.invoke('extensions:open-folder', undefined),
+                    )
+                  }
                   className="hvir-button"
-                  key={installation.source}
-                  data-source={installation.source}
-                  aria-current={selected === installation ? 'true' : undefined}
-                  onClick={() => {
-                    cancelSetup()
-                    setSelection(installation)
-                    setRemoving(undefined)
-                  }}
                 >
-                  <strong>{installation.manifest?.name ?? installation.source}</strong>
-                  <small>
-                    {installation.removalPending
-                      ? 'Removal unfinished'
-                      : installation.error
-                        ? 'Needs attention'
-                        : installation.enabled
-                          ? 'Enabled'
-                          : installation.retainedIdentity
-                            ? 'Saved setup · not enabled'
-                            : 'Not enabled'}
-                  </small>
+                  Open extensions folder
                 </button>
-              ))}
-            </nav>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () =>
+                      setState(
+                        await window.hvir.invoke('extensions:discover', undefined),
+                      ),
+                    )
+                  }
+                  className="hvir-button"
+                >
+                  Discover extensions
+                </button>
+              </div>
+            </details>
+          </div>
+          {selected ? (
             <ExtensionInstallationSettings
               key={selected.source}
               installation={selected}
@@ -256,39 +328,8 @@ export function ExtensionsSettings({
                 setRemoving(installation)
               }}
             />
-          </div>
-        ) : null}
-        <details className="extension-author-controls">
-          <summary>Author and discovery controls</summary>
-          <p>
-            For development links or packages copied manually, open the extensions folder
-            and discover them.
-          </p>
-          <div className="settings-actions">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                void run(() => window.hvir.invoke('extensions:open-folder', undefined))
-              }
-              className="hvir-button"
-            >
-              Open extensions folder
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                void run(async () =>
-                  setState(await window.hvir.invoke('extensions:discover', undefined)),
-                )
-              }
-              className="hvir-button"
-            >
-              Discover extensions
-            </button>
-          </div>
-        </details>
+          ) : null}
+        </div>
       </div>
       {removing ? (
         <ConfirmationDialog
@@ -342,7 +383,7 @@ export function ExtensionsSettings({
           </label>
           <p>
             {forget
-              ? 'Reinstall with Add extension starts with fresh setup. Delivered files stay where they are; hvir will no longer update or remove them. Unresolved delivery objects stay in recovery above.'
+              ? 'Reinstall with Add extension starts with fresh setup. Delivered files stay where they are; hvir will no longer update or remove them. Unresolved delivery objects stay in Delivery recovery under Extension settings.'
               : 'Keep saved setup and completed delivery records for reinstall with Add extension.'}
           </p>
         </ConfirmationDialog>
