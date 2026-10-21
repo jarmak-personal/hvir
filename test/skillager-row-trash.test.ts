@@ -82,8 +82,9 @@ it('requests only the trusted Files decision, then refreshes the same query afte
   await f.flush()
   expect(row()).toBeNull()
   expect(query.value).toBe('Example')
-  expect(f.calls.at(-1)).toContain('--query')
-  expect(f.calls.at(-1)).toContain('Example')
+  const list = f.calls.filter((args) => args[0] === 'list').at(-1)
+  expect(list).toContain('--query')
+  expect(list).toContain('Example')
   expect(el('skill-task-message').textContent).toBe('Moved to Trash.')
   expect(f.button('skill-task-close').disabled).toBe(false)
 })
@@ -167,7 +168,7 @@ it.each(['cancelled', 'refused', 'uncertain'])(
       outcome === 'cancelled' ? 'Cancelled.' : 'Keep the current files.',
     )
     expect(el('state').textContent).toContain('Page 2')
-    expect(f.calls.at(-1)).toContain('page-two')
+    expect(f.calls.filter((args) => args[0] === 'list').at(-1)).toContain('page-two')
     expect(
       f.requests.filter((r) => r.capability === 'source.request-trash'),
     ).toHaveLength(1)

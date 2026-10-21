@@ -96,6 +96,14 @@ installation containing commit `4205406ca945414ec42e36724f7d6ef2949afcf7`; the d
 alone does not establish support. Update the executable configured for **project-cli**, then
 reconnect it if hvir requests renewed program access.
 
+In **Project**, the quiet **skills ready to save** row counts eligible originals across the
+whole project, including skills outside the current filter or page. **Save all…** opens one
+review with those skills checked; uncheck any you do not want and optionally inspect their
+files. **Save N skills** saves and accepts those versions together, leaving originals intact.
+For more than 32 eligible skills, **Save skills…** proposes the first 32 and shows the exact
+selected and remaining counts. Uncheck or load more to change the selection. A partial save
+keeps each known result and offers **Check saved skills**; it never retries the batch.
+
 The extension uses the public
 `skillager.project-import-inventory.v1`, `skillager.project-import.v1` and
 `skillager.project-import-status.v1` contracts. The metadata inventory covers the selected

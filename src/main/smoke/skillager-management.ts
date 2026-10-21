@@ -18,6 +18,7 @@ import { verifyOwnedManagedCopies } from './skillager-management-copies'
 import { verifyOwnedApprovedSync } from './skillager-management-sync'
 import { verifyOwnedSaveUse } from './skillager-save-use'
 import { verifyOwnedSkillRowActions } from './skillager-row-actions'
+import { verifyOwnedProjectSave } from './skillager-project-save'
 import { verifyOwnedImport } from './skillager-import'
 import { verifyOwnedOriginalReveal } from './skillager-management-reveal'
 import { verifyOwnedReviewRefusals } from './skillager-management-refusals'
@@ -165,6 +166,44 @@ export async function verifySkillagerManagement(
       cli,
       controls,
     )
+  if (process.env.HVIR_SKILLAGER_MANAGEMENT_BATCH_ONLY === '1') {
+    const trace = managementActionTrace(host, owned)
+    await trace.observe(projectGuest, 'human')
+    let proof: Record<string, unknown>
+    try {
+      proof = await verifyOwnedProjectSave(
+        win,
+        projectGuest,
+        async () => {
+          await controls.wait(() => !!view('detail'), 'independent skill reader')
+          return withinExtensionInspection(controls.guest(view('detail')!))
+        },
+        host,
+        workspace.root,
+        owned,
+        cli,
+        controls,
+      )
+    } finally {
+      await trace.dispose()
+    }
+    await host.writeFile(
+      joinHostPath(owned, 'batch-save-proof.json'),
+      JSON.stringify(
+        {
+          qualification:
+            'Owned source-built CLI and isolated guest; no signed-package claim.',
+          ...proof,
+          commandProof,
+        },
+        null,
+        2,
+      ),
+    )
+    console.log('[smoke] owned Skillager project save: PASS')
+    console.log('HVIR_SMOKE_OK')
+    return true
+  }
   if (process.env.HVIR_SKILLAGER_MANAGEMENT_ROW_ACTIONS_ONLY === '1') {
     const proof = await verifyOwnedSkillRowActions(
       win,

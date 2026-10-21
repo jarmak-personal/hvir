@@ -59,12 +59,16 @@ const cli = catalogCli(
 )
 const changed = (_result, origin) => {
   // A hidden same-context refresh queues normally. A different workspace refreshes on return.
-  if (JSON.stringify(origin) === JSON.stringify(context.workspace)) requestRefresh()
+  if (JSON.stringify(origin) === JSON.stringify(context.workspace)) {
+    sheet?.invalidateProject()
+    requestRefresh()
+  }
 }
 const reader = body ? bindSkillReader(document, client, { choose, changed }) : undefined
 const sheet = list
   ? bindBrowserTaskSheet(document, client, {
       context: () => context,
+      project: () => browserScope === 'project',
       reader,
       choose,
       changed,
@@ -378,6 +382,7 @@ async function refresh() {
       if (element('program-setup')) element('program-setup').hidden = !setupNeeded
       refreshConnectionAvailability()
       rows(page)
+      if (browserScope === 'project') sheet?.observeProject()
       observedSuccessfully = true
     }
   } catch (error) {
@@ -444,6 +449,7 @@ function changeScope(next) {
     scroll: list.scrollTop,
   })
   browserScope = next
+  sheet?.scopeChanged()
   const saved = scopes.get(next) ?? { query: '', previous: [], searchOptions: {} }
   ;({ query, cursor, previous, searchOptions, selectedRow, lastPage, pageRequest } =
     saved)
@@ -559,6 +565,7 @@ on('connect-program', 'click', async () => {
           result.readiness?.source === true))
     ) {
       connectionPhase = 'observing'
+      sheet?.invalidateProject()
       refreshConnectionAvailability()
       requestRefresh()
     } else {
@@ -636,6 +643,7 @@ on('browse', 'click', () => {
   )
 })
 on('refresh', 'click', () => {
+  sheet?.invalidateProject()
   // Opaque cursors may expire as skills change; an explicit refresh starts a new page set.
   requestRefresh({ cursor: undefined, previous: [] })
 })

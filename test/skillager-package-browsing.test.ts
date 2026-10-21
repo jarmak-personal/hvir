@@ -327,7 +327,8 @@ it('connects the current project and automatically preserves project query witho
         r.input.host === 'local',
     ),
   ).toBe(true)
-  const search = commands.at(-1)!.input.args as string[]
+  const search = commands.findLast((r) => (r.input.args as string[])[0] === 'list')!.input
+    .args as string[]
   expect(search).toEqual([
     'list',
     '--scope',
@@ -373,7 +374,10 @@ it.each(['timer', 'query'] as const)(
     f.connected(projectConnection())
     await f.flush()
     expect(f.calls.length).toBeGreaterThan(before)
-    const command = f.requests.filter((r) => r.capability === 'connector.execute').at(-1)!
+    const command = f.requests.findLast(
+      (r) =>
+        r.capability === 'connector.execute' && (r.input.args as string[])[0] === 'list',
+    )!
     const args = command.input.args as string[]
     expect(command.input.connector).toBe('project-cli')
     expect(args[args.indexOf('--query') + 1]).toBe(
