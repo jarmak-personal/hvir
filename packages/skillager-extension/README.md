@@ -89,3 +89,25 @@ A project-original occurrence linked to a canonical version in public search kee
 **Save and use requires an updated Skillager.** The public `skillager.import-placement.v1` contract was added after 0.9.7 in Skillager PR #87. Use the next release containing that change or a source installation containing commit `5541a16dfa5d805e226a4fbd30edac5686d6a368`; the displayed version alone does not establish support. Update the executable configured for **project-cli**, then reconnect it if hvir requests renewed program access. Unsupported versions leave reading and standalone Save available; the extension never falls back to chained mutations.
 
 The distinct human-only `save-and-use-copy` action declares delete and replace effects. Preparation calls `import --source-file … --review-manifest --project-mode native|stub --agent codex|claude --json`. The action refreshes that complete manifest once, compares its opaque token and source identity, then invokes the one confirmed CLI command. Skillager owns acceptance, exact preservation and project publication. A successful save with failed replacement retains its canonical version and offers a fresh Full/Stub task. Partial or uncertain completion retains every stage and recovery detail in the existing operation record. Refresh observes current inventory without repeating, accepting or acknowledging an operation.
+
+**Saving project skills together requires an updated Skillager.** The batch contracts were
+added after released 0.9.8 in Skillager PR #89. Use a release containing that change or a source
+installation containing commit `4205406ca945414ec42e36724f7d6ef2949afcf7`; the displayed version
+alone does not establish support. Update the executable configured for **project-cli**, then
+reconnect it if hvir requests renewed program access.
+
+The extension uses the public
+`skillager.project-import-inventory.v1`, `skillager.project-import.v1` and
+`skillager.project-import-status.v1` contracts. The metadata inventory covers the selected
+local project's native skills across all pages, independently of search. Skillager identifies
+eligible originals, already-saved versions, managed copies, duplicates and conflicts; incomplete
+discovery stays explicit. `import-project --select … --review-manifest --json` supplies one
+complete optional file review and a token for at most 32 selected occurrences. One human-only
+`save-project-skills` action revalidates the selection and saves and accepts it through one
+confirmed CLI operation. Originals, source approvals and project copies remain unchanged.
+
+The action verifies accepted results with one targeted public status read, rather than one
+process per skill. Partial results retain the exact native report through existing operation
+pages; current-state reconciliation binds every selected destination without claiming historical
+completion or replaying accepted items. Unsupported CLI versions leave browsing and individual
+skill actions available. Selection, source, argv and response bounds remain unchanged.

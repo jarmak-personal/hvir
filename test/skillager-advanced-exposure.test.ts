@@ -176,12 +176,15 @@ it('keeps separate semantic exports with separate human acceptance and copy effe
   const manifest = validateExtensionManifest(
     JSON.parse(readFileSync('packages/skillager-extension/hvir-extension.json', 'utf8')),
   ).manifest
-  expect(manifest.actions).toHaveLength(10)
+  expect(manifest.actions).toHaveLength(11)
   expect(
     manifest.actions?.find((action) => action.id === 'save-and-use-copy'),
   ).toMatchObject({ agents: false, effects: { delete: true, replace: true } })
   expect(
     manifest.actions?.find((action) => action.id === 'save-and-accept'),
+  ).toMatchObject({ agents: false, effects: { delete: false, replace: false } })
+  expect(
+    manifest.actions?.find((action) => action.id === 'save-project-skills'),
   ).toMatchObject({ agents: false, effects: { delete: false, replace: false } })
   expect(manifest.actions?.find((a) => a.id === 'change-exposure')).toMatchObject({
     agents: true,
