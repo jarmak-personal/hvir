@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type {
   DeliveryRecoveryEntry,
   DeliveryRecoveryReply,
@@ -27,7 +27,7 @@ export function DeliveryRecoverySettings({
   const [entries, setEntries] = useState<readonly DeliveryRecoveryEntry[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
-  const [failed, setFailed] = useState(false)
+  const [observationError, setObservationError] = useState('')
   const [operationFailed, setOperationFailed] = useState(false)
   const [decision, setDecision] = useState<DeliveryRecoveryReply>()
   const inspection = useRef(0)
@@ -39,26 +39,33 @@ export function DeliveryRecoverySettings({
   }, [active])
   useEffect(() => {
     onAttention?.(
-      failed || operationFailed
+      observationError || operationFailed
         ? 'Recovery needs attention'
         : entries.length
           ? `${entries.length} to inspect`
           : '',
     )
-  }, [entries.length, failed, operationFailed, onAttention])
+  }, [entries.length, observationError, operationFailed, onAttention])
   const revision = useRef(0),
     mounted = useRef(false)
-  const refresh = async (current: () => boolean): Promise<void> => {
-    const value = await window.hvir.invoke('extensions:delivery-recovery', undefined)
-    if (!Array.isArray(value))
-      throw new Error(
-        'Complete retained delivery records are unavailable; files remain in place',
-      )
-    if (current()) {
-      setEntries(value)
-      setFailed(false)
+  const refresh = useCallback(async (current: () => boolean): Promise<void> => {
+    try {
+      const value = await window.hvir.invoke('extensions:delivery-recovery', undefined)
+      if (!Array.isArray(value))
+        throw new Error(
+          'Complete retained delivery records are unavailable; files remain in place',
+        )
+      if (current()) {
+        setEntries(value)
+        setObservationError('')
+      }
+    } catch (reason) {
+      if (current())
+        setObservationError(
+          reason instanceof Error ? reason.message : 'Delivery recovery unavailable',
+        )
     }
-  }
+  }, [])
   const run = async (task: (current: () => boolean) => Promise<void>): Promise<void> => {
     const request = ++revision.current,
       current = () => mounted.current && revision.current === request
@@ -92,34 +99,16 @@ export function DeliveryRecoverySettings({
     if (busy) return
     let observing = true
     const request = ++revision.current
-    void window.hvir
-      .invoke('extensions:delivery-recovery', undefined)
-      .then((value) => {
-        if (!observing || !mounted.current || revision.current !== request) return
-        if (!Array.isArray(value))
-          throw new Error(
-            'Complete retained delivery records are unavailable; files remain in place',
-          )
-        setEntries(value)
-        setFailed(false)
-      })
-      .catch((reason) => {
-        if (observing && mounted.current && revision.current === request) {
-          setFailed(true)
-          setMessage(
-            reason instanceof Error ? reason.message : 'Delivery recovery unavailable',
-          )
-        }
-      })
+    void refresh(() => observing && mounted.current && revision.current === request)
     return () => {
       observing = false
     }
-  }, [platformState, busy])
+  }, [platformState, busy, refresh])
   return (
     <details
       className="extension-delivery-recovery"
       aria-label="Retained extension deliveries"
-      open={entries.length > 0 || !!message || !!decision}
+      open={entries.length > 0 || !!message || !!observationError || !!decision}
     >
       <summary>
         Delivery recovery{entries.length ? ` · ${entries.length} to inspect` : ''}
@@ -264,6 +253,7 @@ export function DeliveryRecoverySettings({
         </fieldset>
       ) : null}
       {message ? <p role="status">{message}</p> : null}
+      {observationError ? <p role="status">{observationError}</p> : null}
     </details>
   )
 }

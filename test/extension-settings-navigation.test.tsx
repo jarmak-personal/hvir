@@ -36,6 +36,7 @@ afterEach(() => {
 async function render(initial = state) {
   let publish!: (next: ExtensionPlatformState) => void
   let records: unknown = []
+  let cleanup: Promise<unknown> = Promise.resolve({ outcome: 'completed' })
   let inspect: Promise<unknown> = Promise.resolve({
     token: 'exact',
     objects: [],
@@ -46,6 +47,8 @@ async function render(initial = state) {
       return records instanceof Error ? Promise.reject(records) : Promise.resolve(records)
     if (channel === 'extensions:delivery-resolve' && input?.kind === 'inspect')
       return inspect
+    if (channel === 'extensions:delivery-resolve' && input?.kind === 'cleanup')
+      return cleanup
     if (channel === 'agent:access')
       return Promise.resolve({
         enabled: false,
@@ -80,6 +83,9 @@ async function render(initial = state) {
       }),
     records: (value: unknown) => {
       records = value
+    },
+    cleanup: (value: Promise<unknown>) => {
+      cleanup = value
     },
     inspect: (value: Promise<unknown>) => {
       inspect = value
@@ -183,9 +189,15 @@ it('reports retained deliveries and observation errors while installed settings 
   await fixture.publish({ ...state })
   expect(pane().hidden).toBe(true)
   expect(shared().textContent).toContain('1 to inspect')
+  const description = shared().getAttribute('aria-describedby')!
+  expect(document.getElementById(description)?.textContent).toBe('1 to inspect')
+  expect(shared().querySelector('[role=status]')).toBeNull()
   fixture.records(new Error('Recovery records unavailable'))
   await fixture.publish({ ...state })
   expect(shared().textContent).toContain('Recovery needs attention')
+  expect(document.getElementById(description)?.textContent).toBe(
+    'Recovery needs attention',
+  )
   await click(shared())
   expect(pane().textContent).toContain('Recovery records unavailable')
 })
@@ -235,3 +247,52 @@ it('starts a changed settings destination at the top without jumping on a public
   await click(shared())
   expect(content.scrollTop).toBe(0)
 })
+
+it('keeps the initially empty shared destination and its inspection when an installation appears', async () => {
+  const fixture = await render({ writable: true, installations: [] })
+  fixture.records([retained])
+  await fixture.publish({ writable: true, installations: [] })
+  await click(button('Inspect retained files'))
+  expect(pane().textContent).toContain('Keep files and end tracking?')
+  await fixture.publish(state)
+  expect(selected()).toBe(shared())
+  expect(pane().hidden).toBe(false)
+  expect(pane().textContent).toContain('Keep files and end tracking?')
+  expect(element.querySelector('.extension-installation')).toBeNull()
+})
+
+it.each(['success', 'failure'])(
+  'preserves submitted cleanup and attention while visiting installed settings: %s',
+  async (completion) => {
+    const fixture = await render()
+    fixture.records([retained])
+    await fixture.publish({ ...state })
+    await click(shared())
+    let finish!: (result: unknown) => void, fail!: (reason: Error) => void
+    const pending = new Promise((resolve, reject) => {
+      finish = resolve
+      fail = reject
+    })
+    fixture.cleanup(pending)
+    await click(button('Remove saved staging and old copies'))
+    await click(element.querySelector<HTMLElement>('[data-source="first"]')!)
+    expect(pane().hidden).toBe(true)
+    await act(async () => {
+      if (completion === 'failure') fail(new Error('Cleanup remains unproven'))
+      else finish({ outcome: 'completed' })
+      await pending.catch(() => {})
+    })
+    expect(pane().hidden).toBe(true)
+    expect(shared().textContent).toContain(
+      completion === 'failure' ? 'Recovery needs attention' : '1 to inspect',
+    )
+    await click(shared())
+    expect(pane().textContent).toContain(
+      completion === 'failure' ? 'Cleanup remains unproven' : 'Cleanup: completed',
+    )
+    expect(button('Refresh retained deliveries').disabled).toBe(false)
+    expect(
+      fixture.invoke.mock.calls.filter(([, input]) => input?.kind === 'cleanup'),
+    ).toHaveLength(1)
+  },
+)

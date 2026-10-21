@@ -255,3 +255,40 @@ it.each(['success', 'failure'])(
     ).toHaveLength(1)
   },
 )
+
+it.each([
+  { completion: 'success', failedRead: 'background', successfulReads: 2 },
+  { completion: 'success', failedRead: 'post-operation', successfulReads: 1 },
+  { completion: 'failure', failedRead: 'background', successfulReads: 1 },
+])(
+  'preserves cleanup $completion alongside a $failedRead observation failure',
+  async ({ completion, successfulReads }) => {
+    let reads = 0
+    const invoke = vi.fn((channel: string, input?: { kind: string }) => {
+      if (channel === 'extensions:delivery-recovery')
+        return ++reads <= successfulReads
+          ? Promise.resolve([row])
+          : Promise.reject(new Error('Recovery inventory unavailable'))
+      if (input?.kind === 'cleanup')
+        return completion === 'success'
+          ? Promise.resolve({ outcome: 'completed' })
+          : Promise.reject(new Error('Cleanup remains unproven'))
+      return Promise.reject(new Error('Unexpected request'))
+    })
+    vi.stubGlobal('hvir', { invoke })
+    await render()
+    await act(async () => {
+      button('Remove saved staging and old copies').click()
+      await Promise.resolve()
+    })
+    const messages = [...element.querySelectorAll('[role=status]')].map(
+      (message) => message.textContent,
+    )
+    expect(messages).toContain(
+      completion === 'success'
+        ? 'Cleanup: completed. Target files stay in place.'
+        : 'Cleanup remains unproven',
+    )
+    expect(messages).toContain('Recovery inventory unavailable')
+  },
+)

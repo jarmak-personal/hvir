@@ -6,6 +6,7 @@ import { ExtensionInstallationSettings } from './ExtensionInstallationSettings'
 import { ConfirmationDialog } from '../../workbench/ConfirmationDialog'
 import {
   useEffect,
+  useId,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
@@ -38,6 +39,7 @@ export function ExtensionsSettings({
   const [busy, setBusy] = useState(false)
   const [selection, setSelection] = useState<ExtensionInstallation | null>()
   const [recoveryAttention, setRecoveryAttention] = useState('')
+  const recoveryAttentionId = useId()
   const landingCallback = useRef(onInstalledLanding)
   landingCallback.current = onInstalledLanding
   const currentState = useRef(state)
@@ -61,8 +63,9 @@ export function ExtensionsSettings({
   useEffect(() => {
     if (selection !== undefined && selection !== null && selected !== selection)
       setSelection((current) => (current === selection ? (selected ?? null) : current))
-    else if (selection === undefined && selected) setSelection(selected)
-  }, [selected, selection])
+    else if (selection === undefined && state)
+      setSelection((current) => (current === undefined ? (selected ?? null) : current))
+  }, [selected, selection, state])
   const pane = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     if (pane.current) pane.current.scrollTop = 0
@@ -155,6 +158,7 @@ export function ExtensionsSettings({
               type="button"
               className="hvir-button"
               aria-label="Extension settings"
+              aria-describedby={recoveryAttention ? recoveryAttentionId : undefined}
               aria-current={!selected ? 'true' : undefined}
               onClick={() => {
                 cancelSetup()
@@ -164,7 +168,7 @@ export function ExtensionsSettings({
             >
               <strong>Extension settings</strong>
               {recoveryAttention ? (
-                <small role="status">{recoveryAttention}</small>
+                <small id={recoveryAttentionId}>{recoveryAttention}</small>
               ) : null}
             </button>
             {installations.map((installation) => (

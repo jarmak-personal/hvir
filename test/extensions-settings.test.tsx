@@ -354,8 +354,8 @@ describe('single Add extension Settings intent', () => {
     },
   )
   it('submits no path or package mode, stays busy through import, and shows an enabled installation without Discover or Enable', async () => {
-    let finish!: (state: ExtensionPlatformState) => void
-    const pending = new Promise<ExtensionPlatformState>((resolve) => {
+    let finish!: (state: ExtensionAdditionResult) => void
+    const pending = new Promise<ExtensionAdditionResult>((resolve) => {
       finish = resolve
     })
     const invoke = vi.fn<(channel: string, input?: unknown) => Promise<unknown>>(
@@ -385,6 +385,7 @@ describe('single Add extension Settings intent', () => {
     await act(async () => {
       finish({
         writable: true,
+        installed: { installationId: 'chosen' },
         installations: [
           {
             source: 'chosen.zip',
