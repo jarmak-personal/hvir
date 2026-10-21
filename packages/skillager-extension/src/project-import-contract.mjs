@@ -4,7 +4,11 @@ import {
   boundedManagementJson,
   digest,
 } from './management-contract.mjs'
-import { exactExternalImportTree, importArgs } from './import-contract.mjs'
+import {
+  exactExternalImportTree,
+  externalImportLibrary,
+  importArgs,
+} from './import-contract.mjs'
 import { isCanonicalSkillId, metadataText } from './public-metadata.mjs'
 import { metadataEncoding } from './management-sync-review.mjs'
 import { isStaleCatalogCursor } from './catalog-cli.mjs'
@@ -101,17 +105,6 @@ export function projectImportWorkspace(workspace) {
     )
   return absoluteLocalPath(workspace.root.path).path
 }
-export function projectImportLibrary(library) {
-  if (
-    !['ready', 'will-initialize'].includes(library?.status) ||
-    !['system', 'disabled'].includes(library.git_mode) ||
-    (!(library.library_id === null && library.status === 'will-initialize') &&
-      !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(library.library_id))
-  )
-    throw new Error('The project import library identity or history is unavailable.')
-  absoluteLocalPath(library.root)
-  return library
-}
 function limits(value) {
   for (const [key, maximum] of Object.entries(maximums))
     if (!Number.isSafeInteger(value?.[key]) || value[key] < 1 || value[key] > maximum)
@@ -161,7 +154,7 @@ export function projectImportEnvelope(value, schema, workspace) {
     throw new Error(
       'Project skill metadata belongs to another project. Refresh this project.',
     )
-  projectImportLibrary(value.library)
+  externalImportLibrary(value.library)
   limits(value.limits)
   observation(value.observation)
 }
@@ -331,13 +324,10 @@ export function exactProjectImport(value, selection, workspace) {
     digest(item.source_identity)
     location(item.source_location, item.source.path)
     location(item.source_file_identity, item.source.file)
-    if (
-      item.lint?.blocking_count !== 0 ||
-      typeof item.lint.status !== 'string' ||
-      !['low', 'medium', 'unknown'].includes(item.scan?.risk) ||
-      count(item.scan.finding_count) < 0
-    )
-      throw new Error('A selected source requires individual lint or scan review.')
+    if (!metadataText(item.lint?.status, 128) || !metadataText(item.scan?.risk, 128))
+      throw new Error('Selected lint and scan details are unavailable.')
+    count(item.lint.blocking_count)
+    count(item.scan.finding_count)
     destinations.add(item.destination.path)
     sources.add(item.source.file)
     fileCount += manifest.file_count
@@ -360,15 +350,27 @@ export function exactProjectImport(value, selection, workspace) {
 export async function readProjectImport(io, args, schema) {
   try {
     return await io.run(args, undefined, true, (value, code) => {
-      if (schema === inventorySchema && code === 15) {
-        const error = new Error('Project inventory changed. Refresh its metadata page.'),
-          stdout = JSON.stringify(value)
-        error.cli = {
-          outcome: 'completed',
-          code,
-          stdout: stdout.length <= 4096 ? stdout : undefined,
+      if (value?.schema === 'skillager.error.v1') {
+        boundedManagementJson(value)
+        const details = value.error
+        if (
+          !Number.isSafeInteger(code) ||
+          code < 1 ||
+          !metadataText(details?.code, 128) ||
+          !metadataText(details?.message, 2048)
+        )
+          throw new Error('Skillager returned incomplete project import error metadata.')
+        const error = new Error(`${details.message} (${details.code})`)
+        if (schema === inventorySchema && code === 15) {
+          const stdout = JSON.stringify(value),
+            cli = {
+              outcome: 'completed',
+              code,
+              stdout: stdout.length <= 4096 ? stdout : undefined,
+            }
+          if (isStaleCatalogCursor({ cli })) error.cli = cli
         }
-        if (isStaleCatalogCursor(error)) throw error
+        throw error
       }
       if (value?.schema !== schema) throw new Error(projectImportUpdate)
       if (code === 2 && value.status === 'refused')

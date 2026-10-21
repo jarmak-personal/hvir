@@ -1,7 +1,7 @@
 import { boundedManagementJson, digest } from './management-contract.mjs'
+import { externalImportLibrary } from './import-contract.mjs'
 import {
   projectImportSchema,
-  projectImportLibrary,
   projectImportRefusal,
   sameProjectImportFact as same,
 } from './project-import-contract.mjs'
@@ -32,7 +32,7 @@ export function projectImportCompletion(value, code, preview) {
     (value.status === 'completed') !== (code === 0)
   )
     throw new Error('The save reply does not cover the exact reviewed project selection.')
-  const library = projectImportLibrary(value.library),
+  const library = externalImportLibrary(value.library),
     expected = preview.library
   if (
     library.root !== expected.root ||

@@ -5,6 +5,7 @@ const contract = importModule<{
   observeProjectImport(io: unknown, workspace: unknown, paging: unknown): Promise<unknown>
   exactProjectImport(value: unknown, selection: string, workspace: unknown): unknown
   projectImportInventory(value: unknown, workspace: unknown): unknown
+  readProjectImport(io: unknown, args: string[], schema: string): Promise<unknown>
   projectImportSelection(value: string): string[]
   projectImportArgs(value: string, token?: string): string[]
   prepareProjectImport(
@@ -95,7 +96,7 @@ describe('complete exact review identity', () => {
     if (field === 'library') item.review_manifest.library.root = '/other-library'
     if (field === 'selection') f.preview.selection.reverse()
     if (field === 'project') f.preview.project_root = '/other-project'
-    if (field === 'scan') item.scan.risk = 'high'
+    if (field === 'scan') item.scan.finding_count = -1
     if (field === 'command') f.preview.next_command_argv.push('--force')
     if (field === 'total') item.review_manifest.total_bytes++
     if (field === 'bound') f.preview.limits.selection_items = 33
@@ -178,9 +179,11 @@ it('preserves only the public stale-cursor failure for the metadata consumer to 
     .observeProjectImport(io, f.workspace, { cursor: 'old-page' })
     .catch((reason: unknown) => reason)
   expect(cursor.isStaleCatalogCursor(error)).toBe(true)
-  await expect(
-    contract.prepareProjectImport(io, f.input.selection, f.workspace),
-  ).rejects.toThrow('Update Skillager')
+  const reviewError: unknown = await contract
+    .prepareProjectImport(io, f.input.selection, f.workspace)
+    .catch((reason: unknown) => reason)
+  expect(reviewError).toMatchObject({ message: 'Inventory changed (stale_cursor)' })
+  expect(cursor.isStaleCatalogCursor(reviewError)).toBe(false)
 })
 
 it('accepts public Unicode metadata bounds without treating code points as UTF-16 units', () => {
@@ -188,4 +191,114 @@ it('accepts public Unicode metadata bounds without treating code points as UTF-1
   f.inventory.items[0]!.name = '𐐨'.repeat(160)
   f.inventory.items[0]!.description = '𐐨'.repeat(1000)
   expect(contract.projectImportInventory(f.inventory, f.workspace)).toEqual(f.inventory)
+})
+
+it('keeps scanner and lint verdicts with the public domain instead of inventing eligibility gates', () => {
+  const f = projectImportFixture()
+  Object.assign(f.preview.items[0]!.lint, {
+    status: 'domain-reviewed',
+    blocking_count: 2,
+  })
+  Object.assign(f.preview.items[0]!.scan, {
+    risk: 'domain-classification',
+    finding_count: 4,
+  })
+  expect(contract.exactProjectImport(f.preview, f.input.selection, f.workspace)).toEqual(
+    f.preview,
+  )
+})
+it.each(['lint-status', 'lint-count', 'scan-risk', 'scan-count'])(
+  'requires bounded display metadata for %s',
+  (field) => {
+    const f = projectImportFixture(),
+      item = f.preview.items[0]!
+    if (field === 'lint-status') item.lint.status = ''
+    if (field === 'lint-count') item.lint.blocking_count = -1
+    if (field === 'scan-risk') item.scan.risk = 'x'.repeat(129)
+    if (field === 'scan-count') item.scan.finding_count = 0.5
+    expect(() =>
+      contract.exactProjectImport(f.preview, f.input.selection, f.workspace),
+    ).toThrow()
+  },
+)
+it.each([
+  ['invalid_cursor', 'cursor belongs to a different request'],
+  ['inventory_unavailable', 'Project inventory is unavailable'],
+])(
+  'shows supported public %s error details without update advice or invented retries',
+  async (code, message) => {
+    const value = { schema: 'skillager.error.v1', error: { code, message } },
+      io = {
+        run(
+          _args: unknown,
+          _operation: unknown,
+          _retry: unknown,
+          validate: (value: unknown, exit: number) => void,
+        ) {
+          validate(value, 2)
+          return Promise.resolve(value)
+        },
+      }
+    await expect(
+      contract.readProjectImport(
+        io,
+        ['import-project', '--json'],
+        'skillager.project-import-inventory.v1',
+      ),
+    ).rejects.toThrow(`${message} (${code})`)
+  },
+)
+it.each(['code', 'message', 'bound', 'success'])(
+  'rejects incomplete public error %s without classifying it as a stale cursor',
+  async (field) => {
+    const value = {
+      schema: 'skillager.error.v1',
+      error: { code: 'stale_cursor', message: 'Inventory changed' },
+    }
+    if (field === 'code') value.error.code = ''
+    if (field === 'message') value.error.message = ''
+    if (field === 'bound') value.error.message = 'x'.repeat(2049)
+    const io = {
+        run(
+          _args: unknown,
+          _operation: unknown,
+          _retry: unknown,
+          validate: (value: unknown, exit: number) => void,
+        ) {
+          validate(value, field === 'success' ? 0 : 15)
+          return Promise.resolve(value)
+        },
+      },
+      error: unknown = await contract
+        .readProjectImport(io, [], 'skillager.project-import-inventory.v1')
+        .catch((reason: unknown) => reason),
+      cursor = importModule<{ isStaleCatalogCursor(error: unknown): boolean }>(
+        'catalog-cli',
+      )
+    expect(error).toMatchObject({
+      name: 'Error',
+      message:
+        field === 'bound'
+          ? 'Skillager metadata is unavailable'
+          : 'Skillager returned incomplete project import error metadata.',
+    })
+    expect(cursor.isStaleCatalogCursor(error)).toBe(false)
+  },
+)
+it('keeps update guidance for unknown public schemas', async () => {
+  const value = { schema: 'skillager.future-error.v2' },
+    io = {
+      run(
+        _args: unknown,
+        _operation: unknown,
+        _retry: unknown,
+        validate: (value: unknown, exit: number) => void,
+      ) {
+        validate(value, 2)
+        return Promise.resolve(value)
+      },
+    }
+  await expect(
+    contract.readProjectImport(io, [], 'skillager.project-import-inventory.v1'),
+  ).rejects.toThrow('Update Skillager')
 })

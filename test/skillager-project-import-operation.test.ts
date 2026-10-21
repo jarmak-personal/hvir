@@ -45,49 +45,53 @@ it.each(['agent', 'ssh', 'no-project', 'stale-token'])(
     if (kind !== 'stale-token') expect(f.calls).toHaveLength(0)
   },
 )
-it('preserves already saved items and complete raw details when a later selected save is uncertain', async () => {
-  const f = projectImportOperationFixture()
-  f.result.status = 'partial'
-  Object.assign(f.result.items[1]!, {
-    status: 'uncertain',
-    accepted_hash: null,
-    reason_code: 'save-incomplete',
-  })
-  f.result.counts.accepted = 1
-  f.result.counts.uncertain = 1
-  Object.assign(f.state.items[1]!.canonical, {
-    acceptance: 'pending',
-    accepted_hash: null,
-  })
-  f.reply(f.result)
-  const result = await f.invoke()
-  expect(result).toMatchObject({
-    outcome: 'partial',
-    counts: { accepted: 1, uncertain: 1 },
-    details: 'operation-report',
-  })
-  expect(result['operationId']).toBeTypeOf('string')
-  expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({
-    ids: [result['operationId']],
-  })
-  let offset: number | null = 0,
-    report = ''
-  do {
-    const page = await f.invoke('operation-state', {
-      mode: 'report',
-      operationId: result['operationId'],
-      offset,
+it.each(['uncertain', 'failed', 'skipped'] as const)(
+  'preserves already saved items and complete raw details when a later selected save is %s',
+  async (status) => {
+    const f = projectImportOperationFixture()
+    f.result.status = 'partial'
+    Object.assign(f.result.items[1]!, {
+      status,
+      accepted_hash: null,
+      reason_code: 'save-incomplete',
     })
-    report += page['data'] as string
-    offset = page['nextOffset'] as number | null
-  } while (offset !== null)
-  const retained = JSON.parse(report) as { output: { stdout: string } }
-  expect(JSON.parse(retained.output.stdout)).toEqual(f.result)
-  expect((await f.invoke())['outcome']).toBe('refused')
-  expect(
-    f.calls.filter((call) => (call['args'] as string[]).includes('--yes')),
-  ).toHaveLength(1)
-})
+    f.result.counts.accepted = 1
+    f.result.counts[status] = 1
+    Object.assign(f.state.items[1]!.canonical, {
+      acceptance: 'pending',
+      accepted_hash: null,
+    })
+    f.reply(f.result)
+    const result = await f.invoke()
+    expect(result).toMatchObject({
+      outcome: 'partial',
+      counts: { accepted: 1, [status]: 1 },
+      message: `1 saved · 1 ${status}. Review results.`,
+      details: 'operation-report',
+    })
+    expect(result['operationId']).toBeTypeOf('string')
+    expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({
+      ids: [result['operationId']],
+    })
+    let offset: number | null = 0,
+      report = ''
+    do {
+      const page = await f.invoke('operation-state', {
+        mode: 'report',
+        operationId: result['operationId'],
+        offset,
+      })
+      report += page['data'] as string
+      offset = page['nextOffset'] as number | null
+    } while (offset !== null)
+    const retained = JSON.parse(report) as { output: { stdout: string } }
+    expect(JSON.parse(retained.output.stdout)).toEqual(f.result)
+    expect((await f.invoke())['outcome']).toBe('refused')
+    expect(
+      f.calls.filter((call) => (call['args'] as string[]).includes('--yes')),
+    ).toHaveLength(1)
+  },
+)
 it('clears a definite public refusal and a definite not-started admission without claiming unknown effects', async () => {
   const f = projectImportOperationFixture()
   f.reply({
@@ -333,4 +337,29 @@ it('pages complete Unicode and escaped operation reports within the encoded acti
   expect(JSON.parse(report)).toEqual({ id: 'unicode', operation, output })
   expect(pending.report('unicode', report.length)).toEqual({ data: '', nextOffset: null })
   expect(() => pending.report('unicode', report.length + 1)).toThrow('offset')
+})
+
+it('describes a submitted uncertain batch as unknown effects while preserving exact results', async () => {
+  const f = projectImportOperationFixture()
+  f.result.status = 'uncertain'
+  for (const item of f.result.items)
+    Object.assign(item, {
+      status: 'uncertain',
+      accepted_hash: null,
+      reason_code: 'save-incomplete',
+    })
+  f.result.counts.accepted = 0
+  f.result.counts.uncertain = 2
+  f.reply(f.result)
+  const reply = await f.invoke()
+  expect(reply).toMatchObject({
+    outcome: 'uncertain',
+    counts: { accepted: 0, uncertain: 2 },
+    message: 'Save outcome unknown · 2 uncertain. Review results.',
+    details: 'operation-report',
+  })
+  expect(f.calls).toHaveLength(2)
+  expect(await f.invoke('operation-state', { mode: 'list' })).toEqual({
+    ids: [reply['operationId']],
+  })
 })

@@ -87,16 +87,8 @@ export function exactImportIdentity(value, selection, workspace) {
     throw new Error(
       'The selected original, destination or exact import version changed. Review the current original again.',
     )
-  const library = manifest.library
-  if (
-    !['ready', 'will-initialize'].includes(library?.status) ||
-    !['system', 'disabled'].includes(library.git_mode) ||
-    (!(library.library_id === null && library.status === 'will-initialize') &&
-      !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(
-        library.library_id,
-      )) ||
-    ['status', 'root', 'git_mode'].some((key) => value.library?.[key] !== library[key])
-  )
+  const library = externalImportLibrary(manifest.library)
+  if (['status', 'root', 'git_mode'].some((key) => value.library?.[key] !== library[key]))
     throw new Error('The complete public import library identity/history is unavailable')
   exactExternalImportTree(manifest, value.source, value.destination)
   return { manifest, name: value.destination.name }
@@ -158,4 +150,17 @@ export function exactExternalImportTree(manifest, source, destination) {
     )
   )
     throw new Error('The external import provenance does not match its exact occurrence')
+}
+
+/** Identity shared by external imports; callers keep their distinct operation envelopes. */
+export function externalImportLibrary(library) {
+  if (
+    !['ready', 'will-initialize'].includes(library?.status) ||
+    !['system', 'disabled'].includes(library.git_mode) ||
+    (!(library.library_id === null && library.status === 'will-initialize') &&
+      !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(library.library_id))
+  )
+    throw new Error('The complete public import library identity/history is unavailable')
+  absoluteLocalPath(library.root)
+  return library
 }

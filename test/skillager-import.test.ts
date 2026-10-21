@@ -12,6 +12,7 @@ const contract = importModule<{
     workspace: unknown,
   ): { eligible: boolean }
   importArgs(selection: unknown, token?: string): string[]
+  externalImportLibrary(value: unknown): unknown
 }>('import-contract')
 it('consumes the public external manifest, exact occurrence and ordinary token-bound argv', () => {
   const f = importContractFixture()
@@ -335,4 +336,24 @@ it('acknowledges no registration without claiming absent files or replaying fail
   expect(
     f.calls.filter((call) => (call['args'] as string[]).includes('--yes')),
   ).toHaveLength(1)
+})
+
+it('shares external-import library identity without admitting a null registered identity or unsupported history', () => {
+  const library = importContractFixture().preview.review_manifest.library
+  expect(contract.externalImportLibrary(library)).toEqual(library)
+  expect(
+    contract.externalImportLibrary({
+      ...library,
+      status: 'will-initialize',
+      library_id: null,
+    }),
+  ).toMatchObject({ library_id: null })
+  for (const change of [
+    { status: 'ready', library_id: null },
+    { library_id: 'unknown' },
+    { status: 'initialized' },
+    { git_mode: 'automatic' },
+    { root: 'relative' },
+  ])
+    expect(() => contract.externalImportLibrary({ ...library, ...change })).toThrow()
 })

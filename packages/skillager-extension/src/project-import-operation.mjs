@@ -93,7 +93,11 @@ export async function saveProjectSkills(io, input, invocation, admit) {
   }
   const complete = result.status === 'completed',
     saved = result.counts.accepted,
-    noun = saved === 1 ? 'skill' : 'skills'
+    noun = saved === 1 ? 'skill' : 'skills',
+    summary = Object.entries(result.counts)
+      .filter(([, count]) => count > 0)
+      .map(([status, count]) => `${count} ${status === 'accepted' ? 'saved' : status}`)
+      .join(' · ')
   const reply = boundedManagementResult({
     outcome: complete ? 'verified' : result.status,
     action: operation.action,
@@ -102,7 +106,7 @@ export async function saveProjectSkills(io, input, invocation, admit) {
     initialization: result.initialization?.status ?? null,
     message: complete
       ? `Saved ${saved} ${noun} to your library. Project originals are unchanged.`
-      : `${saved} ${noun} saved; the batch stopped. Inspect the item results before continuing. Nothing will be retried automatically.`,
+      : `${result.status === 'uncertain' ? 'Save outcome unknown · ' : ''}${summary}. Review results.`,
   })
   if (complete) io.verified()
   return reply
