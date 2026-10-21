@@ -127,11 +127,12 @@ export async function verifyAgentWorkbench(
   await command(['workspaces', '--instance', endpoint], undefined, 69)
   await click(win, 'Open settings')
   await click(win, 'Extensions')
+  await click(win, 'Extension settings')
   await wait(
     () =>
       dom(
         win,
-        `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow agents to inspect and present workspace content')); if (!input || input.disabled) return false; if (!input.checked) input.click(); return true; })()`,
+        `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow agents to inspect and present workspace content')); if (!input || input.disabled || !input.checkVisibility()) return false; if (!input.checked) input.click(); return true; })()`,
       ),
     'ordinary ready agent access control',
   )
@@ -306,6 +307,12 @@ export async function verifyAgentWorkbench(
         .installations.some((item) => item.source === 'agent-reference'),
     'reference discovery',
   )
+  await extensionSettingsControls(
+    win,
+    manifest.name,
+    { wait, within: (work) => work },
+    'agent-reference',
+  ).select()
   await click(win, 'Enable')
   await wait(() => extensions.activations!.active.size === 1, 'reference Enable')
   const installation = [...extensions.activations!.active.keys()][0]!
@@ -317,7 +324,7 @@ export async function verifyAgentWorkbench(
     () =>
       dom(
         win,
-        `(() => { const input = document.querySelector('input[aria-label="Agent access for this extension"]'); if (!input || input.disabled) return false; if (!input.checked) input.click(); return true; })()`,
+        `(() => { const input = document.querySelector('input[aria-label="Agent access for this extension"]'); if (!input || input.disabled || !input.checkVisibility()) return false; if (!input.checked) input.click(); return true; })()`,
       ),
     'ordinary ready extension access control',
   )
@@ -539,11 +546,17 @@ async function dom(win: BrowserWindow, script: string): Promise<boolean> {
   return Boolean(await win.webContents.executeJavaScript(script))
 }
 async function click(win: BrowserWindow, name: string): Promise<void> {
+  if (name === 'Discover extensions') {
+    await click(win, 'Extension settings')
+    await win.webContents.executeJavaScript(
+      "(() => {const details=document.querySelector('.extension-author-controls');if(!details.open)details.querySelector('summary').click()})()",
+    )
+  }
   await wait(
     () =>
       dom(
         win,
-        `(() => { const button = [...document.querySelectorAll('button')].find(item => item.getAttribute('aria-label') === ${JSON.stringify(name)} || item.textContent.trim() === ${JSON.stringify(name)}); if (!button || button.disabled) return false; button.click(); return true; })()`,
+        `(() => { const button = [...document.querySelectorAll('button')].find(item => item.getAttribute('aria-label') === ${JSON.stringify(name)} || item.textContent.trim() === ${JSON.stringify(name)}); if (!button || button.disabled || !button.checkVisibility()) return false; button.click(); return true; })()`,
       ),
     `ordinary ${name}`,
   )
@@ -571,11 +584,12 @@ async function socketAbsent(host: ProjectHost, endpoint: string): Promise<void> 
   }, 'Off endpoint release')
 }
 async function setAgentAccess(win: BrowserWindow, enabled: boolean): Promise<void> {
+  await click(win, 'Extension settings')
   await wait(
     () =>
       dom(
         win,
-        `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow agents to inspect and present workspace content')); if (!input || input.disabled) return false; if (input.checked !== ${JSON.stringify(enabled)}) input.click(); return true; })()`,
+        `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow agents to inspect and present workspace content')); if (!input || input.disabled || !input.checkVisibility()) return false; if (input.checked !== ${JSON.stringify(enabled)}) input.click(); return true; })()`,
       ),
     'ordinary ready agent access control',
   )

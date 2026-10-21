@@ -106,7 +106,7 @@ export function AgentAccessSettings({
                 ? 'Checking app-wide agent access…'
                 : !state.ready
                   ? 'App-wide Agent access is unavailable.'
-                  : 'App-wide Agent access is off. Turn it on above to let agents connect.'}
+                  : 'App-wide Agent access is off. Turn it on in Extension settings to let agents connect.'}
             </span>
           ) : null}
           {state && !state.extensionsWritable ? (

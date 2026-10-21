@@ -21,7 +21,8 @@ it.each([{ source: undefined }, { source: 7 }, { name: '' }])(
       webContents: {
         executeJavaScript: (script: string) =>
           Promise.resolve(
-            script.includes('const section=document.querySelector')
+            script.includes('const section=document.querySelector') ||
+              script.startsWith('!!document.querySelector')
               ? true
               : script.includes('.length') && !script.includes('return {source:')
                 ? 2
@@ -158,11 +159,14 @@ it('restores the exact selected configuration when removal publication reorders 
           return { result: { value } }
         },
       },
-      sendInputEvent: (event: { type: string }) => {
+      sendInputEvent: (event: { type: string; keyCode: string }) => {
         if (event.type === 'keyDown')
           act(() => {
             document.activeElement!.dispatchEvent(
-              new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+              new KeyboardEvent('keydown', {
+                key: event.keyCode === 'Home' ? 'Home' : 'ArrowDown',
+                bubbles: true,
+              }),
             )
           })
       },
