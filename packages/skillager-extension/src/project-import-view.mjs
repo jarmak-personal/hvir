@@ -1,5 +1,6 @@
 import { managementCli } from './management-cli.mjs'
 import { isStaleCatalogCursor } from './catalog-cli.mjs'
+import { localWorkspace } from './catalog.mjs'
 import {
   observeProjectImport,
   prepareProjectImport,
@@ -47,7 +48,11 @@ export function bindProjectImport(document, client, ports) {
   const workspaceKey = () => JSON.stringify(context().workspace),
     current = (revision = generation) =>
       !disposed && client.alive && generation === revision,
-    visible = () => current() && context().visible && ports.project(),
+    visible = () =>
+      current() &&
+      context().visible &&
+      ports.project() &&
+      !!localWorkspace(context().workspace),
     available = () => visible() && active,
     retained = () => {
       const revision = generation,
@@ -113,7 +118,11 @@ export function bindProjectImport(document, client, ports) {
     if (disposed) return
     section.setAttribute('aria-busy', String(submitted || preparing || loading))
     const count = selected.size,
-      total = inventory?.summary.eligible ?? count
+      total = inventory?.summary.eligible ?? count,
+      limit = inventory?.limits.selection_items,
+      unresolved = [...selected].some(
+        (id) => candidates.get(id)?.eligibility === 'unobserved',
+      )
     el('save').textContent = submitted
       ? 'Saving…'
       : `Save ${count} ${count === 1 ? 'skill' : 'skills'}`
@@ -121,11 +130,13 @@ export function bindProjectImport(document, client, ports) {
       !available() || submitted || loading || preparing || !prepared || !!pending
     el('save').hidden = completed || !!pending
     el('selection').textContent =
-      total > (inventory?.limits.selection_items ?? 32)
-        ? `${count} of ${total} selected · ${total - count} remaining. Up to 32 per save.`
-        : count !== total
-          ? `${count} of ${total} selected`
-          : ''
+      unresolved || count > total
+        ? `${count} selected`
+        : limit && total > limit
+          ? `${count} of ${total} selected · ${total - count} remaining. Up to ${limit} per save.`
+          : count !== total
+            ? `${count} of ${total} selected`
+            : ''
     for (const checkbox of el('choices').querySelectorAll('input'))
       checkbox.disabled = submitted || completed || !!pending || !available()
     for (const button of el('choices').querySelectorAll('button'))
@@ -143,15 +154,21 @@ export function bindProjectImport(document, client, ports) {
     entryControls()
   }
   function addCandidates(page) {
-    for (const item of page.items) candidates.set(item.occurrence_id, item)
+    let changed = false
+    for (const item of page.items) {
+      candidates.set(item.occurrence_id, item)
+      if (item.eligibility !== 'eligible' && selected.delete(item.occurrence_id))
+        changed = true
+    }
     cursor = page.next_cursor
     loaded += page.items.length
+    if (changed) requestPreparation()
   }
   function renderChoices() {
     const focused = document.activeElement?.dataset.occurrence
     el('choices').replaceChildren()
     for (const [id, item] of candidates) {
-      if (item.eligibility !== 'eligible') continue
+      if (item.eligibility !== 'eligible' && !selected.has(id)) continue
       const row = document.createElement('div'),
         label = document.createElement('label'),
         checkbox = document.createElement('input'),
@@ -171,7 +188,9 @@ export function bindProjectImport(document, client, ports) {
         if (checkbox.checked) {
           if (selected.size >= inventory.limits.selection_items) {
             checkbox.checked = false
-            say('Choose up to 32 skills. Uncheck one to choose another.')
+            say(
+              `Choose up to ${inventory.limits.selection_items} skills. Uncheck one to choose another.`,
+            )
             return
           }
           selected.add(id)
@@ -446,6 +465,10 @@ export function bindProjectImport(document, client, ports) {
     }
   }
   async function open(retainSelection) {
+    if (!visible()) return
+    const previous = new Map(
+      (retainSelection ?? []).map((id) => [id, candidates.get(id)]),
+    )
     generation++
     active = true
     section.hidden = false
@@ -482,7 +505,16 @@ export function bindProjectImport(document, client, ports) {
       }
       addCandidates(inventory)
       if (retainSelection) {
-        for (const id of retainSelection) selected.add(id)
+        for (const id of retainSelection) {
+          const fresh = candidates.get(id),
+            prior = previous.get(id)
+          if (fresh?.eligibility === 'eligible') selected.add(id)
+          else if (!fresh && prior) {
+            // Keep a removable choice, not stale eligibility or prepared authority.
+            candidates.set(id, { ...prior, eligibility: 'unobserved' })
+            selected.add(id)
+          }
+        }
       } else await proposeSelection()
       if (!validTask() || !available()) return
       renderChoices()

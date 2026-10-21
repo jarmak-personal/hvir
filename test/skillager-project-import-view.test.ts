@@ -33,6 +33,47 @@ it('observes global eligibility once and prepares all off-page originals in one 
   await f.view.observe()
   expect(f.commands()).toHaveLength(3)
 })
+it('keeps the bulk owner quiet outside an exact local workspace, including context replacement', async () => {
+  const f = setup()
+  const local = f.context.workspace
+  f.context.workspace = {
+    ...local,
+    host: 'ssh:example',
+    root: { ...local.root, hostId: 'ssh:example' },
+  }
+  await f.view.observe()
+  await f.view.open()
+  expect(f.requests).toHaveLength(0)
+  expect(document.getElementById('project-save-entry')!.hidden).toBe(true)
+  f.context.workspace = local
+  f.view.contextChanged()
+  await f.view.observe()
+  expect(document.getElementById('project-save-entry')!.hidden).toBe(false)
+  const before = f.requests.length
+  f.context.workspace = { ...local, root: { ...local.root, hostId: 'ssh:example' } }
+  f.view.contextChanged()
+  await f.view.observe()
+  await f.view.open()
+  expect(f.requests).toHaveLength(before)
+  expect(document.getElementById('project-save-entry')!.hidden).toBe(true)
+  expect(f.button('state').textContent).not.toContain('unavailable')
+})
+it('displays and enforces the selection limit reported by Skillager', async () => {
+  const f = setup(5)
+  f.inventory.limits.selection_items = 2
+  f.inventory.default_selection = null as unknown as string[]
+  await f.view.observe()
+  await f.view.open()
+  expect(f.checkboxes().filter((input) => input.checked)).toHaveLength(2)
+  expect(f.button('selection').textContent).toBe(
+    '2 of 5 selected · 3 remaining. Up to 2 per save.',
+  )
+  f.checkboxes()[2]!.click()
+  expect(f.checkboxes()[2]!.checked).toBe(false)
+  expect(f.button('state').textContent).toBe(
+    'Choose up to 2 skills. Uncheck one to choose another.',
+  )
+})
 it('proposes at most 32 across managed-only pages with explicit remainder and optional additional choices', async () => {
   const f = setup(140, 230)
   await f.view.observe()
@@ -307,6 +348,101 @@ it('preserves the chosen subset for fresh review after refusal and eligibility i
   f.view.close()
   await f.view.open()
   expect(f.button('save').textContent).toBe('Save 4 skills')
+})
+
+it('drops retained choices that fresh inventory identifies as already saved', async () => {
+  const f = setup(3)
+  await f.view.observe()
+  await f.view.open()
+  f.holdSave()
+  f.button('save').click()
+  f.saveResult(undefined, new Error('Skills changed. Review again.'))
+  await f.flush()
+  Object.assign(f.all[0]!, {
+    eligibility: 'already_saved',
+    canonical: {
+      skill_id: f.all[0]!.destination_id,
+      path: `${f.inventory.library.root}/skills/skill-0`,
+      acceptance: 'accepted',
+      working_hash: f.all[0]!.source_hash,
+      accepted_hash: f.all[0]!.source_hash,
+    },
+  })
+  f.inventory.summary.eligible = 2
+  f.inventory.summary.already_saved = 1
+  f.inventory.default_selection = f.all.slice(1).map((item) => item.occurrence_id)
+  f.view.invalidate()
+  f.button('refresh').click()
+  await f.flush()
+  expect(f.checkboxes()).toHaveLength(2)
+  expect(f.checkboxes().every((input) => input.checked)).toBe(true)
+  expect(f.button('save').textContent).toBe('Save 2 skills')
+  expect(f.button('save').disabled).toBe(false)
+  const last = f.commands().at(-1)!
+  expect(JSON.parse(last[last.indexOf('--select') + 1]!)).toEqual(
+    f.all.slice(1).map((item) => item.occurrence_id),
+  )
+})
+
+it('keeps retained off-page choices visible and removable when fresh preparation refuses them', async () => {
+  const f = setup(3, 100)
+  await f.view.observe()
+  await f.view.open()
+  f.holdSave()
+  f.button('save').click()
+  f.saveResult(undefined, new Error('Skills changed. Review again.'))
+  await f.flush()
+  f.previewFailure(new Error('One source is no longer eligible.'))
+  f.view.invalidate()
+  f.button('refresh').click()
+  await f.flush()
+  expect(f.checkboxes()).toHaveLength(3)
+  expect(f.checkboxes().every((input) => input.checked)).toBe(true)
+  const source = f.all[100]!,
+    label = f.checkboxes()[0]!.closest('label')!
+  expect(label.textContent).toBe(source.name)
+  expect(label.title).toBe(`local: ${source.skill_file}`)
+  expect(f.button('save').disabled).toBe(true)
+  expect(f.button('state').textContent).toBe('One source is no longer eligible.')
+  expect(f.button('selection').textContent).toBe('3 selected')
+  f.previewFailure()
+  f.checkboxes()[0]!.click()
+  await f.flush()
+  expect(f.button('save').textContent).toBe('Save 2 skills')
+  expect(f.button('save').disabled).toBe(false)
+  expect(f.saves()).toHaveLength(1)
+  const last = f.commands().at(-1)!
+  expect(JSON.parse(last[last.indexOf('--select') + 1]!)).not.toContain(
+    source.occurrence_id,
+  )
+})
+
+it('resolves retained off-page choices from fresh paging before preparing another decision', async () => {
+  const f = setup(2, 100)
+  await f.view.observe()
+  await f.view.open()
+  f.holdSave()
+  f.button('save').click()
+  f.saveResult(undefined, new Error('Skills changed. Review again.'))
+  await f.flush()
+  f.all[100]!.eligibility = 'blocked'
+  f.inventory.summary.eligible = 1
+  f.inventory.summary.blocked = 1
+  f.inventory.default_selection = [f.all[101]!.occurrence_id]
+  f.previewFailure(new Error('One source is no longer eligible.'))
+  f.view.invalidate()
+  f.button('refresh').click()
+  await f.flush()
+  expect(f.button('selection').textContent).toBe('2 selected')
+  expect(f.checkboxes()).toHaveLength(2)
+  f.previewFailure()
+  f.button('more').click()
+  await f.flush()
+  expect(f.checkboxes()).toHaveLength(1)
+  expect(f.checkboxes()[0]!.dataset.occurrence).toBe(f.all[101]!.occurrence_id)
+  expect(f.button('save').textContent).toBe('Save 1 skill')
+  expect(f.button('save').disabled).toBe(false)
+  expect(f.saves()).toHaveLength(1)
 })
 
 it('retains a finished recovery review across hide without reviving the consumed pending operation', async () => {
