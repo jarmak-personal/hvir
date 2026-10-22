@@ -369,3 +369,70 @@ it('disambiguates equal labels and releases off-page group state', async () => {
   key(f.header(), 'ArrowLeft')
   expect(document.activeElement).toBe(f.header())
 })
+
+it('keeps the reader selection unhighlighted when its source is collapsed', async () => {
+  const f = fixture(),
+    sources = [group(), group('b', 'skillager')]
+  f.render(sources)
+  f.header().click()
+  await flush()
+  f.header(sources[1]!.id).click()
+  await flush()
+  const chosen = f.list.querySelector<HTMLButtonElement>('[data-skill-select]')!
+  chosen.click()
+  expect(chosen.getAttribute('aria-current')).toBe('true')
+  f.header().click()
+  expect(f.list.querySelectorAll('[aria-current="true"]')).toHaveLength(0)
+  expect(f.list.querySelector('[data-skill-select]')?.getAttribute('tabindex')).toBe('0')
+  expect(f.choose).toHaveBeenCalledTimes(1)
+  const other = f.list.querySelector<HTMLButtonElement>('[data-skill-select]')!
+  other.focus()
+  key(other, 'End')
+  expect(f.list.querySelectorAll('[aria-current="true"]')).toHaveLength(0)
+  key(other, 'ContextMenu')
+  expect(document.querySelector<HTMLElement>('[role=menu]')!.hidden).toBe(false)
+  expect(f.list.querySelectorAll('[aria-current="true"]')).toHaveLength(0)
+  key(document.activeElement!, 'Escape')
+  expect(document.activeElement).toBe(other)
+  f.header().click()
+  expect(f.list.querySelector('[aria-current="true"]')?.getAttribute('data-id')).toBe(
+    chosen.dataset['id'],
+  )
+  expect(f.choose).toHaveBeenCalledTimes(1)
+  const next = [...f.list.querySelectorAll<HTMLButtonElement>('[data-skill-select]')].at(
+    -1,
+  )!
+  next.click()
+  expect(next.getAttribute('aria-current')).toBe('true')
+  expect(f.choose).toHaveBeenLastCalledWith(
+    expect.objectContaining({ id: next.dataset['id'] }),
+  )
+})
+it('moves through source boundaries with arrows while retaining occurrence action keys', async () => {
+  const f = fixture(),
+    sources = [group(), group('b', 'skillager')]
+  f.render(sources)
+  key(f.header(), 'ArrowRight')
+  await flush()
+  key(f.header(), 'ArrowRight')
+  const row = f.list.querySelector<HTMLButtonElement>('[data-skill-select]')!
+  expect(document.activeElement).toBe(row)
+  key(row, 'ArrowUp')
+  expect(document.activeElement).toBe(f.header())
+  key(f.header(), 'ArrowDown')
+  expect(document.activeElement).toBe(row)
+  key(row, 'ArrowDown')
+  expect(document.activeElement).toBe(f.header(sources[1]!.id))
+  expect(f.header(sources[1]!.id).getAttribute('aria-expanded')).toBe('false')
+  row.focus()
+  key(row, 'ContextMenu')
+  expect(document.querySelector<HTMLElement>('[role=menu]')!.hidden).toBe(false)
+  key(document.activeElement!, 'Escape')
+  expect(document.activeElement).toBe(row)
+  key(row, 'ArrowRight')
+  expect(document.activeElement?.hasAttribute('data-skill-actions')).toBe(true)
+  key(document.activeElement!, 'ArrowUp')
+  expect(document.activeElement).toBe(f.header())
+  expect(f.choose).not.toHaveBeenCalled()
+  expect(f.task).not.toHaveBeenCalled()
+})

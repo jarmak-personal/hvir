@@ -54,7 +54,7 @@ export function bindLibrarySources(document, list, navigation, client, ports) {
       focusAction = focused?.dataset.sourceAction,
       entries = groups.map(state),
       visible = entries.flatMap((entry) => (entry.expanded ? entry.rows : []))
-    navigation.render(visible, ports.selected()?.id, (rows) => {
+    const arrange = (rows) => {
       const byId = new Map(rows.map((row) => [row.dataset.id, row]))
       return entries.map((entry) => {
         const group = entry.group,
@@ -126,7 +126,8 @@ export function bindLibrarySources(document, list, navigation, client, ports) {
         section.append(toggle, content)
         return section
       })
-    })
+    }
+    navigation.render(visible, ports.selected()?.id, arrange, true)
     if (groupFocus) {
       const target =
         focusAction && focusAction !== 'toggle'
@@ -251,6 +252,29 @@ export function bindLibrarySources(document, list, navigation, client, ports) {
     'keydown',
     (event) => {
       if (!usable()) return
+      const row = event.target.closest('[data-skill-occurrence]')
+      if (row && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+        const source = row
+            .closest('.library-source')
+            .querySelector('[data-source-toggle]'),
+          entry = states.get(source.dataset.sourceToggle),
+          index = entry.rows.findIndex((item) => item.id === row.dataset.id),
+          next =
+            event.key === 'ArrowUp' && index === 0
+              ? source
+              : event.key === 'ArrowDown' && index === entry.rows.length - 1
+                ? header(
+                    groups[groups.findIndex((group) => group.id === entry.group.id) + 1]
+                      ?.id,
+                  )
+                : undefined
+        if (next) {
+          event.preventDefault()
+          event.stopPropagation()
+          next.focus()
+        }
+        return
+      }
       const control = event.target.closest('[data-source-toggle]')
       if (!control) return
       const entry = states.get(control.dataset.sourceToggle),
@@ -286,7 +310,7 @@ export function bindLibrarySources(document, list, navigation, client, ports) {
         header(groups[next].id)?.focus()
       }
     },
-    { signal },
+    { signal, capture: true },
   )
   function pause() {
     active = false
@@ -317,7 +341,8 @@ export function bindLibrarySources(document, list, navigation, client, ports) {
         }
       for (const group of groups) {
         const entry = state(group)
-        if (entry.expanded && observe) enqueue(entry)
+        if (entry.expanded && (observe || (!entry.loaded && !entry.loading)))
+          enqueue(entry)
       }
       draw()
       void pump()

@@ -90,6 +90,23 @@ export async function verifySkillagerSourceBrowsing(
     throw new Error('Source expansion did not expose immediate group progress')
   await controls.metadataOnly('source expansion')
   await capture(true)
+  guest.focus()
+  await inspect(`${group}.focus()`)
+  guest.sendInputEvent({ type: 'keyDown', keyCode: 'Right' })
+  guest.sendInputEvent({ type: 'keyUp', keyCode: 'Right' })
+  await ready(
+    async () =>
+      (await inspect(
+        `document.activeElement===${body}.querySelector('[data-skill-select]')`,
+      )) === true,
+    'source header enters its first skill with Right',
+  )
+  guest.sendInputEvent({ type: 'keyDown', keyCode: 'Up' })
+  guest.sendInputEvent({ type: 'keyUp', keyCode: 'Up' })
+  await ready(
+    async () => (await inspect(`document.activeElement===${group}`)) === true,
+    'first skill returns to its source header with Up',
+  )
   const first = await inspect(`${body}.querySelector('[data-skill-select]').dataset.id`)
   if (source.count > 100) {
     await inspect(`${body}.querySelector('[data-source-action=next]').click()`)
@@ -136,6 +153,37 @@ export async function verifySkillagerSourceBrowsing(
       )) === true,
     'explicit reopening retains exact bounded page',
   )
+  if (
+    ((await inspect(
+      "document.querySelectorAll('#skills [data-source-toggle]').length",
+    )) as number) > 1
+  ) {
+    await inspect(`(() => {
+      const headings=[...document.querySelectorAll('#skills [data-source-toggle]')];
+      if(headings[1].getAttribute('aria-expanded')==='true') headings[1].click();
+      if(headings[0].getAttribute('aria-expanded')==='false') headings[0].click();
+    })()`)
+    await ready(
+      async () =>
+        (await inspect(
+          "document.querySelector('#skills [data-source-toggle]').nextElementSibling.querySelectorAll('[data-skill-select]').length>0",
+        )) === true,
+      'first source has a current bounded page for adjacent-header navigation',
+    )
+    guest.focus()
+    await inspect(
+      "[...document.querySelector('#skills [data-source-toggle]').nextElementSibling.querySelectorAll('[data-skill-select]')].at(-1).focus()",
+    )
+    guest.sendInputEvent({ type: 'keyDown', keyCode: 'Down' })
+    guest.sendInputEvent({ type: 'keyUp', keyCode: 'Down' })
+    await ready(
+      async () =>
+        (await inspect(
+          "document.activeElement===document.querySelectorAll('#skills [data-source-toggle]')[1] && document.activeElement.getAttribute('aria-expanded')==='false'",
+        )) === true,
+      'last skill reaches the next collapsed source header with Down',
+    )
+  }
   await controls.metadataOnly('source paging and collapsed refresh')
   console.log(
     '[smoke] source grouping',

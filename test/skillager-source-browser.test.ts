@@ -176,3 +176,44 @@ it('resumes retained source navigation on same-workspace show even while renewal
   f.resume()
   await f.flush()
 })
+
+it.each(['visibility', 'scope'])(
+  'resumes an interrupted first source page on %s return while renewal is held and fails',
+  async (transition) => {
+    const f = fixture('project')
+    f.context(true, project)
+    await f.flush()
+    f.button('scope-library').click()
+    await f.flush()
+    f.hold('list')
+    document.querySelector<HTMLButtonElement>('#skills [data-source-toggle]')!.click()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(document.querySelector('#skills')?.textContent).toContain('Loading…')
+    if (transition === 'visibility') f.context(false, project)
+    else f.button('scope-project').click()
+    await f.flush()
+    f.resume()
+    await f.flush()
+    f.hold('library')
+    if (transition === 'visibility') f.context(true, project)
+    else f.button('scope-library').click()
+    await f.flush()
+    expect(document.querySelectorAll('#skills [data-skill-select]')).toHaveLength(1)
+    expect(
+      document
+        .querySelector('#skills [data-source-toggle]')
+        ?.getAttribute('aria-expanded'),
+    ).toBe('true')
+    expect(f.calls.filter((args) => args.includes('--source-group'))).toHaveLength(2)
+    f.resume('Temporary renewal failure')
+    await f.flush()
+    expect(document.querySelectorAll('#skills [data-skill-select]')).toHaveLength(1)
+    document.querySelector<HTMLButtonElement>('#skills [data-skill-select]')!.click()
+    await f.flush()
+    expect(f.opened.at(-1)).toMatchObject({
+      contributionId: 'detail',
+      input: { row: { id: 'lib/0' } },
+    })
+    expect(f.calls.filter((args) => args.includes('--source-group'))).toHaveLength(2)
+  },
+)

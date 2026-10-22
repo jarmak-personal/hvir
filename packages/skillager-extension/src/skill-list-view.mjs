@@ -44,6 +44,8 @@ export function bindSkillList(document, list, ports) {
   document.body.append(menu)
   let items = [],
     current,
+    selectedIdentity,
+    exactSelection = false,
     opened,
     disposed = false
   const identity = (item) => JSON.stringify(item)
@@ -51,18 +53,22 @@ export function bindSkillList(document, list, ports) {
   const byId = (id) => items.find((item) => item.id === id)
   const rowNodes = () => [...list.querySelectorAll('[data-skill-occurrence]')]
   const rowFor = (item) => rowNodes().find((node) => node.dataset.id === item?.id)
-  function select(item, focus = false, action = false) {
+  function select(item, { focus = false, action = false, choose = false } = {}) {
     if (!item) return
     current = item.id
+    if (!exactSelection || choose) selectedIdentity = item.id
     for (const row of rowNodes()) {
       const selected = row.dataset.id === current,
         button = row.querySelector('[data-skill-select]'),
         more = row.querySelector('[data-skill-actions]')
-      button.setAttribute('aria-current', String(selected))
+      button.setAttribute(
+        'aria-current',
+        String(row.dataset.id === (exactSelection ? selectedIdentity : current)),
+      )
       button.tabIndex = selected ? 0 : -1
       if (more) more.tabIndex = selected ? 0 : -1
     }
-    ports.selected(item)
+    if (!exactSelection || choose) ports.selected(item)
     if (focus)
       rowFor(item)
         ?.querySelector(action ? '[data-skill-actions]' : '[data-skill-select]')
@@ -132,7 +138,7 @@ export function bindSkillList(document, list, ports) {
       if (more) open(item, more)
       else if (event.target.closest('[data-skill-select]')) {
         close()
-        select(item)
+        select(item, { choose: true })
         ports.choose(item)
       }
     },
@@ -181,11 +187,10 @@ export function bindSkillList(document, list, ports) {
         return
       } else return
       event.preventDefault()
-      select(
-        target,
-        true,
-        action && !!rowFor(target)?.querySelector('[data-skill-actions]'),
-      )
+      select(target, {
+        focus: true,
+        action: action && !!rowFor(target)?.querySelector('[data-skill-actions]'),
+      })
     },
     { signal },
   )
@@ -250,8 +255,10 @@ export function bindSkillList(document, list, ports) {
   return {
     close,
     focusCurrent,
-    render(next, selected, arrange) {
+    render(next, selected, arrange, preserveSelection = false) {
       if (disposed) return
+      exactSelection = preserveSelection
+      selectedIdentity = selected
       const retired = opened && !next.some((item) => identity(item) === opened.key),
         restore = retired && menu.contains(document.activeElement),
         previousIndex = items.findIndex((item) => item.id === current)
@@ -284,7 +291,10 @@ export function bindSkillList(document, list, ports) {
         button.dataset.sourcePath = item.path
         button.dataset.source = item.source
         button.tabIndex = item.id === current ? 0 : -1
-        button.setAttribute('aria-current', String(item.id === current))
+        button.setAttribute(
+          'aria-current',
+          String(item.id === (exactSelection ? selected : current)),
+        )
         name.textContent = item.name
         description.textContent = item.description || item.kind
         meta.className = 'hvir-meta'
