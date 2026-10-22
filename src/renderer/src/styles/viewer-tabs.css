@@ -456,6 +456,10 @@
   white-space: nowrap;
 }
 
+:root[data-theme='light'] .blame-toggle.active {
+  border-color: var(--border-strong);
+}
+
 :root[data-theme='light'] .blame-toggle.active,
 :root[data-theme='light'] .viewer-tab:hover {
   background-color: var(--accent-soft);
