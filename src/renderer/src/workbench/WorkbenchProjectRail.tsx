@@ -8,6 +8,7 @@ export function WorkbenchProjectRail({
   git,
   mode,
   onMode,
+  activation,
   gitEnabled,
   changedCount,
   changesLimited,
@@ -17,6 +18,7 @@ export function WorkbenchProjectRail({
   readonly git?: ComponentProps<typeof GitPanel>
   readonly mode: 'files' | 'git'
   readonly onMode: (mode: 'files' | 'git') => void
+  readonly activation: number
   readonly gitEnabled: boolean
   readonly changedCount: number
   readonly changesLimited?: boolean
@@ -35,7 +37,7 @@ export function WorkbenchProjectRail({
       data-diagnostic-capture="project-navigation"
       tabIndex={-1}
     >
-      <ExtensionLeftRail visible={visible}>
+      <ExtensionLeftRail visible={visible} builtinActivation={activation}>
         <nav className="rail-nav" aria-label="Project views">
           <button
             type="button"

@@ -45,7 +45,12 @@ export function useWorkbenchLayout({
   if (!paneStateSessionRef.current) {
     paneStateSessionRef.current = new WorkspacePaneStateSession()
   }
-  const [railMode, setRailMode] = useState<WorkbenchRailMode>('files')
+  const [railMode, setRailModeState] = useState<WorkbenchRailMode>('files')
+  const [railActivation, setRailActivation] = useState(0)
+  const setRailMode = useCallback((mode: WorkbenchRailMode): void => {
+    setRailModeState(mode)
+    setRailActivation((revision) => revision + 1)
+  }, [])
   const [terminalModeState, setTerminalModeState] =
     useState<TerminalLayoutMode>('restored')
   const [terminalRailCompactState, setTerminalRailCompactState] = useState(false)
@@ -152,7 +157,7 @@ export function useWorkbenchLayout({
 
   useEffect(() => {
     if ((!gitAvailable || workspaceMissing) && railMode === 'git') {
-      setRailMode('files')
+      setRailModeState('files')
     }
   }, [gitAvailable, railMode, workspaceMissing])
 
@@ -229,19 +234,21 @@ export function useWorkbenchLayout({
     },
     [setTerminalMode],
   )
-  const focusTree = useCallback((): void => {
+  const activateFiles = useCallback((): void => {
     setTerminalMode((mode) => (mode === 'maximized' ? 'restored' : mode))
     setTreeCollapsed(false)
     setRailMode('files')
+  }, [setRailMode, setTerminalMode, setTreeCollapsed])
+
+  const focusTree = useCallback((): void => {
+    activateFiles()
     requestAnimationFrame(() =>
       document.querySelector<HTMLElement>('.tree-panel')?.focus(),
     )
-  }, [setTerminalMode, setTreeCollapsed])
+  }, [activateFiles])
 
   const focusFilenameSearch = useCallback((): void => {
-    setTerminalMode((mode) => (mode === 'maximized' ? 'restored' : mode))
-    setTreeCollapsed(false)
-    setRailMode('files')
+    activateFiles()
     requestAnimationFrame(() => {
       const input = document.querySelector<HTMLInputElement>('[data-filename-search]')
       if (input) input.focus()
@@ -250,7 +257,7 @@ export function useWorkbenchLayout({
           .querySelector<HTMLButtonElement>('[data-filename-search-trigger]')
           ?.click()
     })
-  }, [setTerminalMode, setTreeCollapsed])
+  }, [activateFiles])
 
   const restoreViewer = useCallback((): void => {
     setTerminalMode((mode) => (mode === 'maximized' ? 'restored' : mode))
@@ -260,6 +267,7 @@ export function useWorkbenchLayout({
     workbenchRef,
     viewerGroupsRef,
     railMode,
+    railActivation,
     setRailMode,
     terminalMode: terminalModeState,
     setTerminalMode,

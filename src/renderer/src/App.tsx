@@ -149,7 +149,6 @@ export function App(): ReactElement {
   const {
     workbenchRef,
     railMode,
-    setRailMode,
     terminalMode,
     setTerminalMode,
     toggleTerminalFocus,
@@ -310,7 +309,8 @@ export function App(): ReactElement {
         >
           <WorkbenchProjectRail
             mode={railMode}
-            onMode={setRailMode}
+            onMode={layout.setRailMode}
+            activation={layout.railActivation}
             gitEnabled={gitEnabled}
             changedCount={gitChanges?.workingTree.length ?? 0}
             changesLimited={gitChanges?.workingTreeLimited}

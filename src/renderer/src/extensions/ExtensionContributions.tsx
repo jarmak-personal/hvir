@@ -394,14 +394,28 @@ export function ExtensionTopRail(): ReactElement | null {
 export function ExtensionLeftRail({
   children,
   visible,
+  builtinActivation = 0,
 }: {
   readonly children: ReactNode
   readonly visible: boolean
+  readonly builtinActivation?: number
 }): ReactElement {
   const model = useExtensionContributions()
   const modelRef = useRef(model)
   modelRef.current = model
   const [selectedId, setSelectedId] = useState<string>()
+  const selectionLifetime = useRef({ revision: 0 })
+  const selectBuiltins = useCallback((): void => {
+    selectionLifetime.current.revision++
+    setSelectedId(undefined)
+  }, [])
+  useLayoutEffect(() => {
+    selectBuiltins()
+    const lifetime = selectionLifetime.current
+    return () => {
+      lifetime.revision++
+    }
+  }, [builtinActivation, model?.workspaceId, selectBuiltins])
   const selected = model?.views.find((view) => view.id === selectedId)
   const entries =
     model?.state.flatMap((extension) =>
@@ -447,18 +461,21 @@ export function ExtensionLeftRail({
                   : undefined
               }
               onClick={() => {
-                if (model?.workspaceId)
+                if (model?.workspaceId) {
+                  const revision = ++selectionLifetime.current.revision
                   void model
                     .open(extension.installationId, view.id, {
                       surface: 'left',
                       workspaceId: model.workspaceId,
                     })
                     .then((view) => {
-                      if (view.context?.workspace?.id === modelRef.current?.workspaceId)
+                      if (view.context?.workspace?.id !== modelRef.current?.workspaceId)
+                        modelRef.current?.close(view.id)
+                      else if (revision === selectionLifetime.current.revision)
                         setSelectedId(view.id)
-                      else modelRef.current?.close(view.id)
                     })
                     .catch(() => undefined)
+                }
               }}
               className="hvir-button"
             >
@@ -473,11 +490,7 @@ export function ExtensionLeftRail({
             </button>
           ))}
           {selected ? (
-            <button
-              type="button"
-              onClick={() => setSelectedId(undefined)}
-              className="hvir-button"
-            >
+            <button type="button" onClick={selectBuiltins} className="hvir-button">
               Project views
             </button>
           ) : null}
@@ -498,7 +511,7 @@ export function ExtensionLeftRail({
             }
             onClose={() => {
               model.close(view.id)
-              setSelectedId(undefined)
+              selectBuiltins()
             }}
             Surface={ElectronExtensionGuestSurface}
           />
