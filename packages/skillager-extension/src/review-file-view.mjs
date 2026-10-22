@@ -12,12 +12,17 @@ export function bindReviewFiles(document, client, ports) {
   const current = (revision) => client.alive && serial === revision && ports.available()
   function reset() {
     serial++
+    el('files').replaceChildren()
+    clearPreview()
+  }
+  function clearPreview() {
     text = ''
     page = 0
-    el('files').replaceChildren()
     el('file-body').replaceChildren()
     el('file-label').textContent = ''
+    el('page-label').textContent = ''
     if (el('pages')) el('pages').hidden = true
+    el('previous').disabled = el('next').disabled = true
   }
   function showPage() {
     el('file-body').textContent = text.slice(page * TEXT_PAGE, (page + 1) * TEXT_PAGE)
@@ -32,7 +37,7 @@ export function bindReviewFiles(document, client, ports) {
     const revision = serial,
       tree = ports.tree()
     busy = true
-    el('file-body').replaceChildren()
+    clearPreview()
     el('file-label').textContent =
       `${file.path} · ${file.size} bytes${file.executable ? ' · executable' : ''}`
     try {
@@ -78,7 +83,13 @@ export function bindReviewFiles(document, client, ports) {
   ]) {
     const button = el(id),
       listener = () => {
-        if (text && page + delta >= 0 && (page + delta) * TEXT_PAGE < text.length) {
+        if (
+          !busy &&
+          current(serial) &&
+          text &&
+          page + delta >= 0 &&
+          (page + delta) * TEXT_PAGE < text.length
+        ) {
           page += delta
           showPage()
         }

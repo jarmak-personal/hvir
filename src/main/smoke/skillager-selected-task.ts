@@ -42,7 +42,7 @@ export async function verifySelectedSkillTasks(
     `!!document.querySelector('[data-id="${skillId}"]')`,
     'owned library skill',
   )
-  await pointer(`[data-id="${skillId}"]`)
+  await pointer(`[data-skill-select][data-id="${skillId}"]`)
   try {
     await ui.ready(
       "document.getElementById('instructions').textContent.length>0",
@@ -325,10 +325,19 @@ export async function verifySelectedSkillTasks(
     await captureSidebar('sidebar-managed-project')
     await browser.click('scope-library')
     await browser.ready(
+      "document.getElementById('state').dataset.state==='ready' && document.querySelectorAll('#skills [data-source-toggle]').length===1 && document.querySelector('#skills [data-source-toggle]').getAttribute('aria-expanded')==='false' && document.querySelectorAll('#skills [data-skill-select]').length===0",
+      'sidebar Library starts with the owned source collapsed',
+    )
+    await browser.inspect(
+      "document.querySelector('#skills [data-source-toggle]').click()",
+    )
+    await browser.ready(
       `document.getElementById('state').dataset.state==='ready' && !!document.querySelector('[data-id="${skillId}"]')`,
       'same sidebar Library metadata',
     )
-    await browser.inspect(`document.querySelector('[data-id="${skillId}"]').click()`)
+    await browser.inspect(
+      `document.querySelector('[data-skill-select][data-id="${skillId}"]').click()`,
+    )
     await detail.ready(
       "document.getElementById('reader-state').dataset.state==='ready' && !document.getElementById('task-agent-field').hidden && document.getElementById('instructions').textContent.includes('Owned complete fixture revision two') && !document.getElementById('task-mode').disabled",
       'selected Library instructions and tasks share the Project reader',
