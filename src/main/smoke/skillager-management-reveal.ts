@@ -58,7 +58,11 @@ export async function verifyOwnedOriginalReveal(
   try {
     await controls.wait(
       async () =>
-        Boolean(await inspect(`document.querySelector(${JSON.stringify(selector)})`)),
+        Boolean(
+          await inspect(
+            `document.querySelector(${JSON.stringify(selector)})?.checkVisibility()`,
+          ),
+        ),
       'emitted Files original folder selected and expanded',
     )
   } catch (error) {
