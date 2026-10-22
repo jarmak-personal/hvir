@@ -3,7 +3,10 @@ import { app } from 'electron'
 
 import { localPath } from '../shared'
 import { configureApplicationRuntime } from './application-runtime-policy'
+import { registerApplicationProtocols } from './application-document-protocols'
 import { LocalHost } from './project-host/local-host'
+
+registerApplicationProtocols()
 
 /** The compiled application identity and storage authority, selected during module load. */
 export const applicationRuntime = configureApplicationRuntime(

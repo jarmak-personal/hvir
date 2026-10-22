@@ -94,6 +94,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Download all exact-source client targets
+        uses: actions/download-artifact@v8
+        with:
+          pattern: agent-client-*
+          path: out/agent-client-downloads
+      - name: Validate and assemble bundled client set
+        run: node scripts/assemble-agent-clients.mts
+
       - name: Require protected signing credentials
         env:
           MACOS_APPLICATION_CERTIFICATE: ${{ secrets.MACOS_APPLICATION_CERTIFICATE }}

@@ -1,0 +1,100 @@
+name: Native agent clients
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      base_sha:
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  select:
+    name: Select focused client checks
+    runs-on: ubuntu-24.04
+    outputs:
+      required: ${{ steps.selection.outputs.required }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: selection
+        env:
+          BASE: ${{ inputs.base_sha }}
+          SOURCE: ${{ inputs.source_sha }}
+        run: |
+          [[ "$SOURCE" =~ ^[0-9a-f]{40}$ ]] && [ "$(git rev-parse HEAD)" = "$SOURCE" ]
+          if [ -z "$BASE" ]; then
+            echo 'required=true' >> "$GITHUB_OUTPUT"
+          else
+            [[ "$BASE" =~ ^[0-9a-f]{40}$ ]]
+            if git diff --name-only "$BASE" "$SOURCE" | grep -Eq '^(packages/hvir-agent/|src/(shared/(agent/|host-path\.ts$)|main/agent/)|scripts/(build-agent-client|agent-client-artifacts|assemble-agent-clients|probe-agent-client|probe-agent-ssh-client)|build/native/(prepare-agent-clients|sign-agent-clients)|LICENSE$|electron-builder\.yml$|\.github/workflows/(agent-clients|release|macos-package-release)\.yml)'; then
+              echo 'required=true' >> "$GITHUB_OUTPUT"
+            else
+              echo 'required=false' >> "$GITHUB_OUTPUT"
+            fi
+          fi
+  build:
+    name: Build and execute ${{ matrix.target }}
+    needs: select
+    if: needs.select.outputs.required == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-24.04
+          - target: linux-arm64
+            os: ubuntu-24.04-arm
+          - target: macos-x64
+            os: macos-15-intel
+          - target: macos-arm64
+            os: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install the pinned focused toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - name: Compile, inspect and verify the native client
+        env:
+          TARGET: ${{ matrix.target }}
+        run: node scripts/build-agent-client.mts "$TARGET"
+      - name: Execute the built native protocol adapter
+        env:
+          TARGET: ${{ matrix.target }}
+        run: node scripts/probe-agent-client.mts "out/agent-clients/$TARGET/hvir-agent"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: agent-client-${{ matrix.target }}
+          path: out/agent-clients/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 1
+  acceptance:
+    name: Focused client acceptance
+    needs: [select, build]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          SELECTED: ${{ needs.select.result }}
+          REQUIRED: ${{ needs.select.outputs.required }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          [ "$SELECTED" = success ]
+          if [ "$REQUIRED" = true ]; then [ "$BUILD" = success ]; else [ "$REQUIRED" = false ] && [ "$BUILD" = skipped ]; fi

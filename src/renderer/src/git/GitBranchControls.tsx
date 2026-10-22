@@ -46,10 +46,7 @@ export function GitBranchControls({
         id="git-branch-select"
         value={branchModel?.current ?? '__detached__'}
         disabled={
-          !branchModel ||
-          branchSwitching ||
-          Boolean(syncBusy) ||
-          !hasAlternativeBranch
+          !branchModel || branchSwitching || Boolean(syncBusy) || !hasAlternativeBranch
         }
         title={branchError ?? branchBlockReason ?? 'Switch existing local branch'}
         onChange={(event) => {
@@ -58,6 +55,7 @@ export function GitBranchControls({
             onSwitchBranch(branch)
           }
         }}
+        className="hvir-input"
       >
         {!branchModel?.current ? (
           <option value="__detached__" disabled>
@@ -95,6 +93,7 @@ export function GitBranchControls({
             disabled={Boolean(fetchBlockedReason || syncBusy || branchSwitching)}
             title={fetchBlockedReason ?? 'Refresh remote branch information'}
             onClick={onFetch}
+            className="hvir-button hvir-control"
           >
             Fetch
           </button>
@@ -103,6 +102,7 @@ export function GitBranchControls({
             disabled={Boolean(pullBlockReason || syncBusy || branchSwitching)}
             title={pullBlockReason ?? 'Fast-forward from the configured upstream'}
             onClick={onPull}
+            className="hvir-button hvir-control"
           >
             Pull
           </button>

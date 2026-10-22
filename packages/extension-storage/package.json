@@ -1,0 +1,20 @@
+{
+  "name": "@hvir/extension-storage",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private extension-state lock and pinned package traversal mechanics",
+  "license": "MIT",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "LICENSE",
+    "binding.gyp",
+    "extension_storage.c",
+    "build/Release/extension_storage.node"
+  ],
+  "gypfile": true,
+  "os": [
+    "darwin",
+    "linux"
+  ]
+}

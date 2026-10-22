@@ -10,6 +10,9 @@
 
 declare const brand: unique symbol
 
+/** Registered workspace identities include the complete host and path. */
+export const WORKSPACE_IDENTITY_CHARS = 8192
+
 /** An opaque identifier for a host. `'local'` is the default host. */
 export type HostId = string & { readonly __hostId: 'HostId' }
 

@@ -10,7 +10,7 @@ import {
 import type { ProjectHost } from '../project-host'
 
 export async function proveRealProjectDirectory(
-  host: ProjectHost,
+  host: Pick<ProjectHost, 'stat'>,
   workspaceRoot: HostPath,
   canonicalRoot: HostPath,
   directory: HostPath,
@@ -50,7 +50,7 @@ export interface ProvenProjectEntry {
 
 /** Prove one visible leaf while never following it when it is a symbolic link. */
 export async function proveProjectEntry(
-  host: ProjectHost,
+  host: Pick<ProjectHost, 'stat'>,
   workspaceRoot: HostPath,
   canonicalRoot: HostPath,
   source: HostPath,

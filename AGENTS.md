@@ -63,9 +63,12 @@ report an environment blocker instead of spending CI minutes on a known-bad bran
 
 ## Hard constraints (do not violate without explicit sign-off)
 
-- **No real editing.** "Minor edit + save" only. No LSP, debugger, refactors, extension
-  host, task/build system. Editing is the guardrail; *surfacing information is not* —
+- **No real editing.** "Minor edit + save" only. No LSP, debugger, refactors, or task/build system. Editing is the guardrail; *surfacing information is not* —
   read-only telemetry (the v2 "harness viewer") is on-philosophy.
+- **Extensions use the public capability boundary.** User package code runs only in isolated
+  guests, never main or the trusted workbench renderer. Package revisions, grants, caller identity,
+  and resource lifetimes stay distinct. Third-party harness providers and terminal engines remain
+  excluded. Application-level placement grants no project access. (ADR-054)
 - **Nothing blocks the paint.** Heavy work — git walks, file watching, syntax tokenizing,
   large reads — runs off the render thread (utility processes / workers). The UI is always
   instantly responsive. This is how we earn "lighter than VSCode" (a *feel*, not a byte

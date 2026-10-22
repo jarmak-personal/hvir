@@ -1,0 +1,294 @@
+{
+  "candidates": [
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "0050cb556a2e6533cd69baaae2eb4261973b71fdba6ff40381b1e9bfc2ec74c7",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "0d59ae1cbc4f97c003f7bd5e1f3561aaf44d7d34634c6a73a35dbe39beb2e018",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "10ba4f8927ba7ac1f4f861d1bc1a813e54344a38379491245ae3b92438af4a00",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "155e1ca2f68a9a12077c4bc689c28efc476a4dd93766e97e45d75712a8179f90",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "222766da2698cd7b42041db1a65d868d2fe9107716c22619f6650305f663ef50",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "4060c284286192345b94a1dc76098711620c0c76dade7ec7d0c3530388c6f540",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "42b6924adbfa75048b78d3e5db2f03d7ce8a774965386d0ff61e37463f79c6df",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "447c1925a983aaa6f83039288f0fc48a5c6c73c44d1d9e47ea26c4dcda91c52e",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "5f9f45010a1c11287abf7cd4fad91ad4be61f898102c05077a5c3ef289c9a771",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "6f218262f33e7a2fa87d58b75769168cd567d0bbf2ace17ce1ac4bd15b70702f",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": "lib/advanced-codex-two-6f44a6b01d680d70",
+      "reason_code": null,
+      "source_identity": "6f44a6b01d680d70d98b618302d85d301d67be9f6f5b85f9956b5612fa1fd1b1",
+      "state": "current"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "6ff538f90b22ffacaf859108a1efdb7b13e3a67946a0697fe64fc6a52d8cc97d",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "710acc19c45852be29c9195bb6f829cad8887bb32f0c2ed2f5ca187b3a5dd346",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "74e8e6543f7e13fbed325d44ff2c0aca4f9ca39042d10c0e71c2d406d619ab50",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "81bc7963238ac39f050544c6b56736c3f81ddaf29197566d52ec89d00f49f6c0",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "86864fe42f428ff1e8fab80563710e04ff6855e9ec800267a33461ba4c8c034d",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": "lib/advanced-codex-one-979cda4b7b5cd096",
+      "reason_code": null,
+      "source_identity": "979cda4b7b5cd096890adaa0a2094d16f2f254d3ad7df8fbf974f54416f14dcf",
+      "state": "current"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "aa82cffc3cc5bcf7967349996f70349993298b151a20cfdbaec31faf3c5f19c1",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "ab005a407b13bb89a26226cdb1cc7cfd94e1da6ec87960386b0c77b55ce74d22",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "b804ef4b1eb3df3b44c4a8b68daadde7f7e911d34230ffc1aa3913d3a0f7781a",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "ba189e9fe14424bcc965c55a631a9421d863f0ad78b717267c78ebf66d54874e",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "bf13d93bbe6f4ee5a69f7d5b4d57763e7033afce59acc00ffe3a5e46080f720a",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "c5d2fa44f9bfe817e946914ddf353f75ab1622e12be0a480c11e201e0f4b6e69",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "ce91683363eb32cb7780e6b5d819807ff30b374f25adcc4a7394edb7e37866ce",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "de7a4668c2307f2029b3fe0af54ca923ad112ef4393f5d7ec542ba9b926f4140",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "e774cfc30eedc81a188aab456e6e51972a77ed2d4d44b1d4ca0c7f216bc6a547",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "ee1494644cce13911fc45ffe4e2742e9788d8dea92937c4d586faf02950d43e6",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "f2ac58ea480a3d77c7796d01da7a212af7b20a7b85717efe3538dd8622f06006",
+      "state": "skipped"
+    },
+    {
+      "canonical_skill_id": null,
+      "reason_code": "source-not-approved",
+      "source_identity": "fd8c7de2343c6bb9167a76c42eeaba9456bfcf697dc24da34482f748e2e3e1d9",
+      "state": "skipped"
+    }
+  ],
+  "context": {
+    "discovery": "effective-local",
+    "project_root": "/owned-fixture/advanced/project"
+  },
+  "coverage": {
+    "approved_origins": 2,
+    "complete": true,
+    "discovered_origins": 29,
+    "discovery_error_count": 0,
+    "processed_sources": 29,
+    "selected_sources": 29
+  },
+  "library": {
+    "git_mode": "disabled",
+    "library_id": "c0e2a2a8-3b0d-48d1-bcad-51a8360be3ef",
+    "root": "/owned-fixture/advanced/library"
+  },
+  "lineages": [
+    {
+      "canonical": {
+        "acceptance": "accepted",
+        "accepted_hash": "7edbd5a839b1c1132c932d64cf079429ffec76b78d1f34b10a877d2b9ded0be1",
+        "git_commit": null,
+        "library_id": "c0e2a2a8-3b0d-48d1-bcad-51a8360be3ef",
+        "path": "/owned-fixture/advanced/library/skills/advanced-codex-two-6f44a6b01d680d70",
+        "reuse": "all-projects",
+        "skill_id": "lib/advanced-codex-two-6f44a6b01d680d70",
+        "trust": "reviewed",
+        "working_hash": "7edbd5a839b1c1132c932d64cf079429ffec76b78d1f34b10a877d2b9ded0be1"
+      },
+      "lineage_id": "ffd3e79798c268da453f6a446505629e563fa446c63d9fffbbc83d7801897449",
+      "origins": [
+        {
+          "entrypoint": "/owned-fixture/advanced/project/.agents/skills/advanced-codex-two/SKILL.md",
+          "native": {
+            "agent": "codex",
+            "project_root": "/owned-fixture/advanced/project",
+            "scope": "project"
+          },
+          "observation": {
+            "approval_evidence_id": "84d960da5f79e4bd112d4b995929f7a970b39f0262cb6e7d60b202bb2b61da16",
+            "content_hash": "7edbd5a839b1c1132c932d64cf079429ffec76b78d1f34b10a877d2b9ded0be1",
+            "status": "current",
+            "trust": "reviewed"
+          },
+          "origin_id": "3c9e0f6790bb5232a79db049f4c4a5fd94daedcab63ac2d2b2326c66a2b34df8",
+          "path": "/owned-fixture/advanced/project/.agents/skills/advanced-codex-two",
+          "provenance": {},
+          "skill_id": "project/advanced-codex-two",
+          "source_type": "project"
+        }
+      ],
+      "preservation": "verified",
+      "reason_code": null,
+      "schema": "skillager.library-lineage.v1",
+      "source_approval": {
+        "content_hash": "7edbd5a839b1c1132c932d64cf079429ffec76b78d1f34b10a877d2b9ded0be1",
+        "decision_skill_id": "project/advanced-codex-two",
+        "evidence_id": "84d960da5f79e4bd112d4b995929f7a970b39f0262cb6e7d60b202bb2b61da16",
+        "lint_override": false,
+        "risk_override": false,
+        "scope": "global",
+        "state": "reviewed"
+      },
+      "source_identity": "6f44a6b01d680d70d98b618302d85d301d67be9f6f5b85f9956b5612fa1fd1b1"
+    },
+    {
+      "canonical": {
+        "acceptance": "accepted",
+        "accepted_hash": "da23a92c1a6ba733fb1e61e6b93976f2822ed5f78283160be27a899d9d9e8857",
+        "git_commit": null,
+        "library_id": "c0e2a2a8-3b0d-48d1-bcad-51a8360be3ef",
+        "path": "/owned-fixture/advanced/library/skills/advanced-codex-one-979cda4b7b5cd096",
+        "reuse": "all-projects",
+        "skill_id": "lib/advanced-codex-one-979cda4b7b5cd096",
+        "trust": "reviewed",
+        "working_hash": "da23a92c1a6ba733fb1e61e6b93976f2822ed5f78283160be27a899d9d9e8857"
+      },
+      "lineage_id": "8fa702e5b9e817bf1697ef30ac653172c9415671628083946312d9fc272ca49e",
+      "origins": [
+        {
+          "entrypoint": "/owned-fixture/advanced/project/.agents/skills/advanced-codex-one/SKILL.md",
+          "native": {
+            "agent": "codex",
+            "project_root": "/owned-fixture/advanced/project",
+            "scope": "project"
+          },
+          "observation": {
+            "approval_evidence_id": "710fa2d323ef0446f6e1386cb5b3755f7b6561da0e35b655bb03c485507a022f",
+            "content_hash": "da23a92c1a6ba733fb1e61e6b93976f2822ed5f78283160be27a899d9d9e8857",
+            "status": "current",
+            "trust": "reviewed"
+          },
+          "origin_id": "0c20771b4732f7da404fb4e62e1e2b96c12862d63a7cc174908d0cab1c891442",
+          "path": "/owned-fixture/advanced/project/.agents/skills/advanced-codex-one",
+          "provenance": {},
+          "skill_id": "project/advanced-codex-one",
+          "source_type": "project"
+        }
+      ],
+      "preservation": "verified",
+      "reason_code": null,
+      "schema": "skillager.library-lineage.v1",
+      "source_approval": {
+        "content_hash": "da23a92c1a6ba733fb1e61e6b93976f2822ed5f78283160be27a899d9d9e8857",
+        "decision_skill_id": "project/advanced-codex-one",
+        "evidence_id": "710fa2d323ef0446f6e1386cb5b3755f7b6561da0e35b655bb03c485507a022f",
+        "lint_override": false,
+        "risk_override": false,
+        "scope": "global",
+        "state": "reviewed"
+      },
+      "source_identity": "979cda4b7b5cd096890adaa0a2094d16f2f254d3ad7df8fbf974f54416f14dcf"
+    }
+  ],
+  "schema": "skillager.library-sync-status.v1"
+}

@@ -9,6 +9,7 @@ import type { ProjectHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { DocumentReviewDriver } from './document-review-driver'
+import { captureActivePresentationVisuals } from './presentation-visual'
 import type { DocumentReviewCondition } from './document-review-evidence.mts'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 import { waitForPtyOutput } from './pty-lifecycle'
@@ -112,6 +113,7 @@ export async function verifyDocumentReviewWorkflow(options: {
       `document.querySelector('[aria-label^="Review and send 1 comment"]')`,
       'new comment did not join the pending review',
     )
+    await captureActivePresentationVisuals(window, host, 'review-rendered')
 
     await activateMode(win, 'source')
     await waitForRenderer(
@@ -122,6 +124,7 @@ export async function verifyDocumentReviewWorkflow(options: {
       'source view did not project the rendered anchor with accessible review semantics',
     )
     await proveSourceInlineFollowsLine(win)
+    await captureActivePresentationVisuals(window, host, 'review-source')
     await captureSourceLineNumber(win, 2)
     await waitForRenderer(
       win,
@@ -133,18 +136,14 @@ export async function verifyDocumentReviewWorkflow(options: {
     await activateControl(win, '.document-review-compose button[type="button"]')
 
     await host.writeFile(document, `# Shifted before review\n\n${documentContents}`)
-    await waitForRenderer(
-      win,
-      `document.querySelector('.cm-review-marker.review-anchor-moved')`,
-      'unique file edit did not move the source review marker',
-    )
-    await openSourceReviewMarker(win)
+    await openMovedSourceReviewMarker(win, document)
     await waitForRenderer(
       win,
       `document.querySelector('.document-review-comment.review-anchor-moved') && ` +
         `/Moved from Lines?/.test(document.querySelector('.document-review-comment')?.textContent || '')`,
       'unique file edit did not expose the prior review location',
     )
+    await captureActivePresentationVisuals(window, host, 'review-moved')
 
     await activateControl(win, `.viewer-tab.active .tab-close`)
     await waitForRenderer(
@@ -656,7 +655,19 @@ async function proveDeliveryClearsViewerControls(
   )
 }
 
-async function openSourceReviewMarker(win: DocumentReviewDriver): Promise<void> {
+export async function openMovedSourceReviewMarker(
+  win: DocumentReviewDriver,
+  document: HostPath,
+): Promise<void> {
+  // Anchor revalidation and the viewer read settle independently. A later source
+  // content update closes an inline review, so observe both before opening it.
+  await waitForRenderer(
+    win,
+    `document.querySelector('.viewer-tab.active .tab-main')?.getAttribute('title') === ${JSON.stringify(document.path)} && ` +
+      `document.querySelector('.cm-content .cm-line')?.textContent === '# Shifted before review' && ` +
+      `document.querySelector('.cm-review-marker.review-anchor-moved')`,
+    'unique file edit did not move the source review marker',
+  )
   await evaluateRenderer<void>(
     win,
     'source review marker activation',

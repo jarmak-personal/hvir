@@ -79,7 +79,7 @@ export function FileExternalMoveDialog({
           {dialog.stage === 'selection' ? (
             <>
               <button
-                className="confirmation-action confirmation-action-cancel"
+                className="confirmation-action confirmation-action-cancel hvir-button hvir-control"
                 type="button"
                 disabled={controller.pending}
                 onClick={() => controller.dismiss()}
@@ -89,7 +89,7 @@ export function FileExternalMoveDialog({
               {dialog.disclosure.picker.kind === 'mixed-multiple' ? (
                 <button
                   ref={selectionRef}
-                  className="confirmation-action confirmation-action-primary"
+                  className="confirmation-action confirmation-action-primary hvir-button hvir-control"
                   type="button"
                   disabled={controller.pending}
                   onClick={() => controller.choose('mixed')}
@@ -100,7 +100,7 @@ export function FileExternalMoveDialog({
                 <>
                   <button
                     ref={selectionRef}
-                    className="confirmation-action confirmation-action-primary"
+                    className="confirmation-action confirmation-action-primary hvir-button hvir-control"
                     type="button"
                     disabled={controller.pending}
                     onClick={() => controller.choose('files')}
@@ -108,7 +108,7 @@ export function FileExternalMoveDialog({
                     Choose Files…
                   </button>
                   <button
-                    className="confirmation-action confirmation-action-primary"
+                    className="confirmation-action confirmation-action-primary hvir-button hvir-control"
                     type="button"
                     disabled={controller.pending}
                     onClick={() => controller.choose('directory')}
@@ -122,7 +122,7 @@ export function FileExternalMoveDialog({
             <>
               <button
                 ref={cancelRef}
-                className="confirmation-action confirmation-action-cancel"
+                className="confirmation-action confirmation-action-cancel hvir-button hvir-control"
                 type="button"
                 disabled={controller.pending}
                 onClick={() => controller.dismiss()}
@@ -131,7 +131,7 @@ export function FileExternalMoveDialog({
               </button>
               <button
                 type="button"
-                className="confirmation-action confirmation-action-destructive"
+                className="confirmation-action confirmation-action-destructive hvir-button hvir-control"
                 disabled={controller.pending}
                 onClick={() => controller.confirm()}
               >

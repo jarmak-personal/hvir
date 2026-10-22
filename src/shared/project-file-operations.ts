@@ -1,5 +1,6 @@
 import type { HostPath } from './host-path'
 
+export const PROJECT_FILE_OPERATION_DEADLINE_MS = 10 * 60 * 1_000
 export const MAX_EXTERNAL_FILE_SOURCES = 256
 
 export type ProjectFileCreateKind = 'file' | 'directory'

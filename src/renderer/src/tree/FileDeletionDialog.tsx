@@ -5,8 +5,12 @@ import type { FileDeletionActionsController } from './use-file-deletion-actions'
 
 export function FileDeletionDialog({
   controller,
+  allowCancelOperation = false,
+  canConfirm = true,
 }: {
   readonly controller: FileDeletionActionsController
+  readonly allowCancelOperation?: boolean
+  readonly canConfirm?: boolean
 }): ReactElement | null {
   const { dialog } = controller
   const [confirmation, setConfirmation] = useState('')
@@ -27,7 +31,7 @@ export function FileDeletionDialog({
         aria-labelledby="file-deletion-title"
         onSubmit={(event: FormEvent) => {
           event.preventDefault()
-          controller.confirm(confirmation)
+          if (canConfirm) controller.confirm(confirmation)
         }}
         onKeyDown={(event) => {
           if (event.key === 'Escape') controller.dismiss()
@@ -58,6 +62,7 @@ export function FileDeletionDialog({
                 value={confirmation}
                 disabled={controller.pending}
                 onChange={(event) => setConfirmation(event.currentTarget.value)}
+                className="hvir-input hvir-control"
               />
             </label>
           ) : null}
@@ -70,17 +75,34 @@ export function FileDeletionDialog({
         <div className="dialog-actions confirmation-dialog-actions">
           <button
             ref={cancelRef}
-            className="confirmation-action confirmation-action-cancel"
+            className="confirmation-action confirmation-action-cancel hvir-button hvir-control"
             type="button"
-            disabled={controller.pending}
-            onClick={() => controller.dismiss()}
+            disabled={
+              controller.pending &&
+              (!allowCancelOperation ||
+                !controller.progress ||
+                controller.progress.phase === 'cancelling')
+            }
+            onClick={() =>
+              controller.pending ? controller.cancel() : controller.dismiss()
+            }
           >
-            Cancel
+            {controller.pending && allowCancelOperation
+              ? controller.progress?.phase === 'cancelling'
+                ? 'Cancelling…'
+                : 'Cancel operation'
+              : canConfirm
+                ? 'Cancel'
+                : 'Close'}
           </button>
           <button
             type="submit"
-            className="confirmation-action confirmation-action-destructive"
-            disabled={controller.pending || (permanent && confirmation !== entryName)}
+            className="confirmation-action confirmation-action-destructive hvir-button hvir-control"
+            disabled={
+              !canConfirm ||
+              controller.pending ||
+              (permanent && confirmation !== entryName)
+            }
           >
             {controller.pending
               ? 'Deleting…'

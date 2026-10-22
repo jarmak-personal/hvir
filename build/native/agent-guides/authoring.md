@@ -1,0 +1,18 @@
+# Make a clock from installed hvir
+
+Installed extension and agent contracts: 1.0. Start with `hvir-agent guide` for topics and `hvir-agent scaffold --help` for the command. The local installed command works offline with hvir closed, without a display, network or checkout. Missing Skillager, SSH and agent access do not block authoring.
+
+1. **Scaffold** into a new absolute local directory: `hvir-agent scaffold --output /absolute/clock`. Success returns a host-qualified `authoring.destination` and `enabled: false`. Existing files/directories/links are refused; no package scripts run.
+2. **Customize** the inspectable clock.js, clock.css or index.html with your own tools. For example, change `<h1>Clock</h1>` to `<h1>My clock</h1>` in index.html. The starter already runs without npm, a build, project access, session or connector.
+3. **Validate**: `hvir-agent validate --path /absolute/clock`. Success returns `validation.id`, `contract`, `revision`, `kind` and `warnings`. This is the ordinary Settings package policy; it executes no guest or connector. Resolve any refusal before installation.
+4. **Add**: open hvir, choose Settings → Extensions → Add extension…, and select the directory on macOS or its exact hvir-extension.json on Linux. Add copies the whole selected package, preserves your source and accepts/enables that exact validated copy. Open Clock using its ordinary viewer control. No separate Discover or Enable is needed; program, file and agent access remain separate decisions.
+
+For a ZIP, run `zip -r /absolute/new-clock.zip .` **inside the clock directory**, then `hvir-agent validate --path /absolute/new-clock.zip`. The manifest must be at archive root. Choose that completed ZIP through Add extension on either platform. Keep one installed source for its package ID. Validation also accepts a top-level development link; `guide development` covers deliberate link → Discover → Enable → edit → Reload iteration and link-only removal.
+
+The starter includes its current manifest, ordinary HTML/JS/CSS, captured public UI kit and browser transport/output-reader modules. The clock imports guest-client.mjs from a module script; use one client per guest. connector-output.mjs is available when adding an approved connector. Its timer pauses while hidden, samples current time on return and disposes on revocation/pagehide. The public context supplies visibility; document timers do not grant authority.
+
+An occupied output produces exit 64 without overwriting content. A raced or failed write may retain a uniquely named .hvir-authoring-* sibling for inspection; inspect any reported partial before removing it yourself. Interior author-selected parent links are refused. Ordinary macOS /tmp, /var and /etc system aliases are supported; select the real directory for an author-created alias. `scaffold`, `validate` and `skill` accept `--help` (or `-h`) on its own, as well as `help COMMAND`. Local authoring refuses --instance.
+
+For an extension needing access, use Settings → Extensions → Setup… → Get setup template. Fill the declared IDs and literal host/path/configuration values, remove unwanted rows, then choose Review setup… → Apply selected setup. Each selected permission saves independently; review completed/uncertain results before trying again. Save app settings saves preferences, not unfinished permission drafts. See `guide connectors` for the separate program/source decisions.
+
+Read `guide manifest` for capabilities, `guide ui` for controls, `guide surfaces` for placement and `guide skill` for optional setup. The native SSH Rust client forwards commands to a running endpoint; even its reference reads need that connection. Offline authoring uses the local installed launcher.

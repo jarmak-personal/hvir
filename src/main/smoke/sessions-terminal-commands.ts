@@ -79,7 +79,13 @@ export async function verifySessionsTerminalCommands({
     button('Change workspace', document.querySelector('.sessions-terminal-detail')).click();
     await waitFor(() => button('smoke-move-target', document.querySelector('.sessions-change-workspace')), 'move-choice');
     button('smoke-move-target', document.querySelector('.sessions-change-workspace')).click();
-    const dialog = await waitFor(() => document.querySelector('.terminal-move-dialog'), 'move-confirmation');
+    const dialog = await waitFor(() => {
+      const candidate = document.querySelector('.terminal-move-dialog');
+      return candidate &&
+        button('Change workspace', document.querySelector('.sessions-terminal-detail')) &&
+        candidate.contains(document.activeElement) &&
+        button('Change workspace', candidate) && candidate;
+    }, 'move-confirmation-ready');
     button('Change workspace', dialog).click();
     await waitFor(() => !document.querySelector('.terminal-move-dialog') && document.querySelector('.sessions-terminal-detail header p')?.textContent.includes('smoke-move-target') && document.querySelector('.sessions-detail-terminal.ready canvas') === window.__hvirSessionsCommandCanvas, 'transferred-surface');
     if (document.querySelector('.sessions-destination').getAttribute('aria-current') !== 'page') throw new Error('Move left Sessions');
@@ -115,7 +121,24 @@ async function rendererStep(win: BrowserWindow, action: string): Promise<void> {
       observer = new MutationObserver(inspect);
       window.addEventListener('focus', inspect, true);
       observer.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true });
-      deadline = setTimeout(() => { stop(); reject(new Error('Sessions command semantic readiness timed out: ' + stage)); }, 15000);
+      deadline = setTimeout(() => {
+        stop();
+        const dialog = document.querySelector('.terminal-move-dialog');
+        const sourceControl = document.querySelector('.sessions-change-workspace > button');
+        const boundary = stage === 'move-confirmation-ready' || stage === 'transferred-surface' ? {
+          dialogAbsent: !dialog,
+          workspaceMatches: document.querySelector('.sessions-terminal-detail header p')?.textContent.includes('smoke-move-target') === true,
+          readyCanvasPresent: !!document.querySelector('.sessions-detail-terminal.ready canvas'),
+          canvasMatches: document.querySelector('.sessions-detail-terminal.ready canvas') === window.__hvirSessionsCommandCanvas,
+          sessionsSelected: document.querySelector('.sessions-destination')?.getAttribute('aria-current') === 'page',
+          documentFocused: document.hasFocus(),
+          sourceControlDisabled: sourceControl instanceof HTMLButtonElement ? sourceControl.disabled : null,
+          dialogBusy: dialog ? dialog.getAttribute('aria-busy') === 'true' : null,
+          dialogErrorPresent: dialog ? !!dialog.querySelector('.dialog-error') : null,
+          dialogFocused: dialog ? dialog.contains(document.activeElement) : null,
+        } : undefined;
+        reject(new Error('Sessions command semantic readiness timed out: ' + stage + (boundary ? ' ' + JSON.stringify(boundary) : '')));
+      }, 15000);
       inspect();
     });
     ${action}

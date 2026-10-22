@@ -13,6 +13,7 @@ import { TerminalWorkspaceRuntimeOwner } from './terminal-workspace-runtime-owne
 import { SessionsTerminalCommandCoordinator } from './sessions-terminal-command-coordinator'
 import { terminalMoveTargets } from './terminal-move-targets'
 import { useNewWorktreeMoveBadge } from './use-new-worktree-move-badge'
+import { TerminalCommandCoordinator } from './terminal-command-coordinator'
 import { useTerminalWorkspaceTransfer } from './use-terminal-workspace-transfer'
 
 export function useTerminalWorkspaceRuntime({
@@ -78,6 +79,34 @@ export function useTerminalWorkspaceRuntime({
     controller: (workspaceId) => owner.controller(workspaceId),
     complete: transfer.complete,
   })
+  useEffect(() => {
+    const commands = new TerminalCommandCoordinator({
+      api: window.hvir,
+      state: () => commandContext.current.projectState,
+      accept: (state) => {
+        commandContext.current.projectState = state
+        commandContext.current.acceptProjectState(state)
+      },
+      prepare: transfer.prepare,
+      release: transfer.release,
+      controller: (workspace) => owner.controller(workspace),
+    })
+    const requested = window.hvir.on('terminal:command-requested', (request) => {
+      void commands
+        .open(request)
+        .catch((reason: unknown) =>
+          onError(reason instanceof Error ? reason.message : 'Terminal handoff failed'),
+        )
+    })
+    const revoked = window.hvir.on('terminal:command-revoked', ({ ticket }) =>
+      commands.revoke(ticket),
+    )
+    return () => {
+      commands.dispose()
+      void requested()
+      void revoked()
+    }
+  }, [owner, transfer.prepare, transfer.release, onError])
   useNewWorktreeMoveBadge({ projectState, acknowledgeWorkspaces, onError })
 
   useEffect(() => {

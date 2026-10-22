@@ -86,6 +86,7 @@ export function FileOrganizationDialog({
                 disabled={controller.pending}
                 aria-invalid={Boolean(name && validation)}
                 onChange={(event) => setName(event.currentTarget.value)}
+                className="hvir-input hvir-control"
               />
             </label>
           ) : null}
@@ -97,7 +98,7 @@ export function FileOrganizationDialog({
         </div>
         <div className="dialog-actions confirmation-dialog-actions">
           <button
-            className="confirmation-action confirmation-action-cancel"
+            className="confirmation-action confirmation-action-cancel hvir-button hvir-control"
             type="button"
             disabled={controller.pending}
             onClick={() => controller.dismiss()}
@@ -105,7 +106,7 @@ export function FileOrganizationDialog({
             Cancel
           </button>
           <button
-            className="confirmation-action confirmation-action-primary"
+            className="confirmation-action confirmation-action-primary hvir-button hvir-control"
             type="submit"
             disabled={controller.pending || Boolean(validation)}
           >

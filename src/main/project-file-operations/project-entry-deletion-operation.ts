@@ -4,6 +4,7 @@ import {
   type ProjectFileDeleteRequest,
   type ProjectFileDeletionDisclosure,
   type ProjectFileOperationProgress,
+  type ProjectFileOperationResult,
   type ProjectFileOperationStartResult,
 } from '../../shared'
 import type { RendererOwner } from '../renderer-resource-scopes'
@@ -14,6 +15,12 @@ import type { ProjectFileOperationRuntime } from './project-file-operation-runti
 
 export interface ProjectFileDeletionInput {
   readonly owner: RendererOwner
+  /** Additional exact-target guard supplied by a trusted one-use source review. */
+  readonly beforeDelete?: () => Promise<void>
+  /** Synchronous final admission at the host's recoverable Trash submission boundary. */
+  readonly onSubmitted?: () => void
+  /** Physical receipt survives renderer event suppression after revocation. */
+  readonly settled?: (result: ProjectFileOperationResult | undefined) => void
   readonly request: ProjectFileDeleteRequest
   readonly publish: (progress: ProjectFileOperationProgress) => void
 }
@@ -59,6 +66,7 @@ export async function startProjectEntryDeletion(
   const admission = runtime.activate(identity, input.publish, 1)
   if (admission.outcome === 'busy') return admission
   const { operation } = admission
+  let completed: ProjectFileOperationResult | undefined
   runtime.launch(
     operation,
     async () => {
@@ -79,34 +87,37 @@ export async function startProjectEntryDeletion(
         signal: operation.abort.signal,
         assertCurrent: () => runtime.assertCurrent(identity, operation.abort.signal),
         limits,
+        beforeDelete: input.beforeDelete,
+        onSubmitted: input.onSubmitted,
       })
-      return {
+      return (completed = {
         outcome: 'completed',
         operationId: identity.operationId,
         generation: identity.generation,
         items: [item],
-      }
+      })
     },
-    (reason) => ({
-      outcome: 'completed',
-      operationId: identity.operationId,
-      generation: identity.generation,
-      items: [
-        {
-          itemId: 'delete:0',
-          source: input.request.source,
-          destination: input.request.source,
-          status: operation.abort.signal.aborted ? 'cancelled' : 'failed',
-          effect: 'none',
-          sourceDisposition: { outcome: 'retained', path: input.request.source },
-          reason: boundedProjectFileReason(
-            operation.abort.signal.reason ?? reason,
-            'The deletion stopped unexpectedly',
-          ),
-        },
-      ],
-    }),
-    () => undefined,
+    (reason) =>
+      (completed = {
+        outcome: 'completed',
+        operationId: identity.operationId,
+        generation: identity.generation,
+        items: [
+          {
+            itemId: 'delete:0',
+            source: input.request.source,
+            destination: input.request.source,
+            status: operation.abort.signal.aborted ? 'cancelled' : 'failed',
+            effect: 'none',
+            sourceDisposition: { outcome: 'retained', path: input.request.source },
+            reason: boundedProjectFileReason(
+              operation.abort.signal.reason ?? reason,
+              'The deletion stopped unexpectedly',
+            ),
+          },
+        ],
+      }),
+    () => input.settled?.(completed),
   )
   return {
     outcome: 'started',

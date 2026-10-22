@@ -1,0 +1,71 @@
+{
+  "git": {
+    "conflicts": [],
+    "head": null,
+    "mode": "disabled",
+    "operation": null,
+    "staged": [],
+    "unstaged": [],
+    "untracked": []
+  },
+  "lint": {
+    "blocking_count": 0,
+    "findings": [],
+    "status": "ok"
+  },
+  "next_command_argv": [
+    "skillager",
+    "library",
+    "accept",
+    "lib/owned-first",
+    "--review-manifest",
+    "--json",
+    "--yes",
+    "--confirmation-token",
+    "98078d78198ffd0f178141f76f5c8e7aff82187e2dd588d239779ef2d4a0bb17"
+  ],
+  "requires_override": false,
+  "review_manifest": {
+    "confirmation_token": "98078d78198ffd0f178141f76f5c8e7aff82187e2dd588d239779ef2d4a0bb17",
+    "file_count": 1,
+    "files": [
+      {
+        "executable": false,
+        "path": "SKILL.md",
+        "sha256": "2e31d823353d9b881f95886e795420fd7c31ccb2a2c0551bbcc6d77f8dbce041",
+        "size": 285
+      }
+    ],
+    "library_id": "f06e01bd-5e1f-4aa0-b1ef-3cf9c66f2a85",
+    "library_root": "/owned-manifest-fixture/library",
+    "limits": {
+      "file_bytes": 2097152,
+      "files": 512,
+      "response_bytes": 262144,
+      "tree_bytes": 33554432
+    },
+    "schema": "skillager.library-review-manifest.v1",
+    "skill_id": "lib/owned-first",
+    "skill_root": "/owned-manifest-fixture/library/skills/owned-first",
+    "total_bytes": 285,
+    "working_hash": "0cc360070c6fc5542d08e3c5c85bb5a9299a39a7d56193db8eb3e12d6b6a445a"
+  },
+  "scan": {
+    "finding_count": 0,
+    "findings": [],
+    "risk": "low",
+    "scanned_files": 1,
+    "skipped_files": 0
+  },
+  "schema": "skillager.library-accept.v1",
+  "skill": {
+    "id": "lib/owned-first",
+    "name": "owned-first",
+    "path": "/owned-manifest-fixture/library/skills/owned-first",
+    "skill_file": "/owned-manifest-fixture/library/skills/owned-first/SKILL.md",
+    "summary": "Use this skill when the task clearly matches this workflow.",
+    "trust": "discovered",
+    "working_hash": "0cc360070c6fc5542d08e3c5c85bb5a9299a39a7d56193db8eb3e12d6b6a445a"
+  },
+  "status": "preview"
+}

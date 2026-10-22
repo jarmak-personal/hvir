@@ -3,11 +3,13 @@ set -eu
 
 package_id='dev.hvir.app'
 command_marker='hvir-native-package-command-v1'
+agent_marker='hvir-native-agent-command-v1'
 inventory_marker='hvir-native-package-inventory-v1'
 target_volume=${3:-/}
 stage='validating target volume'
 transaction=''
 command_had_previous=0
+agent_had_previous=0
 inventory_had_previous=0
 committed=0
 inventory_dir_created=0
@@ -26,9 +28,11 @@ application="$volume_root/Applications/hvir.app"
 executable="$application/Contents/MacOS/hvir"
 notices="$application/Contents/Resources/THIRD_PARTY_NOTICES.md"
 command_source="$application/Contents/Resources/hvir-command"
+agent_source="$application/Contents/Resources/hvir-agent-command"
 framework="$application/Contents/Frameworks/Electron Framework.framework"
 command_dir="$volume_root/usr/local/bin"
 command="$command_dir/hvir"
+agent_command="$command_dir/hvir-agent"
 inventory_dir="$volume_root/Library/Application Support/hvir"
 inventory="$inventory_dir/package-inventory-v1.txt"
 
@@ -41,6 +45,12 @@ cleanup() {
     fi
     if [ "$command_had_previous" -eq 1 ] && [ -e "$transaction/command.previous" ]; then
       /bin/mv -f -- "$transaction/command.previous" "$command"
+    fi
+    if [ -f "$agent_command" ] && /usr/bin/grep -Fq "$agent_marker" "$agent_command"; then
+      /bin/rm -f -- "$agent_command"
+    fi
+    if [ "$agent_had_previous" -eq 1 ] && [ -e "$transaction/agent.previous" ]; then
+      /bin/mv -f -- "$transaction/agent.previous" "$agent_command"
     fi
     if [ -f "$inventory" ] && /usr/bin/grep -Fq "$inventory_marker" "$inventory"; then
       /bin/rm -f -- "$inventory"
@@ -77,6 +87,8 @@ test -L "$framework/Versions/Current"
 test -f "$notices"
 test -f "$command_source"
 /usr/bin/grep -Fq "$command_marker" "$command_source"
+test -f "$agent_source"
+/usr/bin/grep -Fq "$agent_marker" "$agent_source"
 if /usr/bin/codesign -dvv "$application" 2>&1 |
   /usr/bin/grep -q '^Authority='; then
   /usr/bin/codesign --verify --deep --strict --verbose=2 "$application"
@@ -104,6 +116,15 @@ if [ -e "$command" ] || [ -L "$command" ]; then
   command_had_previous=1
 fi
 
+if [ -e "$agent_command" ] || [ -L "$agent_command" ]; then
+  if [ ! -f "$agent_command" ] || ! /usr/bin/grep -Fq "$agent_marker" "$agent_command"; then
+    stage='refusing to replace an unowned hvir-agent command'
+    false
+  fi
+  /bin/mv -- "$agent_command" "$transaction/agent.previous"
+  agent_had_previous=1
+fi
+
 if [ -e "$inventory" ] || [ -L "$inventory" ]; then
   if [ ! -f "$inventory" ] || ! /usr/bin/grep -Fq "$inventory_marker" "$inventory"; then
     stage='refusing to replace an unowned hvir inventory'
@@ -119,12 +140,18 @@ stage='writing package-owned command'
 /bin/chmod 0755 "$transaction/hvir"
 /bin/mv -- "$transaction/hvir" "$command"
 
+/bin/cp -- "$agent_source" "$transaction/hvir-agent"
+/usr/sbin/chown root:wheel "$transaction/hvir-agent"
+/bin/chmod 0755 "$transaction/hvir-agent"
+/bin/mv -- "$transaction/hvir-agent" "$agent_command"
+
 stage='writing deterministic package inventory'
 {
   echo "$inventory_marker"
   echo "package-id=$package_id"
   echo 'application=/Applications/hvir.app'
   echo 'command=/usr/local/bin/hvir'
+  echo 'agent-command=/usr/local/bin/hvir-agent'
   echo 'inventory=/Library/Application Support/hvir/package-inventory-v1.txt'
   echo "receipt=$package_id"
 } >"$transaction/inventory"
@@ -134,4 +161,4 @@ stage='writing deterministic package inventory'
 
 stage='committing package-owned command transaction'
 committed=1
-/bin/rm -f -- "$transaction/command.previous" "$transaction/inventory.previous"
+/bin/rm -f -- "$transaction/command.previous" "$transaction/agent.previous" "$transaction/inventory.previous"

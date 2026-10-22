@@ -6,6 +6,9 @@ import {
   hostPathEquals,
   unwrapOperation,
   type HostPath,
+  type OperationResult,
+  type ProjectFileOperationStartResult,
+  type ProjectFileDeleteRequest,
   type ProjectFileDeletionDisclosure,
   type ProjectFileOperationProgress,
   type ProjectFileOperationResult,
@@ -55,6 +58,11 @@ export interface FileDeletionActionsController {
 
 export function useFileDeletionActions(options: {
   readonly root: HostPath
+  readonly directRequest?: { readonly id: string; readonly source: HostPath }
+  readonly launch?: (
+    request: ProjectFileDeleteRequest,
+  ) => Promise<OperationResult<ProjectFileOperationStartResult>>
+  readonly onDismiss?: () => void
   readonly reviewPathRemoval: (target: HostPath) => ViewerPathRemovalReview
   readonly closeCleanPath: (target: HostPath) => ViewerPathRemovalResult
   readonly onStart: () => void
@@ -107,6 +115,22 @@ export function useFileDeletionActions(options: {
     setDialog(undefined)
     setDialogError(undefined)
   }, [ownerKey])
+
+  const directId = options.directRequest?.id
+  useEffect(() => {
+    const request = latest.current.directRequest
+    if (!request) return
+    setDialog({
+      id: ++nextId.current,
+      workspaceRoot: latest.current.root,
+      source: request.source,
+      recovery: 'recoverable',
+    })
+    const review = latest.current.reviewPathRemoval(request.source)
+    setDialogError(
+      review.dirtyPaths.length ? dirtyBufferMessage(review.dirtyPaths.length) : undefined,
+    )
+  }, [directId])
 
   return {
     menu,
@@ -187,7 +211,10 @@ export function useFileDeletionActions(options: {
       }
       const accepted = operation.start(
         () =>
-          window.hvir.invoke('fs:delete-entry', {
+          (
+            latest.current.launch ??
+            ((request) => window.hvir.invoke('fs:delete-entry', request))
+          )({
             workspaceRoot: dialog.workspaceRoot,
             source: dialog.source,
             confirmedRecovery: dialog.recovery,
@@ -202,6 +229,7 @@ export function useFileDeletionActions(options: {
       activeSource.current = undefined
       setDialog(undefined)
       setDialogError(undefined)
+      latest.current.onDismiss?.()
     },
     cancel: () => operation.cancel(),
   }

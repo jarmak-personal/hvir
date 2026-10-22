@@ -1,3 +1,4 @@
+import { captureActivePresentationVisuals } from './presentation-visual'
 import type { BrowserWindow } from 'electron'
 
 import type { HostPath } from '../../shared'
@@ -119,6 +120,7 @@ export async function verifyGitWorkflow(options: {
         })
       `)) as string
     console.log(`[smoke] mounted Git panel OK (${gitPanelStatus})`)
+    await captureActivePresentationVisuals(win, host, 'graph')
     const changesLayout = await verifyGitChangesLayout(win, host, root)
     console.log(`[smoke] Git Changes layout OK (${changesLayout})`)
     const dirtyBranch = await verifyDirtyBranchSwitch(win)

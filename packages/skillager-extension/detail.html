@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Skill instructions</title>
+    <link rel="stylesheet" href="presentation.css" />
+    <link rel="stylesheet" href="skillager.css" />
+  </head>
+  <body class="hvir-guest" data-view="detail">
+    <main>
+      <section id="reader-content" hidden aria-label="Selected skill">
+        <header class="skill-heading">
+          <h1 id="detail-title">Skill instructions</h1>
+          <div class="toolbar instruction-modes" aria-label="Instruction view">
+            <button id="rendered-mode" class="hvir-button">Rendered</button
+            ><button id="source-mode" class="hvir-button">Source</button>
+            <details class="skill-more">
+              <summary
+                class="hvir-focus"
+                aria-label="Reading options"
+                title="Reading options"
+              >
+                …
+              </summary>
+              <div class="skill-menu">
+                <button id="close-instructions" class="hvir-button">
+                  Close instructions
+                </button>
+                <button id="read-current" class="hvir-button">
+                  Refresh instructions
+                </button>
+                <button id="reader-manage" class="hvir-button">
+                  Advanced management
+                </button>
+                <button id="reveal-original" class="hvir-button" hidden>
+                  Show in Files
+                </button>
+                <button id="canonical" class="hvir-button" hidden>
+                  Read library source
+                </button>
+              </div>
+            </details>
+          </div>
+        </header>
+        <div data-skill-tasks></div>
+        <p id="reader-state" class="hvir-state" aria-live="polite"></p>
+        <article
+          id="instructions"
+          tabindex="0"
+          aria-label="Selected current skill instructions"
+        ></article>
+        <details class="source-details">
+          <summary>Source details</summary>
+          <p id="source-label" class="hvir-meta"></p>
+          <p id="details" class="hvir-meta"></p>
+        </details>
+      </section>
+    </main>
+    <script src="guest-ui.js"></script>
+    <script src="skillager.js"></script>
+  </body>
+</html>

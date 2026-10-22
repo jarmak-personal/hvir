@@ -1,6 +1,8 @@
 # ADR-030: Bounded project file operations and explicit external-source authority
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-081](ADR-081-trusted-selected-source-trash.md) | partial | Visible workspace selection for recoverable deletion: permit the exact registered workspace visibly identified by a trusted extension-requested Trash review.
+> Superseded by: [ADR-061](ADR-061-explicit-managed-extension-delivery.md) | partial | External source acquisition and no-replacement rules only for explicitly granted managed extension delivery; ordinary Files remains unchanged.
 
 ## Context
 

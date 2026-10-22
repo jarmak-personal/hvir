@@ -121,7 +121,7 @@ describe.each([LOCAL_HOST_ID, asHostId('deterministic-ssh')])(
       },
     )
 
-    it('releases a cancelled discovery reservation before a replacement launch', async () => {
+    it('retains canceled start identity until discovery settles before admitting replacement', async () => {
       const f = createPtySupervisorFixture({ hostId })
       const { spawnPty } = f
       let finishSnapshot: (value: unknown) => void = () => undefined
@@ -145,10 +145,11 @@ describe.each([LOCAL_HOST_ID, asHostId('deterministic-ssh')])(
       const rejected = expect(cancelled).rejects.toThrow('cancelled before it started')
       await vi.waitFor(() => expect(snapshot).toHaveBeenCalledOnce())
       f.supervisor.disposeWorkspace(f.root)
-      const replacement = f.spawn({ sessionId: 'reused' })
+      await expect(f.spawn({ sessionId: 'reused' })).rejects.toThrow('already active')
+      expect(spawnPty).not.toHaveBeenCalled()
       finishSnapshot([])
       await rejected
-      const info = await replacement
+      const info = await f.spawn({ sessionId: 'reused' })
       expect(spawnPty).toHaveBeenCalledOnce()
       expect(f.supervisor.get('reused')?.instanceId).toBe(info.instanceId)
     })

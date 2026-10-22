@@ -317,6 +317,78 @@ describe('smoke PTY lifecycle', () => {
     expect(fixture.disposeExit).toHaveBeenCalledOnce()
   })
 
+  it('subscribes before fixture completion, ignores unrelated exits and never sends a signal', async () => {
+    const fixture = lifecycleFixture()
+    const requestFixtureExit = vi.fn(() => {
+      fixture.order.push('fixture-exit')
+      fixture.emitExit(managedPty('unrelated-terminal', 42))
+      queueMicrotask(() => fixture.emitExit(fixture.terminal))
+    })
+
+    await stopPtyAndWaitForExit({
+      supervisor: fixture.supervisor,
+      terminal: fixture.terminal,
+      scenario: 'ordinary shell completion',
+      requestFixtureExit,
+    })
+
+    expect(fixture.order).toEqual([
+      'subscribe',
+      'fixture-exit',
+      'exit',
+      'exit',
+      'unsubscribe',
+    ])
+    expect(requestFixtureExit).toHaveBeenCalledOnce()
+    expect(fixture.kill).not.toHaveBeenCalled()
+  })
+
+  it('reports a fixture completion timeout at the unchanged five-second bound', async () => {
+    vi.useFakeTimers()
+    const fixture = lifecycleFixture()
+    fixture.get.mockReturnValue(fixture.terminal)
+    const requestFixtureExit = vi.fn()
+    const pending = stopPtyAndWaitForExit({
+      supervisor: fixture.supervisor,
+      terminal: fixture.terminal,
+      scenario: 'ordinary shell completion',
+      requestFixtureExit,
+      probeChildLiveness: () => 'alive',
+    })
+    const assertion = expect(pending).rejects.toThrow(
+      'ordinary shell completion timed out ' +
+        '(terminalId=profile-smoke-terminal, pid=9102, requestedAction=fixture-exit, ' +
+        'elapsedMs=5000, exitCallbackFired=false, supervisorMember=true, ' +
+        'childLiveness=alive)',
+    )
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(fixture.disposeExit).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    await assertion
+    expect(requestFixtureExit).toHaveBeenCalledOnce()
+    expect(fixture.kill).not.toHaveBeenCalled()
+    expect(fixture.disposeExit).toHaveBeenCalledOnce()
+  })
+
+  it('preserves a failed fixture completion request and releases its exit subscription', async () => {
+    const fixture = lifecycleFixture()
+    fixture.disposeExit.mockImplementation(() => {
+      throw new Error('unsubscribe failed')
+    })
+    await expect(
+      stopPtyAndWaitForExit({
+        supervisor: fixture.supervisor,
+        terminal: fixture.terminal,
+        scenario: 'ordinary shell completion',
+        requestFixtureExit: () => {
+          throw new Error('ordinary exit input rejected')
+        },
+      }),
+    ).rejects.toThrow('ordinary exit input rejected')
+    expect(fixture.kill).not.toHaveBeenCalled()
+    expect(fixture.disposeExit).toHaveBeenCalledOnce()
+  })
+
   it('reports the last observed lifecycle state after the unchanged bound', async () => {
     vi.useFakeTimers()
     const fixture = lifecycleFixture()

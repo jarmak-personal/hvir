@@ -1,0 +1,18 @@
+{
+  "id": "hvir.clock",
+  "name": "Clock",
+  "version": "0.3.0",
+  "contract": "1.0",
+  "requiredCapabilities": ["presentation.read", "context.read"],
+  "optionalCapabilities": [],
+  "access": [],
+  "views": [
+    {
+      "id": "clock",
+      "title": "Clock",
+      "entry": "index.html",
+      "placement": "application",
+      "representations": ["view"]
+    }
+  ]
+}

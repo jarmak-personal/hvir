@@ -23,6 +23,7 @@ import {
   viewerWorkspaceReducer,
   type ViewerWorkspaceAction,
 } from './viewer-workspace-model'
+import { workspacePathRemoval } from './workspace-path-removal'
 import { useViewerPathLifecycle } from './use-viewer-path-lifecycle'
 import { collectViewerWatchPaths } from './viewer-document-refresh'
 import {
@@ -196,6 +197,31 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     [flushPendingPositions, loadFileAt, send],
   )
 
+  useEffect(() => {
+    const dispose = window.hvir.on('agent:document-opened', (document) => {
+      if (modelRef.current.root && hostPathEquals(modelRef.current.root, document.root)) {
+        openFile(document.path, true)
+        return
+      }
+      const key = viewerStorageKey(document.root)
+      const retained =
+        warmWorkspaces.current.take(key) ?? restoreViewerTabs(document.root)
+      const opened = viewerWorkspaceReducer(
+        {
+          ...initialViewerWorkspaceModel,
+          root: document.root,
+          tabs: retained.tabs,
+          activeId: retained.activeId,
+        },
+        { type: 'open', request: { path: document.path, pinned: true } },
+      )
+      warmWorkspaces.current.set(key, { tabs: opened.tabs, activeId: opened.activeId })
+    })
+    return () => {
+      void dispose()
+    }
+  }, [openFile])
+
   const closeTab = useCallback(
     (id: string): void => {
       const current = modelRef.current
@@ -235,6 +261,16 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   )
 
   const pinTab = useCallback((id: string): void => send({ type: 'pin', id }), [send])
+
+  const activateReport = useCallback(
+    (id: string): void => send({ type: 'report-activated', id }),
+    [send],
+  )
+  const deactivateReport = useCallback(
+    (): void => send({ type: 'report-deactivated' }),
+    [send],
+  )
+  const isReportActive = useCallback(() => Boolean(modelRef.current.activeReportId), [])
 
   const cycleActiveMode = useCallback((): void => {
     flushPendingPositions()
@@ -459,6 +495,10 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
 
   return {
     model,
+    activeReportId: model.activeReportId,
+    activateReport,
+    deactivateReport,
+    isReportActive,
     tabs: model.tabs,
     activeId: model.activeId,
     activeTab: selectActiveTab(model),
@@ -494,6 +534,10 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     rebindPath,
     reviewPathRemoval,
     closeCleanPath,
+    ...workspacePathRemoval(() => modelRef.current, warmWorkspaces.current, {
+      reviewPathRemoval,
+      closeCleanPath,
+    }),
     focusPane,
     getActivePane,
     openSplit,

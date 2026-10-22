@@ -42,6 +42,7 @@ export function TypographyFontField({
           aria-label={`${label} source`}
           value={mode}
           onChange={(event) => onMode(event.currentTarget.value as FontPreferenceMode)}
+          className="hvir-input"
         >
           <option value="system">System default</option>
           <option value="custom">Custom installed font</option>
@@ -59,6 +60,7 @@ export function TypographyFontField({
                 kind === 'interface' ? 'Example: Inter' : 'Example: JetBrains Mono'
               }
               onChange={(event) => onFamily(event.currentTarget.value)}
+              className="hvir-input"
             />
             <div className="settings-font-preview" style={previewStyle}>
               {previewText}

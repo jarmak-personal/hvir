@@ -41,12 +41,13 @@ function getWorker(): Worker {
 export function renderMarkdown(
   markdown: string,
   theme: 'dark' | 'light',
+  resources?: 'inert',
 ): Promise<string> {
   const id = ++nextRequestId
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject })
     try {
-      getWorker().postMessage({ id, markdown, theme })
+      getWorker().postMessage({ id, markdown, theme, resources })
     } catch (reason) {
       pending.delete(id)
       reject(reason instanceof Error ? reason : new Error(String(reason)))

@@ -35,6 +35,7 @@ export function KeybindingsSettings({
             aria-invalid={keybindingError}
             aria-describedby={describedBy}
             onChange={(event) => onChange('keybindingsJson', event.currentTarget.value)}
+            className="hvir-input"
           />
           <small id="settings-keybindings-help">
             Use Mod for Command on macOS and Ctrl on Linux. Changes apply after Save.

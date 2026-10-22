@@ -2,7 +2,7 @@ import {
   type MarkdownRenderRequest,
   type MarkdownRenderResponse,
 } from './render-protocol'
-import { renderMarkdownDocument } from './markdown-renderer'
+import { renderMarkdownDocument } from '../../../shared/presentation/document-markdown/rendering'
 import { createViewerGrammarRegistry } from './shiki-grammar-registry'
 
 const grammars = createViewerGrammarRegistry()
@@ -16,7 +16,12 @@ async function render(request: MarkdownRenderRequest): Promise<void> {
     post({
       id: request.id,
       ok: true,
-      html: await renderMarkdownDocument(request.markdown, request.theme, grammars),
+      html: await renderMarkdownDocument(
+        request.markdown,
+        request.theme,
+        grammars,
+        request.resources,
+      ),
     })
   } catch (error) {
     post({

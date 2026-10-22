@@ -83,7 +83,7 @@ describe('compact terminal rail', () => {
     expect(strip?.hidden).toBe(false)
     expect(strip?.firstElementChild).toBe(restore)
     expect(strip?.querySelector('button')).toBe(restore)
-    expect([...(strip?.children ?? [])].map((child) => child.className)).toEqual([
+    expect([...(strip?.children ?? [])].map((child) => child.classList[0])).toEqual([
       'terminal-rail-restore',
       'terminal-rail-compact-rollups',
       'terminal-rail-compact-markers',
@@ -207,7 +207,6 @@ function renderRail(overrides: Partial<ComponentProps<typeof TerminalRail>> = {}
     providers: [],
     profiles: [],
     onSplit: vi.fn(),
-    onOpenSettings: vi.fn(),
     onToggleMenu: vi.fn(),
     onToggleMoveMenu: vi.fn(),
     onPlanMove: vi.fn(),

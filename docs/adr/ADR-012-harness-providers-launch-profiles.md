@@ -4,6 +4,9 @@
 > Superseded by: [ADR-015](ADR-015-missing-resume-artifact-blocks-fresh-launch.md) | partial | Definitely absent or empty resume artifacts implicitly starting a fresh harness.
 > Superseded by: [ADR-024](ADR-024-demand-driven-terminal-workspace-lifecycle.md) | partial | Bare Shell defaults implicitly launching a session in an empty workspace.
 > Superseded by: [ADR-036](ADR-036-retire-static-harness-risk-classification.md) | partial | Provider launch-risk rules, derived risk in profile launch revision, and risk classification and acknowledgment.
+> Superseded by: [ADR-054](ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
+> Superseded by: [ADR-053](ADR-053-local-agent-workbench-access.md) | partial | Protected terminal environment vocabulary only: add instance endpoint and exact workspace/session targeting.
+> Superseded by: [ADR-058](ADR-058-explicit-command-once-terminal-handoff.md) | partial | Explicit fresh ordinary-shell command handoff only; persistent profiles, trusted providers, protected environment, and exact harness recovery remain unchanged.
 
 ## Context
 

@@ -22,7 +22,7 @@ beforeEach(() => {
   invoke = vi.fn()
   Object.defineProperty(window, 'hvir', {
     configurable: true,
-    value: { invoke },
+    value: { invoke, on: vi.fn(() => () => undefined) },
   })
   act(() => reactRoot.render(<ViewerWorkspaceHarness />))
 })
@@ -36,6 +36,35 @@ afterEach(() => {
 })
 
 describe('viewer workspace retention', () => {
+  it('exposes report selection to command routing synchronously and forgets it across host-qualified workspace switches', async () => {
+    const project = localPath('/project'),
+      path = localPath('/project/file.ts')
+    invoke.mockResolvedValue({ ok: true, value: file(path, 'source', 6) })
+    act(() => workspace.switchWorkspace(project))
+    await act(async () => {
+      workspace.openFile(path, true)
+      await settle()
+    })
+    const active = workspace.activeTab
+    act(() => {
+      workspace.activateReport('retained-report')
+      expect(workspace.isReportActive()).toBe(true)
+      workspace.deactivateReport()
+      expect(workspace.isReportActive()).toBe(false)
+      workspace.activateReport('retained-report')
+    })
+    expect(workspace.activeReportId).toBe('retained-report')
+    expect(workspace.activeTab).toBe(active)
+    act(() => workspace.switchWorkspace(hostPath(asHostId('ssh'), project.path)))
+    expect(workspace.isReportActive()).toBe(false)
+    await act(async () => {
+      workspace.switchWorkspace(project)
+      await settle()
+    })
+    expect(workspace.activeReportId).toBeUndefined()
+    expect(workspace.activeTab?.path).toEqual(path)
+  })
+
   it('retains clean metadata and reloads an evicted body through its HostPath', async () => {
     const project = localPath('/project')
     const other = localPath('/other')

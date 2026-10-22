@@ -1,6 +1,4 @@
-/* Root-owned cascade order. Feature files retain the original rule order.
- * primitives.css is limited to pane resizers, panel headers, and dialog controls
- * shared by multiple feature surfaces. */
+/* Explicit feature cascade; shared presentation contains only public tokens and primitives. */
 @import './styles/base.css';
 @import './styles/projects.css';
 @import './styles/provider-context.css';
@@ -19,7 +17,7 @@
 @import './styles/harness-settings.css';
 @import './styles/composer-submit.css';
 @import './styles/terminal-list.css';
-@import './styles/primitives.css';
+@import '../../shared/presentation/presentation.css';
 @import './styles/workspace-state.css';
 @import './styles/git-controls.css';
 @import './styles/git-history.css';
@@ -38,4 +36,5 @@
 @import './styles/terminal-pane.css';
 @import './styles/terminal-search.css';
 @import './styles/web-pane.css';
+@import './styles/extension-views.css';
 @import './styles/scrollbars.css';

@@ -1,5 +1,6 @@
-import { type HostPath, type ProjectState } from '../../shared'
+import { joinHostPath, type HostPath, type ProjectState } from '../../shared'
 import type { ProjectHost } from '../project-host'
+import type { ElectronSmokeMode } from './scenario-selection.mts'
 
 /** Host-qualified project snapshots and their revision/observation authority. */
 export function createSmokeProjectState(
@@ -7,9 +8,19 @@ export function createSmokeProjectState(
   smokeRoot: HostPath,
   smokeRemoteRoot: HostPath,
   smokeWebSwitchRoot: HostPath,
-  repository: boolean,
-  projectReturn: boolean,
+  mode: ElectronSmokeMode,
 ) {
+  const repository = mode !== 'platform-contracts' && mode !== 'renderer-recovery'
+  const projectReturn =
+    mode === 'terminal-presentation' ||
+    mode === 'document-review' ||
+    mode === 'agent-workbench'
+  const extensionDestinations =
+    mode === 'extensions' &&
+    (process.env.HVIR_SKILLAGER_MANAGEMENT_FIXTURE ||
+      process.env.HVIR_SKILLAGER_EVIDENCE_CLI)
+      ? { worktree: smokeWebSwitchRoot, project: joinHostPath(smokeRoot, 'packages') }
+      : undefined
   let smokeProjectRevision = 0
   const commitSmokeProjectState = (state: ProjectState): ProjectState => ({
     ...state,
@@ -18,37 +29,41 @@ export function createSmokeProjectState(
   const smokeProjectState = (
     connectionState = host.connectionState,
     missing = false,
-  ): ProjectState => ({
-    revision: smokeProjectRevision,
-    root: smokeRoot,
-    connectionState,
-    watchTier: host.watchTier,
-    activeProjectId: 'smoke-project',
-    activeWorkspaceId: 'smoke-workspace',
-    projects: [
+  ): ProjectState =>
+    extensionDestinationState(
       {
-        id: 'smoke-project',
-        registeredRoot: smokeRoot,
-        displayName: 'hvir',
+        revision: smokeProjectRevision,
+        root: smokeRoot,
         connectionState,
         watchTier: host.watchTier,
+        activeProjectId: 'smoke-project',
         activeWorkspaceId: 'smoke-workspace',
-        workspaces: [
+        projects: [
           {
-            id: 'smoke-workspace',
-            root: smokeRoot,
-            name: 'hvir',
-            main: true,
-            closed: false,
-            missing,
-            // The platform-only group does not acquire unrelated Git-worker work.
-            repository,
-            changedFiles: 0,
+            id: 'smoke-project',
+            registeredRoot: smokeRoot,
+            displayName: 'hvir',
+            connectionState,
+            watchTier: host.watchTier,
+            activeWorkspaceId: 'smoke-workspace',
+            workspaces: [
+              {
+                id: 'smoke-workspace',
+                root: smokeRoot,
+                name: 'hvir',
+                main: true,
+                closed: false,
+                missing,
+                // The platform-only group does not acquire unrelated Git-worker work.
+                repository,
+                changedFiles: 0,
+              },
+            ],
           },
         ],
       },
-    ],
-  })
+      extensionDestinations,
+    )
   const smokeRemoteProjectState = (): ProjectState => ({
     revision: smokeProjectRevision,
     // Present remote chrome without widening the mounted local host authority.
@@ -170,5 +185,50 @@ export function createSmokeProjectState(
         smokeProjectObservationListeners.delete(listener)
       }
     },
+  }
+}
+
+/** Opt-in native picker geometry uses registered metadata, not a discovery simulation. */
+function extensionDestinationState(
+  state: ProjectState,
+  roots?: { readonly worktree: HostPath; readonly project: HostPath },
+): ProjectState {
+  if (!roots) return state
+  const primary = state.projects[0]!,
+    workspace = primary.workspaces[0]!
+  return {
+    ...state,
+    projects: [
+      {
+        ...primary,
+        workspaces: [
+          workspace,
+          {
+            ...workspace,
+            id: 'extension-feature',
+            root: roots.worktree,
+            name: 'feature/skill-reading',
+            main: false,
+            repository: false,
+          },
+        ],
+      },
+      {
+        ...primary,
+        id: 'extension-notes',
+        registeredRoot: roots.project,
+        displayName: 'Notes',
+        activeWorkspaceId: 'extension-notes-root',
+        workspaces: [
+          {
+            ...workspace,
+            id: 'extension-notes-root',
+            root: roots.project,
+            name: 'Notes',
+            repository: false,
+          },
+        ],
+      },
+    ],
   }
 }

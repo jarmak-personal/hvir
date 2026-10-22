@@ -1,0 +1,67 @@
+{
+  "description": "Actual public CLI responses captured from the committed Skillager implementation of project batch Save. No schema rewriting.",
+  "source": {
+    "repository": "jarmak-personal/skillager",
+    "head": "4205406ca945414ec42e36724f7d6ef2949afcf7",
+    "tree": "195c55b97a0e0d2c228bafda22cfcddcd8b0d282",
+    "version": "skillager 0.9.8",
+    "wheel_sha256": "89da93685e3c735914201fce5b71739860e2aaa2e165a4cbac0e4f3f3c603c00"
+  },
+  "invocations": [
+    {
+      "fixture": "inventory.json",
+      "argv": ["import-project", "--json"],
+      "exit_code": 0,
+      "stdout_sha256": "e05fcc9189a790b9717a4090e1b12c010b4b99d703ca03d068583aac17e16f34"
+    },
+    {
+      "fixture": "preview.json",
+      "argv": [
+        "import-project",
+        "--select",
+        "[\"project:0e922d848960eddbc1cc19b862dca1cc4f0e44cf3a1cdf95a8781d738011f886\", \"project:8ab0dbba5b662775120d0f9def537926a7fb3257f5491d764d7c86036a8bf387\"]",
+        "--review-manifest",
+        "--json"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "d69834855f80307556a807cc88ed9adbd819ff81ea5e5fae2ee2f9d5e7aae77c"
+    },
+    {
+      "fixture": "apply.json",
+      "argv": [
+        "import-project",
+        "--json",
+        "--review-manifest",
+        "--select",
+        "[\"project:0e922d848960eddbc1cc19b862dca1cc4f0e44cf3a1cdf95a8781d738011f886\",\"project:8ab0dbba5b662775120d0f9def537926a7fb3257f5491d764d7c86036a8bf387\"]",
+        "--yes",
+        "--confirmation-token",
+        "671b7c28aee0fd5861ce16b661e98cd1bf787cddb31bc1483d7fa2125b462772"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "eab4e758ad3e3d09d7657003be4e8e95e89dd6e24a68745136fd913aa73ed4ef"
+    },
+    {
+      "fixture": "inventory-after.json",
+      "argv": ["import-project", "--json"],
+      "exit_code": 0,
+      "stdout_sha256": "14218a31530e3feaaa9b7b3a70c370ff9cae291033b7453ffd58e8fe35c11ebb"
+    },
+    {
+      "fixture": "status.json",
+      "argv": [
+        "import-project",
+        "--status",
+        "--select",
+        "[\"project:0e922d848960eddbc1cc19b862dca1cc4f0e44cf3a1cdf95a8781d738011f886\", \"project:8ab0dbba5b662775120d0f9def537926a7fb3257f5491d764d7c86036a8bf387\"]",
+        "--destinations",
+        "[\"lib/alpha\", \"lib/beta\"]",
+        "--json"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "f6c4c5c7e8faea540439b5145eac7efd669f0ef1b2e1c4e9debf52601840d62b"
+    }
+  ],
+  "originals_unchanged": true,
+  "source_state_unchanged": true
+}

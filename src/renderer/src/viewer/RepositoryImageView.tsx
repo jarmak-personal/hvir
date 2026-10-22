@@ -78,10 +78,10 @@ export function RepositoryImageView({
   )
 
   if (error && !image)
-    return <div className="viewer-empty error">Image unavailable: {error}</div>
-  if (!image) return <div className="viewer-empty">Loading image…</div>
+    return <div className="viewer-empty error hvir-state">Image unavailable: {error}</div>
+  if (!image) return <div className="viewer-empty hvir-state">Loading image…</div>
   return (
-    <figure className="rendered-scroll image-view">
+    <figure className="rendered-scroll image-view hvir-scroll">
       <img
         src={image.url}
         alt={path.path.split('/').at(-1) ?? 'Repository image'}

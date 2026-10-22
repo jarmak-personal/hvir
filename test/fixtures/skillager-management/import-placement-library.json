@@ -1,0 +1,95 @@
+{
+  "advisories": [
+    "library has no Git remote; consider a private backup remote"
+  ],
+  "counts": {
+    "skills": 1
+  },
+  "git": {
+    "available": true,
+    "branch": "master",
+    "clean": true,
+    "commit_identity": {
+      "email": "skillager@localhost",
+      "name": "Skillager",
+      "source": "skillager-fallback"
+    },
+    "conflicts": [],
+    "head": "9a6cc7fa77eff53f52662198ea82894d35962709",
+    "mode": "system",
+    "operation": null,
+    "remote": null,
+    "repository": true,
+    "staged": [],
+    "unstaged": [],
+    "untracked": []
+  },
+  "history": {
+    "available": true,
+    "reason": null
+  },
+  "initialized": true,
+  "library": {
+    "created_at": "2026-10-20T17:06:58.769375+00:00",
+    "library_id": "2a654fbe-df7c-5224-b835-135bb1e62a13",
+    "namespace": "lib",
+    "registration": "valid",
+    "root": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/home/.skillager/library",
+    "schema": "skillager.library.v1",
+    "skills_path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/home/.skillager/library/skills"
+  },
+  "schema": "skillager.library-status.v1",
+  "skill": {
+    "acceptance": "accepted",
+    "accepted_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77",
+    "entrypoint": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/home/.skillager/library/skills/demo/SKILL.md",
+    "exposures": [
+      {
+        "agent": "codex",
+        "kind": "stub",
+        "path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/project/.agents/skills/demo",
+        "router": null,
+        "scope": "project",
+        "source_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77",
+        "source_library_id": "2a654fbe-df7c-5224-b835-135bb1e62a13",
+        "status": "current"
+      }
+    ],
+    "git": {
+      "conflicts": [],
+      "staged": [],
+      "unstaged": [],
+      "untracked": []
+    },
+    "head_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77",
+    "history": {
+      "available": true,
+      "reason": null
+    },
+    "id": "lib/demo",
+    "imported_from": {
+      "content_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77",
+      "skill_id": "project/demo",
+      "source_type": "project"
+    },
+    "lint": {
+      "blocking_count": 0,
+      "findings": [],
+      "status": "ok"
+    },
+    "name": "Demo",
+    "path": "/private/tmp/hvir-848-skill-context-actions/skillager85/wheel-fixture/home/.skillager/library/skills/demo",
+    "scan": {
+      "finding_count": 0,
+      "findings": [],
+      "risk": "low",
+      "scanned_files": 2,
+      "skipped_files": 0
+    },
+    "status": "clean",
+    "summary": "Use the fixture guidance.",
+    "working_hash": "2cbc436c7391b84ea6f5addfceaf24ba13c353637a20eb2fa48f592ade9abe77"
+  },
+  "status": "ready",
+  "warnings": []
+}

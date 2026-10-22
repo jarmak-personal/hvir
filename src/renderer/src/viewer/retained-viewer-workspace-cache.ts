@@ -34,6 +34,10 @@ export class RetainedViewerWorkspaceCache {
     this.enforceWorkspaceBudget()
   }
 
+  peek(key: string): RestoredViewerTabs | undefined {
+    return this.entries.get(key)
+  }
+
   take(key: string): RestoredViewerTabs | undefined {
     const workspace = this.entries.get(key)
     if (workspace) this.entries.delete(key)

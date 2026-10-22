@@ -4,7 +4,9 @@ import {
   joinHostPath,
   hostPathEquals,
   type HostPath,
+  type WatchEvent,
 } from '../../shared'
+import type { ProjectHost } from '../project-host/project-host'
 import { LocalHost } from '../project-host'
 import type { SmokeCleanup } from './cleanup'
 export function createProjectFileFixture(smokeRoot: HostPath, cleanup: SmokeCleanup) {
@@ -20,6 +22,7 @@ export function createProjectFileFixture(smokeRoot: HostPath, cleanup: SmokeClea
       if (smokeTrashFailurePath && hostPathEquals(path, smokeTrashFailurePath)) {
         throw new Error('Injected recoverable Trash failure')
       }
+      await prepareTrash()
       const recovered = joinHostPath(
         smokeTrashRecoveryRoot,
         `${(smokeTrashSequence += 1)}-${basenameHostPath(path)}`,
@@ -28,6 +31,11 @@ export function createProjectFileFixture(smokeRoot: HostPath, cleanup: SmokeClea
       smokeRecoveredPaths.add(recovered)
     },
   })
+  let trashReady: Promise<void> | undefined
+  const prepareTrash = (): Promise<void> =>
+    (trashReady ??= host.createDirectoryExclusive(smokeTrashRecoveryRoot, {
+      mode: 0o755,
+    }))
   cleanup.defer('local host', () => host.dispose())
   cleanup.defer('recoverable deletion fixture', async () => {
     for (const recovered of smokeRecoveredPaths) {
@@ -73,7 +81,7 @@ export function createProjectFileFixture(smokeRoot: HostPath, cleanup: SmokeClea
         renamedPointerPath.path,
         createdSnapshotPath.path,
       ])
-      await host.createDirectoryExclusive(smokeTrashRecoveryRoot, { mode: 0o755 })
+      await prepareTrash()
       await host.exec('rm', [
         '-rf',
         '--',
@@ -82,4 +90,16 @@ export function createProjectFileFixture(smokeRoot: HostPath, cleanup: SmokeClea
       ])
     },
   }
+}
+
+/** The disposable repository watch excludes build/dependency output for every scenario. */
+export function watchSmokeProject(
+  host: ProjectHost,
+  root: HostPath,
+  emit: (channel: 'project:watch', event: WatchEvent) => void,
+) {
+  return host.watch(root, (event) => emit('project:watch', event), {
+    recursive: true,
+    excludeDirectoryNames: ['.git', 'node_modules', 'out', 'dist'],
+  })
 }

@@ -99,7 +99,7 @@ describe('direct SFTP consumers across reconnect', () => {
     },
   )
 
-  it('keeps an opened read handle and its cleanup on the original session', async () => {
+  it('settles an opened read handle at original session close without retargeting cleanup', async () => {
     const original = session()
     const fresh = session()
     const openSftp = vi
@@ -116,8 +116,8 @@ describe('direct SFTP consumers across reconnect', () => {
       files.advanceGeneration()
       await files.realpath(file)
 
-      await expect(reader.next()).rejects.toThrow('original SFTP session closed')
-      expect(original.close).toHaveBeenCalledOnce()
+      await expect(reader.next()).rejects.toThrow('SSH SFTP session closed')
+      expect(original.close).not.toHaveBeenCalled()
       expect(fresh.read).not.toHaveBeenCalled()
       expect(fresh.close).not.toHaveBeenCalled()
       expect(fresh.open).not.toHaveBeenCalled()
@@ -127,7 +127,7 @@ describe('direct SFTP consumers across reconnect', () => {
     }
   })
 
-  it('keeps an opened write handle and its cleanup on the original session', async () => {
+  it('settles an opened write handle at original session close without retargeting opaque handles', async () => {
     const original = session()
     const fresh = session()
     const openSftp = vi
@@ -144,8 +144,8 @@ describe('direct SFTP consumers across reconnect', () => {
     try {
       await expect(
         files.writeFileChunksExclusive(file, interruptedChunks(), { mode: 0o644 }),
-      ).rejects.toThrow('original SFTP session closed')
-      expect(original.close).toHaveBeenCalledOnce()
+      ).rejects.toThrow('SSH SFTP session closed')
+      expect(original.close).not.toHaveBeenCalled()
       expect(fresh.write).not.toHaveBeenCalled()
       expect(fresh.fsetstat).not.toHaveBeenCalled()
       expect(fresh.close).not.toHaveBeenCalled()
@@ -345,8 +345,7 @@ function session() {
         done?: OpenDone,
       ) => {
         assertOpen()
-        if (typeof attrsOrDone === 'function')
-          attrsOrDone(undefined, handle)
+        if (typeof attrsOrDone === 'function') attrsOrDone(undefined, handle)
         else done!(undefined, handle)
       },
     ),

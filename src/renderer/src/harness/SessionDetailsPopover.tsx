@@ -1,4 +1,10 @@
-import { useEffect, useRef, type ReactElement, type ReactNode, type RefObject } from 'react'
+import {
+  useEffect,
+  useRef,
+  type ReactElement,
+  type ReactNode,
+  type RefObject,
+} from 'react'
 import { createPortal } from 'react-dom'
 
 import type {
@@ -84,6 +90,7 @@ export function SessionDetailsPopover({
           type="button"
           aria-label="Close session details"
           onClick={() => dismiss(true)}
+          className="hvir-button"
         >
           ×
         </button>

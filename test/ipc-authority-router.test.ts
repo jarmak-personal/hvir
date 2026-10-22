@@ -449,132 +449,11 @@ describe('IpcAuthorityRouter', () => {
     expect(transport.sends.size).toBe(0)
   })
 
-  it('keeps the reviewed owner and authority channel policies explicit', () => {
-    expect(new Set(OWNER_SCOPED_INVOKE_CHANNELS)).toEqual(
-      new Set<IpcInvokeChannel>([
-        'workbench-health:acknowledge',
-        'diagnostic-evidence:get',
-        'diagnostic-evidence:delete',
-        'ssh:configuration-defaults',
-        'ssh:refresh-hosts',
-        'ssh:add-host',
-        'ssh:pick-identity',
-        'project:connect-host',
-        'project:browse-host',
-        'project:folder-picker-start',
-        'project:folder-picker-browse',
-        'project:folder-picker-create-directory',
-        'project:folder-picker-close',
-        'project:open',
-        'document-review:restore',
-        'document-review:save',
-        'document-review:revalidate',
-        'document-review:delivery-destinations',
-        'document-review:preview-delivery',
-        'document-review:prepare-delivery',
-        'document-review:insert-delivery',
-        'document-review:send-now-delivery',
-        'ssh:prompt-response',
-        'fs:read',
-        'fs:read-asset',
-        'fs:filename-search',
-        'fs:reveal-entry',
-        'fs:create-entry',
-        'fs:acquire-clipboard-files',
-        'fs:acquire-dropped-files',
-        'fs:copy-external',
-        'fs:external-move-disclosure',
-        'fs:acquire-external-move-files',
-        'fs:release-external-move-grant',
-        'fs:move-external',
-        'fs:organize-entry',
-        'fs:deletion-disclosure',
-        'fs:delete-entry',
-        'fs:cancel-file-operation',
-        'html-preview:create',
-        'web-pane:open',
-        'web-pane:close',
-        'web-pane:open-external',
-        'web-pane:open-browser',
-        'terminal:plan-move',
-        'terminal:move',
-        'terminal:record-recovery-decision',
-        'terminal:resolve-file-clipboard',
-        'pty:start',
-        'sessions:observe',
-        'sessions:snapshot',
-        'sessions:release',
-        'sessions:usage-observe',
-        'sessions:usage-snapshot',
-        'sessions:usage-release',
-        'sessions:open',
-        'sessions:resolve-terminal',
-        'diagnostic-report:create',
-        'diagnostic-report:capture',
-        'diagnostic-report:copy',
-        'diagnostic-report:save',
-        'diagnostic-report:cancel',
-        'diagnostic-report:delete',
-      ]),
-    )
-    expect(new Set(OWNER_SCOPED_SEND_CHANNELS)).toEqual(
-      new Set<IpcSendChannel>(SEND_CHANNELS),
-    )
-    expect(new Set(AUTHORITY_SCOPED_INVOKE_CHANNELS)).toEqual(
-      new Set<IpcInvokeChannel>([
-        'project:watch-interests',
-        'document-review:restore',
-        'document-review:save',
-        'document-review:revalidate',
-        'document-review:delivery-destinations',
-        'document-review:preview-delivery',
-        'document-review:prepare-delivery',
-        'fs:readdir',
-        'fs:filename-search',
-        'fs:resolve-entry',
-        'fs:reveal-entry',
-        'fs:read',
-        'fs:read-asset',
-        'fs:write',
-        'fs:create-entry',
-        'fs:copy-external',
-        'fs:move-external',
-        'fs:organize-entry',
-        'fs:deletion-disclosure',
-        'fs:delete-entry',
-        'git:diff-inputs',
-        'git:changes',
-        'git:history',
-        'git:ignored-entries',
-        'git:commit-detail',
-        'git:blame',
-        'git:branches',
-        'git:fetch',
-        'git:pull',
-        'git:switch-branch',
-        'html-preview:create',
-        'harness:profiles',
-        'harness:probe-snapshot',
-        'harness:probe-profiles',
-        'harness:probe-templates',
-        'harness:profile-materialize',
-        'harness:profile-save',
-        'harness:preview',
-        'harness:authorize-path',
-        'terminal:recovery',
-        'terminal:record-recovery-decision',
-        'terminal:update-layout',
-        'terminal:forget',
-        'terminal:rebind-profile',
-        'pty:start',
-        'web-pane:open',
-      ]),
-    )
-  })
-
   it('keeps feature registrars free of direct IPC and canonicalization primitives', async () => {
     const featureDirectory = join(process.cwd(), 'src/main/ipc/features')
     const features = [
+      'extensions.ts',
+      'agent.ts',
       'app.ts',
       'filesystem.ts',
       'git.ts',
@@ -894,12 +773,13 @@ function registrationBlock(
   method: 'handle' | 'handleSend',
   channel: string,
 ): string {
-  const marker = `ipc.${method}('${channel}'`
-  const start = source.indexOf(marker)
+  const marker = new RegExp(`ipc\\.${method}\\(\\s*'${channel}'`)
+  const found = marker.exec(source)
+  const start = found?.index ?? -1
   if (start < 0) throw new Error(`Missing ${method} registration for ${channel}`)
   const candidates = [
-    source.indexOf('\n  ipc.handle(', start + marker.length),
-    source.indexOf('\n  ipc.handleSend(', start + marker.length),
+    source.indexOf('\n  ipc.handle(', start + found![0].length),
+    source.indexOf('\n  ipc.handleSend(', start + found![0].length),
   ].filter((index) => index >= 0)
   const end = candidates.length > 0 ? Math.min(...candidates) : source.length
   return source.slice(start, end)

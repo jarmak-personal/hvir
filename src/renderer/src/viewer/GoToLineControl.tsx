@@ -113,7 +113,7 @@ export function GoToLineControl({
     <div ref={root} className="go-to-line">
       <button
         type="button"
-        className="go-to-line-toggle"
+        className="go-to-line-toggle hvir-button"
         title="Go to line · Ctrl+G"
         aria-expanded={open}
         onClick={() => (open ? close(true) : show())}
@@ -140,6 +140,7 @@ export function GoToLineControl({
               event.preventDefault()
               close(true)
             }}
+            className="hvir-input"
           />
           {boundedPreview ? <small>Loaded preview only</small> : null}
           {error ? (

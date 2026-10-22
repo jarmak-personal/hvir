@@ -147,7 +147,9 @@ export function FileTree({
             onOpen={onOpen}
           />
           <div
-            className={`tree-scroll${dropTarget ? ' file-drop-active' : ''}`}
+            className={
+              `tree-scroll${dropTarget ? ' file-drop-active' : ''}` + ' hvir-scroll'
+            }
             hidden={searchActive}
             onContextMenu={(event) => fileCreate.openRootFromPointer(event)}
             onKeyDown={(event) => {

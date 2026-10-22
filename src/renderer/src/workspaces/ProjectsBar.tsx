@@ -8,6 +8,9 @@ import {
   type WorkspaceState,
   type WorkspaceClosePlan,
 } from '../../../shared'
+import { useAgentReportSummaries } from '../viewer/use-agent-reports'
+import { useExtensionContributions } from '../extensions/extension-contribution-context'
+import { ExtensionTopRail } from '../extensions/ExtensionContributions'
 import { RemoteConnectionBadge } from './ConnectionStatus'
 import { connectionStateLabel } from './connection-status'
 import type { WorkspaceAttentionRollups } from './project-session-model'
@@ -82,6 +85,9 @@ export function ProjectsBar({
   sessionsActive,
   onSessions,
 }: ProjectsBarProps): ReactElement {
+  const agentReports = useAgentReportSummaries()
+  const extensionDestination = useExtensionContributions()?.topActive
+  const workspaceActive = !sessionsActive && !extensionDestination
   const [pruneProjectId, setPruneProjectId] = useState<string>()
   const [closeProjectId, setCloseProjectId] = useState<string>()
   const [catalogProjectId, setCatalogProjectId] = useState<string>()
@@ -189,14 +195,17 @@ export function ProjectsBar({
         >
           <button
             type="button"
-            className={`sessions-destination${sessionsActive ? ' active' : ''}`}
+            className={
+              `sessions-destination${sessionsActive ? ' active' : ''}` + ' hvir-button'
+            }
             aria-current={sessionsActive ? 'page' : undefined}
             onClick={onSessions}
           >
             Sessions
           </button>
+          <ExtensionTopRail />
           {state.projects.map((project) => {
-            const active = !sessionsActive && project.id === state.activeProjectId
+            const active = workspaceActive && project.id === state.activeProjectId
             const remote = project.registeredRoot.hostId !== 'local'
             const workspaceIds = project.workspaces.map((workspace) => workspace.id)
             const actionable = aggregateActionableWorkspaceAttention(
@@ -215,7 +224,7 @@ export function ProjectsBar({
               >
                 <button
                   type="button"
-                  className="project-tab-main"
+                  className="project-tab-main hvir-button"
                   aria-current={active ? 'page' : undefined}
                   aria-label={projectTabLabel(project, actionable, working)}
                   disabled={busy || !target}
@@ -224,6 +233,20 @@ export function ProjectsBar({
                 >
                   <strong className={showWorking ? 'project-name-working' : undefined}>
                     {project.displayName}
+                    {agentReports.some(
+                      (report) =>
+                        report.unread &&
+                        project.workspaces.some(
+                          (workspace) => workspace.id === report.workspace,
+                        ),
+                    ) ? (
+                      <small
+                        className="hvir-meta agent-report-badge"
+                        aria-label="Unread agent report"
+                      >
+                        Agent
+                      </small>
+                    ) : null}
                   </strong>
                   {remote && !active ? (
                     <RemoteConnectionBadge
@@ -237,7 +260,7 @@ export function ProjectsBar({
                 {remote && active ? (
                   <button
                     type="button"
-                    className="project-connection-trigger"
+                    className="project-connection-trigger hvir-button"
                     disabled={busy}
                     aria-haspopup="dialog"
                     aria-expanded={connectionMenu?.projectId === project.id}
@@ -268,7 +291,7 @@ export function ProjectsBar({
                 ) : null}
                 <button
                   type="button"
-                  className="project-close"
+                  className="project-close hvir-button"
                   disabled={busy || state.projects.length <= 1}
                   onClick={() => setCloseProjectId(project.id)}
                   aria-label={`Close project ${project.displayName}`}
@@ -285,7 +308,7 @@ export function ProjectsBar({
           })}
           <button
             type="button"
-            className="project-add"
+            className="project-add hvir-button"
             aria-label="Register project"
             title="Register project"
             disabled={busy}
@@ -296,7 +319,7 @@ export function ProjectsBar({
           <WorkbenchHealthControl />
           <button
             type="button"
-            className="theme-toggle"
+            className="theme-toggle hvir-button"
             aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
             title={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
             onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -305,7 +328,7 @@ export function ProjectsBar({
           </button>
           <button
             type="button"
-            className="settings-toggle"
+            className="settings-toggle hvir-button"
             aria-label="Open settings"
             title="Settings"
             onClick={onSettings}
@@ -314,7 +337,7 @@ export function ProjectsBar({
           </button>
           <span className="projects-bar-spacer" />
         </nav>
-        {activeProject && showWorkspacesBar && !sessionsActive ? (
+        {activeProject && showWorkspacesBar && workspaceActive ? (
           <nav
             className="workspaces-bar"
             aria-label="Workspaces"
@@ -322,7 +345,7 @@ export function ProjectsBar({
           >
             {openWorkspaces.map((workspace) => (
               <div
-                className={`workspace-tab${!sessionsActive && workspace.id === state.activeWorkspaceId ? ' active' : ''}${workspace.missing ? ' missing' : ''}`}
+                className={`workspace-tab${workspaceActive && workspace.id === state.activeWorkspaceId ? ' active' : ''}${workspace.missing ? ' missing' : ''}`}
                 key={workspace.id}
                 title={workspaceStatusTitle(workspace)}
                 onMouseDown={(event) => {
@@ -342,8 +365,19 @@ export function ProjectsBar({
                   disabled={busy || workspace.missing}
                   onClick={() => onSwitch(activeProject.id, workspace.id)}
                   title={workspaceStatusTitle(workspace)}
+                  className="hvir-button"
                 >
                   <span>{workspace.name}</span>
+                  {agentReports.some(
+                    (report) => report.unread && report.workspace === workspace.id,
+                  ) ? (
+                    <small
+                      className="hvir-meta agent-report-badge"
+                      aria-label="Unread agent report"
+                    >
+                      Agent
+                    </small>
+                  ) : null}
                   {workspace.main ? <small>project root</small> : null}
                   {workspace.prunableReason ? <small>prunable</small> : null}
                   {workspaceActionableAttention(workspace.id, rollups) > 0 ? (
@@ -355,7 +389,7 @@ export function ProjectsBar({
                 {!workspace.missing ? (
                   <button
                     type="button"
-                    className="workspace-close"
+                    className="workspace-close hvir-button"
                     disabled={!canCloseWorkspace(workspace)}
                     onClick={() => requestWorkspaceClose(activeProject.id, workspace)}
                     aria-label={`Close workspace ${workspace.name}`}
@@ -370,7 +404,7 @@ export function ProjectsBar({
                 ) : !workspace.prunableReason ? (
                   <button
                     type="button"
-                    className="workspace-dismiss"
+                    className="workspace-dismiss hvir-button"
                     disabled={busy}
                     onClick={() => onDismiss(activeProject.id, workspace.id)}
                     aria-label={`Dismiss removed workspace ${workspace.name}`}
@@ -390,7 +424,7 @@ export function ProjectsBar({
               {prunable.length > 0 ? (
                 <button
                   type="button"
-                  className="workspaces-prune"
+                  className="workspaces-prune hvir-button"
                   disabled={busy || activeProject.connectionState !== 'connected'}
                   onClick={() => setPruneProjectId(activeProject.id)}
                   title="Remove Git's stale worktree administrative records"
@@ -401,7 +435,7 @@ export function ProjectsBar({
               {closedWorkspaces.length > 0 ? (
                 <button
                   type="button"
-                  className="workspaces-catalog"
+                  className="workspaces-catalog hvir-button"
                   disabled={busy}
                   onClick={() => setCatalogProjectId(activeProject.id)}
                 >
@@ -410,7 +444,7 @@ export function ProjectsBar({
               ) : null}
               <button
                 type="button"
-                className="workspaces-refresh"
+                className="workspaces-refresh hvir-button"
                 disabled={busy || activeProject.connectionState !== 'connected'}
                 onClick={() => onRefresh(activeProject.id)}
               >
@@ -450,6 +484,7 @@ export function ProjectsBar({
                   setConnectionMenu(undefined)
                   onChangeConnection()
                 }}
+                className="hvir-button"
               >
                 Change
               </button>
@@ -472,6 +507,7 @@ export function ProjectsBar({
                     onDisconnect()
                   }
                 }}
+                className="hvir-button"
               >
                 {busy
                   ? 'Working…'

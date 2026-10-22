@@ -1,3 +1,4 @@
+import { captureActivePresentationVisuals } from './presentation-visual'
 import { clipboard, type BrowserWindow } from 'electron'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 import { verifyDiffCopy } from './diff-copy'
@@ -5,12 +6,14 @@ import type { HostPath } from '../../shared'
 import type { ProjectHost } from '../project-host'
 import { SmokeCleanup } from './cleanup'
 import { createDiffReadabilityFixtures } from './diff-readability-fixture'
+import { sendRendererEvent } from '../renderer-event-delivery'
 
 /** Real production-composed Git inputs, Shiki worker, CodeMirror, selection, and paint. */
 export async function verifyDiffReadability(
   win: BrowserWindow,
   host: Pick<ProjectHost, 'exec' | 'writeFile'>,
   root: HostPath,
+  workspace: string,
   checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
 ): Promise<string> {
   const cleanup = new SmokeCleanup()
@@ -51,6 +54,14 @@ export async function verifyDiffReadability(
         })()
       `)
     })
+    // Enter the production viewer at its typed presentation input. Agent admission
+    // and new-file watch delivery have their own native coverage.
+    for (const fixture of fixtures)
+      sendRendererEvent(win.webContents, 'agent:document-opened', {
+        workspace,
+        root,
+        path: fixture.path,
+      })
     checkpoint('viewer-content-diff-presentation-awaiting')
     await win.webContents.executeJavaScript(`
       (async () => {
@@ -73,9 +84,9 @@ export async function verifyDiffReadability(
             if (document.documentElement.dataset.theme !== theme) document.querySelector('.theme-toggle')?.click();
             await waitFor(() => document.documentElement.dataset.theme === theme, 'Diff theme did not change');
             for (const fixture of fixtures) {
-              const row = await waitFor(() => [...document.querySelectorAll('.file-row')]
-                .find(node => node.getAttribute('title') === fixture.path.path), 'Diff fixture missing');
-              row.click();
+              const tab = await waitFor(() => [...document.querySelectorAll('.viewer-tab .tab-main')]
+                .find(node => node.getAttribute('title') === fixture.path.path), 'Diff fixture tab missing');
+              tab.click();
               await waitFor(() => document.querySelector('.viewer-tab.active .tab-main')?.getAttribute('title') === fixture.path.path, 'Diff fixture did not activate');
               modeButton('diff')?.click();
               const select = await waitFor(() => document.querySelector('.diff-base-select'), 'Diff base control missing');
@@ -129,6 +140,26 @@ export async function verifyDiffReadability(
         }
       })()
     `)
+    if (process.env['HVIR_PRESENTATION_CAPTURE_DIRECTORY']) {
+      await win.webContents.executeJavaScript(`(async () => {
+        const path = ${JSON.stringify(fixtures[0]!.path.path)};
+        const deadline = Date.now() + 10000;
+        [...document.querySelectorAll('.viewer-tab .tab-main')].find(tab => tab.getAttribute('title') === path).click();
+        while (document.querySelector('.viewer-tab.active .tab-main')?.getAttribute('title') !== path) {
+          if (Date.now() > deadline) throw new Error('Diff capture tab did not activate');
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        [...document.querySelectorAll('.mode-control button')].find(button => button.textContent?.trim() === 'diff').click();
+        while (!document.querySelector('.diff-shell .cm-changedText')) {
+          if (Date.now() > deadline) throw new Error('Diff capture did not become ready');
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+      })()`)
+      await captureActivePresentationVisuals(win, host, 'diff')
+      await win.webContents.executeJavaScript(
+        `[...document.querySelectorAll('.mode-control button')].find(button => button.textContent?.trim() === 'source').click()`,
+      )
+    }
     checkpoint('viewer-content-diff-presentation-ready')
     await verifyDiffCopy(win, fixtures[0]!, checkpoint)
   } catch (error) {

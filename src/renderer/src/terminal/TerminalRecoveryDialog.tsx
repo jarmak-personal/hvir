@@ -156,6 +156,7 @@ export function TerminalRecoveryDialog({
                       return next
                     })
                   }}
+                  className="hvir-input hvir-control"
                 />
                 <span>
                   <strong>{session.title}</strong>
@@ -193,6 +194,7 @@ export function TerminalRecoveryDialog({
                             [session.id]: profileId,
                           }))
                         }}
+                        className="hvir-input hvir-control"
                       >
                         {defaultRebindProfile ? null : (
                           <option value="" disabled>
@@ -215,6 +217,7 @@ export function TerminalRecoveryDialog({
                             setSelected((current) => new Set(current).add(session.id))
                           })
                         }}
+                        className="hvir-button hvir-control"
                       >
                         Review and rebind
                       </button>
@@ -227,13 +230,19 @@ export function TerminalRecoveryDialog({
         </div>
         {error ? <p className="dialog-error">{error}</p> : null}
         <div className="dialog-actions">
-          <button type="button" disabled={submitting} onClick={() => void submit(onSkip)}>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => void submit(onSkip)}
+            className="hvir-button hvir-control"
+          >
             Not now
           </button>
           <button
             type="button"
             disabled={submitting || selected.size === 0}
             onClick={() => void submit(() => onResume(selected))}
+            className="hvir-button hvir-control"
           >
             Restore selected
           </button>

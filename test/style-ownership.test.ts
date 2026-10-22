@@ -22,7 +22,7 @@ const expectedOrder = [
   'harness-settings.css',
   'composer-submit.css',
   'terminal-list.css',
-  'primitives.css',
+  '../../shared/presentation/presentation.css',
   'workspace-state.css',
   'git-controls.css',
   'git-history.css',
@@ -41,6 +41,7 @@ const expectedOrder = [
   'terminal-pane.css',
   'terminal-search.css',
   'web-pane.css',
+  'extension-views.css',
   'scrollbars.css',
 ] as const
 
@@ -48,16 +49,24 @@ describe('renderer style ownership', () => {
   it('declares one complete root-owned cascade order', () => {
     const root = process.cwd()
     const manifest = readFileSync(join(root, 'src/renderer/src/styles.css'), 'utf8')
-    const imports = [...manifest.matchAll(/@import '\.\/styles\/([^']+)'/g)].map(
-      (match) => match[1],
+    const imports = [...manifest.matchAll(/@import '([^']+)'/g)].map((match) =>
+      match[1]!.replace('./styles/', ''),
     )
     const files = readdirSync(join(root, 'src/renderer/src/styles'))
       .filter((file) => file.endsWith('.css'))
       .sort()
 
     expect(imports).toEqual(expectedOrder)
-    expect([...imports].sort()).toEqual(files)
-    expect(manifest).toContain('primitives.css is limited to pane resizers')
+    expect(imports.filter((file) => !file.startsWith('../')).sort()).toEqual(files)
+    expect(manifest).toContain(
+      'shared presentation contains only public tokens and primitives',
+    )
+    expect(
+      readFileSync(
+        join(root, 'src/shared/presentation/presentation.css'),
+        'utf8',
+      ).replace(/\/\*[\s\S]*?\*\/\n/g, ''),
+    ).toBe("@import './tokens.css';\n@import './primitives.css';\n")
     expect(
       manifest
         .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -141,8 +150,10 @@ describe('renderer style ownership', () => {
     )
 
     expect(base).toContain('font-family: var(--hvir-interface-font)')
-    expect(base).toContain('ui-sans-serif, system-ui')
-    expect(base).toContain('ui-monospace')
+    const shared = readFileSync(join(root, 'src/shared/presentation/tokens.css'), 'utf8')
+    expect(shared).toContain('ui-sans-serif, system-ui')
+    expect(shared).toContain('ui-monospace')
+    expect(base).not.toMatch(/--hvir-(?:interface-font|monospace-font|interface-scale):/)
     expect(styles).not.toMatch(/font-size:\s*[\d.]+px/u)
     expect(styles).not.toContain('JetBrains Mono')
     expect(styles).not.toContain('Inter,')

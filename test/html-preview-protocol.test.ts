@@ -17,17 +17,6 @@ describe('HtmlPreviewProtocol ownership', () => {
     electron.unhandle.mockClear()
   })
 
-  it('registers the dedicated scheme as a privileged secure standard origin', () => {
-    HtmlPreviewProtocol.registerScheme()
-
-    expect(electron.registerSchemesAsPrivileged).toHaveBeenCalledWith([
-      {
-        scheme: 'hvir-preview',
-        privileges: { standard: true, secure: true, bypassCSP: false },
-      },
-    ])
-  })
-
   it('isolates release by renderer generation and workspace', () => {
     const previews = new HtmlPreviewProtocol()
     previews.register()

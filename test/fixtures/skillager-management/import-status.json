@@ -1,0 +1,80 @@
+{
+  "advisories": [
+    "library history is disabled (--no-git); ordinary ownership remains available"
+  ],
+  "counts": {
+    "skills": 1
+  },
+  "git": {
+    "available": true,
+    "branch": null,
+    "clean": null,
+    "commit_identity": null,
+    "conflicts": [],
+    "head": null,
+    "mode": "disabled",
+    "operation": null,
+    "remote": null,
+    "repository": false,
+    "staged": [],
+    "unstaged": [],
+    "untracked": []
+  },
+  "history": {
+    "available": false,
+    "reason": "no-git"
+  },
+  "initialized": true,
+  "library": {
+    "created_at": "2026-10-19T13:13:30.835931+00:00",
+    "library_id": "1d139f0e-e8c1-41e5-acf2-9e88b7fb6b83",
+    "namespace": "lib",
+    "registration": "valid",
+    "root": "/owned-import-fixture/library",
+    "schema": "skillager.library.v1",
+    "skills_path": "/owned-import-fixture/library/skills"
+  },
+  "schema": "skillager.library-status.v1",
+  "skill": {
+    "acceptance": "accepted",
+    "accepted_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61",
+    "entrypoint": "/owned-import-fixture/library/skills/owned-original/SKILL.md",
+    "exposures": [],
+    "git": {
+      "conflicts": [],
+      "staged": [],
+      "unstaged": [],
+      "untracked": []
+    },
+    "head_hash": null,
+    "history": {
+      "available": false,
+      "reason": "no-git"
+    },
+    "id": "lib/owned-original",
+    "imported_from": {
+      "content_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61",
+      "skill_id": "project/owned-original",
+      "source_type": "project"
+    },
+    "lint": {
+      "blocking_count": 0,
+      "findings": [],
+      "status": "ok"
+    },
+    "name": "owned-original",
+    "path": "/owned-import-fixture/library/skills/owned-original",
+    "scan": {
+      "finding_count": 0,
+      "findings": [],
+      "risk": "low",
+      "scanned_files": 2,
+      "skipped_files": 0
+    },
+    "status": "no_git",
+    "summary": "Use only for owned import validation.",
+    "working_hash": "45d5ec8e375567b5b9f4af244863376fe44e72ed23eccd6fe7e0f44b52a92e61"
+  },
+  "status": "ready",
+  "warnings": []
+}

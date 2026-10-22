@@ -136,3 +136,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Bundled native hvir-agent clients
+
+The four native clients include their redistribution notices under
+`agent-clients/<target>/notices` in the installed application resources. Those directories
+retain the project license, resolved Cargo dependency license/copyright files, the pinned
+Rust 1.99.0 standard-library copyright document, and musl 1.2.5's upstream COPYRIGHT.

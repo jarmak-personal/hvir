@@ -20,6 +20,33 @@ export interface DocumentReadAuthority {
   ): Promise<HostPath>
 }
 
+/** Agent presentation has explicit pinned registered-root authority, never human-click exceptions. */
+export async function authorizeAgentDocument(
+  host: Pick<ProjectHost, 'realpath' | 'stat'>,
+  root: HostPath,
+  candidate: HostPath,
+  current: () => void,
+): Promise<HostPath> {
+  current()
+  if (
+    !candidate.path.startsWith('/') ||
+    candidate.path.includes('\0') ||
+    !containsHostPath(root, candidate)
+  )
+    throw new Error('Document escapes its registered workspace')
+  const canonicalRoot = await host.realpath(root)
+  current()
+  const canonical = await host.realpath(candidate)
+  current()
+  if (!containsHostPath(canonicalRoot, canonical))
+    throw new Error('Document escapes its registered workspace through a symlink')
+  const stat = await host.stat(canonical)
+  current()
+  if (stat.type !== 'file' || stat.size > 64 * 1024 * 1024)
+    throw new Error('Document is not an admitted regular file')
+  return canonical
+}
+
 /** Explicit viewing authority; project mutations never call this owner. */
 export async function authorizeDocumentRead(
   authority: DocumentReadAuthority,

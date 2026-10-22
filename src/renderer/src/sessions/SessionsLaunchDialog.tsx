@@ -66,6 +66,7 @@ export function SessionsLaunchDialog({
                 type="button"
                 disabled={busy || !provider}
                 onClick={() => onStart(profile)}
+                className="hvir-button"
               >
                 <strong>{profile.displayName}</strong>
                 <small>
@@ -81,10 +82,15 @@ export function SessionsLaunchDialog({
           })}
         </div>
         <footer>
-          <button type="button" disabled={busy || !choices} onClick={onRefresh}>
+          <button
+            type="button"
+            disabled={busy || !choices}
+            onClick={onRefresh}
+            className="hvir-button"
+          >
             Refresh availability
           </button>
-          <button type="button" onClick={onCancel}>
+          <button type="button" onClick={onCancel} className="hvir-button">
             Cancel
           </button>
         </footer>

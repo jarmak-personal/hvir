@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+# hvir-native-agent-command-v1
+case "$(/usr/bin/uname -s)" in
+Linux) application='/opt/hvir/hvir'; entry='/opt/hvir/resources/app.asar/out/main/agent-cli.js' ;;
+Darwin) application='/Applications/hvir.app/Contents/MacOS/hvir'; entry='/Applications/hvir.app/Contents/Resources/app.asar/out/main/agent-cli.js' ;;
+*) echo 'hvir-agent: available only on Linux and macOS' >&2; exit 69 ;;
+esac
+ELECTRON_RUN_AS_NODE=1 exec "$application" "$entry" "$@"

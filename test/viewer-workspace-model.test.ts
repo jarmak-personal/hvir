@@ -16,6 +16,36 @@ import {
 import { asHostId, hostPath, localPath, type ReadFileResponse } from '../src/shared'
 
 describe('viewer workspace model', () => {
+  it('retires report selection on real file activation while retaining background file updates', () => {
+    const path = localPath('/repo/a.ts'),
+      id = viewerTabId(path)
+    const opened = reduce(activate('/repo', 1), open(path.path, true))
+    const selected = { ...opened, activeReportId: 'retained-report' }
+    const reading = reduce(selected, readStarted(id, 1, 1))
+    const updated = reduce(reading, readSucceeded(id, 1, 1, 'updated underneath'))
+    expect(updated.activeReportId).toBe('retained-report')
+    expect(updated.tabs[0]?.file?.content).toBe('updated underneath')
+    for (const action of [
+      open(path.path, true),
+      { type: 'activate', id },
+      { type: 'move', id, pane: 'secondary' },
+    ] satisfies ViewerWorkspaceAction[]) {
+      const activated = reduce(updated, action)
+      expect(activated.activeReportId).toBeUndefined()
+      expect(activated.activeId).toBe(id)
+    }
+    expect(reduce(updated, { type: 'activate', id: 'stale-file' })).toBe(updated)
+    expect(
+      reduce(updated, {
+        type: 'workspace-activated',
+        root: hostPath(asHostId('ssh'), '/repo'),
+        generation: 2,
+        tabs: [],
+        split: false,
+      }).activeReportId,
+    ).toBeUndefined()
+  })
+
   it('applies preview, pin, split, move, and close policy without UI mounts', () => {
     let model = activate('/repo', 1)
     model = reduce(model, open('/repo/a.ts', false))

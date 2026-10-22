@@ -49,6 +49,7 @@ export function SshPromptDialog({
                   type="checkbox"
                   checked={verifiedChangedKey}
                   onChange={(event) => setVerifiedChangedKey(event.target.checked)}
+                  className="hvir-input hvir-control"
                 />
                 I verified this host key through a trusted channel.
               </label>
@@ -69,18 +70,24 @@ export function SshPromptDialog({
                     ),
                   )
                 }
+                className="hvir-input hvir-control"
               />
             </label>
           ))
         )}
         <div className="dialog-actions">
-          <button type="button" onClick={() => onAnswer(undefined)}>
+          <button
+            type="button"
+            onClick={() => onAnswer(undefined)}
+            className="hvir-button hvir-control"
+          >
             Cancel
           </button>
           <button
             type="submit"
             autoFocus={prompt.kind === 'host-key'}
             disabled={changedKey && !verifiedChangedKey}
+            className="hvir-button hvir-control"
           >
             {changedKey
               ? 'Replace Saved Key'

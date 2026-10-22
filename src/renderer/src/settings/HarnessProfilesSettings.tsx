@@ -1,6 +1,7 @@
 import { forwardRef, useImperativeHandle, type ReactElement } from 'react'
 
 import type { HostPath } from '../../../shared'
+import { HarnessProfileToolbar } from './HarnessProfileToolbar'
 import { HarnessProfileEditor } from './HarnessProfileEditor'
 import { HarnessProfileOverlays } from './HarnessProfileOverlays'
 import { findProfileProbe, harnessProbeLabel } from './harness-profile-editor-policy'
@@ -35,31 +36,15 @@ export const HarnessProfilesSettings = forwardRef<
   ])
   const actions =
     workspaceRoot && projectRoot ? (
-      <div className="settings-harness-actions">
-        <button
-          type="button"
-          disabled={editor.busy || editor.loadState !== 'ready'}
-          onClick={() => editor.probeAvailability(editor.profiles, true)}
-        >
-          Refresh availability
-        </button>
-        <button
-          type="button"
-          disabled={editor.busy || editor.loadState !== 'ready' || !editor.shellProvider}
-          onClick={() => editor.runAfterDraftGuard(editor.startShellProfile)}
-        >
-          Add a shell
-        </button>
-        <button
-          type="button"
-          disabled={
-            editor.busy || editor.loadState !== 'ready' || editor.providers.length === 0
-          }
-          onClick={() => editor.runAfterDraftGuard(() => editor.setAddOpen(true))}
-        >
-          Add a harness…
-        </button>
-      </div>
+      <HarnessProfileToolbar
+        busy={editor.busy}
+        ready={editor.loadState === 'ready'}
+        shellAvailable={Boolean(editor.shellProvider)}
+        harnessAvailable={editor.providers.length > 0}
+        onRefresh={() => editor.probeAvailability(editor.profiles, true)}
+        onAddShell={() => editor.runAfterDraftGuard(editor.startShellProfile)}
+        onAddHarness={() => editor.runAfterDraftGuard(() => editor.setAddOpen(true))}
+      />
     ) : null
 
   return (
@@ -85,7 +70,7 @@ export const HarnessProfilesSettings = forwardRef<
         <div className="settings-section-scroll settings-harness-state" role="alert">
           <p>Harness profiles could not be loaded.</p>
           {editor.error ? <p className="dialog-error">{editor.error}</p> : null}
-          <button type="button" onClick={editor.reload}>
+          <button type="button" onClick={editor.reload} className="hvir-button">
             Try again
           </button>
         </div>
@@ -97,7 +82,9 @@ export const HarnessProfilesSettings = forwardRef<
                 <button
                   key={profile.id}
                   type="button"
-                  className={editor.draft?.id === profile.id ? 'active' : undefined}
+                  className={
+                    editor.draft?.id === profile.id ? 'active hvir-button' : 'hvir-button'
+                  }
                   aria-current={editor.draft?.id === profile.id ? 'true' : undefined}
                   onClick={() => editor.selectProfile(profile)}
                 >
@@ -122,7 +109,7 @@ export const HarnessProfilesSettings = forwardRef<
                 </button>
               ))}
               {editor.draft && !editor.draft.id ? (
-                <button type="button" className="active" aria-current="true">
+                <button type="button" className="active hvir-button" aria-current="true">
                   <strong>{editor.draft.input.displayName || 'Untitled profile'}</strong>
                   <small>
                     {editor.provider?.displayName ?? editor.draft.input.providerId}
@@ -178,10 +165,15 @@ export const HarnessProfilesSettings = forwardRef<
                     type="button"
                     disabled={!editor.shellProvider}
                     onClick={editor.startShellProfile}
+                    className="hvir-button"
                   >
                     Add a shell
                   </button>
-                  <button type="button" onClick={() => editor.setAddOpen(true)}>
+                  <button
+                    type="button"
+                    onClick={() => editor.setAddOpen(true)}
+                    className="hvir-button"
+                  >
                     Add a harness…
                   </button>
                 </div>

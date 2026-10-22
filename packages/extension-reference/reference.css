@@ -1,0 +1,14 @@
+/* Reference-specific content extent; controls and presentation come from the shared kit. */
+main {
+  max-width: 48rem;
+  margin: 0 auto;
+}
+h1 {
+  font-size: 2em;
+  line-height: 1.2;
+}
+#native-output {
+  font-family: var(--hvir-monospace-font);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

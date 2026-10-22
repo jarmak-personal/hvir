@@ -16,7 +16,7 @@ export function SettingsSectionNavigation({
           <button
             key={section.id}
             type="button"
-            className={activeSection === section.id ? 'active' : undefined}
+            className={(activeSection === section.id ? 'active' : '') + ' hvir-button'}
             aria-current={activeSection === section.id ? 'page' : undefined}
             aria-controls={`settings-${section.id}-title`}
             onClick={() => onSelect(section.id)}
@@ -30,6 +30,7 @@ export function SettingsSectionNavigation({
         <select
           value={activeSection}
           onChange={(event) => onSelect(event.currentTarget.value as SettingsSection)}
+          className="hvir-input"
         >
           {SETTINGS_SECTIONS.map((section) => (
             <option key={section.id} value={section.id}>

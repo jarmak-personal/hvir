@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Skills in this project</title>
+    <link rel="stylesheet" href="presentation.css" />
+    <link rel="stylesheet" href="skillager.css" />
+    <link rel="stylesheet" href="library-source.css" />
+  </head>
+  <body class="hvir-guest" data-view="project">
+    <main>
+      <header class="library-heading">
+        <div class="browser-scopes" aria-label="Skill scope">
+          <button id="scope-project" class="hvir-button" aria-pressed="true">
+            Project
+          </button>
+          <button id="scope-library" class="hvir-button" aria-pressed="false">
+            Library
+          </button>
+        </div>
+        <details class="skill-more library-options">
+          <summary
+            class="hvir-focus"
+            aria-label="Browser options"
+            title="Browser options"
+          >
+            …
+          </summary>
+          <div class="skill-menu">
+            <details id="program-setup" hidden>
+              <summary>Set up with your agent</summary>
+              <p>Copy this request into your preferred agent.</p>
+              <textarea
+                id="setup-request"
+                class="hvir-input"
+                rows="7"
+                readonly
+                aria-label="Copyable Skillager setup request"
+              ></textarea>
+            </details>
+            <button id="browse" class="hvir-button">Browse all skills</button>
+            <button id="refresh" class="hvir-button">Refresh skills</button>
+            <button id="manage" class="hvir-button" disabled>Advanced management</button>
+          </div>
+        </details>
+      </header>
+      <div id="connection-controls" class="toolbar">
+        <button
+          id="connect-program"
+          class="hvir-button"
+          aria-describedby="connection-status"
+          hidden
+        >
+          Connect Skillager
+        </button>
+        <span id="connection-status" class="hvir-meta" role="status" hidden></span>
+      </div>
+      <form id="search-form">
+        <input
+          id="query"
+          class="hvir-input"
+          type="search"
+          aria-label="Search project skills"
+          placeholder="Filter project skills"
+        /><button class="hvir-button" type="submit">Search</button>
+      </form>
+      <section id="library-setup" hidden>
+        <button id="create-library" class="hvir-button">Create personal library</button>
+      </section>
+
+      <p id="state" class="hvir-state" aria-live="polite">Connecting…</p>
+      <div id="project-save-entry" class="hvir-meta" hidden>
+        <span id="project-save-count"></span>
+        <button id="project-save-open" class="hvir-button">Save all…</button>
+      </div>
+      <div id="skills" class="hvir-list" role="list" aria-label="Skills"></div>
+      <section id="skill-task-sheet" hidden aria-label="Selected skill action">
+        <header>
+          <strong id="skill-task-title"></strong
+          ><button
+            id="skill-task-close"
+            class="hvir-button"
+            aria-label="Close skill action"
+          >
+            ×
+          </button>
+        </header>
+        <p id="skill-task-message" class="hvir-state" role="status"></p>
+        <button id="skill-task-retry" class="hvir-button" hidden>Review again</button>
+        <div data-skill-tasks></div>
+      </section>
+      <nav id="skill-pages" class="toolbar" aria-label="Skill pages" hidden>
+        <button id="previous" class="hvir-button" disabled>Previous</button
+        ><button id="next" class="hvir-button" disabled>Next</button>
+      </nav>
+      <p id="observation-details" class="hvir-meta observation-details"></p>
+    </main>
+    <script src="guest-ui.js"></script>
+    <script src="skillager.js"></script>
+  </body>
+</html>

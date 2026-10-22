@@ -11,7 +11,8 @@ import type { ProjectHost } from '../project-host'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import { projectFilePathKey } from './project-file-confinement'
 
-export const PROJECT_FILE_OPERATION_DEADLINE_MS = 10 * 60 * 1_000
+import { PROJECT_FILE_OPERATION_DEADLINE_MS } from '../../shared/project-file-operations'
+export { PROJECT_FILE_OPERATION_DEADLINE_MS } from '../../shared/project-file-operations'
 
 export interface ProjectFileWorkspaceAuthority {
   readonly projectId: string
