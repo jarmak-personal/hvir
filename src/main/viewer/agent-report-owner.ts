@@ -33,7 +33,11 @@ export class AgentReportOwner {
     content: string,
     handle?: string,
   ): { readonly id: string; readonly handle: string; readonly workspace: string } {
-    if (!title || title.length > 80 || !['text', 'markdown'].includes(format))
+    if (
+      !title ||
+      title.length > AGENT_LIMITS.reportTitleChars ||
+      !['text', 'markdown'].includes(format)
+    )
       throw new Error('Invalid report presentation')
     const bytes = Buffer.byteLength(content)
     if (bytes > AGENT_LIMITS.reportBytes) throw new Error('Report exceeds its byte limit')

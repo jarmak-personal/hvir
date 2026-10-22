@@ -28,19 +28,30 @@ async function invoke(endpoint: string, request: AgentRequest): Promise<AgentRes
     throw new Error('Command frame exceeds its bound')
   return new Promise((resolve, reject) => {
     const socket = createConnection(endpoint)
-    let data = Buffer.alloc(0),
+    let submitted = false,
+      data = Buffer.alloc(0),
       settled = false
     const finish = (reason?: Error, response?: AgentResponse): void => {
       if (settled) return
       settled = true
       socket.destroy()
-      if (reason) reject(reason)
+      if (reason)
+        reject(
+          submitted
+            ? new Error(
+                `${reason.message}; execution may be uncertain; request was not replayed`,
+              )
+            : reason,
+        )
       else resolve(response!)
     }
     socket.setTimeout(AGENT_LIMITS.deadlineMs + 1000, () =>
       finish(new Error('Agent request timed out')),
     )
-    socket.once('connect', () => socket.write(frame))
+    socket.once('connect', () => {
+      submitted = true
+      socket.write(frame)
+    })
     socket.once('error', () =>
       finish(
         new Error(

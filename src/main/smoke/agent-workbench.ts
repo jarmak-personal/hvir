@@ -11,6 +11,7 @@ import type { ElectronSmokeDependencies } from './bootstrap-contract'
 import { focusSmokeWindow } from './window-focus'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 import { verifyAuthoringActionExamples } from './extension-authoring-actions'
+import { verifyAgentReportNavigation } from './agent-report-navigation'
 import { AGENT_LIMITS } from '../../shared/agent/contract'
 import {
   verifyExtensionTerminalHandoff,
@@ -485,6 +486,13 @@ export async function verifyAgentWorkbench(
     () => !agents.reports.read(published.report!.id).unread,
     'view clears only report attention',
   )
+  await verifyAgentReportNavigation(win, supervisor, {
+    openFile: () => command(['open', ...target, '--path', 'README.md']),
+    openExtension: () =>
+      command(['view', ...target, '--extension', installation, '--view', 'detail']),
+    click: (name) => click(win, name),
+    wait,
+  })
   await command(
     [
       'report',

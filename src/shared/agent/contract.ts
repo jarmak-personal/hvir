@@ -12,6 +12,7 @@ export const AGENT_LIMITS = {
   confirmationMs: 30_000,
   confirmations: 16,
   reports: 64,
+  reportTitleChars: 80,
   reportBytes: 128 * 1024,
   reportTotalBytes: 4 * 1024 * 1024,
   pageSize: 32,

@@ -7,6 +7,7 @@ export interface ViewerWorkspaceModel {
   readonly generation: number
   readonly tabs: readonly ViewerTab[]
   readonly activeId?: string
+  readonly activeReportId?: string
   readonly activePane: ViewerPaneId
   readonly activeByPane: Readonly<Record<ViewerPaneId, string | undefined>>
   readonly split: boolean

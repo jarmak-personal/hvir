@@ -2,7 +2,8 @@
 
 `printf '# Result\n' | hvir-agent report --title Result --format markdown --stdin`
 publishes into the calling terminal's workspace without taking focus. Outside hvir supply
-`--instance ENDPOINT --workspace ID`. Text and Markdown are accepted up to 128 KiB. Reports
+`--instance ENDPOINT --workspace ID`. Titles have at most 80 characters; an overlong title
+returns invalid-command/64 without publishing. Text and Markdown are accepted up to 128 KiB. Reports
 remain closable for the application session; restart persistence is not promised.
 
 The result includes an opaque ID and publisher handle. Only `--handle HANDLE` can replace

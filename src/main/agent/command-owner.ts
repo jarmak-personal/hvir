@@ -467,12 +467,26 @@ export class AgentWorkbenchCommandOwner {
       )
         throw new Error('Discovery cursor is stale or invalid')
     }
-    return {
-      items: filtered.slice(offset, offset + limit),
-      ...(offset + limit < filtered.length
-        ? { nextCursor: `${identity}:${offset + limit}` }
+    const items: unknown[] = []
+    const page = () => ({
+      items,
+      ...(offset + items.length < filtered.length
+        ? { nextCursor: `${identity}:${offset + items.length}` }
         : {}),
+    })
+    for (const item of filtered.slice(offset, offset + limit)) {
+      items.push(item)
+      if (
+        Buffer.byteLength(`${JSON.stringify(agentOutput(page()))}\n`) >
+        AGENT_LIMITS.frameBytes
+      ) {
+        items.pop()
+        if (!items.length)
+          throw new Error('Discovery item exceeds the agent response bound')
+        break
+      }
     }
+    return page()
   }
 }
 function message(reason: unknown): string {
