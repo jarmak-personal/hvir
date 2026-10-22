@@ -306,6 +306,8 @@ export function fixture(external?: ImportPreview, composed = false) {
     vi.waitFor(() => expect(button('task-primary').disabled).toBe(false))
   return {
     view,
+    client,
+    context: () => context,
     dispose,
     changed,
     selection,
@@ -405,8 +407,9 @@ export function fixture(external?: ImportPreview, composed = false) {
       holdAction = true
     },
     releaseAction: () => releaseAction?.(),
-    target: (id: string | undefined) => {
+    target: (id: string | undefined, beforeContextChanged?: () => void) => {
       context = { ...context, workspace: id ? { ...workspace, id } : undefined }
+      beforeContextChanged?.()
       view.contextChanged()
     },
     result: (value: Value) => {

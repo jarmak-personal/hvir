@@ -68,7 +68,7 @@ function fixture(support = 'owned support\n') {
     outputs = new Map<string, unknown>()
   let serial = 0,
     visible = true,
-    hold: (() => void) | undefined,
+    hold: ((error?: Error) => void) | undefined,
     holding = false
   const calls: string[] = [],
     actions: Array<{ id: string; input: unknown }> = [],
@@ -121,8 +121,12 @@ function fixture(support = 'owned support\n') {
         data = { data: texts.get(file.path), nextOffset: null }
       if (holding) {
         holding = false
-        return new Promise((resolve) => {
-          hold = () => resolve(data)
+        return new Promise((resolve, reject) => {
+          hold = (error) => {
+            hold = undefined
+            if (error) reject(error)
+            else resolve(data)
+          }
         })
       }
       return Promise.resolve(data)
@@ -192,7 +196,8 @@ function fixture(support = 'owned support\n') {
     hold: () => {
       holding = true
     },
-    release: () => hold?.(),
+    held: () => !!hold,
+    release: (error?: Error) => hold?.(error),
     hidden: () => {
       visible = false
       for (const listener of listeners)
@@ -259,6 +264,58 @@ it('supports complete optional file pages without changing the acceptance decisi
   )
   expect(f.button('accept-version').disabled).toBe(false)
 })
+it('keeps prior file pages unavailable while the next selected file is loading', async () => {
+  const f = fixture('previous file\n'.repeat(4000))
+  await completeReview(f)
+  await f.read('support.sh')
+  f.hold()
+  ;(document.querySelector('[data-review-path="SKILL.md"]') as HTMLButtonElement).click()
+  await vi.waitFor(() => expect(f.held()).toBe(true))
+  expect(document.getElementById('review-file-label')?.textContent).toMatch(/^SKILL.md/)
+  for (const id of ['review-next', 'review-previous'])
+    f.button(id).dispatchEvent(new Event('click'))
+  expect(document.getElementById('review-file-body')?.textContent?.length).toBe(0)
+  expect(document.getElementById('review-page-label')?.textContent).toBe('')
+  expect(f.button('review-next').disabled).toBe(true)
+  expect(f.button('review-previous').disabled).toBe(true)
+  expect(f.button('accept-version').disabled).toBe(false)
+
+  f.release()
+  await f.read('SKILL.md')
+  expect(document.getElementById('review-page-label')?.textContent).toBe('')
+  await f.read('support.sh')
+  f.button('review-next').click()
+  expect(document.getElementById('review-file-body')?.textContent).toBe(
+    'previous file\n'.repeat(4000).slice(32768),
+  )
+})
+it('does not restore former file pages after a failed read and allows inspection to recover', async () => {
+  const f = fixture('previous file\n'.repeat(4000))
+  await completeReview(f)
+  await f.read('support.sh')
+  f.hold()
+  ;(document.querySelector('[data-review-path="SKILL.md"]') as HTMLButtonElement).click()
+  await vi.waitFor(() => expect(f.held()).toBe(true))
+  f.release(new Error('Selected file read failed'))
+  await f.ready(/Skillager determines acceptance eligibility/)
+  for (const id of ['review-next', 'review-previous'])
+    f.button(id).dispatchEvent(new Event('click'))
+  expect(
+    document
+      .getElementById('review-file-body')
+      ?.textContent?.startsWith('Preview unavailable.'),
+  ).toBe(true)
+  expect(document.getElementById('review-file-body')?.textContent).toContain(
+    'Selected file read failed',
+  )
+  expect(document.getElementById('review-file-label')?.textContent).toMatch(/^SKILL.md/)
+  expect(document.getElementById('review-page-label')?.textContent).toBe('')
+  expect(f.button('review-next').disabled).toBe(true)
+  expect(f.button('review-previous').disabled).toBe(true)
+  expect(f.button('accept-version').disabled).toBe(false)
+  await f.read('SKILL.md')
+  expect(document.getElementById('review-page-label')?.textContent).toBe('')
+})
 it('refuses executable drift in the complete manifest at the one acceptance decision', async () => {
   const f = fixture()
   await completeReview(f)
@@ -281,18 +338,37 @@ it('labels unsupported previews without inventing a second acceptance policy', a
   expect(document.querySelectorAll('[data-review-path]')).toHaveLength(2)
   expect(f.button('accept-version').disabled).toBe(false)
 })
-it('retires optional reads and the version decision when hidden', async () => {
-  const f = fixture()
-  await completeReview(f)
-  f.hold()
-  ;(document.querySelector('[data-review-path="SKILL.md"]') as HTMLButtonElement).click()
-  await vi.waitFor(() => expect(f.calls).toContain('source.read'))
-  f.hidden()
-  f.release()
-  await vi.waitFor(() => expect(f.button('accept-version').disabled).toBe(true))
-  expect(document.getElementById('review-file-body')?.textContent).toBe('')
-  expect(f.actions).toEqual([])
-})
+it.each(['hidden', 'cancelled'])(
+  'retires optional file pages and late reads when the review is %s',
+  async (retirement) => {
+    const f = fixture('previous file\n'.repeat(4000))
+    await completeReview(f)
+    await f.read('support.sh')
+    f.hold()
+    ;(
+      document.querySelector('[data-review-path="SKILL.md"]') as HTMLButtonElement
+    ).click()
+    await vi.waitFor(() => expect(f.held()).toBe(true))
+    if (retirement === 'hidden') f.hidden()
+    else f.button('cancel-review').click()
+    const reads = f.calls.filter((call) => call === 'source.read').length
+    f.release()
+    await vi.waitFor(() =>
+      expect(f.calls.filter((call) => call === 'source.read').length).toBeGreaterThan(
+        reads,
+      ),
+    )
+    for (const id of ['review-next', 'review-previous'])
+      f.button(id).dispatchEvent(new Event('click'))
+    expect(document.getElementById('review-file-body')?.textContent?.length).toBe(0)
+    expect(document.getElementById('review-file-label')?.textContent).toBe('')
+    expect(document.getElementById('review-page-label')?.textContent).toBe('')
+    expect(f.button('review-next').disabled).toBe(true)
+    expect(f.button('review-previous').disabled).toBe(true)
+    expect(f.button('accept-version').disabled).toBe(true)
+    expect(f.actions).toEqual([])
+  },
+)
 
 it('retains a ranked occurrence review by canonical identity and rejects a foreign same-name library', async () => {
   const f = fixture()
