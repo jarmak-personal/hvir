@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { ExtensionWorkspaceContext } from '../../../../shared/extensions/contract'
 import { localPath } from '../../../../shared/host-path'
 import type { ExtensionInstallation } from '../../../../shared/extensions/workbench'
@@ -22,7 +22,7 @@ export function SourceSettings({
   const optional = sources.filter((entry) => !reading.includes(entry))
   const setup = (source: ExtensionSourceDeclaration): ReactElement => (
     <SourceSetup
-      key={source.id}
+      key={JSON.stringify([installation.installationId, source])}
       installation={installation.installationId!}
       source={source}
     />
@@ -64,22 +64,51 @@ function SourceSetup({
   }>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
-  const refresh = async (): Promise<void> => {
+  const preparation = useRef<{
+    active: boolean
+    owner: number
+    generation: number
+    token?: string
+  }>({ active: false, owner: 0, generation: 0 })
+  const abandonDecision = useCallback((): Promise<void> => {
+    const lifetime = preparation.current
+    lifetime.generation++
+    const token = lifetime.token
+    delete lifetime.token
+    setDecision(undefined)
+    return token ? cancelPrepared(token) : Promise.resolve()
+  }, [])
+  useEffect(() => {
+    const lifetime = preparation.current
+    lifetime.active = true
+    lifetime.owner++
+    return () => {
+      lifetime.active = false
+      void abandonDecision()
+    }
+  }, [abandonDecision])
+  const isCurrent = (owner: number): boolean =>
+    preparation.current.active && preparation.current.owner === owner
+  const refresh = async (owner: number): Promise<void> => {
+    if (!isCurrent(owner)) return
     const statuses = await window.hvir.invoke('extensions:source-settings', {
       installationId: installation,
     })
+    if (!isCurrent(owner)) return
     setStatuses(statuses.sources.filter((entry) => entry.source === source.id))
     setWorkspaces(statuses.workspaces)
   }
-  const run = async (operation: () => Promise<void>): Promise<void> => {
+  const run = async (operation: (owner: number) => Promise<void>): Promise<void> => {
+    const owner = preparation.current.owner
     setBusy(true)
     setError(undefined)
     try {
-      await operation()
+      await operation(owner)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Source setup failed')
+      if (isCurrent(owner))
+        setError(reason instanceof Error ? reason.message : 'Source setup failed')
     } finally {
-      setBusy(false)
+      if (isCurrent(owner)) setBusy(false)
     }
   }
   useEffect(() => {
@@ -100,7 +129,7 @@ function SourceSetup({
     return () => {
       current = false
     }
-  }, [installation, source])
+  }, [installation, source.id])
   return (
     <fieldset disabled={busy}>
       <legend>
@@ -126,7 +155,9 @@ function SourceSetup({
               className="hvir-button"
               type="button"
               onClick={() =>
-                void run(async () => {
+                void run(async (owner) => {
+                  await abandonDecision()
+                  if (!isCurrent(owner)) return
                   await window.hvir.invoke('extensions:source-revoke', {
                     installationId: installation,
                     source: source.id,
@@ -136,8 +167,7 @@ function SourceSetup({
                         }
                       : {}),
                   })
-                  setDecision(undefined)
-                  await refresh()
+                  await refresh(owner)
                 })
               }
             >
@@ -157,7 +187,7 @@ function SourceSetup({
             value={path}
             onChange={(event) => {
               setPath(event.target.value)
-              setDecision(undefined)
+              void abandonDecision()
             }}
           />
         </label>
@@ -170,7 +200,7 @@ function SourceSetup({
             value={workspaceId}
             onChange={(event) => {
               setWorkspaceId(event.target.value)
-              setDecision(undefined)
+              void abandonDecision()
             }}
           >
             <option value="">Choose a project or worktree</option>
@@ -203,16 +233,24 @@ function SourceSetup({
         className="hvir-button"
         type="button"
         onClick={() =>
-          void run(async () => {
-            setDecision(
-              await window.hvir.invoke('extensions:source-prepare', {
-                installationId: installation,
-                source: source.id,
-                ...(source.context === 'application'
-                  ? { root: localPath(path) }
-                  : { workspaceId }),
-              }),
-            )
+          void run(async (owner) => {
+            const retiring = abandonDecision()
+            const generation = preparation.current.generation
+            await retiring
+            if (!isCurrent(owner) || preparation.current.generation !== generation) return
+            const prepared = await window.hvir.invoke('extensions:source-prepare', {
+              installationId: installation,
+              source: source.id,
+              ...(source.context === 'application'
+                ? { root: localPath(path) }
+                : { workspaceId }),
+            })
+            if (!isCurrent(owner) || preparation.current.generation !== generation) {
+              await cancelPrepared(prepared.token)
+              return
+            }
+            preparation.current.token = prepared.token
+            setDecision(prepared)
           })
         }
       >
@@ -231,12 +269,18 @@ function SourceSetup({
             className="hvir-button"
             type="button"
             onClick={() =>
-              void run(async () => {
-                await window.hvir.invoke('extensions:source-approve', {
-                  token: decision.token,
-                })
-                setDecision(undefined)
-                await refresh()
+              void run(async (owner) => {
+                try {
+                  await window.hvir.invoke('extensions:source-approve', {
+                    token: decision.token,
+                  })
+                } finally {
+                  if (preparation.current.token === decision.token) {
+                    delete preparation.current.token
+                    if (isCurrent(owner)) setDecision(undefined)
+                  }
+                }
+                await refresh(owner)
               })
             }
           >
@@ -249,4 +293,10 @@ function SourceSetup({
       {error ? <p role="alert">{error}</p> : null}
     </fieldset>
   )
+}
+
+function cancelPrepared(token: string): Promise<void> {
+  return window.hvir
+    .invoke('extensions:source-cancel-prepared', { token })
+    .catch(() => {})
 }

@@ -105,6 +105,12 @@ export function registerExtensionsIpc(
     context.owner()
     return extensions?.sources?.approvals.approve(req.token) ?? unavailable()
   })
+  ipc.handle('extensions:source-cancel-prepared', (req, context) => {
+    context.owner()
+    extensions?.sources?.approvals.cancelPrepared(
+      extensionText(req.token, 'prepared source token', 80),
+    )
+  })
   ipc.handle('extensions:source-revoke', (req, context) => {
     context.owner()
     return (

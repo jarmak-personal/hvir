@@ -43,7 +43,7 @@ interface PreparedSource {
   readonly activation: ExtensionActivation
   readonly current: () => void
   readonly expires: number
-  readonly intent: number
+  approving?: boolean
   readonly prior?: SourceApprovalPrior
 }
 export interface SourceApprovalPrior {
@@ -56,7 +56,7 @@ export class ExtensionSourceApprovalOwner {
   private pending: Promise<unknown> = Promise.resolve()
   private failure?: string
   private disposed = false
-  private intent = 0
+  private pruning = false
   private readonly decisions = new Set<SourceIntent>()
   constructor(
     readonly hosts: SourceHostCatalog,
@@ -111,7 +111,6 @@ export class ExtensionSourceApprovalOwner {
     prior?: SourceApprovalPrior,
   ): Promise<{ token: string; grant: ExtensionSourceGrant }> {
     this.prune()
-    const intent = this.intent
     const registered = this.contexts
       ?.workspaces()
       .find((entry) => entry.id === selection.workspaceId)
@@ -122,10 +121,10 @@ export class ExtensionSourceApprovalOwner {
         ? { binding: { workspaceId: registered.id, root: registered.root } }
         : {}),
     }
-    const assertDecision = this.decisionCurrent(current)
     const assertIntent = () => {
-      assertDecision()
-      if (lifetime.revoked) throw new Error('Source decision was revoked')
+      current()
+      if (this.disposed || lifetime.revoked)
+        throw new Error('Source decision was revoked')
     }
     if (this.decisions.size >= SOURCE_LIMITS.decisions)
       throw new Error('Too many pending source decisions')
@@ -197,7 +196,6 @@ export class ExtensionSourceApprovalOwner {
         grant,
         activation,
         current: assertIntent,
-        intent,
         expires: Date.now() + SOURCE_LIMITS.decisionMs,
         prior,
       })
@@ -257,15 +255,6 @@ export class ExtensionSourceApprovalOwner {
       this.grants,
     )
     return sourceCapacity(next)
-  }
-  /** Share the canonical decision lifetime even before a prepared token exists. */
-  decisionCurrent(current: () => void): () => void {
-    const intent = this.intent
-    return () => {
-      current()
-      if (this.disposed || this.intent !== intent)
-        throw new Error('Source decision was revoked')
-    }
   }
   /** Permission coverage only; selected-current reads still canonicalize and confine files. */
   async canReuseGrant(
@@ -386,14 +375,12 @@ export class ExtensionSourceApprovalOwner {
     return this.serialize(async () => {
       this.prune()
       const decision = this.prepared.get(token)
-      this.prepared.delete(token)
       if (!decision) throw new Error('Inspect source access again before granting it')
+      decision.approving = true
       const { grant, activation } = decision
       try {
         const current = () => {
           decision.current()
-          if (this.intent !== decision.intent)
-            throw new Error('Source decision was revoked')
           if (
             this.disposed ||
             this.activations.active.get(grant.installationId) !== activation ||
@@ -428,6 +415,7 @@ export class ExtensionSourceApprovalOwner {
         current()
         this.grants = [...this.grants.filter((entry) => !replacedBy(entry, grant)), grant]
       } finally {
+        this.prepared.delete(token)
         this.decisions.delete(decision.lifetime)
       }
     })
@@ -436,13 +424,14 @@ export class ExtensionSourceApprovalOwner {
     const decision = this.prepared.get(token)
     if (decision) {
       decision.lifetime.revoked = true
-      this.decisions.delete(decision.lifetime)
+      // Cancellation fences the result; physical approval still owns its admission slot.
+      if (!decision.approving) this.decisions.delete(decision.lifetime)
     }
     this.prepared.delete(token)
   }
   hasPrepared(token: string): boolean {
     this.prune()
-    return this.prepared.get(token)?.intent === this.intent
+    return this.prepared.has(token)
   }
   revoke(
     installation: string,
@@ -476,7 +465,6 @@ export class ExtensionSourceApprovalOwner {
     source?: string,
     binding?: ExtensionSourceBinding,
   ): void {
-    if (!binding) this.intent++
     for (const decision of this.decisions)
       if (
         decision.selection.installationId === installation &&
@@ -591,7 +579,6 @@ export class ExtensionSourceApprovalOwner {
   }
   dispose(): void {
     this.disposed = true
-    this.intent++
     this.prepared.clear()
     this.decisions.clear()
     this.grants = []
@@ -602,8 +589,22 @@ export class ExtensionSourceApprovalOwner {
     await this.activations.assertWritable()
   }
   private prune(): void {
-    for (const [token, entry] of this.prepared)
-      if (entry.expires <= Date.now()) this.cancelPrepared(token)
+    // Contextual current checks may ask hasPrepared about this same token.
+    if (this.pruning) return
+    this.pruning = true
+    try {
+      for (const [token, entry] of this.prepared) {
+        try {
+          entry.current()
+          if (entry.expires > Date.now()) continue
+        } catch {
+          // Renderer teardown can invalidate a token without running React cleanup.
+        }
+        this.cancelPrepared(token)
+      }
+    } finally {
+      this.pruning = false
+    }
   }
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
     const task = this.pending.then(operation)
