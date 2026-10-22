@@ -65,6 +65,10 @@ export async function verifyOwnedAdvancedExposure(
       await host.createFileExclusive(joinHostPath(original, 'helper.sh'), { mode: 0o755 })
       await host.writeFile(joinHostPath(original, 'helper.sh'), '#!/bin/sh\ntrue\n')
       if (suffix === 'one' || suffix === 'two') {
+        const originalFiles = [entry, joinHostPath(original, 'helper.sh')],
+          originalModes = await Promise.all(
+            originalFiles.map(async (file) => (await host.stat(file)).mode & 0o777),
+          )
         const ui = await selectProject(entry, name)
         await ui.ready(
           "!document.getElementById('import-save').disabled",
@@ -83,14 +87,22 @@ export async function verifyOwnedAdvancedExposure(
           "document.getElementById('exposure-preservation-reason').textContent.length>0 && !document.getElementById('exposure-preservation-reason').textContent.includes('Checking')",
           'automatic unavailable preservation',
         )
-        if (
-          await ui.inspect(
-            "!document.getElementById('exposure-full').hidden || !document.getElementById('exposure-stub').hidden",
-          )
+        await ui.ready(
+          "!document.getElementById('exposure-full').hidden && !document.getElementById('exposure-full').disabled && !document.getElementById('exposure-stub').hidden && !document.getElementById('exposure-stub').disabled && document.getElementById('exposure-review').hidden",
+          'unpreserved original offers explicit Full or Stub Save and use',
         )
-          throw new Error(
-            'Unpreserved original offers replacement before Save and accept',
-          )
+        if (
+          (await host.readdir(original))
+            .map((file) => file.name)
+            .sort()
+            .join(',') !== 'SKILL.md,helper.sh' ||
+          (await host.readFile(entry)).toString() !== bytes ||
+          (await host.readFile(originalFiles[1]!)).toString() !== '#!/bin/sh\ntrue\n'
+        )
+          throw new Error('Original files changed before the explicit save decision')
+        for (const [index, file] of originalFiles.entries())
+          if (((await host.stat(file)).mode & 0o777) !== originalModes[index])
+            throw new Error('Original mode changed before the explicit save decision')
         await ui.click('import-save')
         await ui.ready(
           "(() => {try{return JSON.parse(document.getElementById('import-result').textContent).outcome==='verified'}catch{return false}})()",
@@ -539,7 +551,12 @@ export async function verifyOwnedAdvancedExposure(
     )
   }
   async function review(ui: Ui, operation: string) {
-    await ui.click('exposure-preview')
+    await ui.ready(
+      "!document.getElementById('exposure-review').hidden || (document.getElementById('exposure-preview').checkVisibility() && !document.getElementById('exposure-preview').disabled)",
+      'selected exposure review or explicit preparation control',
+    )
+    if (await ui.inspect("document.getElementById('exposure-review').hidden"))
+      await ui.click('exposure-preview')
     await ui.ready(
       `!document.getElementById('exposure-review').hidden && JSON.parse(document.getElementById('exposure-plan').textContent).request.action===${JSON.stringify(operation)}`,
       `complete ${operation} file review`,

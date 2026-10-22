@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { buildSync } from 'esbuild'
+import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { afterEach, expect, it, vi } from 'vitest'
+import { fixture as selectedTaskFixture } from './fixtures/skillager-selected-task'
 
 const bundle = buildSync({
   entryPoints: ['packages/skillager-extension/src/browser-task-sheet.mjs'],
@@ -25,18 +27,7 @@ afterEach(() => {
   dispose?.()
   document.body.replaceChildren()
 })
-function setup() {
-  document.body.innerHTML = `
-    <button id="invoker">…</button>
-    <div id="reader"><div id="instructions">Keep this document</div><div data-skill-tasks>
-      <button id="import-save" disabled>Save</button>
-      <button id="import-reconcile" hidden>Inspect uncertain operation</button>
-    </div></div>
-    <section id="skill-task-sheet" hidden>
-      <strong id="skill-task-title"></strong><button id="skill-task-close">Close</button>
-      <p id="skill-task-message"></p><button id="skill-task-retry" hidden>Review again</button>
-      <div data-skill-task-sheet-target></div>
-    </section>`
+function bindSheet(client: unknown, ports: unknown) {
   const module = {
     exports: {} as {
       bindBrowserTaskSheet(
@@ -55,6 +46,20 @@ function setup() {
     },
   }
   runInNewContext(bundle, { module, document, TextEncoder })
+  return module.exports['bindBrowserTaskSheet'](document, client, ports)
+}
+function setup() {
+  document.body.innerHTML = `
+    <button id="invoker">…</button>
+    <div id="reader"><div id="instructions">Keep this document</div><div data-skill-tasks>
+      <button id="import-save" disabled>Save</button>
+      <button id="import-reconcile" hidden>Inspect uncertain operation</button>
+    </div></div>
+    <section id="skill-task-sheet" hidden>
+      <strong id="skill-task-title"></strong><button id="skill-task-close">Close</button>
+      <p id="skill-task-message"></p><button id="skill-task-retry" hidden>Review again</button>
+      <div data-skill-task-sheet-target></div>
+    </section>`
   let finish!: () => void,
     activity: (() => void) | undefined,
     completion: ((result: unknown, origin: unknown, error?: Error) => void) | undefined
@@ -82,7 +87,7 @@ function setup() {
   const context = { visible: true, workspace: { id: 'project', host: 'local' } }
   const client = { alive: true, signal: new AbortController().signal, request: vi.fn() }
   const returnFocus = vi.fn()
-  const sheet = module.exports['bindBrowserTaskSheet'](document, client, {
+  const sheet = bindSheet(client, {
     reader,
     context: () => context,
     changed: vi.fn(),
@@ -107,6 +112,50 @@ function setup() {
       completion?.(result, context.workspace, error),
   }
 }
+it('keeps an inactive sheet from clearing the reader review when its destination changes', async () => {
+  const f = selectedTaskFixture(undefined, true)
+  const template = document.createElement('template')
+  template.innerHTML = readFileSync('packages/skillager-extension/library.html', 'utf8')
+  document.body.append(template.content.querySelector('#skill-task-sheet')!)
+  const sheet = bindSheet(f.client, {
+    reader: { tasks: f.view },
+    context: f.context,
+    changed: f.changed,
+  })
+  dispose = () => {
+    sheet.dispose()
+    f.dispose()
+  }
+  const inventory = () => document.querySelectorAll('[data-review-path]')
+  f.status.skill.acceptance = 'pending'
+  f.view.select(f.selection)
+  await vi.waitFor(() => expect(f.button('accept-version').disabled).toBe(false))
+  expect(inventory()).toHaveLength(1)
+  expect(sheet.active).toBe(false)
+
+  const executions = f.executions.length
+  f.hold()
+  f.target('other', () => sheet.contextChanged())
+  expect(f.button('exact-review').hidden).toBe(true)
+  expect(f.button('accept-version').disabled).toBe(true)
+  expect(inventory()).toHaveLength(0)
+  f.button('accept-version').click()
+  expect(f.actions).toHaveLength(0)
+  await vi.waitFor(() => expect(f.executions.length).toBeGreaterThan(executions))
+  f.release()
+
+  await vi.waitFor(() => expect(f.button('accept-version').disabled).toBe(false))
+  expect(f.button('exact-review').hidden).toBe(false)
+  expect(inventory()).toHaveLength(1)
+  expect(f.button('skill-task-sheet').hidden).toBe(true)
+  expect(f.actions).toHaveLength(0)
+  f.button('accept-version').click()
+  await vi.waitFor(() => expect(f.actions).toHaveLength(1))
+  expect(f.actions[0]).toMatchObject({
+    action: 'accept-version',
+    input: { skillId: f.selection.row.id, hash: f.status.skill.working_hash },
+  })
+})
 it('keeps the reader document and awaits actual preparation before focusing the decision', async () => {
   const f = setup()
   const body = document.getElementById('instructions')!

@@ -269,6 +269,7 @@ export function bindBrowserTaskSheet(document, client, ports) {
       return working()
     },
     contextChanged() {
+      const ownsSurface = !ports.reader || !!selection || action === 'project-import'
       generation++
       selection = action = undefined
       batch?.contextChanged()
@@ -278,7 +279,7 @@ export function bindBrowserTaskSheet(document, client, ports) {
       terminalMessage = ''
       sheet.hidden = true
       if (slot.parentNode !== home) home.append(slot)
-      surface.select(undefined)
+      if (ownsSurface) surface.select(undefined)
       trigger = undefined
       update()
     },
