@@ -34,7 +34,6 @@ export class ExtensionSourceRequestOwner {
       | 'approve'
       | 'cancelPrepared'
       | 'hasPrepared'
-      | 'decisionCurrent'
       | 'canReuseGrant'
       | 'prepareWorkspaceRead'
     >,
@@ -82,7 +81,7 @@ export class ExtensionSourceRequestOwner {
     let workspaceRead:
       | Awaited<ReturnType<ExtensionSourceApprovalOwner['prepareWorkspaceRead']>>
       | undefined
-    const current = this.approvals.decisionCurrent(() => {
+    const current = () => {
       signal.throwIfAborted()
       caller.current()
       if (
@@ -103,7 +102,7 @@ export class ExtensionSourceRequestOwner {
         throw new Error('Read access request ended')
       if (proposalToken && !this.approvals.hasPrepared(proposalToken))
         throw new Error('Read access decision was revoked')
-    })
+    }
     current()
     if (this.pending.size >= SOURCE_LIMITS.decisions)
       throw new Error('Too many pending source decisions')

@@ -83,6 +83,7 @@ export const extensionsIpc = {
       { readonly token: string; readonly grant: ExtensionSourceGrant }
     >(),
     'extensions:source-approve': invoke<{ readonly token: string }, void>(),
+    'extensions:source-cancel-prepared': invoke<{ readonly token: string }, void>(),
     'extensions:source-revoke': invoke<
       {
         readonly installationId: string

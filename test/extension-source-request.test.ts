@@ -22,6 +22,12 @@ async function fixture(context: 'application' | 'workspace' = 'application') {
       () => foreground,
       publish,
     )
+  const revoked = f.revoked.getMockImplementation()!
+  f.revoked.mockImplementation((installation, source, binding, cancelRequests) => {
+    revoked(installation, source, binding, cancelRequests)
+    if (cancelRequests) owner.revoke(installation, source, binding)
+    owner.revalidate()
+  })
   dispose.push(() => {
     owner.dispose()
     f.dispose()
@@ -235,8 +241,7 @@ describe('in-context canonical human read decision', () => {
     const request = f.request(),
       rejected = expect(request).rejects.toThrow(/revoked|ended/)
     await vi.waitFor(() => expect(f.owner.snapshot(f.renderer)[0]?.state).toBe('failed'))
-    f.approvals.discardPrepared('installation', 'source')
-    f.owner.revalidate()
+    await f.approvals.revoke('installation', 'source')
     expect(f.owner.snapshot(f.renderer)).toEqual([])
     await rejected
   })
@@ -397,18 +402,24 @@ describe('in-context canonical human read decision', () => {
     await expect(next).resolves.toEqual({ granted: true })
     expect(f.approvals.get(f.activation, 'source')?.root).toEqual(f.root)
   })
-  it('uses the canonical owner intent when a retained token is invalidated indirectly', async () => {
-    const f = await fixture(),
-      request = f.request(),
-      rejected = expect(request).rejects.toThrow(/revoked|ended/),
-      p = await proposal(f)
-    f.approvals.discardPrepared('another-installation')
-    f.owner.revalidate()
-    expect(f.owner.snapshot(f.renderer)).toEqual([])
-    expect(() => f.owner.decide(f.renderer, p.id, true)).toThrow(/no longer current/)
-    await rejected
-    expect(f.state()).toEqual([])
-  })
+  it.each(['installation', 'source'] as const)(
+    'keeps a contextual request live when another %s is revoked',
+    async (scope) => {
+      const f = await fixture(),
+        request = f.request()
+      void request.catch(() => {})
+      const p = await proposal(f)
+      await f.approvals.revoke(
+        scope === 'installation' ? 'another-installation' : 'installation',
+        scope === 'source' ? 'another-source' : undefined,
+      )
+      f.owner.revalidate()
+      expect(f.owner.snapshot(f.renderer)).toEqual([p])
+      f.owner.decide(f.renderer, p.id, true)
+      await expect(request).resolves.toEqual({ granted: true })
+      expect(f.approvals.get(f.activation, 'source')?.root).toEqual(f.root)
+    },
+  )
   it('contains abort-time publication failure in the owning request and frees admission', async () => {
     const f = await fixture(),
       request = f.request(),
