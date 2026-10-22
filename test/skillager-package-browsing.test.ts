@@ -689,6 +689,7 @@ it('requires renewed package visibility before retained ready rows can open a re
   const f = packageView()
   f.context()
   await f.flush()
+  await f.expand()
   f.context(false)
   expect(document.getElementById('state')?.dataset['state']).toBe('ready')
   expect(document.querySelectorAll('#skills [data-skill-select]')).toHaveLength(1)
@@ -927,11 +928,13 @@ it('keeps the Library sheet occurrence on renewal instead of reselecting the rea
   const f = packageView('library')
   f.context(true, localProject)
   await f.flush()
+  await f.expand()
   ;(document.querySelector('#skills [data-skill-select]') as HTMLButtonElement).click()
   await f.flush()
   expect(document.getElementById('detail-title')?.textContent).toBe('Page 0')
   f.button('next').click()
   await f.flush()
+  await f.expand()
   ;(document.querySelector('#skills [data-skill-actions]') as HTMLButtonElement).click()
   ;(
     document.querySelector('#skill-row-menu [data-task=native]') as HTMLButtonElement

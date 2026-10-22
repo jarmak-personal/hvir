@@ -34,6 +34,11 @@ export async function verifySelectedSkillTasks(
     guest = await controls.guest(selectedView),
     ui = skillagerManagementControls(guest, controls)
   await ui.ready(
+    "!!document.querySelector('#skills [data-source-toggle]')",
+    'owned library source groups',
+  )
+  await ui.inspect("document.querySelector('#skills [data-source-toggle]').click()")
+  await ui.ready(
     `!!document.querySelector('[data-id="${skillId}"]')`,
     'owned library skill',
   )

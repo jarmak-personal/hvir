@@ -105,7 +105,7 @@ export async function verifySkillagerLibraryConnection(
     await controls.wait(
       async () =>
         (await inspect(
-          "globalThis.__hvirLibraryStage.target && document.getElementById('state')?.dataset.state==='ready' && !!document.querySelector('#skills [data-skill-select]')",
+          "globalThis.__hvirLibraryStage.target && document.getElementById('state')?.dataset.state==='ready' && !!document.querySelector('#skills [data-source-toggle]')",
         )) === true,
       'Library metadata ready for selected Connect',
     )
@@ -130,6 +130,13 @@ export async function verifySkillagerLibraryConnection(
         facts.programReady=value.readiness?.program===true;facts.sourceReady=value.readiness?.source===true;
       });
     })()`)
+    await pointer('#skills [data-source-toggle]')
+    await controls.wait(
+      async () =>
+        (await inspect("!!document.querySelector('#skills [data-skill-select]')")) ===
+        true,
+      'explicit source expansion before selected Connect',
+    )
     await pointer('#skills [data-skill-select]')
     await controls.wait(
       () => runtime.sourceRequests!.snapshot(owner)[0]?.state === 'ready',

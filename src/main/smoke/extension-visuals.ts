@@ -51,6 +51,9 @@ export async function captureExtensionVisuals(
     | 'router-members'
     | 'preserved-original'
     | 'library-selected'
+    | 'library-sources'
+    | 'library-source-expanded'
+    | 'source-search'
     | 'project-save',
   controls: VisualControls,
   captureDirectory = process.env.HVIR_EXTENSION_VISUAL_DIRECTORY,
@@ -101,11 +104,11 @@ export async function captureExtensionVisuals(
             )) === true,
           'actual guest presentation after appearance save',
         )
-        if (state === 'library')
+        if (['library', 'library-sources', 'library-source-expanded'].includes(state))
           await controls.wait(
             async () =>
               (await guest.executeJavaScript(
-                "document.querySelectorAll('#skills [data-skill-select]').length===100 && !['loading','stale','error'].includes(document.getElementById('state').dataset.state)",
+                "document.querySelectorAll('#skills [data-source-toggle]').length>0 && document.getElementById('state').dataset.state==='ready'",
               )) === true,
             'current public library result after appearance save',
           )
@@ -117,7 +120,16 @@ export async function captureExtensionVisuals(
           return {guestId:${guest.id},viewId:frame.closest('[data-extension-view]')?.dataset.extensionView,width:r.width,height:r.height};
         })()`)
         facts.push({ theme, variant, state, visibleIdentity })
-        if (['unapproved', 'library', 'project'].includes(state))
+        if (
+          [
+            'unapproved',
+            'library',
+            'project',
+            'library-sources',
+            'library-source-expanded',
+            'source-search',
+          ].includes(state)
+        )
           facts.push({
             theme,
             variant,

@@ -21,7 +21,7 @@ export const projectInventoryRequirement =
   'Project inventory requires Skillager 0.9.7 or a supported source build.'
 export const projectQueryRequirement =
   'Project filtering requires Skillager 0.9.7 or a supported source build with list --scope project --query.'
-export const setupRequest = `Install or update the official Skillager CLI from https://github.com/jarmak-personal/skillager/releases or the current supported official source. Preserve my existing libraries and project skills. Verify skillager --version and the public skillager.library-status.v1, skillager.list.v1 and skillager.search.v1 contracts with pagination. ${projectInventoryRequirement} ${projectQueryRequirement} Verify list --scope project --query with pagination. Do not initialize a library or change project setup without my explicit decision. Show me the installed executable so I can choose Connect Skillager in hvir.`
+export const setupRequest = `Install or update the official Skillager CLI from https://github.com/jarmak-personal/skillager/releases or the current supported official source. Preserve my existing libraries and project skills. Verify skillager --version and the public skillager.library-status.v1, skillager.list.v1 and skillager.search.v1 contracts with pagination. ${projectInventoryRequirement} ${projectQueryRequirement} Verify list --scope project --query with pagination. Verify library source grouping with list --scope library --json --group-by source (skillager.library-groups.v1) and --source-group filtering. Do not initialize a library or change project setup without my explicit decision. Show me the installed executable so I can choose Connect Skillager in hvir.`
 
 export function sameCurrentLibrary(selected, current) {
   if (

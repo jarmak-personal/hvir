@@ -22,6 +22,7 @@ const staticAssets = [
   'hvir-extension.json',
   'README.md',
   'skillager.css',
+  'library-source.css',
   'library.html',
   'project.html',
   'detail.html',
