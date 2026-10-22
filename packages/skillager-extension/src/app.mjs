@@ -209,8 +209,10 @@ function rows(page, observe = true) {
     if (element('observation-details')) element('observation-details').textContent = ''
     say(
       page.total
-        ? `${page.total} ${page.total === 1 ? 'skill' : 'skills'} · ${page.totalGroups} ${page.totalGroups === 1 ? 'source' : 'sources'}${previous.length || page.next ? ` · Page ${previous.length + 1}` : ''}${page.errors ? ' · Some sources unavailable' : ''}`
-        : 'Your personal library is empty.',
+        ? `${page.total} ${page.total === 1 ? 'skill' : 'skills'} · ${page.totalGroups} ${page.totalGroups === 1 ? 'source' : 'sources'}${previous.length || page.next ? ` · Page ${previous.length + 1}` : ''}${page.errors ? ' · Some skills could not be listed' : ''}`
+        : page.errors
+          ? 'Library skills could not be listed. Try refreshing.'
+          : 'Your personal library is empty.',
       page.errors ? 'partial' : page.total ? 'ready' : 'empty-library',
     )
     return

@@ -27,6 +27,7 @@ export function createSkillagerPackageView(view = 'library') {
     occurrencePath = '/library/search/SKILL.md',
     supported = true,
     count = 3,
+    libraryDiscoveryErrors = 0,
     initialization: unknown,
     hold = false,
     holdOn: string | undefined,
@@ -281,7 +282,7 @@ export function createSkillagerPackageView(view = 'library') {
                               groups: count ? [{ ...sourceGroup, count: 1 }] : [],
                               total_skills: count,
                               total_groups: count,
-                              discovery_error_count: 0,
+                              discovery_error_count: libraryDiscoveryErrors,
                               next_cursor: count && index < 2 ? String(index + 1) : null,
                             }
                           : args[0] === 'review'
@@ -404,6 +405,9 @@ export function createSkillagerPackageView(view = 'library') {
     },
     unavailableProject: () => {
       unavailableProject = true
+    },
+    libraryDiscoveryErrors: (count: number) => {
+      libraryDiscoveryErrors = count
     },
     unsupportedSourceGroups: () => {
       sourceGroupsSupported = false

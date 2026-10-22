@@ -217,3 +217,29 @@ it.each(['visibility', 'scope'])(
     expect(f.calls.filter((args) => args.includes('--source-group'))).toHaveLength(2)
   },
 )
+
+it('distinguishes unreadable library metadata from a genuinely empty library', async () => {
+  const f = fixture()
+  f.libraryDiscoveryErrors(2)
+  f.context()
+  await f.flush()
+  expect(document.getElementById('state')?.textContent).toBe(
+    '3 skills · 3 sources · Page 1 · Some skills could not be listed',
+  )
+  f.empty()
+  f.button('refresh').click()
+  await f.flush()
+  expect(document.getElementById('state')?.dataset['state']).toBe('partial')
+  expect(document.getElementById('state')?.textContent).toBe(
+    'Library skills could not be listed. Try refreshing.',
+  )
+  expect(document.querySelectorAll('#skills [data-source-toggle]')).toHaveLength(0)
+  expect(f.button('refresh').disabled).toBe(false)
+  f.libraryDiscoveryErrors(0)
+  f.button('refresh').click()
+  await f.flush()
+  expect(document.getElementById('state')?.dataset['state']).toBe('empty-library')
+  expect(document.getElementById('state')?.textContent).toBe(
+    'Your personal library is empty.',
+  )
+})
