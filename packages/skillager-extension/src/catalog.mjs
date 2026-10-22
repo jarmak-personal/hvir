@@ -10,7 +10,7 @@ import {
   projectInventoryRequirement,
   projectQueryRequirement,
 } from './library-first-use.mjs'
-import { sourceGroup } from './library-source-catalog.mjs'
+import { sourcePresentation } from './library-source-catalog.mjs'
 export const MINIMUM_SKILLAGER = '0.9.3'
 export function requireVersion(text) {
   const match = /skillager\s+(\d+)\.(\d+)\.(\d+)/u.exec(text)
@@ -78,7 +78,7 @@ export function libraryPage(value) {
         source: 'library',
         host: 'local',
         kind: 'Your library',
-        ...(row.source_group ? { sourceGroup: sourceGroup(row.source_group) } : {}),
+        ...sourcePresentation(row.source_group),
       }
     }),
     next: data.next_cursor,
@@ -136,7 +136,7 @@ export function searchPage(value, workspace) {
                   : 'Project original',
         canonical: validCanonical(search.canonical) ? search.canonical : null,
         matched: search.match?.skill_id ?? null,
-        ...(row.source_group ? { sourceGroup: sourceGroup(row.source_group) } : {}),
+        ...sourcePresentation(row.source_group),
         installed: search.installed,
         ...(['codex', 'claude'].includes(occurrence.agent)
           ? { agent: occurrence.agent }

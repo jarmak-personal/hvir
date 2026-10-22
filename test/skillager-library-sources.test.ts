@@ -45,6 +45,7 @@ runInNewContext(bundle, sandbox)
 const module = sandbox.Module as {
   libraryGroups(value: unknown): Value
   libraryPage(value: unknown): Value
+  searchPage(value: unknown): Value
   sourceGroup(value: unknown): Value
   sourcePage(value: unknown, page: unknown, id: string): Value
   libraryGroupingFailure(error: unknown): Error
@@ -435,4 +436,108 @@ it('moves through source boundaries with arrows while retaining occurrence actio
   expect(document.activeElement).toBe(f.header())
   expect(f.choose).not.toHaveBeenCalled()
   expect(f.task).not.toHaveBeenCalled()
+})
+
+const optionalSourceCases = [
+  ['future kind', { ...group(), kind: 'future-kind' }],
+  ['empty label', { ...group(), label: '' }],
+  ['oversized label', { ...group(), label: 'x'.repeat(257) }],
+  ['invalid identity', { ...group(), id: 'hvir' }],
+  ['malformed detail', { ...group(), detail: 42 }],
+] as const
+const publicList = (source?: unknown) => ({
+  schema: 'skillager.list.v1',
+  scope: 'library',
+  total_skills: 1,
+  next_cursor: 'next',
+  skills: [
+    {
+      id: 'lib/exact',
+      name: 'Exact',
+      description: '',
+      status: 'accepted',
+      skill_file: '/library/exact/SKILL.md',
+      ...(source === undefined ? {} : { source_group: source }),
+    },
+  ],
+})
+const publicSearch = (source?: unknown) => ({
+  schema: 'skillager.search.v1',
+  status: 'completed',
+  next_cursor: 'next-ranked',
+  results: [
+    {
+      id: 'lib/exact',
+      name: 'Exact',
+      search: {
+        canonical: {
+          library_id: '01234567-89ab-cdef-0123-456789abcdef',
+          skill_id: 'lib/exact',
+        },
+        occurrence: {
+          id: 'occurrence',
+          kind: 'library',
+          entrypoint: '/library/exact/SKILL.md',
+        },
+      },
+      ...(source === undefined ? {} : { source_group: source }),
+    },
+  ],
+})
+it.each(optionalSourceCases)(
+  'omits optional %s metadata from flat pages while refusing it for actual grouping',
+  (_name, source) => {
+    const list = publicList(source),
+      search = publicSearch(source)
+    expect(module.libraryPage(list)).toEqual(module.libraryPage(publicList()))
+    expect(module.searchPage(search)).toEqual(module.searchPage(publicSearch()))
+    expect(() => module.sourceGroup(source)).toThrow()
+    expect(() =>
+      module.libraryGroups({ ...envelope(), groups: [{ ...source, count: 1 }] }),
+    ).toThrow()
+    expect(() => module.sourcePage(list, module.libraryPage(list), group().id)).toThrow(
+      /different/,
+    )
+  },
+)
+it('preserves valid source presentation and does not swallow authoritative row failures', () => {
+  const source = group(),
+    list = publicList(source),
+    page = module.libraryPage(list),
+    expected = {
+      id: source.id,
+      label: source.label,
+      kind: source.kind,
+      detail: source.detail,
+    }
+  expect(page).toMatchObject({
+    rows: [{ id: 'lib/exact', sourceGroup: expected }],
+    next: 'next',
+  })
+  expect(module.searchPage(publicSearch(source))).toMatchObject({
+    rows: [{ id: 'occurrence', sourceGroup: expected }],
+    next: 'next-ranked',
+  })
+  expect(module.sourcePage(list, page, source.id)).toMatchObject({ total: 1 })
+  expect(() => module.sourcePage(list, page, group('b').id)).toThrow(/different/)
+  expect(() =>
+    module.libraryPage({
+      ...list,
+      skills: [
+        { ...list.skills[0], source_group: optionalSourceCases[0][1], skill_file: 42 },
+      ],
+    }),
+  ).toThrow()
+  const search = publicSearch(optionalSourceCases[0][1])
+  expect(() =>
+    module.searchPage({
+      ...search,
+      results: [
+        {
+          ...search.results[0],
+          search: { occurrence: { id: 'bad', kind: 'library', entrypoint: 42 } },
+        },
+      ],
+    }),
+  ).toThrow()
 })

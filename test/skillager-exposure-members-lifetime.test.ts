@@ -10,7 +10,7 @@ afterEach(() => {
   dispose?.()
   document.body.replaceChildren()
 })
-function fixture() {
+function fixture(sourceGroup?: unknown) {
   const template = document.createElement('template')
   template.innerHTML = readFileSync('packages/skillager-extension/detail.html', 'utf8')
   for (const node of template.content.querySelectorAll('script, link')) node.remove()
@@ -64,6 +64,7 @@ function fixture() {
     description: '',
     status: 'accepted',
     skill_file: `/library/skills/${id.slice(4)}/SKILL.md`,
+    source_group: sourceGroup,
   })
   const client = {
     alive: true,
@@ -97,6 +98,7 @@ function fixture() {
               id: 'ranked',
               name: 'Found',
               trust: 'reviewed',
+              source_group: sourceGroup,
               search: {
                 canonical: {
                   library_id: library.id,
@@ -245,3 +247,37 @@ it('recovers an expired Previous page without losing an off-page selected member
   expect(f.picker.ids()).toEqual(['lib/retained', 'lib/later'])
   expect(f.messages).toEqual(['Skills changed; showing first page.'])
 })
+
+it.each([false, true])(
+  'keeps Router member paging usable with unknown optional source metadata (search=%s)',
+  async (searching) => {
+    const f = fixture({
+      id: `source:${'a'.repeat(64)}`,
+      label: 'Source',
+      kind: 'future-kind',
+      detail: null,
+    })
+    f.start()
+    await f.ready()
+    if (searching) {
+      f.search()
+      await f.ready()
+    }
+    const member = document.querySelector<HTMLInputElement>(
+      '#exposure-member-results input',
+    )!
+    expect(member).not.toBeNull()
+    member.click()
+    expect(f.picker.ids()).toEqual([
+      'lib/retained',
+      searching ? 'lib/found' : 'lib/first',
+    ])
+    f.el('next').click()
+    await f.ready()
+    expect(f.el('page').textContent).toBe('Page 2')
+    expect(document.getElementById('exposure-member-results')?.textContent).toContain(
+      searching ? 'Found' : 'later',
+    )
+    expect(f.messages).toEqual([])
+  },
+)

@@ -23,6 +23,15 @@ export function sourceGroup(value) {
   if (!label) throw new Error('Skillager returned an invalid library source label')
   return { id: group.id, label, kind: group.kind, detail }
 }
+/** Optional labels never determine admission to flat skill or member pages. */
+export function sourcePresentation(value) {
+  if (value === undefined || value === null) return {}
+  try {
+    return { sourceGroup: sourceGroup(value) }
+  } catch {
+    return {}
+  }
+}
 export function libraryGroups(value) {
   const data = object(value)
   if (
