@@ -43,6 +43,8 @@ export type ViewerWorkspaceAction =
     }
   | { readonly type: 'open'; readonly request: ViewerOpenRequest }
   | { readonly type: 'activate'; readonly id: string; readonly pane?: ViewerPaneId }
+  | { readonly type: 'report-activated'; readonly id: string }
+  | { readonly type: 'report-deactivated' }
   | { readonly type: 'focus-pane'; readonly pane: ViewerPaneId; readonly id?: string }
   | { readonly type: 'close'; readonly id: string }
   | { readonly type: 'pin'; readonly id: string }
@@ -117,6 +119,10 @@ export function viewerWorkspaceReducer(
   action: ViewerWorkspaceAction,
 ): ViewerWorkspaceModel {
   switch (action.type) {
+    case 'report-activated':
+      return model.root ? { ...model, activeReportId: action.id } : model
+    case 'report-deactivated':
+      return model.activeReportId ? { ...model, activeReportId: undefined } : model
     case 'workspace-activated': {
       const active = action.tabs.find((tab) => tab.id === action.activeId)
       const activePane = active?.pane ?? 'primary'
@@ -364,6 +370,7 @@ function activate(
 ): ViewerWorkspaceModel {
   return {
     ...model,
+    activeReportId: undefined,
     activeId: id,
     activePane: pane,
     activeByPane: { ...model.activeByPane, [pane]: id },
@@ -443,6 +450,7 @@ function moveTab(
   const tabs = updateTab(model.tabs, id, (tab) => ({ ...tab, pane }))
   return {
     ...model,
+    activeReportId: undefined,
     tabs,
     activeId: id,
     activePane: pane,

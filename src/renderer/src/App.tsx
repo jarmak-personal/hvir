@@ -53,6 +53,7 @@ export function App(): ReactElement {
   const terminalAttention = useTerminalAttention()
   const extensions = useExtensionViews({
     onActivate: (focus = true) => {
+      viewer.deactivateReport()
       deactivateGitGraphRef.current()
       deactivateWebPaneRef.current()
       restoreViewerRef.current()
@@ -74,16 +75,13 @@ export function App(): ReactElement {
     activeTab,
     switchWorkspace: switchViewerWorkspace,
     openFile,
-    cycleActiveMode,
     viewerCommands,
-    handleWatchEvent,
-    reloadCleanFiles,
     focusPane: focusViewerPane,
-    getActivePane,
   } = viewer
-  const reviewWatch = review.useWatchFanout(handleWatchEvent)
+  const reviewWatch = review.useWatchFanout(viewer.handleWatchEvent)
   const web = useWebPaneWorkspace({
     onActivate: () => {
+      viewer.deactivateReport()
       extensions.deactivate()
       focusViewerPane('primary')
       deactivateGitGraphRef.current()
@@ -115,7 +113,7 @@ export function App(): ReactElement {
   const session = useProjectSession({
     composerSubmitMode: settings.composerSubmitMode,
     onProjectState: applyProjectViewState,
-    onReloadFiles: reloadCleanFiles,
+    onReloadFiles: viewer.reloadCleanFiles,
     onWatchEvent: reviewWatch.handle,
     isIgnoreRulePath: isGitIgnoreRulePath,
   })
@@ -166,6 +164,7 @@ export function App(): ReactElement {
     refreshContent: session.refreshWorkspaceContent,
     refreshGit: session.refreshGit,
     activateViewer: () => {
+      viewer.deactivateReport()
       focusViewerPane('primary')
       restoreViewer()
     },
@@ -212,15 +211,16 @@ export function App(): ReactElement {
     canUseViewerCommands: () =>
       !gitGraphActiveRef.current &&
       !webViewActiveRef.current &&
-      !extensions.activeRef.current,
-    cycleViewMode: cycleActiveMode,
+      !extensions.activeRef.current &&
+      !viewer.isReportActive(),
+    cycleViewMode: viewer.cycleActiveMode,
     findFile: layout.focusFilenameSearch,
     findInFile: viewerCommands.findInFile,
     findInTerminal: terminalWorkspaces.openTerminalSearch,
     goToLine: viewerCommands.goToLine,
     toggleTerminalFocus,
     focusTerminal: layout.focusTerminal,
-    focusViewer: () => layout.focusViewer(getActivePane()),
+    focusViewer: () => layout.focusViewer(viewer.getActivePane()),
     focusTree: layout.focusTree,
     switchWorkspace: (direction) => {
       setDestination('workspace')

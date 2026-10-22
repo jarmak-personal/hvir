@@ -49,10 +49,6 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     viewerWorkspaceReducer,
     initialViewerWorkspaceModel,
   )
-  const [fileActivation, markFileActivated] = useReducer(
-    (revision: number) => revision + 1,
-    0,
-  )
   const modelRef = useRef(model)
   const optionsRef = useRef(options)
   const warmWorkspaces = useRef(new RetainedViewerWorkspaceCache())
@@ -164,7 +160,6 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
     (id: string, pane?: ViewerPaneId): void => {
       flushPendingPositions()
       send({ type: 'activate', id, pane })
-      markFileActivated()
       optionsRef.current.onActivateFile()
     },
     [flushPendingPositions, send],
@@ -194,7 +189,6 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
             : undefined,
         },
       })
-      markFileActivated()
       optionsRef.current.onActivateFile()
       // Reopening a dirty tab is navigation, not a reload. Its in-memory buffer
       // is authoritative until the user saves or explicitly chooses reload.
@@ -267,6 +261,16 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
   )
 
   const pinTab = useCallback((id: string): void => send({ type: 'pin', id }), [send])
+
+  const activateReport = useCallback(
+    (id: string): void => send({ type: 'report-activated', id }),
+    [send],
+  )
+  const deactivateReport = useCallback(
+    (): void => send({ type: 'report-deactivated' }),
+    [send],
+  )
+  const isReportActive = useCallback(() => Boolean(modelRef.current.activeReportId), [])
 
   const cycleActiveMode = useCallback((): void => {
     flushPendingPositions()
@@ -428,7 +432,6 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
       if (pane === 'secondary' && current.root) {
         persistWorkspaceLayout(current.root, { viewerSplit: true })
       }
-      markFileActivated()
       optionsRef.current.onActivateFile()
     },
     [flushPendingPositions, send],
@@ -492,7 +495,10 @@ export function useViewerWorkspace(options: UseViewerWorkspaceOptions) {
 
   return {
     model,
-    fileActivation,
+    activeReportId: model.activeReportId,
+    activateReport,
+    deactivateReport,
+    isReportActive,
     tabs: model.tabs,
     activeId: model.activeId,
     activeTab: selectActiveTab(model),

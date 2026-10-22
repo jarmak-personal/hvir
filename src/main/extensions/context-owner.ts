@@ -28,27 +28,30 @@ export class ExtensionContextOwner {
   }
 
   sessions(owner: RendererOwner): readonly ExtensionSessionContext[] {
+    return boundedExtensionSessions(this.liveSessions(owner))
+  }
+
+  /** Metadata limits apply to presentation, never to exact live identity or CLI paging. */
+  private liveSessions(owner?: RendererOwner): readonly ExtensionSessionContext[] {
     const titles = new Map(
       this.sources.sessions.observationSnapshot().map((entry) => [entry.id, entry.title]),
     )
-    return boundedExtensionSessions(
-      this.sources.ptys
-        .observationSnapshot()
-        .flatMap(({ info }) => {
-          if (info.ownerId !== owner.id || info.ownerGeneration !== owner.generation)
-            return []
-          const workspace = this.workspaceForRoot(info.workspaceRoot)
-          if (!workspace) return []
-          return [
-            {
-              id: sessionIdentity(info),
-              title: (titles.get(info.id) ?? 'Terminal').slice(0, 80),
-              workspace: workspace.value,
-            },
-          ]
-        })
-        .slice(0, EXTENSION_LIMITS.sessions),
-    )
+    return this.sources.ptys.observationSnapshot().flatMap(({ info }) => {
+      if (
+        owner &&
+        (info.ownerId !== owner.id || info.ownerGeneration !== owner.generation)
+      )
+        return []
+      const workspace = this.workspaceForRoot(info.workspaceRoot)
+      if (!workspace) return []
+      return [
+        {
+          id: sessionIdentity(info),
+          title: (titles.get(info.id) ?? 'Terminal').slice(0, 80),
+          workspace: workspace.value,
+        },
+      ]
+    })
   }
 
   terminalIds(owner: RendererOwner): Readonly<Record<string, string>> {
@@ -81,15 +84,7 @@ export class ExtensionContextOwner {
   }
 
   sessionsForAgents(): readonly ExtensionSessionContext[] {
-    const owners = new Map<string, RendererOwner>()
-    for (const { info } of this.sources.ptys.observationSnapshot())
-      owners.set(`${info.ownerId}:${info.ownerGeneration}`, {
-        id: info.ownerId,
-        generation: info.ownerGeneration,
-      })
-    return boundedExtensionSessions(
-      [...owners.values()].flatMap((owner) => this.sessions(owner)),
-    )
+    return this.liveSessions()
   }
 
   /** Exact live target lookup supplies a presentation qualifier, never an agent credential. */
@@ -131,7 +126,7 @@ export class ExtensionContextOwner {
     if (request.workspaceId && !workspace)
       throw new Error('Workspace context is unavailable')
     const session = request.sessionId
-      ? this.sessions(owner).find((entry) => entry.id === request.sessionId)
+      ? this.liveSessions(owner).find((entry) => entry.id === request.sessionId)
       : undefined
     if (
       request.sessionId &&
@@ -157,7 +152,7 @@ export class ExtensionContextOwner {
             return false
         }
         if (session)
-          return this.sessions(owner).some(
+          return this.liveSessions(owner).some(
             (entry) =>
               entry.id === session.id && entry.workspace.id === session.workspace.id,
           )

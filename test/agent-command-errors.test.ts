@@ -94,6 +94,47 @@ function fixture() {
 }
 
 describe('agent command failure classification', () => {
+  it('rejects an overlong report title as invalid before publication while retaining boundary titles', async () => {
+    const f = fixture()
+    try {
+      await f.access.configure({ enabled: true, confirmDestructive: false })
+      const title = 'x'.repeat(80)
+      const invalid = await f.run([
+        'report',
+        '--workspace',
+        'workspace',
+        '--title',
+        title + 'x',
+      ])
+      expect(invalid.exitStatus).toBe(64)
+      expect(JSON.parse(invalid.stdout)).toMatchObject({
+        ok: false,
+        error: { code: 'invalid-command' },
+      })
+      expect(f.ports.reports.snapshot()).toEqual([])
+      const accepted = await f.run([
+        'report',
+        '--workspace',
+        'workspace',
+        '--title',
+        title,
+      ])
+      expect(accepted.exitStatus).toBe(0)
+      expect(f.ports.reports.snapshot()).toEqual([expect.objectContaining({ title })])
+      expect(() =>
+        f.ports.reports.publish('workspace', f.root, title + 'x', 'text', ''),
+      ).toThrow('Invalid report presentation')
+      expect(f.ports.reports.snapshot()).toHaveLength(1)
+      await f.access.configure({ enabled: false, confirmDestructive: false })
+      expect(
+        (await f.run(['report', '--workspace', 'workspace', '--title', title]))
+          .exitStatus,
+      ).toBe(69)
+    } finally {
+      f.dispose()
+    }
+  })
+
   it.each(
     [
       '{',

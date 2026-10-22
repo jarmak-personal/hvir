@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, type ReactElement } from 'react'
 import { useAgentReportSummaries } from './use-agent-reports'
 import { AgentReportView } from './AgentReportView'
 import { hostPathEquals, type HostPath } from '../../../shared'
@@ -48,31 +48,18 @@ export function WorkbenchViewer({
   readonly visible: boolean
 }): ReactElement {
   const allReports = useAgentReportSummaries()
-  const [selectedReport, setSelectedReport] = useState<{
-    readonly id: string
-    readonly fileActivation: number
-  }>()
   const reports = allReports.filter((report) => hostPathEquals(report.root, root))
-  const activeReport =
-    selectedReport?.fileActivation === viewer.fileActivation
-      ? reports.find((report) => report.id === selectedReport.id)
-      : undefined
-  useEffect(() => setSelectedReport(undefined), [root.hostId, root.path])
+  const { activeReportId, deactivateReport } = viewer
+  const activeReport = reports.find((report) => report.id === activeReportId)
   useEffect(() => {
-    const dispose = window.hvir.on('agent:document-opened', (document) => {
-      if (hostPathEquals(document.root, root)) setSelectedReport(undefined)
-    })
-    return () => {
-      void dispose()
-    }
-  }, [root])
+    if (activeReportId && !activeReport) deactivateReport()
+  }, [activeReportId, activeReport, deactivateReport])
   const activateReport = (id: string): void => {
     extensions.deactivate()
     web.setActive(false)
     git.deactivateGraph()
-    setSelectedReport({ id, fileActivation: viewer.fileActivation })
+    viewer.activateReport(id)
   }
-  const deactivateReport = (): void => setSelectedReport(undefined)
   const {
     primaryTabs,
     secondaryTabs,
@@ -170,10 +157,7 @@ export function WorkbenchViewer({
             ? undefined
             : paneTab?.id
         }
-        onActivate={(id) => {
-          deactivateReport()
-          activateTab(id, pane)
-        }}
+        onActivate={(id) => activateTab(id, pane)}
         onClose={closeTab}
         onPin={pinTab}
         onReorder={reorderViewerTabs}
@@ -183,10 +167,7 @@ export function WorkbenchViewer({
         onClosePane={pane === 'secondary' ? closeViewerSplit : undefined}
         graphOpen={graphPane && gitGraphOpen}
         graphActive={graphPane && gitGraphActive}
-        onActivateGraph={() => {
-          deactivateReport()
-          activateGitGraph()
-        }}
+        onActivateGraph={activateGitGraph}
         onCloseGraph={closeGitGraph}
         webTabs={
           pane === 'primary'
@@ -194,19 +175,13 @@ export function WorkbenchViewer({
             : undefined
         }
         activeWebId={pane === 'primary' && webViewActive ? activeWebViewId : undefined}
-        onActivateWeb={(id) => {
-          deactivateReport()
-          activateWebView(id)
-        }}
+        onActivateWeb={activateWebView}
         onCloseWeb={closeWebView}
         contributedTabs={pane === 'primary' ? extensions.views : undefined}
         activeContributionId={
           pane === 'primary' && extensions.active ? extensions.activeId : undefined
         }
-        onActivateContribution={(id) => {
-          deactivateReport()
-          extensions.activate(id)
-        }}
+        onActivateContribution={extensions.activate}
         onCloseContribution={extensions.close}
       />
       {graphPane && gitGraphOpen ? (
@@ -251,10 +226,7 @@ export function WorkbenchViewer({
           key={`${activeReport.id}:${activeReport.version}`}
           report={activeReport}
           visible={visible}
-          onOpenPath={(path) => {
-            deactivateReport()
-            openFile(path, true)
-          }}
+          onOpenPath={(path) => openFile(path, true)}
         />
       ) : null}
       <div

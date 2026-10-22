@@ -140,7 +140,7 @@ export const AGENT_COMMANDS = [
     summary: 'Publish, replace or withdraw a workspace report.',
     flags: [...targetFlags, 'title', 'format', 'handle', 'stdin', 'close'],
     access: 'agent access',
-    input: 'Bounded text or Markdown on stdin; exact handle for replacement or --close',
+    input: `Bounded text or Markdown on stdin; title at most ${AGENT_LIMITS.reportTitleChars} characters; exact handle for replacement or --close`,
     output: 'Opaque report ID/handle, or exact report withdrawal result',
     example:
       'printf "# Result\\n" | hvir-agent report --title Result --format markdown --stdin',
@@ -224,6 +224,10 @@ export function parseAgentCommand(argv: readonly string[]): ParsedAgentCommand {
   for (const key of ['session', 'extension', 'action', 'view', 'handle'])
     if (flags[key] && flags[key].length > 128)
       throw new Error('Target identity is too long')
+  if (flags['title'] && flags['title'].length > AGENT_LIMITS.reportTitleChars)
+    throw new Error(
+      `Report title must be at most ${AGENT_LIMITS.reportTitleChars} characters`,
+    )
   if (name === 'report' && flags['close']) {
     if (!flags['handle']) throw new Error('Closing a report requires --handle HANDLE')
     if (['title', 'format', 'stdin'].some((key) => Object.hasOwn(flags, key)))

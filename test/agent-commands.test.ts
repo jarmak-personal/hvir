@@ -69,6 +69,7 @@ describe('installed agent contract discovery', () => {
     ) as { reference: { flags: string[]; input: string } }
     expect(reference.reference.flags).toContain('close')
     expect(reference.reference.input).toContain('--close')
+    expect(reference.reference.input).toContain('title at most 80 characters')
   })
   it('keeps top-level help progressive and returns focused installed reference offline', () => {
     const help = staticAgentReference(parseAgentCommand([]), readAgentGuide)!
