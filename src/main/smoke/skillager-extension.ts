@@ -1,3 +1,4 @@
+import { verifySkillagerSourceBrowsing } from './skillager-source-browsing'
 import { skillagerManagementControls } from './skillager-management-controls'
 import { captureExtensionDecision } from './extension-decision-visuals'
 import { inspectSkillagerSearch, submitSkillagerSearch } from './skillager-search'
@@ -106,11 +107,11 @@ export async function verifySkillagerExtension(
       () =>
         inspect(
           guest,
-          "document.querySelectorAll('#skills [data-skill-select]').length===100 && document.getElementById('state').dataset.state==='ready'",
+          "document.querySelectorAll('#skills [data-source-toggle]').length>0 && document.querySelectorAll('#skills [data-skill-select]').length===0 && document.getElementById('state').dataset.state==='ready'",
         ) as Promise<boolean>,
       diagnostic
-        ? 'current first 100 public library observations'
-        : 'current first 100 of genuine 5000',
+        ? 'current public library source summaries'
+        : 'collapsed source groups for genuine 5000',
     )
   } finally {
     try {
@@ -230,12 +231,6 @@ export async function verifySkillagerExtension(
     console.log('HVIR_SMOKE_OK')
     return true
   }
-  await captureExtensionVisuals(win, guest, host, 'library', {
-    ...controls,
-    select: () => controls.click('Skillager library'),
-  })
-  const observed = new Set<string>()
-  let pages = 0
   const detailIds = () =>
     extensions
       .guests!.snapshot(owner)
@@ -313,37 +308,39 @@ export async function verifySkillagerExtension(
       observing.push(reader)
     }
     baseline = await Promise.all(readers.map(readerFacts))
-    for (;;) {
-      const entries = (await inspect(
-        guest,
-        "[...document.querySelectorAll('#skills [data-skill-select]')].map(row=>row.dataset.id)",
-      )) as string[]
-      entries.forEach((id) => observed.add(id))
-      pages++
-      if (pages === 1 || pages % 10 === 0)
-        console.log(
-          `[smoke] Skillager evidence: ${pages} public pages/${observed.size} identities`,
-        )
-      if (diagnostic) break
-      if ((await inspect(guest, "document.getElementById('next').disabled")) as boolean)
-        break
-      const first = entries[0]
-      await inspect(guest, "document.getElementById('next').click()")
-      await ready(
-        guest,
-        () =>
-          inspect(
+    await verifySkillagerSourceBrowsing(
+      guest,
+      {
+        inspect: (expression) => inspect(guest, expression),
+        ready: (predicate, label) => ready(guest, predicate, label),
+        metadataOnly,
+        capture: (expanded) =>
+          captureExtensionVisuals(
+            win,
             guest,
-            `document.querySelector('#skills [data-skill-select]')?.dataset.id !== ${JSON.stringify(first)} && document.getElementById('state').dataset.state==='ready'`,
-          ) as Promise<boolean>,
-        `public cursor page ${pages + 1}`,
-      )
-      if (pages > 50) throw new Error('Public library cursor did not terminate')
-    }
-    if (!diagnostic && (observed.size !== 5000 || pages !== 50))
-      throw new Error(
-        `Genuine library traversal yielded ${observed.size} identities on ${pages} pages`,
-      )
+            host,
+            expanded ? 'library-source-expanded' : 'library-sources',
+            {
+              ...controls,
+              select: () => controls.click('Skillager library'),
+              narrowScale: '1.5',
+              painted: async () => {
+                await ready(
+                  guest,
+                  async () =>
+                    (await inspect(
+                      guest,
+                      "document.getElementById('state').dataset.state==='ready' && !document.querySelector('#skills [aria-busy=true]')",
+                    )) === true,
+                  'source metadata settled for appearance capture',
+                )
+                return { sourceMetadataReady: true }
+              },
+            },
+          ),
+      },
+      diagnostic ? Number(process.env.HVIR_SKILLAGER_EVIDENCE_SKILLS ?? '5000') : 5000,
+    )
     await metadataOnly('metadata traversal')
     await inspect(
       guest,
@@ -378,7 +375,7 @@ export async function verifySkillagerExtension(
       'Metadata reader observation cleanup failed',
     )
   if (metadataFailure) throw metadataFailure
-  if (!process.env.HVIR_EXTENSION_VISUAL_DIRECTORY) {
+  {
     await inspect(guest, "document.getElementById('query').value='catalogneedle';")
     for (const mode of ['button', 'enter'] as const) {
       await submitSkillagerSearch(win, guest, searchPorts, mode)
@@ -708,12 +705,30 @@ export async function verifySkillagerExtension(
       throw error
     }
   }
-  await captureExtensionVisuals(win, detail, host, 'instructions', {
-    ...controls,
-    select: async () => {
-      await controls.click('Skillager library')
+  await captureExtensionVisuals(
+    win,
+    detail,
+    host,
+    diagnostic ? 'source-search' : 'instructions',
+    {
+      ...controls,
+      painted: async () => {
+        await ready(
+          detail,
+          async () =>
+            (await inspect(
+              detail,
+              "document.getElementById('state').dataset.state==='ready' && document.getElementById('task-options').checkVisibility()",
+            )) === true,
+          'current selected task settled for appearance capture',
+        )
+        return { selectedTaskReady: true }
+      },
+      select: async () => {
+        await controls.click('Skillager library')
+      },
     },
-  })
+  )
   await inspect(detail, "document.getElementById('source-mode').click()")
   const before = text
   await controls.click('Open settings')
@@ -758,7 +773,7 @@ export async function verifySkillagerExtension(
   if (!archive)
     await verifySkillagerNavigationFallback(win, host, directory, navigationControls)
   console.log(
-    `[smoke] Skillager ${diagnostic ? 'reader diagnostic (full traversal skipped)' : 'full installed-CLI walkthrough'} public schemas, ${observed.size} genuine library identities/${pages} cursor pages, metadata-only focus, ${process.env.HVIR_EXTENSION_VISUAL_DIRECTORY ? 'visual-only pending-list selection (ranked search skipped)' : 'ranked search'}, explicit current read, utility-process Markdown, ordinary guest isolation and revoke OK`,
+    `[smoke] Skillager ${diagnostic ? 'diagnostic' : '5000-skill installed-CLI walkthrough'} public source groups, bounded source paging, metadata-only focus, ranked search, explicit current read, utility-process Markdown, ordinary guest isolation and revoke OK`,
   )
   console.log('HVIR_SMOKE_OK')
   return true
@@ -924,8 +939,8 @@ export async function verifySkillagerExtension(
         if(value.nextOffset!==null)return;
         try{
           const result=JSON.parse(page);
-          if(result.schema==='skillager.list.v1'&&result.scope==='library'&&Array.isArray(result.skills))
-            globalThis.__hvirFreshLibrary={received:true,overflow:false,count:result.skills.length,first:result.skills[0]?.id??null};
+          if(result.schema==='skillager.library-groups.v1'&&result.scope==='library'&&Array.isArray(result.groups))
+            globalThis.__hvirFreshLibrary={received:true,overflow:false,count:result.groups.length,first:result.groups[0]?.id??null};
         }catch{ /* Other public output is not a completed library list. */ }
         page='';
       });
@@ -934,14 +949,15 @@ export async function verifySkillagerExtension(
     let cleanupError: unknown
     try {
       await controls.click('Skillager library')
+      await inspect(guest, "document.getElementById('refresh').click()")
       await ready(
         guest,
         async () =>
           (await inspect(
             guest,
             `(() => {
-          const receipt=globalThis.__hvirFreshLibrary, rows=[...document.querySelectorAll('#skills [data-skill-select]')];
-          return receipt.received&&!receipt.overflow&&receipt.count===rows.length&&receipt.first===rows[0]?.dataset.id&&document.getElementById('state').dataset.state==='ready';
+          const receipt=globalThis.__hvirFreshLibrary, rows=[...document.querySelectorAll('#skills [data-source-toggle]')];
+          return receipt.received&&!receipt.overflow&&receipt.count===rows.length&&receipt.first===rows[0]?.dataset.sourceToggle&&document.getElementById('state').dataset.state==='ready';
         })()`,
           )) === true,
         'fresh complete public library result after project navigation',

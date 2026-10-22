@@ -44,24 +44,31 @@ export function bindSkillList(document, list, ports) {
   document.body.append(menu)
   let items = [],
     current,
+    selectedIdentity,
+    exactSelection = false,
     opened,
     disposed = false
   const identity = (item) => JSON.stringify(item)
   const actionsFor = (item) => skillRowActions(item, ports.workspace?.())
   const byId = (id) => items.find((item) => item.id === id)
-  const rowFor = (item) => [...list.children].find((node) => node.dataset.id === item?.id)
-  function select(item, focus = false, action = false) {
+  const rowNodes = () => [...list.querySelectorAll('[data-skill-occurrence]')]
+  const rowFor = (item) => rowNodes().find((node) => node.dataset.id === item?.id)
+  function select(item, { focus = false, action = false, choose = false } = {}) {
     if (!item) return
     current = item.id
-    for (const row of list.children) {
+    if (!exactSelection || choose) selectedIdentity = item.id
+    for (const row of rowNodes()) {
       const selected = row.dataset.id === current,
         button = row.querySelector('[data-skill-select]'),
         more = row.querySelector('[data-skill-actions]')
-      button.setAttribute('aria-current', String(selected))
+      button.setAttribute(
+        'aria-current',
+        String(row.dataset.id === (exactSelection ? selectedIdentity : current)),
+      )
       button.tabIndex = selected ? 0 : -1
       if (more) more.tabIndex = selected ? 0 : -1
     }
-    ports.selected(item)
+    if (!exactSelection || choose) ports.selected(item)
     if (focus)
       rowFor(item)
         ?.querySelector(action ? '[data-skill-actions]' : '[data-skill-select]')
@@ -131,7 +138,7 @@ export function bindSkillList(document, list, ports) {
       if (more) open(item, more)
       else if (event.target.closest('[data-skill-select]')) {
         close()
-        select(item)
+        select(item, { choose: true })
         ports.choose(item)
       }
     },
@@ -180,11 +187,10 @@ export function bindSkillList(document, list, ports) {
         return
       } else return
       event.preventDefault()
-      select(
-        target,
-        true,
-        action && !!rowFor(target)?.querySelector('[data-skill-actions]'),
-      )
+      select(target, {
+        focus: true,
+        action: action && !!rowFor(target)?.querySelector('[data-skill-actions]'),
+      })
     },
     { signal },
   )
@@ -249,8 +255,10 @@ export function bindSkillList(document, list, ports) {
   return {
     close,
     focusCurrent,
-    render(next, selected) {
+    render(next, selected, arrange, preserveSelection = false) {
       if (disposed) return
+      exactSelection = preserveSelection
+      selectedIdentity = selected
       const retired = opened && !next.some((item) => identity(item) === opened.key),
         restore = retired && menu.contains(document.activeElement),
         previousIndex = items.findIndex((item) => item.id === current)
@@ -265,51 +273,54 @@ export function bindSkillList(document, list, ports) {
         : next.some((item) => item.id === current)
           ? current
           : next[Math.max(0, Math.min(previousIndex, next.length - 1))]?.id
-      list.replaceChildren(
-        ...next.map((item) => {
-          const row = document.createElement('div'),
-            button = document.createElement('button'),
-            name = document.createElement('strong'),
-            description = document.createElement('span'),
-            meta = document.createElement('small')
-          row.className = 'skill-list-row'
-          row.dataset.skillOccurrence = ''
-          row.dataset.id = item.id
-          row.setAttribute('role', 'listitem')
-          button.type = 'button'
-          button.className = 'hvir-button hvir-row hvir-focus'
-          button.dataset.variant = 'selectable'
-          button.dataset.skillSelect = ''
-          button.dataset.id = item.id
-          button.dataset.sourcePath = item.path
-          button.dataset.source = item.source
-          button.tabIndex = item.id === current ? 0 : -1
-          button.setAttribute('aria-current', String(item.id === current))
-          name.textContent = item.name
-          description.textContent = item.description || item.kind
-          meta.className = 'hvir-meta'
-          meta.textContent =
-            item.source === 'project'
-              ? `${item.kind.replace('Installed ', '')}${item.exposure?.agent ? ` · ${item.exposure.agent}` : ''}`
-              : ''
-          button.append(name, description, meta)
-          row.append(button)
-          if (actionsFor(item).length) {
-            const more = document.createElement('button')
-            more.type = 'button'
-            more.className = 'hvir-button skill-row-more'
-            more.dataset.skillActions = ''
-            more.textContent = '…'
-            more.setAttribute('aria-label', `Actions for ${item.name}`)
-            more.setAttribute('aria-haspopup', 'menu')
-            more.setAttribute('aria-controls', menu.id)
-            more.setAttribute('aria-expanded', 'false')
-            more.tabIndex = item.id === current ? 0 : -1
-            row.append(more)
-          }
-          return row
-        }),
-      )
+      const rendered = next.map((item) => {
+        const row = document.createElement('div'),
+          button = document.createElement('button'),
+          name = document.createElement('strong'),
+          description = document.createElement('span'),
+          meta = document.createElement('small')
+        row.className = 'skill-list-row'
+        row.dataset.skillOccurrence = ''
+        row.dataset.id = item.id
+        row.setAttribute('role', 'listitem')
+        button.type = 'button'
+        button.className = 'hvir-button hvir-row hvir-focus'
+        button.dataset.variant = 'selectable'
+        button.dataset.skillSelect = ''
+        button.dataset.id = item.id
+        button.dataset.sourcePath = item.path
+        button.dataset.source = item.source
+        button.tabIndex = item.id === current ? 0 : -1
+        button.setAttribute(
+          'aria-current',
+          String(item.id === (exactSelection ? selected : current)),
+        )
+        name.textContent = item.name
+        description.textContent = item.description || item.kind
+        meta.className = 'hvir-meta'
+        meta.textContent =
+          item.source === 'project'
+            ? `${item.kind.replace('Installed ', '')}${item.exposure?.agent ? ` · ${item.exposure.agent}` : ''}`
+            : (item.sourceGroup?.label ?? '')
+        if (item.sourceGroup?.detail) meta.title = item.sourceGroup.detail
+        button.append(name, description, meta)
+        row.append(button)
+        if (actionsFor(item).length) {
+          const more = document.createElement('button')
+          more.type = 'button'
+          more.className = 'hvir-button skill-row-more'
+          more.dataset.skillActions = ''
+          more.textContent = '…'
+          more.setAttribute('aria-label', `Actions for ${item.name}`)
+          more.setAttribute('aria-haspopup', 'menu')
+          more.setAttribute('aria-controls', menu.id)
+          more.setAttribute('aria-expanded', 'false')
+          more.tabIndex = item.id === current ? 0 : -1
+          row.append(more)
+        }
+        return row
+      })
+      list.replaceChildren(...(arrange ? arrange(rendered) : rendered))
       list.scrollTop = scroll
       if (opened) {
         const row = rowFor(opened.item)

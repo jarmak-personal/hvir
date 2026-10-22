@@ -1,0 +1,58 @@
+/* Source disclosures share occurrence controls without making expansion a selection. */
+.library-source {
+  flex-shrink: 0;
+  min-width: 0;
+}
+#skills .library-source-toggle {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 5px;
+  text-align: left;
+  border-color: transparent;
+  background: transparent;
+}
+.library-source-toggle::before {
+  content: '▸';
+  color: var(--text-muted);
+}
+.library-source-toggle[aria-expanded='true']::before {
+  content: '▾';
+}
+#skills .library-source-toggle span {
+  opacity: 1;
+  overflow-wrap: anywhere;
+}
+#skills .library-source-toggle small {
+  margin: 0;
+  font-weight: normal;
+}
+.library-source-content {
+  display: grid;
+  gap: 3px;
+  padding-left: 10px;
+}
+.library-source-state {
+  margin: 4px 5px;
+  overflow-wrap: anywhere;
+}
+.library-source-pages {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 4px 0;
+}
+.library-source-pages button,
+.library-source-content > button {
+  border-color: transparent;
+  background: transparent;
+  padding: 4px;
+}
+
+.library-source-detail {
+  grid-column: 2 / -1;
+  overflow-wrap: anywhere;
+}

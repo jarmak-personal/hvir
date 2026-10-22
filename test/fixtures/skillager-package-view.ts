@@ -27,6 +27,7 @@ export function createSkillagerPackageView(view = 'library') {
     occurrencePath = '/library/search/SKILL.md',
     supported = true,
     count = 3,
+    libraryDiscoveryErrors = 0,
     initialization: unknown,
     hold = false,
     holdOn: string | undefined,
@@ -41,6 +42,7 @@ export function createSkillagerPackageView(view = 'library') {
     version = '0.9.3',
     projectInventory: unknown,
     projectImportInventory: unknown,
+    sourceGroupsSupported = true,
     projectScopeSupported = true,
     projectQuerySupported = true,
     unavailableProject = false,
@@ -162,6 +164,13 @@ export function createSkillagerPackageView(view = 'library') {
           outputs.get(receipt)!,
           errors.get(receipt),
         )
+      } else if (!sourceGroupsSupported && args.includes('--group-by')) {
+        const receipt = String(++serial)
+        value = native.complete(
+          { outcome: 'completed', code: 2, receipt },
+          '',
+          'skillager: error: unrecognized arguments: --group-by source',
+        )
       } else if (fail && (!failOn || args[0] === failOn)) {
         fail = false
         value = { outcome: 'failed', code: 1 }
@@ -194,7 +203,20 @@ export function createSkillagerPackageView(view = 'library') {
       } else {
         const receipt = String(++serial),
           cursor = args[args.indexOf('--cursor') + 1]
-        const index = args.includes('--cursor') && cursor ? Number(cursor) : 0
+        const sourceId = args.includes('--source-group')
+          ? args[args.indexOf('--source-group') + 1]
+          : undefined
+        const index = sourceId
+          ? sourceId.charCodeAt(7) - 97
+          : args.includes('--cursor') && cursor
+            ? Number(cursor)
+            : 0
+        const sourceGroup = {
+          id: `source:${String.fromCharCode(97 + index).repeat(64)}`,
+          label: `Page ${index}`,
+          kind: 'project',
+          detail: `/sources/${index}`,
+        }
         const text =
           args[0] === '--version'
             ? `skillager ${version}`
@@ -219,6 +241,7 @@ export function createSkillagerPackageView(view = 'library') {
                           results: [
                             {
                               id: 'lib/search',
+                              source_group: sourceGroup,
                               search: {
                                 ...(canonicalIdentifier
                                   ? {
@@ -252,27 +275,41 @@ export function createSkillagerPackageView(view = 'library') {
                             skills: [],
                             next_cursor: null,
                           })
-                        : args[0] === 'review'
-                          ? { selected: [], action: { changed: [] } }
-                          : args[0] === 'expose'
-                            ? { schema: 'skillager.exposures.v1', exposures: [] }
-                            : {
-                                schema: 'skillager.list.v1',
-                                scope: 'library',
-                                skills: count
-                                  ? [
-                                      {
-                                        id: `lib/${index}`,
-                                        name: `Page ${index}`,
-                                        description: '',
-                                        status: 'pending',
-                                        skill_file: `${root}/${index}/SKILL.md`,
-                                      },
-                                    ]
-                                  : [],
-                                next_cursor:
-                                  count && index < 2 ? String(index + 1) : null,
-                              },
+                        : args.includes('--group-by')
+                          ? {
+                              schema: 'skillager.library-groups.v1',
+                              scope: 'library',
+                              groups: count ? [{ ...sourceGroup, count: 1 }] : [],
+                              total_skills: count,
+                              total_groups: count,
+                              discovery_error_count: libraryDiscoveryErrors,
+                              next_cursor: count && index < 2 ? String(index + 1) : null,
+                            }
+                          : args[0] === 'review'
+                            ? { selected: [], action: { changed: [] } }
+                            : args[0] === 'expose'
+                              ? { schema: 'skillager.exposures.v1', exposures: [] }
+                              : {
+                                  schema: 'skillager.list.v1',
+                                  scope: 'library',
+                                  total_skills: sourceId ? 1 : count,
+                                  skills: count
+                                    ? [
+                                        {
+                                          id: `lib/${index}`,
+                                          source_group: sourceGroup,
+                                          name: `Page ${index}`,
+                                          description: '',
+                                          status: 'pending',
+                                          skill_file: `${root}/${index}/SKILL.md`,
+                                        },
+                                      ]
+                                    : [],
+                                  next_cursor:
+                                    !sourceId && count && index < 2
+                                      ? String(index + 1)
+                                      : null,
+                                },
               )
         outputs.set(receipt, text)
         value = native.complete(
@@ -369,6 +406,12 @@ export function createSkillagerPackageView(view = 'library') {
     unavailableProject: () => {
       unavailableProject = true
     },
+    libraryDiscoveryErrors: (count: number) => {
+      libraryDiscoveryErrors = count
+    },
+    unsupportedSourceGroups: () => {
+      sourceGroupsSupported = false
+    },
     unsupportedProjectQuery: () => {
       projectQuerySupported = false
     },
@@ -380,6 +423,14 @@ export function createSkillagerPackageView(view = 'library') {
     trashResult: (value: unknown, error?: string) => finishTrash?.(value, error),
     button,
     flush,
+    expand: async () => {
+      document
+        .querySelector<HTMLButtonElement>(
+          '#skills [data-source-toggle][aria-expanded=false]',
+        )
+        ?.click()
+      await flush()
+    },
     calls,
     unapproved: (reason: 'unapproved' | 'executable-changed' = 'unapproved') => {
       unapproved = reason

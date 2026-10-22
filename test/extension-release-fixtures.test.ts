@@ -101,6 +101,7 @@ it('builds deterministic ready-to-install Skillager ZIP bytes through the ordina
       'detail.html',
       'guest-ui.js',
       'hvir-extension.json',
+      'library-source.css',
       'library.html',
       'management.html',
       'operations.js',

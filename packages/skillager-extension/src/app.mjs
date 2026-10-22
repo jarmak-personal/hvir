@@ -3,7 +3,6 @@ import { guestClient } from './bridge.mjs'
 import { catalogCli, isStaleCatalogCursor } from './catalog-cli.mjs'
 import {
   libraryStatus,
-  libraryPage,
   searchPage,
   searchArgs,
   projectInventory,
@@ -17,6 +16,8 @@ import {
   sameCurrentLibrary,
 } from './library-first-use.mjs'
 import { bindSkillReader } from './detail-view.mjs'
+import { libraryGroups, libraryGroupingFailure } from './library-source-catalog.mjs'
+import { bindLibrarySources } from './library-source-view.mjs'
 import { bindSkillList } from './skill-list-view.mjs'
 import { bindBrowserTaskSheet } from './browser-task-sheet.mjs'
 import { bindCommandMenus } from './command-menus.mjs'
@@ -192,8 +193,30 @@ const navigation = list
           .catch((error) => say(error.message, 'error')),
     })
   : undefined
-function rows(page) {
+const sources = list
+  ? bindLibrarySources(document, list, navigation, client, {
+      context: () => context,
+      available: () =>
+        available() && browserScope === 'library' && !(pageRequest?.query ?? query),
+      selected: () => selectedRow,
+    })
+  : undefined
+function rows(page, observe = true) {
   lastPage = page
+  if (page.groups) {
+    sources?.render(page, library, observe)
+    pagingControls()
+    if (element('observation-details')) element('observation-details').textContent = ''
+    say(
+      page.total
+        ? `${page.total} ${page.total === 1 ? 'skill' : 'skills'} · ${page.totalGroups} ${page.totalGroups === 1 ? 'source' : 'sources'}${previous.length || page.next ? ` · Page ${previous.length + 1}` : ''}${page.errors ? ' · Some skills could not be listed' : ''}`
+        : page.errors
+          ? 'Library skills could not be listed. Try refreshing.'
+          : 'Your personal library is empty.',
+      page.errors ? 'partial' : page.total ? 'ready' : 'empty-library',
+    )
+    return
+  }
   navigation?.render(page.rows, selectedRow?.id)
   pagingControls()
   if (element('observation-details'))
@@ -257,6 +280,7 @@ function requestRefresh(
     ...pageRequest,
     ...target,
   }
+  if (browserScope !== 'library' || pageRequest.query) sources?.pause()
   // A newer page intent cannot discard a refresh whose status has not settled.
   libraryStatusNeeded ||= observeLibrary
   pagingControls()
@@ -300,6 +324,7 @@ async function refresh() {
         const observed = libraryStatus(await cli(['library', 'status', '--json']))
         if (!available() || generation !== revision) return
         if (library && (library.id !== observed.id || library.root !== observed.root)) {
+          sources?.pause()
           selectedRow = undefined
           lastPage = undefined
           list?.replaceChildren()
@@ -317,6 +342,7 @@ async function refresh() {
       setupNeeded = false
       refreshConnectionAvailability()
       if (!library.initialized) {
+        sources?.pause()
         observedSuccessfully = true
         lastPage = undefined
         list?.replaceChildren()
@@ -356,7 +382,7 @@ async function refresh() {
         ),
       )
     } else {
-      page = libraryPage(
+      page = libraryGroups(
         await cli([
           'list',
           '--scope',
@@ -364,6 +390,8 @@ async function refresh() {
           '--json',
           '--limit',
           '100',
+          '--group-by',
+          'source',
           ...(target.cursor ? ['--cursor', target.cursor] : []),
         ]),
       )
@@ -393,7 +421,9 @@ async function refresh() {
         return
       }
       const failure = firstUseFailure(
-        browserScope === 'project' ? projectInventoryFailure(error) : error,
+        browserScope === 'project'
+          ? projectInventoryFailure(error)
+          : libraryGroupingFailure(error),
         !!lastPage,
         failureDestination,
         connectAvailable &&
@@ -436,6 +466,7 @@ function changeScope(next) {
   )
     return
   navigation?.close()
+  sources?.pause()
   sheet?.close(false)
   scopes.set(browserScope, {
     query,
@@ -466,7 +497,7 @@ function changeScope(next) {
   finishConnection()
   setupNeeded = false
   list.replaceChildren()
-  if (lastPage) rows(lastPage)
+  if (lastPage) rows(lastPage, false)
   list.scrollTop = saved.scroll ?? 0
   if (selectedRow) void choose(selectedRow).catch((error) => say(error.message, 'error'))
   requestRefresh()
@@ -665,7 +696,12 @@ client.listen((message) => {
     const changed =
       JSON.stringify(message.context.workspace) !== JSON.stringify(context.workspace)
     context = message.context
-    if (changed || !context.visible) navigation?.close()
+    if (changed || !context.visible) {
+      navigation?.close()
+      sources?.pause()
+    }
+    if (!changed && renewed && browserScope === 'library' && lastPage?.groups && library)
+      sources?.render(lastPage, library, false)
     if (changed) sheet?.contextChanged()
     if (view === 'project' && changed) {
       scopes.clear()
@@ -714,6 +750,7 @@ function dispose() {
   reader?.dispose()
   generation++
   window.clearTimeout(timer)
+  sources?.dispose()
   navigation?.dispose()
   releasePresentation()
   client.dispose()
@@ -722,6 +759,7 @@ client.signal.addEventListener(
   'abort',
   () => {
     window.clearTimeout(timer)
+    sources?.dispose()
     navigation?.dispose()
     releasePresentation()
     refreshManagementAvailability()

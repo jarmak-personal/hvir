@@ -210,11 +210,26 @@ export async function verifySkillagerProjectConnection(
     await controls.ready(
       async () =>
         (await inspect(
-          "document.getElementById('scope-library').getAttribute('aria-pressed')==='true' && document.getElementById('state').dataset.state==='ready' && document.querySelectorAll('#skills [data-skill-select]').length>0",
+          "document.getElementById('scope-library').getAttribute('aria-pressed')==='true' && document.getElementById('state').dataset.state==='ready' && document.querySelectorAll('#skills [data-source-toggle]').length>0 && document.querySelectorAll('#skills [data-skill-select]').length===0",
         )) === true,
       'keyboard changes the project sidebar to its Library scope',
     )
     await captureBrowser('connected-library')
+    await inspect("document.querySelector('#skills [data-source-toggle]').click()")
+    await controls.ready(
+      async () =>
+        (await inspect(
+          "document.querySelector('#skills [data-source-toggle]').getAttribute('aria-expanded')==='true' && document.querySelectorAll('#skills [data-skill-select]').length>0",
+        )) === true,
+      'project Library scope expands one source without changing the reader',
+    )
+    if (controls.hasReadDecision())
+      throw new Error('Source expansion requested file access')
+    await controls.wait(
+      readerReady,
+      'project Library source expansion preserves current reading',
+    )
+    await captureBrowser('connected-library-expanded')
     await inspect("document.getElementById('scope-project').focus()")
     guest.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
     guest.sendInputEvent({ type: 'char', keyCode: '\r' })
@@ -340,8 +355,9 @@ export async function verifySkillagerProjectConnection(
       const scope=document.querySelector('.browser-scopes [aria-pressed=true]');
       const rows=[...document.querySelectorAll('#skills [data-skill-select]')];
       const menu=document.querySelector('.library-options > summary');
-      if(!scope?.checkVisibility()||!rows.length||!menu?.getAttribute('aria-label')||!menu.title)throw new Error('Connected browser lacks visible scope, results or discoverable options');
-      return {scope:scope.id,rows:rows.length,selected:rows.find(row=>row.getAttribute('aria-current')==='true')?.dataset.id??null,menu:menu.title,readerId:${(await controls.reader()).id}};
+      const groups=document.querySelectorAll('#skills [data-source-toggle]').length;
+      if(!scope?.checkVisibility()||!(scope.id==='scope-library'?groups:rows.length)||!menu?.getAttribute('aria-label')||!menu.title)throw new Error('Connected browser lacks visible scope, results or discoverable options');
+      return {scope:scope.id,rows:rows.length,groups,selected:rows.find(row=>row.getAttribute('aria-current')==='true')?.dataset.id??null,menu:menu.title,readerId:${(await controls.reader()).id}};
     })()`)
     await host.writeFile(
       joinHostPath(localPath(directory), `${name}.png`),

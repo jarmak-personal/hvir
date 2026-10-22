@@ -180,6 +180,7 @@ it.each(['root', 'UUID'] as const)(
     f.resume()
     await f.flush()
     expect(state().textContent).toContain('Page 1')
+    await f.expand()
     expect(
       document.querySelector<HTMLElement>('#skills [data-skill-select]')?.dataset
         .sourcePath,
