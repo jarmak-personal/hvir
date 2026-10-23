@@ -8,6 +8,7 @@ import {
 } from '../../shared'
 import type { ProjectHost } from '../project-host'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
+import { focusSmokeWindow } from './window-focus'
 import { verifyViewerFind } from './viewer-find'
 import {
   collectViewerPositionFailureState,
@@ -23,6 +24,9 @@ export async function verifyFocusedViewer(
   checkpoint: (checkpoint: SmokeFailureCheckpoint) => void,
 ): Promise<string> {
   try {
+    // Exercise activation before the animation-frame and CodeMirror viewport checks.
+    win.hide()
+    await focusSmokeWindow(win)
     const virtualized = await runViewerPositionOperation({
       awaiting: 'viewer-position-virtualization-awaiting',
       ready: 'viewer-position-virtualization-ready',
@@ -287,6 +291,8 @@ function delay(milliseconds: number): Promise<void> {
 function readViewerPositionState(win: BrowserWindow): Promise<unknown> {
   return win.webContents.executeJavaScript(`
     (() => ({
+      focused: document.hasFocus(),
+      visibility: document.visibilityState,
       activePath: document.querySelector('.viewer-tab.active .tab-main')
         ?.getAttribute('title'),
       activeMode: document.querySelector('.mode-control button.active')
@@ -742,10 +748,12 @@ export function verifySourceDiffPosition(
         throw new Error(message + ': ' + JSON.stringify(snapshot()));
       };
       const waitFor = async (test, message) => {
+        const deadline = Date.now() + 20_000;
         for (;;) {
           snapshot();
           const value = test();
           if (value) return value;
+          if (Date.now() >= deadline) fail(message);
           await new Promise((painted) => requestAnimationFrame(painted));
         }
       };

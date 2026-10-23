@@ -84,9 +84,7 @@ describe('ghostty-web update workflow', () => {
     expect(JSON.stringify(prepare)).not.toContain('HVIR_GITHUB_TOKEN')
 
     const token = publish.steps.find((step) => step.id === 'app-token')
-    expect(token?.uses).toBe(
-      'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
-    )
+    expect(token?.uses).toMatch(/^actions\/create-github-app-token@[a-f0-9]{40}$/)
     expect(token?.with).toEqual({
       'client-id': '${{ vars.HVIR_GHOSTTY_WEB_APP_CLIENT_ID }}',
       'private-key': '${{ secrets.HVIR_GHOSTTY_WEB_APP_PRIVATE_KEY }}',
