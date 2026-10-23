@@ -831,7 +831,8 @@ export class LocalHost implements ProjectHost {
     const start = (usePolling: boolean): import('chokidar').FSWatcher => {
       const watcher = chokidar.watch(roots, {
         ignoreInitial: true,
-        usePolling,
+        backend: usePolling ? 'polling' : 'auto',
+        atomic: true,
         depth: opts.recursive === false ? 0 : undefined,
         ignored:
           excludedNames.size === 0
