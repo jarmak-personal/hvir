@@ -592,8 +592,9 @@ local fixtures or an SSH label do not prove a real remote server.
 
 Declare and negotiate `terminal.start`. An exact current action requests it with
 `{connector: 'setup-tool', workspace: invocation.context.workspace.id, args: ['init']}` and
-`actionId: invocation.id`. The connector must be separately approved for the exact local
-workspace. Its canonical executable, configured prefix/arguments and non-secret environment
+`actionId: invocation.id`. The connector must be separately approved for the exact host
+that owns the selected workspace root, whether local or SSH. Its canonical executable,
+configured prefix/arguments and non-secret environment
 bind this one operation; native approval alone does not authorize a terminal launch.
 
 A main-owned human decision grants only the exact command and host-qualified destination.
