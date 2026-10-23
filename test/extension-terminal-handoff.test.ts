@@ -11,7 +11,7 @@ import {
   type TerminalCommandRequest,
 } from '../src/main/terminal/command-handoff-owner'
 import type { ExtensionInvocation } from '../src/shared/extensions/contract'
-import { asHostId, localPath } from '../src/shared/host-path'
+import { asHostId, hostPath, localPath } from '../src/shared/host-path'
 import { connectorFixture } from './fixtures/extension-connector'
 
 const disposers: Array<() => void> = []
@@ -21,17 +21,18 @@ afterEach(() => {
 async function fixture(
   caller: ExtensionInvocation['caller'] = 'guest',
   authorization: ExtensionInvocation['authorization'] = 'unapproved',
+  connectorContext: 'application' | 'workspace' = 'application',
 ) {
-  const f = connectorFixture('application')
+  const f = connectorFixture(connectorContext)
   Object.assign(f.activation.revision.manifest.connectors![0]!, { context: 'workspace' })
   await f.approve()
   const context = {
     value: {
       surface: 'viewer' as const,
       visible: true,
-      workspace: { id: 'workspace', name: 'Project', host: 'local' },
+      workspace: { id: 'workspace', name: 'Project', host: f.host.hostId },
     },
-    root: localPath('/workspace'),
+    root: hostPath(f.host.hostId, '/workspace'),
     current: () => true,
   }
   const invocation: ExtensionInvocation = {
@@ -222,6 +223,55 @@ describe('extension terminal handoff authority', () => {
     expect(await result).toMatchObject({ outcome: 'handed-off' })
     expect(f.f.approvals.get(f.f.activation, 'tool', 'remote')).toBe(prepared.approval)
   })
+  it('hands an SSH workspace command to its exact host with the canonical executable', async () => {
+    const f = await fixture('guest', 'unapproved', 'workspace')
+    f.f.host.realpath.mockResolvedValue(hostPath(f.f.host.hostId, '/remote/bin/tool'))
+    await f.f.approve('/remote/tool')
+    f.f.host.realpath.mockClear()
+    const result = f.start()
+    await vi.waitFor(() => expect(f.published).toHaveBeenCalledOnce())
+    expect(f.confirm).toHaveBeenCalledOnce()
+    expect(f.confirm.mock.calls[0]?.[0]).toMatchObject({
+      destination: 'remote: /workspace',
+      command: 'Run tool once in a new terminal',
+    })
+    expect(f.confirm.mock.calls[0]?.[0].details).toContain('/remote/bin/tool')
+    expect(f.published.mock.calls[0]?.[0]).toMatchObject({
+      workspaceId: 'workspace',
+      root: hostPath(f.f.host.hostId, '/workspace'),
+    })
+    const lease = f.consume()
+    expect(lease.command).toEqual({
+      executable: '/remote/bin/tool',
+      args: ['--json', 'init', '--no-git'],
+      environment: { TOOL_HOME: '/library' },
+    })
+    await lease.prepareDispatch()
+    expect(f.f.host.realpath).toHaveBeenCalledWith(
+      hostPath(f.f.host.hostId, '/remote/tool'),
+    )
+    lease.dispatched()
+    lease.finish(true)
+    expect(await result).toMatchObject({ outcome: 'handed-off' })
+    expect(f.f.host.exec).not.toHaveBeenCalled()
+  })
+  it.each(['local', 'workspace'] as const)(
+    'refuses to borrow a %s connector approval for another host',
+    async (binding) => {
+      const f = await fixture(
+        'guest',
+        'unapproved',
+        binding === 'local' ? 'application' : 'workspace',
+      )
+      f.context.root = hostPath(asHostId('other-host'), '/workspace')
+      f.context.value.workspace.host = asHostId('other-host')
+      f.f.host.realpath.mockClear()
+      await expect(f.start()).rejects.toThrow('exact workspace')
+      expect(f.f.host.realpath).not.toHaveBeenCalled()
+      expect(f.confirm).not.toHaveBeenCalled()
+      expect(f.published).not.toHaveBeenCalled()
+    },
+  )
   it('asks once for the exact command and destination, then freezes the approved prefix/config', async () => {
     const f = await fixture(),
       result = f.start()
@@ -317,7 +367,7 @@ describe('extension terminal handoff authority', () => {
     await expect(f.start()).rejects.toThrow('current explicit action')
     await expect(
       f.start({ connector: 'tool', workspace: 'alias', args: [] }),
-    ).rejects.toThrow('exact local workspace')
+    ).rejects.toThrow('exact workspace')
     expect(f.confirm).not.toHaveBeenCalled()
     expect(f.published).not.toHaveBeenCalled()
   })
