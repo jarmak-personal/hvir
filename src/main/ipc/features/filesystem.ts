@@ -237,6 +237,19 @@ export function registerFilesystemIpc(ipc: IpcRegistrar, deps: FilesystemIpcDeps
     ),
   )
 
+  ipc.handle('fs:download-entry', (req, context) =>
+    operationResult(() =>
+      deps.projectFiles.download({
+        owner: context.owner(),
+        workspaceRoot: ipc.authority.workspaceRoot(
+          ipc.authority.reconstructHostPath(req.workspaceRoot),
+        ),
+        source: ipc.authority.reconstructHostPath(req.source),
+        publish: (progress) => context.sender.send('fs:project-file-operation', progress),
+      }),
+    ),
+  )
+
   ipc.handle('fs:copy-external', (req, context) =>
     operationResult(async () => {
       const workspaceRoot = ipc.authority.workspaceRoot(

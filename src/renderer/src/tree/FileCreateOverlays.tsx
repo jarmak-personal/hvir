@@ -313,6 +313,8 @@ function progressLabel(
     : never,
 ): string {
   switch (phase) {
+    case 'downloading':
+      return 'Downloading'
     case 'cancelling':
       return 'Cancelling'
     case 'renaming':

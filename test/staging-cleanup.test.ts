@@ -80,6 +80,30 @@ describe('ProjectFileStagingCleanup', () => {
     await cleanup.dispose()
   })
 
+  it('reproves destination confinement on retained cleanup, reconnect, and disposal', async () => {
+    const host = new CleanupHost()
+    const cleanup = new ProjectFileStagingCleanup()
+    const path = localPath('/project/.hvir-import-owned')
+    host.entries.add(path.path)
+    host.state = 'disconnected'
+    let confined = false
+    const proof = vi.fn(() =>
+      confined ? Promise.resolve() : Promise.reject(new Error('destination changed')),
+    )
+    const reservation = cleanup.reserve(host as unknown as ProjectHost, 1, proof)!
+    await reservation.cleanup(path)
+    reservation.release()
+    expect(host.entries.has(path.path)).toBe(true)
+    const calls = proof.mock.calls.length
+    host.setState('connected')
+    await vi.waitFor(() => expect(proof.mock.calls.length).toBeGreaterThan(calls))
+    expect(host.entries.has(path.path)).toBe(true)
+    confined = true
+    await cleanup.dispose()
+    expect(host.entries.has(path.path)).toBe(false)
+    expect(host.listenerCount).toBe(0)
+  })
+
   it('refuses cleanup authority for non-staging paths', async () => {
     const cleanup = new ProjectFileStagingCleanup()
     const host = new CleanupHost()

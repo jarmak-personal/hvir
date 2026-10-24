@@ -24,6 +24,7 @@ import {
   type FileActionFeedback,
 } from './file-operation-feedback'
 import { projectFileEntryNameError } from './project-file-entry-name'
+import { useFileDownload } from './use-file-download'
 import { useExternalFileActions } from './use-external-file-actions'
 import type { ExternalFileMoveController } from './use-external-file-move'
 import {
@@ -72,6 +73,7 @@ export interface FileCreateActionsController {
   beginOrganization(action: FileOrganizationAction): void
   beginDeletion(): void
   beginExternalMove(): void
+  download(source: HostPath): void
   revealInFileManager(): void
   submitCreate(name: string): void
   copyPath(kind: PathCopyKind): void
@@ -198,8 +200,17 @@ export function useFileCreateActions(
     },
     onError: handleCopyError,
   })
+  const download = useFileDownload({
+    root,
+    onStart: handleCopyStart,
+    onFeedback: setFeedback,
+  })
   const operationPending =
-    pending || externalFiles.pending || organization.pending || deletion.pending
+    pending ||
+    externalFiles.pending ||
+    organization.pending ||
+    deletion.pending ||
+    download.pending
 
   const openMenu = useCallback(
     (
@@ -395,7 +406,11 @@ export function useFileCreateActions(
     selectedDirectory,
     revealRequest,
     refreshVersion,
-    copyProgress: externalFiles.progress ?? organization.progress ?? deletion.progress,
+    copyProgress:
+      externalFiles.progress ??
+      organization.progress ??
+      deletion.progress ??
+      download.progress,
     canOrganizeMenu(action) {
       return canOrganizeAction(root, menu?.target, menu?.targetType, action)
     },
@@ -436,6 +451,9 @@ export function useFileCreateActions(
       if (!menu || operationPending) return
       externalFiles.beginMove(menu.target, menu.targetType)
     },
+    download(source) {
+      if (!operationPending) download.download(source)
+    },
     revealInFileManager: fileManagerReveal.run,
     submitCreate,
     copyPath,
@@ -452,6 +470,7 @@ export function useFileCreateActions(
     cancelCopy() {
       if (externalFiles.pending) externalFiles.cancel()
       else if (organization.pending) organization.cancel()
+      else if (download.pending) download.cancel()
       else deletion.cancel()
     },
     dismissFeedback() {

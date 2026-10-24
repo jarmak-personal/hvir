@@ -6,6 +6,8 @@ import {
   type ExternalMovePickerSelection,
   type HostPath,
   type ProjectFileCreateKind,
+  type ProjectFileDownloadRequest,
+  type ProjectFileDownloadStartResult,
   type ProjectFileDeletionDisclosure,
   type ProjectFileExternalMoveDisclosure,
   type ProjectFileOperationProgress,
@@ -14,6 +16,9 @@ import {
   type ProjectFileOrganizationRequest,
 } from '../../shared'
 import type { RendererOwner } from '../renderer-resource-scopes'
+import { startProjectFileDownload } from './project-file-download'
+import type { DownloadDirectoryPickerPort } from './electron-download-picker'
+import type { ProjectHost } from '../project-host'
 import { createProjectEntry } from './create-project-entry'
 import type { ExternalFileGrantRegistry } from './external-file-grants'
 import { copyExternalFileGrant } from './external-file-copy'
@@ -92,6 +97,8 @@ export class ProjectFileOperationCoordinator {
         root: HostPath,
       ) => ProjectFileWorkspaceAuthority | undefined
       readonly resources: ProjectFileOperationResourcePort
+      readonly downloadPicker?: DownloadDirectoryPickerPort
+      readonly localHost?: ProjectHost
       readonly externalFiles?: ExternalFileGrantRegistry
       readonly externalMovePicker?: ExternalMovePickerPort
       readonly readClipboardPaths?: () => readonly string[]
@@ -140,6 +147,27 @@ export class ProjectFileOperationCoordinator {
     } finally {
       await this.runtime.release(operation)
     }
+  }
+
+  download(
+    input: ProjectFileDownloadRequest & {
+      readonly owner: RendererOwner
+      readonly publish: (progress: ProjectFileOperationProgress) => void
+    },
+  ): Promise<ProjectFileDownloadStartResult> {
+    this.assertAvailable()
+    if (!this.options.localHost || !this.options.downloadPicker) {
+      throw new Error('Downloads are unavailable')
+    }
+    return startProjectFileDownload({
+      runtime: this.runtime,
+      stagingCleanup: this.stagingCleanup,
+      localHost: this.options.localHost,
+      picker: this.options.downloadPicker,
+      limits: this.options.copyLimits ?? PROJECT_FILE_COPY_LIMITS,
+      createStagingId: this.options.createStagingId,
+      input,
+    })
   }
 
   acquireClipboard(owner: RendererOwner): Promise<ExternalFileGrantResult> {

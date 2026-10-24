@@ -12,6 +12,7 @@ import {
   containsHostPath,
   GIT_CHANGE_DISPLAY_LIMIT,
   MAX_PROJECT_WATCH_INTERESTS,
+  LOCAL_HOST_ID,
   unwrapOperation,
   hostPath,
   type FileType,
@@ -86,6 +87,15 @@ export function FileTree({
 }: FileTreeProps): ReactElement {
   const [searchActive, setSearchActive] = useState(false)
   const [dropTarget, setDropTarget] = useState<FileDropTarget>()
+  const [downloadSelection, setDownloadSelection] = useState<{
+    readonly path: HostPath
+    readonly type: FileType
+  }>()
+  const selectForDownload = (target: EventTarget | null): void => {
+    if (root.hostId === LOCAL_HOST_ID) return
+    const entry = fileTarget(target, root)
+    if (entry) setDownloadSelection(entry)
+  }
   const projectDrag = useRef<ProjectEntryDragSource | undefined>(undefined)
   const fileCreate = useFileCreateActions({
     root,
@@ -99,6 +109,7 @@ export function FileTree({
   useEffect(() => {
     projectDrag.current = undefined
     setDropTarget(undefined)
+    setDownloadSelection(undefined)
   }, [connected, root.hostId, root.path])
   const gitDecorations = useMemo(
     () =>
@@ -146,7 +157,39 @@ export function FileTree({
             onActiveChange={setSearchActive}
             onOpen={onOpen}
           />
+          {root.hostId !== LOCAL_HOST_ID ? (
+            <div className="file-download-controls">
+              <button
+                type="button"
+                className="hvir-button"
+                disabled={
+                  !connected ||
+                  fileCreate.pending ||
+                  !downloadSelection ||
+                  !['file', 'dir'].includes(downloadSelection.type) ||
+                  downloadSelection.path.path === root.path
+                }
+                title={
+                  downloadSelection
+                    ? `Download ${basenameHostPath(downloadSelection.path)}`
+                    : 'Select a file or folder to download'
+                }
+                onClick={() => {
+                  if (downloadSelection) fileCreate.download(downloadSelection.path)
+                }}
+              >
+                Download…
+              </button>
+              <span>
+                {downloadSelection
+                  ? basenameHostPath(downloadSelection.path)
+                  : 'Select a file or folder'}
+              </span>
+            </div>
+          ) : null}
           <div
+            onClickCapture={(event) => selectForDownload(event.target)}
+            onFocusCapture={(event) => selectForDownload(event.target)}
             className={
               `tree-scroll${dropTarget ? ' file-drop-active' : ''}` + ' hvir-scroll'
             }
@@ -306,7 +349,9 @@ export function FileTree({
                 refreshVersion={refreshVersion + fileCreate.refreshVersion}
                 ignoredRefreshVersion={ignoredRefreshVersion}
                 gitDecorations={gitDecorations}
-                selected={fileCreate.selectedDirectory ?? selected}
+                selected={
+                  fileCreate.selectedDirectory ?? downloadSelection?.path ?? selected
+                }
                 revealRequest={fileCreate.revealRequest ?? revealRequest}
                 pathCopyRoot={root}
                 entryActions={fileCreate.entryActions}

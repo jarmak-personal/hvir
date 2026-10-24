@@ -81,6 +81,14 @@ export interface ProjectFileExternalCopyRequest {
 
 export type ProjectFileExternalMoveRequest = ProjectFileExternalCopyRequest
 
+export interface ProjectFileDownloadRequest {
+  readonly workspaceRoot: HostPath
+  readonly source: HostPath
+}
+
+export type ProjectFileDownloadStartResult =
+  ProjectFileOperationStartResult | { readonly outcome: 'cancelled' }
+
 export type ProjectFileOrganizationRequest =
   | {
       readonly action: 'rename'
@@ -153,6 +161,7 @@ export interface ProjectFileOperationProgress {
   readonly generation: number
   readonly phase:
     | 'copying'
+    | 'downloading'
     | 'renaming'
     | 'moving'
     | 'moving-external'

@@ -123,7 +123,7 @@ export async function copyExternalFileGrant(
           maxTotalBytes: Math.max(0, limits.maxTotalBytes - acceptedBytes),
         },
         createStagingId: options.createStagingId,
-        cleanupStaging: options.cleanupStaging,
+        cleanupStaging: (path) => options.cleanupStaging(options.destinationHost, path),
       })
       acceptedEntries += copied.entryCount
       acceptedBytes += copied.totalBytes

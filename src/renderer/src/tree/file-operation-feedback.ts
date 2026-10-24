@@ -45,20 +45,25 @@ export function organizationFeedback(
 
 export function copyFeedback(
   result: ProjectFileOperationResult | undefined,
+  action: 'copy' | 'download' = 'copy',
 ): FileActionFeedback {
   if (!result || result.outcome !== 'completed') {
-    return { kind: 'error', message: 'The copy operation ended without a result.' }
+    return { kind: 'error', message: `The ${action} operation ended without a result.` }
   }
   const completed = result.items.filter((item) => item.status === 'completed').length
   const problems = result.items.length - completed
+  const verb = action === 'download' ? 'downloaded' : 'copied'
   return {
     kind: problems === 0 ? 'success' : 'error',
     message:
       problems === 0
-        ? `${completed} ${completed === 1 ? 'entry' : 'entries'} copied.`
-        : `${completed} copied; ${problems} not copied.`,
+        ? `${completed} ${completed === 1 ? 'entry' : 'entries'} ${verb}.`
+        : `${completed} ${verb}; ${problems} not ${verb}.`,
     details: result.items.map((item) => {
-      const name = item.destination.path.split('/').at(-1) || item.destination.path
+      const name =
+        action === 'download'
+          ? item.destination.path
+          : item.destination.path.split('/').at(-1) || item.destination.path
       return `${name}: ${item.status}${item.reason ? ` — ${item.reason}` : ''}`
     }),
   }

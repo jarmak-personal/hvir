@@ -7,6 +7,7 @@ const MAX_RETAINED_STAGING_PATHS_PER_HOST = 256
 interface PendingCleanup {
   readonly host: ProjectHost
   readonly path: HostPath
+  readonly provePath?: (path: HostPath) => Promise<void>
 }
 
 export interface ProjectFileStagingReservation {
@@ -16,6 +17,7 @@ export interface ProjectFileStagingReservation {
 
 interface StagingReservationState {
   readonly host: ProjectHost
+  readonly provePath?: (path: HostPath) => Promise<void>
   remaining: number
   active: boolean
 }
@@ -28,7 +30,11 @@ export class ProjectFileStagingCleanup {
   private readonly reservations = new Map<string, number>()
   private disposed = false
 
-  reserve(host: ProjectHost, capacity = 1): ProjectFileStagingReservation | undefined {
+  reserve(
+    host: ProjectHost,
+    capacity = 1,
+    provePath?: (path: HostPath) => Promise<void>,
+  ): ProjectFileStagingReservation | undefined {
     if (!Number.isSafeInteger(capacity) || capacity < 1) {
       throw new Error('Staging cleanup capacity must be a positive integer')
     }
@@ -40,6 +46,7 @@ export class ProjectFileStagingCleanup {
     this.reservations.set(host.hostId, reserved + capacity)
     const reservation: StagingReservationState = {
       host,
+      provePath,
       remaining: capacity,
       active: true,
     }
@@ -59,11 +66,15 @@ export class ProjectFileStagingCleanup {
     }
     reservation.remaining -= 1
     try {
-      await removeExactStagingTree(reservation.host, path)
+      await removeExactStagingTree(reservation.host, path, reservation.provePath)
       this.pending.delete(pathKey(path))
     } catch {
       if (this.disposed) return
-      this.pending.set(pathKey(path), { host: reservation.host, path })
+      this.pending.set(pathKey(path), {
+        host: reservation.host,
+        path,
+        provePath: reservation.provePath,
+      })
       this.observe(reservation.host)
     } finally {
       this.releaseCapacity(reservation.host.hostId, 1)
@@ -90,7 +101,9 @@ export class ProjectFileStagingCleanup {
     await Promise.allSettled(
       [...this.pending.values()]
         .filter(({ host }) => host.connectionState === 'connected')
-        .map(({ host, path }) => removeExactStagingTree(host, path)),
+        .map(({ host, path, provePath }) =>
+          removeExactStagingTree(host, path, provePath),
+        ),
     )
     for (const stop of this.stopConnection.values()) await stop()
     this.stopConnection.clear()
@@ -116,7 +129,7 @@ export class ProjectFileStagingCleanup {
     for (const cleanup of [...this.pending.values()]) {
       if (cleanup.host !== host || host.connectionState !== 'connected') continue
       try {
-        await removeExactStagingTree(host, cleanup.path)
+        await removeExactStagingTree(host, cleanup.path, cleanup.provePath)
         this.pending.delete(pathKey(cleanup.path))
       } catch {
         return
@@ -137,12 +150,18 @@ export class ProjectFileStagingCleanup {
 export async function removeExactStagingTree(
   host: ProjectHost,
   root: HostPath,
+  provePath?: (path: HostPath) => Promise<void>,
 ): Promise<void> {
   assertStagingPath(host, root)
-  await removeTree(host, root)
+  await removeTree(host, root, provePath)
 }
 
-async function removeTree(host: ProjectHost, root: HostPath): Promise<void> {
+async function removeTree(
+  host: ProjectHost,
+  root: HostPath,
+  provePath?: (path: HostPath) => Promise<void>,
+): Promise<void> {
+  await provePath?.(root)
   let stat: Stat
   try {
     stat = await host.stat(root)
@@ -152,10 +171,12 @@ async function removeTree(host: ProjectHost, root: HostPath): Promise<void> {
   }
   if (stat.type === 'dir') {
     for (const entry of await host.readdir(root)) {
-      await removeTree(host, joinHostPath(root, entry.name))
+      await removeTree(host, joinHostPath(root, entry.name), provePath)
     }
+    await provePath?.(root)
     await requireTransfer(host).removeDirectory(root, { ignoreMissing: true })
   } else {
+    await provePath?.(root)
     await host.removeFile(root, { ignoreMissing: true })
   }
 }
