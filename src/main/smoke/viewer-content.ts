@@ -18,6 +18,7 @@ import {
 } from './external-documents'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import { verifyFilenameSearch } from './filename-search'
+import { verifyJsonLines } from './viewer-jsonl'
 
 /** Exercise real renderer, worker, CodeMirror, and Chromium viewer contracts in isolation. */
 export async function verifyViewerContent(options: {
@@ -557,6 +558,7 @@ export async function verifyViewerContent(options: {
         })
       `)) as string
     console.log(`[smoke] worker-backed lazy JSON OK (${jsonStatus})`)
+    await verifyJsonLines(win, host, largeJsonPath)
 
     const largeFileStatus = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {

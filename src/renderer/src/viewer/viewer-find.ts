@@ -1,7 +1,7 @@
 import { Text } from '@codemirror/state'
 import { SearchQuery } from '@codemirror/search'
 
-import { renderedFileType } from '../../../shared'
+import { renderedFileType } from '../../../shared/viewer-types'
 import type { ViewerTab } from './tab-state'
 
 export interface ViewerFindQuery {
@@ -17,6 +17,8 @@ export interface ViewerFindRange {
 export type ViewerFindSide = 'base' | 'current'
 
 export interface ViewerFindResult {
+  readonly pending?: boolean
+  readonly error?: boolean
   readonly current: number
   readonly total: number
   readonly side?: ViewerFindSide
@@ -48,6 +50,7 @@ export function viewerFindUnavailable(
   if (
     type === 'markdown' ||
     type === 'json' ||
+    type === 'jsonl' ||
     type === 'yaml' ||
     type === 'csv' ||
     type === 'mermaid'
@@ -63,6 +66,29 @@ export function createSearchQuery(query: ViewerFindQuery): SearchQuery {
     caseSensitive: query.caseSensitive,
     literal: true,
   })
+}
+
+/** Bound both scanning and partial-prefix comparisons before using the render thread.
+ * CodeMirror normalizes for matching, so raw byte/line counts alone aren't a work bound.
+ */
+export function canFindImmediately(
+  documents: readonly Text[],
+  query: ViewerFindQuery,
+): boolean {
+  if (
+    query.text.length > 64 ||
+    documents.reduce((sum, doc) => sum + doc.length, 0) > 2048
+  )
+    return false
+  const normalizedLength = (value: string): number => {
+    const normalized = value.normalize('NFKD')
+    return (query.caseSensitive ? normalized : normalized.toLowerCase()).length
+  }
+  const documentLength = documents.reduce(
+    (sum, doc) => sum + normalizedLength(doc.toString()),
+    0,
+  )
+  return documentLength * Math.max(1, normalizedLength(query.text)) <= 32768
 }
 
 export function findLiteralRanges(

@@ -1,7 +1,9 @@
+import { Text } from '@codemirror/state'
 import { describe, expect, it } from 'vitest'
 
 import {
   findLiteralRanges,
+  canFindImmediately,
   normalizeFindIndex,
   viewerFindUnavailable,
 } from '../src/renderer/src/viewer/viewer-find'
@@ -29,6 +31,27 @@ describe('viewer find semantics', () => {
     expect(
       findLiteralRanges('A.b a.b aXb', { text: 'a.b', caseSensitive: true }),
     ).toEqual([{ from: 4, to: 7 }])
+  })
+
+  it('bounds immediate search by combined documents and normalized query work', () => {
+    const query = { text: 'x', caseSensitive: false }
+    const doc = (value: string) => Text.of([value])
+    expect(canFindImmediately([doc('x'.repeat(2048))], query)).toBe(true)
+    expect(canFindImmediately([doc('x'.repeat(2049))], query)).toBe(false)
+    expect(
+      canFindImmediately([doc('x'.repeat(1024)), doc('x'.repeat(1025))], query),
+    ).toBe(false)
+    expect(
+      canFindImmediately([doc('x'.repeat(2048))], { ...query, text: 'x'.repeat(16) }),
+    ).toBe(true)
+    expect(
+      canFindImmediately([doc('x'.repeat(2048))], { ...query, text: 'x'.repeat(17) }),
+    ).toBe(false)
+    expect(canFindImmediately([doc('x')], { ...query, text: 'x'.repeat(65) })).toBe(false)
+    // NFKD expands each ligature to three code units, including in the query.
+    expect(canFindImmediately([doc('ﬃ'.repeat(2048))], { ...query, text: 'ﬃﬃ' })).toBe(
+      false,
+    )
   })
 
   it('wraps next and previous indexes deterministically', () => {

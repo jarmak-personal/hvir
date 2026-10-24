@@ -1,19 +1,37 @@
 import type {
   HighlightRequest,
+  HighlightWorkerCommand,
   HighlightResponse,
   HighlightToken,
 } from './highlight-protocol'
+import { HIGHLIGHT_BATCH_TOKENS } from './highlight-protocol'
 import { createViewerGrammarRegistry } from './shiki-grammar-registry'
 
 const grammars = createViewerGrammarRegistry()
 
-self.onmessage = (event: MessageEvent<HighlightRequest>): void => {
-  void highlight(event.data)
+// Each request can have at most one unacknowledged token batch. Cancellation releases
+// suspended producers; the shared grammar worker retains no abandoned request queues.
+const requests = new Map<number, { cancelled: boolean; resume?: () => void }>()
+self.onmessage = ({ data }: MessageEvent<HighlightWorkerCommand>): void => {
+  if ('type' in data) {
+    const request = requests.get(data.id)
+    if (!request) return
+    if (data.type === 'cancel') request.cancelled = true
+    request.resume?.()
+    return
+  }
+  const state = { cancelled: false }
+  requests.set(data.id, state)
+  void highlight(data, state)
 }
 
-async function highlight(request: HighlightRequest): Promise<void> {
+async function highlight(
+  request: HighlightRequest,
+  state: { cancelled: boolean; resume?: () => void },
+): Promise<void> {
   try {
     const loaded = await grammars.load(request.language)
+    if (state.cancelled) return
     if (!loaded) {
       post({ type: 'plain', id: request.id })
       return
@@ -24,6 +42,15 @@ async function highlight(request: HighlightRequest): Promise<void> {
     })
 
     let batch: HighlightToken[] = []
+    const flush = async (): Promise<void> => {
+      const acknowledged = new Promise<void>((resolve) => {
+        state.resume = resolve
+      })
+      post({ type: 'batch', id: request.id, tokens: batch })
+      batch = []
+      await acknowledged
+      state.resume = undefined
+    }
     for (let lineIndex = 0; lineIndex < result.tokens.length; lineIndex += 1) {
       const line = result.tokens[lineIndex]
       if (!line) continue
@@ -37,21 +64,24 @@ async function highlight(request: HighlightRequest): Promise<void> {
           backgroundColor: token.bgColor,
           fontStyle: token.fontStyle,
         })
-      }
-      // Stream decorations in bounded batches so CodeMirror can paint early.
-      if ((lineIndex + 1) % 200 === 0 && batch.length > 0) {
-        post({ type: 'batch', id: request.id, tokens: batch })
-        batch = []
+        if (batch.length === HIGHLIGHT_BATCH_TOKENS) {
+          await flush()
+          if (state.cancelled) return
+        }
       }
     }
-    if (batch.length > 0) post({ type: 'batch', id: request.id, tokens: batch })
+    if (batch.length > 0) await flush()
+    if (state.cancelled) return
     post({ type: 'done', id: request.id, language: loaded.id })
   } catch (error) {
+    if (state.cancelled) return
     post({
       type: 'error',
       id: request.id,
       message: error instanceof Error ? error.message : String(error),
     })
+  } finally {
+    requests.delete(request.id)
   }
 }
 

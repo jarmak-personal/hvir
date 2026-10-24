@@ -1,6 +1,6 @@
 import {
   languageForPath,
-  type HighlightRequest,
+  type HighlightWorkerCommand,
   type HighlightResponse,
   type HighlightToken,
 } from './highlight-protocol'
@@ -19,7 +19,7 @@ export interface HighlightWorkerPort {
     listener: (event: MessageEvent<HighlightResponse>) => void,
   ): void
   removeEventListener(type: 'error', listener: (event: ErrorEvent) => void): void
-  postMessage(request: HighlightRequest): void
+  postMessage(request: HighlightWorkerCommand): void
 }
 
 let nextRequestId = 0
@@ -56,13 +56,20 @@ export function requestSourceHighlight(
     active = false
     worker?.removeEventListener('message', onMessage)
     worker?.removeEventListener('error', onError)
+    try {
+      worker?.postMessage({ type: 'cancel', id })
+    } catch {
+      /* Worker already failed. */
+    }
   }
   const onMessage = (event: MessageEvent<HighlightResponse>): void => {
     const message = event.data
     if (!active || message.id !== id) return
     if (message.type === 'batch') {
       output.tokens(message.tokens)
+      if (active) worker?.postMessage({ type: 'ack', id })
     } else if (message.type === 'done') {
+      dispose()
       output.status(message.language)
     } else if (message.type === 'plain') {
       dispose()

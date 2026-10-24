@@ -105,9 +105,13 @@ export function FindControl({
       ? 'Preparing searchable view…'
       : !value
         ? 'Enter text to find'
-        : result.total === 0
-          ? 'No matches'
-          : `${result.current} of ${result.total}${result.side ? ` · ${result.side}` : ''}`
+        : result.pending
+          ? 'Searching…'
+          : result.error
+            ? 'Search unavailable'
+            : result.total === 0
+              ? 'No matches'
+              : `${result.current} of ${result.total}${result.side ? ` · ${result.side}` : ''}`
 
   return (
     <div ref={root} className="find-control">

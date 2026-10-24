@@ -20,3 +20,22 @@ export function parseStructuredData(
     values.map((value, index) => [`document ${index + 1}`, value]),
   )
 }
+
+export type JsonLineRecord =
+  | { readonly line: number; readonly value: unknown; readonly error?: never }
+  | { readonly line: number; readonly error: string; readonly value?: never }
+
+/** A final line terminator is not a record; blank records elsewhere are invalid. */
+export function parseJsonLines(source: string): readonly JsonLineRecord[] {
+  if (source.length === 0) return []
+  const lines = source.split('\n')
+  if (lines.at(-1) === '') lines.pop()
+  return lines.map((text, index) => {
+    try {
+      return { line: index + 1, value: JSON.parse(text) as unknown }
+    } catch {
+      // Avoid copying an unbounded source fragment from an engine's error message.
+      return { line: index + 1, error: 'Invalid JSON record' }
+    }
+  })
+}
