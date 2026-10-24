@@ -1,4 +1,5 @@
-import { execFile, spawn, type ChildProcess } from 'node:child_process'
+import { withSmokeRunLock, spawnSmokeProcess } from './smoke-run-lock.mts'
+import { execFile, type ChildProcess } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseArgs, promisify } from 'node:util'
@@ -273,7 +274,7 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
     delete environment[name]
   }
 
-  const child = spawn(
+  const child = spawnSmokeProcess(
     options.command,
     [
       '.',
@@ -479,7 +480,7 @@ function createHarnessProbeFixture(homeRoot: string): string {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  void main().catch((error: unknown) => {
+  void withSmokeRunLock(main).catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error))
     process.exitCode = 1
   })

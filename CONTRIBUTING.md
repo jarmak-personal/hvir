@@ -257,6 +257,24 @@ npm run performance:capacity  # controlled-machine quantitative gate
 npm run dev
 ```
 
+Local Electron smoke launchers share one lock per OS user across checkouts and worktrees,
+including pre-push, focused/repeated scenarios, interruption isolation, and installed-package
+checks. Waiting for the smoke lock is normal: keep one invocation alive and wait for it.
+The launcher reports waiting immediately and every minute. Waiting is cancellable and does not
+consume a scenario deadline. The acquisition limit defaults to two hours; set
+`HVIR_SMOKE_LOCK_WAIT_MS` to a positive millisecond count to override it. A timeout fails before
+Electron starts and never evicts the current holder. Unit tests, lint, and typechecking do not
+acquire this lock. Build-output coordination in the same checkout remains the caller's responsibility.
+
+A killed launcher can leave live children. The lock therefore never expires based on heartbeat
+age. If the owner dies or process termination cannot be confirmed, the diagnostic identifies the
+retained lock directory under the OS user's home (`.cache/hvir-contributor/electron-smoke.lock`).
+Inspect `owner.json` and `group-*.json`, confirm that the owner and all prior smoke workloads and
+process groups have stopped, then explicitly remove that exact directory. A `null` group record
+means death interrupted spawning before the PID was recorded; establish child termination
+independently before cleanup. Do not remove a live owner's lock. Installed-package scripts acquire
+the lock before substituting their fixture HOME, so they share the same desktop lock.
+
 `npm ci` downloads Electron and rebuilds native dependencies for Electron's ABI. On headless
 Linux, run Electron smoke tests under `xvfb-run`. Install the optional pre-push smoke hook with:
 

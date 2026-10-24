@@ -4,6 +4,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source_checkout=$PWD
 
+# One lease covers this entire invocation, including child cleanup.
+if [[ -z "${HVIR_SMOKE_LEASE:-}" ]]; then
+  exec node "$source_checkout/scripts/smoke-run-lock.mts" bash "$source_checkout/scripts/run-smoke.sh" "$@"
+fi
+node "$source_checkout/scripts/smoke-run-lock.mts" --check-lease
+
 : "${HVIR_SMOKE_SCENARIO:?Select one Electron smoke scenario with HVIR_SMOKE_SCENARIO; use npm run smoke for the aggregate suite}"
 
 # A smoke launched by a Git hook must not inherit the invoking repository as

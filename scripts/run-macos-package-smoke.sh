@@ -4,6 +4,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source_checkout=$PWD
 
+# One lease covers this entire invocation, including child cleanup.
+if [[ -z "${HVIR_SMOKE_LEASE:-}" ]]; then
+  exec node "$source_checkout/scripts/smoke-run-lock.mts" bash "$source_checkout/scripts/run-macos-package-smoke.sh" "$@"
+fi
+node "$source_checkout/scripts/smoke-run-lock.mts" --check-lease
+
 if [[ "${HVIR_MACOS_PACKAGE_ACCEPTANCE:-}" != '1' ]]; then
   echo 'Refusing to modify native package state without HVIR_MACOS_PACKAGE_ACCEPTANCE=1.' >&2
   exit 1
