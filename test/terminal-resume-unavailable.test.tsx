@@ -5,7 +5,6 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TerminalRail } from '../src/renderer/src/terminal/TerminalRail'
-import { sessionsProjectionFixture } from './sessions-projection-fixture'
 import type { TerminalRuntimeOptions } from '../src/renderer/src/terminal/terminal-runtime-options'
 import { terminalThemeForAppearance } from '../src/renderer/src/terminal/terminal-palette'
 import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-runtime-registry'
@@ -694,7 +693,6 @@ describe('terminal resume unavailable state', () => {
           recoveryReady
           available
           menuOpen={false}
-          sessionsProjection={sessionsProjectionFixture()}
           moveMenuOpen={false}
           moveTargets={[]}
           launchMenuEntries={[]}

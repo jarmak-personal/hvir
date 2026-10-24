@@ -459,6 +459,7 @@ describe('IpcAuthorityRouter', () => {
       'git.ts',
       'harness.ts',
       'preview.ts',
+      'mermaid.ts',
       'project.ts',
       'terminal.ts',
       'web-pane.ts',

@@ -372,7 +372,7 @@ export function createElectronWindowManager(
       revokeRendererResources()
       if (
         process.platform === 'darwin' &&
-        BrowserWindow.getAllWindows().length === 0 &&
+        rendererReadyHandlers.size === 0 &&
         !dependencies.isShuttingDown()
       ) {
         dependencies.onLastWindowClosed()

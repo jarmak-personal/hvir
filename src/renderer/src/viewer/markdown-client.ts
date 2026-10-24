@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 
+import { assertRenderedMarkdown } from './rendered-workload-policy'
 import type { MarkdownRenderResponse } from './render-protocol'
 
 let worker: Worker | undefined
@@ -42,12 +43,20 @@ export function renderMarkdown(
   markdown: string,
   theme: 'dark' | 'light',
   resources?: 'inert',
+  bounded = false,
 ): Promise<string> {
+  if (bounded) {
+    try {
+      assertRenderedMarkdown(markdown)
+    } catch (error) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+    }
+  }
   const id = ++nextRequestId
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject })
     try {
-      getWorker().postMessage({ id, markdown, theme, resources })
+      getWorker().postMessage({ id, markdown, theme, resources, bounded })
     } catch (reason) {
       pending.delete(id)
       reject(reason instanceof Error ? reason : new Error(String(reason)))

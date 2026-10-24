@@ -24,7 +24,6 @@ import {
   type PtySpawnRequest,
   type ManagedPty,
   type ObservedManagedPty,
-  type PtyUsageObservationResolution,
   type HarnessSessionIdentityStatus,
   type PtyStreamHandlers,
   type PtySupervisorDiagnostic,
@@ -43,9 +42,6 @@ interface Entry {
   readonly lifetime: PtySessionLifetime
   readonly stream: PtyStreamAttachment
   readonly observation: PtySessionObservation
-  readonly usage: Pick<PtySpawnRequest, 'host'> & {
-    readonly artifact: NonNullable<PtySpawnRequest['artifact']>
-  }
   rendererReattachPending: boolean
 }
 
@@ -324,7 +320,6 @@ export class PtySupervisor {
       lifetime,
       stream,
       observation,
-      usage: { host: req.host, artifact },
       rendererReattachPending: false,
     }
 
@@ -384,31 +379,6 @@ export class PtySupervisor {
     const detach = entry.stream.attach(handlers)
     if (handlers.onData) entry.rendererReattachPending = false
     return detach
-  }
-
-  resolveUsageObservation(id: string, instanceId: string): PtyUsageObservationResolution {
-    const entry = this.entries.get(id)
-    if (!entry || !entry.lifetime.current || entry.info.instanceId !== instanceId) {
-      return { status: 'unavailable' }
-    }
-    if (entry.info.identityStatus === 'discovering') {
-      return { status: 'pending' }
-    }
-    if (entry.info.identityStatus !== 'identified' || !entry.info.harnessSessionId) {
-      return { status: 'unavailable' }
-    }
-    return {
-      status: 'available',
-      target: {
-        instanceId: entry.info.instanceId,
-        providerId: entry.info.providerId,
-        host: entry.usage.host,
-        sessionId: entry.info.harnessSessionId,
-        cwd: entry.info.cwd,
-        sessionData: entry.observation.sessionData,
-        artifact: entry.usage.artifact,
-      },
-    }
   }
 
   /**

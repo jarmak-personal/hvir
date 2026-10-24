@@ -130,8 +130,6 @@ export const SMOKE_FAILURE_CHECKPOINTS = [
   'terminal-presentation-engine-gestures-ready',
   'terminal-presentation-engine-fit-awaiting',
   'terminal-presentation-engine-fit-ready',
-  'terminal-presentation-session-details-awaiting',
-  'terminal-presentation-session-details-ready',
   'terminal-presentation-middle-click-close-awaiting',
   'terminal-presentation-middle-click-close-ready',
   'terminal-presentation-keyboard-awaiting',

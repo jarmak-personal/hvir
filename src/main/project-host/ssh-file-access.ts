@@ -26,6 +26,11 @@ import { SshExclusiveCreate } from './ssh-exclusive-create'
 import { SshProjectFileTransfer } from './ssh-project-file-transfer'
 import { abortError, withAbort, writeSftpFile } from './ssh-abort'
 
+// Retained payload plus conservative key/listing charges, not a JS heap measurement.
+const CACHE_MAX_BYTES = 16 * 1024 * 1024
+const CACHE_MAX_ENTRIES = 256
+const CACHE_TTL_MS = 2_000
+
 export interface SshFileAccessOptions {
   readonly fingerprintObservationWindowMs?: number
 }
@@ -44,8 +49,10 @@ export class SshFileAccess {
   private sftpSession?: Promise<SFTPWrapper>
   private readonly cache = new Map<
     string,
-    { expires: number; value: Buffer | DirEntry[] }
+    { expires: number; bytes: number; value: Buffer | DirEntry[] }
   >()
+  private cacheBytes = 0
+  private cacheTimer?: ReturnType<typeof setTimeout>
   /** Files fetched by the viewer and worth content-fingerprinting while polling. */
   private readonly pollingFiles = new Set<string>()
   /** Last content actually delivered to a reader, for optimistic remote saves. */
@@ -78,6 +85,9 @@ export class SshFileAccess {
     const session = this.sftpSession
     this.sftpSession = undefined
     this.cache.clear()
+    this.cacheBytes = 0
+    clearTimeout(this.cacheTimer)
+    this.cacheTimer = undefined
     this.fingerprintObservations.clear()
     void session?.then(
       (value) => value.end(),
@@ -102,11 +112,13 @@ export class SshFileAccess {
       if (opts.pollingInterest) this.readDigests.set(path.path, contentDigest(cached))
       return Buffer.from(cached)
     }
-    const value = await this.sftp<Buffer>(
-      (s, done) => s.readFile(path.path, done),
-      opts.signal,
-    )
-    this.cache.set(key, { expires: Date.now() + 2_000, value })
+    let generation = this.generation
+    const value = await this.sftp<Buffer>((s, done) => {
+      generation = this.generation
+      s.readFile(path.path, done)
+    }, opts.signal)
+    this.assertCacheGeneration(generation)
+    this.cacheValue(key, value)
     if (opts.pollingInterest) this.readDigests.set(path.path, contentDigest(value))
     return Buffer.from(value)
   }
@@ -279,13 +291,16 @@ export class SshFileAccess {
     const key = `d:${path.path}`
     const cached = this.cached<DirEntry[]>(key)
     if (cached) return [...cached]
-    const raw = await this.sftp<import('ssh2').FileEntry[]>((s, done) =>
-      s.readdir(path.path, done),
-    )
+    let generation = this.generation
+    const raw = await this.sftp<import('ssh2').FileEntry[]>((s, done) => {
+      generation = this.generation
+      s.readdir(path.path, done)
+    })
+    this.assertCacheGeneration(generation)
     const value = raw
       .filter((entry) => entry.filename !== '.' && entry.filename !== '..')
       .map((entry) => ({ name: entry.filename, type: fileType(entry.attrs.mode) }))
-    this.cache.set(key, { expires: Date.now() + 2_000, value })
+    this.cacheValue(key, value)
     return [...value]
   }
 
@@ -420,12 +435,12 @@ export class SshFileAccess {
         key.startsWith(`f:${descendantPrefix}`) ||
         key.startsWith(`d:${descendantPrefix}`)
       ) {
-        this.cache.delete(key)
+        this.deleteCached(key)
       }
     }
     let parent = remoteParent(normalized)
     for (;;) {
-      this.cache.delete(`d:${parent}`)
+      this.deleteCached(`d:${parent}`)
       if (parent === '/') break
       parent = remoteParent(parent)
     }
@@ -466,13 +481,74 @@ export class SshFileAccess {
     )
   }
 
-  private cached<T extends Buffer | DirEntry[]>(key: string): T | undefined {
-    const value = this.cache.get(key)
-    if (!value || value.expires < Date.now()) {
-      this.cache.delete(key)
-      return undefined
+  private assertCacheGeneration(generation: number): void {
+    if (generation !== this.generation) {
+      throw new Error('SSH file cache belongs to a stale connection generation')
     }
-    return value.value as T
+  }
+
+  private deleteCached(key: string): void {
+    const entry = this.cache.get(key)
+    if (!entry) return
+    this.cacheBytes -= entry.bytes
+    this.cache.delete(key)
+    if (this.cache.size === 0) {
+      clearTimeout(this.cacheTimer)
+      this.cacheTimer = undefined
+    }
+  }
+
+  private pruneCache(): void {
+    const now = Date.now()
+    // The entry cap bounds every maintenance pass, including after an idle period.
+    for (const [key, entry] of this.cache) {
+      if (entry.expires <= now) this.deleteCached(key)
+    }
+  }
+
+  private scheduleCacheExpiry(): void {
+    if (this.cacheTimer || this.cache.size === 0) return
+    let expires = Infinity
+    for (const entry of this.cache.values()) expires = Math.min(expires, entry.expires)
+    this.cacheTimer = setTimeout(
+      () => {
+        this.cacheTimer = undefined
+        this.pruneCache()
+        this.scheduleCacheExpiry()
+      },
+      Math.max(1, expires - Date.now()),
+    )
+    this.cacheTimer.unref()
+  }
+
+  private cacheValue(key: string, value: Buffer | DirEntry[]): void {
+    this.pruneCache()
+    this.deleteCached(key)
+    const bytes =
+      64 +
+      key.length * 2 +
+      (Buffer.isBuffer(value)
+        ? value.byteLength
+        : value.reduce((total, entry) => total + 64 + entry.name.length * 2, 0))
+    // Large results still reach the caller, but cannot displace the whole cache.
+    if (bytes > CACHE_MAX_BYTES) return
+    for (const oldest of this.cache.keys()) {
+      if (
+        this.cache.size < CACHE_MAX_ENTRIES &&
+        this.cacheBytes + bytes <= CACHE_MAX_BYTES
+      ) {
+        break
+      }
+      this.deleteCached(oldest)
+    }
+    this.cache.set(key, { expires: Date.now() + CACHE_TTL_MS, bytes, value })
+    this.cacheBytes += bytes
+    this.scheduleCacheExpiry()
+  }
+
+  private cached<T extends Buffer | DirEntry[]>(key: string): T | undefined {
+    this.pruneCache()
+    return this.cache.get(key)?.value as T | undefined
   }
 }
 

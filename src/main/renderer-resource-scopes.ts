@@ -9,6 +9,7 @@ export type RendererResourceQualifier =
   | {
       readonly lifetime: 'renderer'
       readonly type:
+        | 'mermaid-render'
         | 'extension-views'
         | 'extension-package-import'
         | 'extension-program-connection'
@@ -21,7 +22,6 @@ export type RendererResourceQualifier =
         | 'external-file-grant'
         | 'project-folder-picker'
         | 'sessions-observation'
-        | 'sessions-usage-observation'
     }
   | {
       readonly lifetime: 'workspace'

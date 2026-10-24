@@ -18,10 +18,6 @@ import type {
   SessionsTerminalHandle,
   SessionsWorkspaceQualifier,
 } from '../../../shared'
-import { SessionDetailsPopover } from '../harness/SessionDetailsPopover'
-import { sessionDetailsModel } from '../harness/session-details-model'
-import { useSessionDetailsPopover } from '../harness/use-session-details-popover'
-import { useSessionsDetailsUsage } from '../harness/use-session-details-usage'
 import type { SessionsCommandPort } from './sessions-command-port'
 import { SessionsProjectLaunchers } from './SessionsProjectLaunchers'
 import { SessionsLaunchDialog } from './SessionsLaunchDialog'
@@ -117,10 +113,6 @@ export function SessionsOverview({
   const rowElements = useRef(new Map<SessionsTerminalHandle, HTMLElement>())
   const collectionControl = useRef<HTMLButtonElement>(null)
   const openGeneration = useRef(0)
-  const details = useSessionDetailsPopover('sessions-overview', () => {
-    collectionControl.current?.focus()
-  })
-  const dismissDetails = details.dismiss
 
   useEffect(() => {
     if (!foreground) return
@@ -135,8 +127,7 @@ export function SessionsOverview({
     detailOrigin.current = undefined
     setFeedback(undefined)
     pendingFocus.current = undefined
-    dismissDetails(false)
-  }, [dismissDetails, foreground])
+  }, [foreground])
   useEffect(
     () => () => {
       openGeneration.current += 1
@@ -307,19 +298,6 @@ export function SessionsOverview({
 
   const policyLabel = sessionsOverviewPolicyLabel(policy)
   const detailActive = detailState.status !== 'inactive'
-  const detailsRow = details.request
-    ? page.rows.find((row) => String(row.handle) === details.request?.target)
-    : undefined
-  const detailsUsage = useSessionsDetailsUsage(
-    detailsRow,
-    snapshot,
-    foreground && details.request !== undefined,
-  )
-  useEffect(() => {
-    if (details.request && snapshot.status === 'available' && !detailsRow) {
-      dismissDetails(false)
-    }
-  }, [details.request, detailsRow, dismissDetails, snapshot.status])
   const emptyNotice = (
     <SessionsOverviewNotice
       title={snapshot.rows.length === 0 ? 'No hvir sessions' : 'No sessions match'}
@@ -525,15 +503,7 @@ export function SessionsOverview({
                                 }}
                                 onFocus={() => setSelected(row.handle)}
                                 onClick={() => setSelected(row.handle)}
-                                onContextMenu={(event) =>
-                                  details.openFromPointer(event, String(row.handle))
-                                }
                                 onKeyDown={(event) => {
-                                  if (
-                                    details.openFromKeyboard(event, String(row.handle))
-                                  ) {
-                                    return
-                                  }
                                   if (
                                     event.key === 'Enter' &&
                                     event.target === event.currentTarget
@@ -603,16 +573,6 @@ export function SessionsOverview({
           onCancel={launch.cancel}
         />
       ) : null}
-      <SessionDetailsPopover
-        controller={details}
-        details={
-          detailsRow
-            ? sessionDetailsModel(detailsRow, detailsUsage)
-            : details.request && snapshot.status === 'available'
-              ? null
-              : undefined
-        }
-      />
     </>
   )
 }

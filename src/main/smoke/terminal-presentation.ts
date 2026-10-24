@@ -24,7 +24,6 @@ import { verifyStreamingTerminalSearch } from './terminal-search-streaming'
 import { focusSmokeWindow } from './window-focus'
 import { verifyTerminalThemeGalleryPresentation } from './terminal-theme-gallery-presentation'
 import { verifySynchronizedOutput } from './terminal-synchronized-output'
-import { verifySessionDetailsPopover } from './session-details-popover'
 
 export async function verifyTerminalPresentationLifecycle(
   win: BrowserWindow,
@@ -42,9 +41,6 @@ export async function verifyTerminalPresentationLifecycle(
   await verifyTerminalEngineFit(win)
   checkpoint('terminal-presentation-engine-fit-ready')
   await focusSmokeWindow(win)
-  checkpoint('terminal-presentation-session-details-awaiting')
-  const sessionDetailsStatus = await verifySessionDetailsPopover(win)
-  checkpoint('terminal-presentation-session-details-ready')
   checkpoint('terminal-presentation-middle-click-close-awaiting')
   const middleClickCloseStatus = launchMenuOverflowRoot
     ? await verifyTerminalMiddleClickCloseGuard(win, supervisor, launchMenuOverflowRoot)
@@ -266,7 +262,6 @@ export async function verifyTerminalPresentationLifecycle(
     switchStatus,
     synchronizedOutputStatus,
     revealStatus,
-    sessionDetailsStatus,
     cursorStatus,
     inputStatus,
     cursorPresentationStatus,

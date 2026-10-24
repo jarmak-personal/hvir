@@ -1,25 +1,32 @@
 import type { ViewerDocumentPosition } from './tab-state'
-import {
-  approximateLineAtScroll,
-  approximateScrollForLine,
-  nearestSourceAnchor,
-  type RenderedSourceAnchor,
-} from './viewer-position'
+import { approximateLineAtScroll, approximateScrollForLine } from './viewer-position'
+
+const MAX_POSITION_ANCHORS = 4096
+interface SourceElement {
+  readonly element: HTMLElement
+  readonly line: number
+}
 
 export function captureRenderedPosition(
   root: HTMLElement,
   lineCount: number,
 ): ViewerDocumentPosition {
-  const anchors = renderedSourceAnchors(root)
+  const anchors = sourceElements(root)
   const viewportTop = root.getBoundingClientRect().top + 1
-  const visible = anchors.reduce<RenderedSourceAnchor | undefined>((nearest, anchor) => {
-    if (anchor.top > viewportTop) return nearest
-    return !nearest || anchor.top > nearest.top ? anchor : nearest
-  }, undefined)
+  // Source anchors follow document order. Read only logarithmically many live
+  // geometries; image/diagram resizing therefore needs no stale geometry cache.
+  let low = 0
+  let high = anchors.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if (anchors[middle]!.element.getBoundingClientRect().top <= viewportTop)
+      low = middle + 1
+    else high = middle
+  }
   return {
     mode: 'rendered',
     line:
-      visible?.line ??
+      anchors[low - 1]?.line ??
       approximateLineAtScroll(
         root.scrollTop,
         root.scrollHeight,
@@ -39,10 +46,17 @@ export function restoreRenderedPosition(
     root.scrollTop = position.scrollTop
     return
   }
-  const rootTop = root.getBoundingClientRect().top
-  const anchor = nearestSourceAnchor(renderedSourceAnchors(root), position.line)
-  root.scrollTop = anchor
-    ? root.scrollTop + anchor.top - rootTop
+  const anchors = sourceElements(root)
+  let nearest: SourceElement | undefined
+  for (const anchor of anchors) {
+    if (anchor.line <= position.line && (!nearest || anchor.line >= nearest.line))
+      nearest = anchor
+  }
+  nearest ??= anchors[0]
+  root.scrollTop = nearest
+    ? root.scrollTop +
+      nearest.element.getBoundingClientRect().top -
+      root.getBoundingClientRect().top
     : approximateScrollForLine(
         position.line,
         root.scrollHeight,
@@ -51,13 +65,15 @@ export function restoreRenderedPosition(
       )
 }
 
-function renderedSourceAnchors(root: HTMLElement): readonly RenderedSourceAnchor[] {
-  return [...root.querySelectorAll<HTMLElement>('[data-source-line]')].flatMap(
-    (element): RenderedSourceAnchor[] => {
-      const line = Number(element.dataset.sourceLine)
-      return Number.isFinite(line) && line >= 1
-        ? [{ line: Math.floor(line), top: element.getBoundingClientRect().top }]
-        : []
-    },
-  )
+function sourceElements(root: HTMLElement): readonly SourceElement[] {
+  const nodes = root.querySelectorAll<HTMLElement>('[data-source-line]')
+  const stride = Math.max(1, Math.ceil(nodes.length / MAX_POSITION_ANCHORS))
+  const anchors: SourceElement[] = []
+  for (let index = 0; index < nodes.length; index += stride) {
+    const element = nodes[index]!
+    const line = Number(element.dataset.sourceLine)
+    if (Number.isFinite(line) && line >= 1)
+      anchors.push({ element, line: Math.floor(line) })
+  }
+  return anchors
 }
