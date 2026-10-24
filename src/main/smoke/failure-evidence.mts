@@ -120,6 +120,8 @@ export const SMOKE_FAILURE_CHECKPOINTS = [
   'viewer-position-commands-ready',
   'viewer-position-find-awaiting',
   'viewer-position-find-ready',
+  'viewer-position-workload-awaiting',
+  'viewer-position-workload-ready',
   'viewer-position-refresh-index-awaiting',
   'viewer-position-refresh-index-ready',
   'viewer-position-refresh-awaiting',

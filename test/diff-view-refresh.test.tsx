@@ -6,6 +6,11 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DiffView } from '../src/renderer/src/viewer/DiffView'
+import { createFindWorker } from '../src/renderer/src/viewer/find-worker'
+import type { ViewerFindTarget } from '../src/renderer/src/viewer/viewer-find'
+import { ViewerFindWorker } from './fixtures/viewer-find-worker'
+
+vi.mock('../src/renderer/src/viewer/find-worker', () => ({ createFindWorker: vi.fn() }))
 import type { ViewerPositionCapture } from '../src/renderer/src/viewer/viewer-position'
 import {
   asHostId,
@@ -20,10 +25,23 @@ let container: HTMLDivElement
 let reactRoot: Root
 let invoke: ReturnType<typeof vi.fn>
 const positionCapture: ViewerPositionCapture = { current: undefined }
-const registerFindTarget = (): (() => void) => () => undefined
+let findTarget: ViewerFindTarget | undefined
+let workers: ViewerFindWorker[]
+const registerFindTarget = (target: ViewerFindTarget): (() => void) => {
+  findTarget = target
+  return () => {
+    if (findTarget === target) findTarget = undefined
+  }
+}
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  workers = []
+  vi.mocked(createFindWorker).mockImplementation(() => {
+    const worker = new ViewerFindWorker()
+    workers.push(worker)
+    return worker as unknown as Worker
+  })
   container = document.createElement('div')
   document.body.append(container)
   reactRoot = createRoot(container)
@@ -43,6 +61,75 @@ afterEach(() => {
 })
 
 describe('DiffView refresh lifecycle', () => {
+  it.each(['base', 'current'] as const)(
+    'invalidates cached and in-flight find on a %s refresh',
+    async (side) => {
+      const path = localPath('/repo/design.md')
+      const response = (fresh: boolean): GitDiffResponse => {
+        const result = diffResponse(path, 'unused')
+        const input = (document: 'base' | 'current') => {
+          const content =
+            (fresh && side === document ? 'fresh needle needle ' : 'needle ') +
+            ' '.repeat(2200)
+          return { content, byteLength: content.length, lineCount: 1, complete: true }
+        }
+        return { ...result, baseInput: input('base'), currentInput: input('current') }
+      }
+      invoke.mockResolvedValueOnce(response(false)).mockResolvedValueOnce(response(true))
+      await renderDiff({ path, gitRefreshVersion: 0 })
+      const target = findTarget!
+      const query = { text: 'needle', caseSensitive: false }
+      expect(target.update(query, 0).pending).toBe(true)
+      await vi.waitFor(() =>
+        expect(
+          workers[0]!.postMessage.mock.calls.filter(([data]) => data.type === 'search'),
+        ).toHaveLength(2),
+      )
+      for (const document of [0, 1]) {
+        workers[0]!.respond({
+          type: 'matches',
+          document,
+          ranges: new Uint32Array([0, 6]),
+        })
+        workers[0]!.respond({ type: 'done', document })
+      }
+      expect(target.update(query, 0).total).toBe(2)
+      const nextQuery = { ...query, caseSensitive: true }
+      expect(target.update(nextQuery, 0).pending).toBe(true)
+      const pending = workers[1]!
+      const changed = vi.fn()
+      const unsubscribe = target.subscribe(changed)
+      await renderDiff({ path, gitRefreshVersion: 1 })
+      expect(findTarget).toBe(target)
+      expect(changed).toHaveBeenCalled()
+      expect(pending.terminate).toHaveBeenCalledOnce()
+      const notifications = changed.mock.calls.length
+      expect(target.update(nextQuery, 0).pending).toBe(true)
+      const fresh = workers[2]!
+      await vi.waitFor(() =>
+        expect(fresh.postMessage).toHaveBeenCalledWith({
+          type: 'chunk',
+          content: response(true)[side === 'base' ? 'baseInput' : 'currentInput'].content,
+        }),
+      )
+      pending.respond({ type: 'done', document: 0 })
+      pending.respond({ type: 'done', document: 1 })
+      expect(changed).toHaveBeenCalledTimes(notifications)
+      expect(target.update(nextQuery, 0).pending).toBe(true)
+      for (const document of [0, 1]) {
+        const updated = (document === 0 ? 'base' : 'current') === side
+        fresh.respond({
+          type: 'matches',
+          document,
+          ranges: new Uint32Array(updated ? [6, 12, 13, 19] : [0, 6]),
+        })
+        fresh.respond({ type: 'done', document })
+      }
+      expect(target.update(nextQuery, 0)).toEqual({ current: 1, total: 3, side: 'base' })
+      unsubscribe()
+    },
+  )
+
   it('applies a settled result before draining a coalesced refresh', async () => {
     const path = localPath('/repo/design.md')
     const active = deferred<GitDiffResponse>()
