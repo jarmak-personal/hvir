@@ -39,7 +39,6 @@ describe('harness provider dependency direction', () => {
     'harness-composer-contracts',
     'harness-launch-selection',
     'harness-usage',
-    'harness-usage-demand-controller',
     'harness-telemetry-hub',
   ])('keeps %s independent of bundled implementations', async (owner) => {
     for (const path of [
@@ -89,7 +88,6 @@ describe('harness provider dependency direction', () => {
     for (const [owner, path] of [
       ['harness-provider-contract', '../../shared/harness-provider'],
       ['harness-usage', './harness-provider-contract'],
-      ['harness-usage-demand-controller', './harness-provider-registry'],
       ['providers/codex', '../harness-provider-contract'],
       ['providers/codex', '../codex-context-telemetry'],
       ['bundled-harness-providers', './providers/codex'],

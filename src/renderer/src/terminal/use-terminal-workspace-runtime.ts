@@ -138,7 +138,6 @@ export function useTerminalWorkspaceRuntime({
     openTerminalSearch: () => owner.runtimes.openSearch(),
     moveProps: (project: RegisteredProjectState, workspace: WorkspaceState) => ({
       runtimes: owner.runtimes,
-      sessionsProjection,
       moveTargets: terminalMoveTargets(project.workspaces, workspace.id),
       onMaterializationChange: owner.retainWorkspace,
       onSessionsSource: owner.registerSessionsSource,

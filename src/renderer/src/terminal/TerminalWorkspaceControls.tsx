@@ -2,7 +2,6 @@ import { useEffect, type Dispatch, type ReactElement, type SetStateAction } from
 
 import type { HostConnectionState } from '../../../shared'
 import type { TerminalPreferences } from '../settings/settings'
-import type { SessionsProjectionCoordinator } from '../sessions/sessions-projection-coordinator'
 import { useAppTheme } from '../theme'
 import { harnessLaunchMenuState } from './harness-launch-menu'
 import { profileProbe } from './terminal-probe-policy'
@@ -25,7 +24,6 @@ export function TerminalWorkspaceControls({
   railCompact,
   onRailCompact,
   menuOpen,
-  sessionsProjection,
   connectionState,
   setMenuOpen,
   model,
@@ -43,7 +41,6 @@ export function TerminalWorkspaceControls({
   readonly railCompact: boolean
   readonly onRailCompact: (compact: boolean) => void
   readonly menuOpen: boolean
-  readonly sessionsProjection: SessionsProjectionCoordinator
   readonly connectionState: HostConnectionState
   readonly setMenuOpen: Dispatch<SetStateAction<boolean>>
   readonly model: TerminalWorkspaceModel
@@ -99,7 +96,6 @@ export function TerminalWorkspaceControls({
         recoveryReady={recoveryReady}
         available={available}
         menuOpen={menuOpen}
-        sessionsProjection={sessionsProjection}
         connectionState={connectionState}
         moveMenuOpen={moving.menuOpen}
         moveTargets={moving.moveTargets}

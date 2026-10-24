@@ -256,7 +256,6 @@ function installApi(
       case 'sessions:snapshot':
         return Promise.resolve(snapshot(demandGeneration ?? 1))
       case 'sessions:release':
-      case 'sessions:usage-release':
         return Promise.resolve(undefined)
       case 'sessions:resolve-terminal':
         return Promise.resolve({
