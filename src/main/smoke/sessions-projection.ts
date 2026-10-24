@@ -14,12 +14,11 @@ import type { HarnessProvider } from '../harness/harness-provider-contract'
 import type { ProjectHost } from '../project-host'
 import type { RendererOwner, RendererResourceScopes } from '../renderer-resource-scopes'
 import type { PtySupervisor } from '../pty/pty-supervisor'
-import { SESSIONS_USAGE_SMOKE_TOTAL } from './sessions-usage-provider'
 import { captureSessionsVisuals } from './sessions-visual'
 
-const USAGE_SESSION_ID = '00000000-0000-4000-8000-000000006511'
-const USAGE_SESSION_TITLE = 'Usage cumulative fixture'
-const DISCONNECTED_USAGE_TITLE = 'Disconnected usage fixture'
+const PRESENTATION_SESSION_ID = '00000000-0000-4000-8000-000000006511'
+const PRESENTATION_SESSION_TITLE = 'Context presentation fixture'
+const DISCONNECTED_SESSION_TITLE = 'Disconnected session fixture'
 
 export async function verifySessionsProjectionSmoke(options: {
   readonly win: BrowserWindow
@@ -32,8 +31,8 @@ export async function verifySessionsProjectionSmoke(options: {
   readonly roots: readonly [HostPath, HostPath, HostPath]
   readonly addRetained: (root: HostPath, session: TerminalRecoverySession) => void
   readonly supervisor: PtySupervisor
-  readonly usageHost: ProjectHost
-  readonly usageProvider: HarnessProvider
+  readonly host: ProjectHost
+  readonly provider: HarnessProvider
   readonly captureDirectory?: HostPath
 }): Promise<string> {
   const {
@@ -47,8 +46,8 @@ export async function verifySessionsProjectionSmoke(options: {
     roots,
     addRetained,
     supervisor,
-    usageHost,
-    usageProvider,
+    host,
+    provider,
     captureDirectory,
   } = options
   publishState(state)
@@ -57,11 +56,11 @@ export async function verifySessionsProjectionSmoke(options: {
   )
   addRetained(
     roots[2],
-    usageRecovery(
+    presentationRecovery(
       '00000000-0000-4000-8000-000000006512',
       roots[2],
-      usageProvider,
-      DISCONNECTED_USAGE_TITLE,
+      provider,
+      DISCONNECTED_SESSION_TITLE,
     ),
   )
 
@@ -76,54 +75,49 @@ export async function verifySessionsProjectionSmoke(options: {
   assertContentFree(initial, [...roots, state.root])
   await assertRendererJoin(initialSnapshot)
 
-  const usageInfo = await supervisor.spawn({
-    host: usageHost,
-    provider: usageProvider,
+  const presentationInfo = await supervisor.spawn({
+    host,
+    provider,
     cwd: roots[0],
     workspaceRoot: roots[0],
     ownerId: initialOwner.id,
     ownerGeneration: initialOwner.generation,
-    sessionId: USAGE_SESSION_ID,
-    profileId: usageProvider.profile.defaultProfile?.id,
-    launchRevision: usageProvider.profile.version,
+    sessionId: PRESENTATION_SESSION_ID,
+    profileId: provider.profile.defaultProfile?.id,
+    launchRevision: provider.profile.version,
     artifact: {
-      identity: 'sessions-usage-electron-smoke',
+      identity: 'sessions-presentation-electron-smoke',
       environment: {},
       unsetEnvironment: [],
     },
   })
   supervisor.attach(
-    usageInfo.id,
-    usageInfo.ownerId,
+    presentationInfo.id,
+    presentationInfo.ownerId,
     { onData: () => undefined },
-    usageInfo.ownerGeneration,
+    presentationInfo.ownerGeneration,
   )
   addRetained(
     roots[0],
-    usageRecovery(USAGE_SESSION_ID, roots[0], usageProvider, USAGE_SESSION_TITLE),
+    presentationRecovery(
+      PRESENTATION_SESSION_ID,
+      roots[0],
+      provider,
+      PRESENTATION_SESSION_TITLE,
+    ),
   )
-  const usageProjection = assertSnapshot(
+  const presentationProjection = assertSnapshot(
     await win.webContents.executeJavaScript(
       `window.hvir.invoke('sessions:snapshot', { demandGeneration: 1 })`,
     ),
     5,
   )
-  const usageSession = usageProjection.sessions.find(
-    (session) => session.title === USAGE_SESSION_TITLE,
+  const presentationSession = presentationProjection.sessions.find(
+    (session) => session.title === PRESENTATION_SESSION_TITLE,
   )
-  if (!usageSession?.livePty) {
-    throw new Error('Sessions Usage smoke fixture lacked its exact live PTY')
+  if (!presentationSession?.livePty) {
+    throw new Error('Sessions presentation smoke fixture lacked its exact live PTY')
   }
-  const initialUsage = (await win.webContents.executeJavaScript(`
-    window.hvir.invoke('sessions:usage-observe', ${JSON.stringify({
-      demandGeneration: 11,
-      projectionDemandGeneration: 1,
-      sourceRevision: usageProjection.revision,
-      targets: [{ handle: usageSession.handle, livePty: usageSession.livePty }],
-    })})
-  `)) as UsageSmokeSnapshot
-  await waitForExactUsage(win, initialUsage, 11)
-
   const reloaded = new Promise<void>((resolve) =>
     win.webContents.once('did-finish-load', () => resolve()),
   )
@@ -137,30 +131,21 @@ export async function verifySessionsProjectionSmoke(options: {
     throw new Error('Sessions projection renderer generation did not roll forward')
   }
 
-  const staleUsageDemand = (await win.webContents.executeJavaScript(`
-    window.hvir.invoke('sessions:usage-snapshot', { demandGeneration: 11 }).then(
-      () => 'accepted',
-      () => 'rejected'
-    );
-  `)) as string
-  if (staleUsageDemand !== 'rejected') {
-    throw new Error('Sessions Usage retained a stale renderer demand')
-  }
-  const rolledUsageInfo = supervisor.get(usageInfo.id)
+  const rolledPresentationInfo = supervisor.get(presentationInfo.id)
   const alreadyTransferred =
-    rolledUsageInfo?.ownerId === replacement.id &&
-    rolledUsageInfo.ownerGeneration === replacement.generation
+    rolledPresentationInfo?.ownerId === replacement.id &&
+    rolledPresentationInfo.ownerGeneration === replacement.generation
   if (
     !alreadyTransferred &&
     !supervisor.transferRendererSession(
-      usageInfo.id,
-      rolledUsageInfo?.ownerId ?? initialOwner.id,
-      rolledUsageInfo?.ownerGeneration ?? initialOwner.generation,
+      presentationInfo.id,
+      rolledPresentationInfo?.ownerId ?? initialOwner.id,
+      rolledPresentationInfo?.ownerGeneration ?? initialOwner.generation,
       replacement.id,
       replacement.generation,
     )
   ) {
-    throw new Error('Sessions Usage fixture did not survive renderer rollover')
+    throw new Error('Sessions presentation fixture did not survive renderer rollover')
   }
 
   const staleDemand = (await win.webContents.executeJavaScript(`
@@ -249,7 +234,7 @@ export async function verifySessionsProjectionSmoke(options: {
       poll();
     });
   `)
-  const captures = await captureSessionsVisuals(win, usageHost, captureDirectory)
+  const captures = await captureSessionsVisuals(win, host, captureDirectory)
   const overviewStatus = await verifySessionsOverview(
     win,
     [...roots, state.root],
@@ -1015,21 +1000,22 @@ function recovery(
     recoverySkipCount: 0,
     hostId: root.hostId,
     cwd: root,
-    title: 'Retained smoke session · Review hierarchy and integrated footer across multiple worktrees and narrow windows',
+    title:
+      'Retained smoke session · Review hierarchy and integrated footer across multiple worktrees and narrow windows',
     position: 0,
     active: true,
     updatedAt: Date.now(),
   }
 }
 
-function usageRecovery(
+function presentationRecovery(
   id: string,
   root: HostPath,
   provider: HarnessProvider,
   title: string,
 ): TerminalRecoverySession {
   const profileId = provider.profile.defaultProfile?.id
-  if (!profileId) throw new Error('Sessions Usage smoke provider lacked a profile')
+  if (!profileId) throw new Error('Sessions presentation smoke provider lacked a profile')
   return {
     id,
     providerId: provider.manifest.id,
@@ -1043,39 +1029,6 @@ function usageRecovery(
     position: 0,
     active: true,
     updatedAt: Date.now(),
-  }
-}
-
-interface UsageSmokeSnapshot {
-  readonly rows?: readonly {
-    readonly usage?: {
-      readonly status?: string
-      readonly value?: { readonly normalizedTokenTotal?: number }
-    }
-  }[]
-}
-
-async function waitForExactUsage(
-  win: BrowserWindow,
-  initial: UsageSmokeSnapshot,
-  demandGeneration: number,
-): Promise<void> {
-  let snapshot = initial
-  const deadline = Date.now() + 5_000
-  while (
-    !snapshot.rows?.some(
-      (row) =>
-        row.usage?.status === 'exact' &&
-        row.usage.value?.normalizedTokenTotal === SESSIONS_USAGE_SMOKE_TOTAL,
-    )
-  ) {
-    if (Date.now() > deadline) {
-      throw new Error('Sessions Usage cumulative smoke fixture did not become exact')
-    }
-    await delay(25)
-    snapshot = (await win.webContents.executeJavaScript(
-      `window.hvir.invoke('sessions:usage-snapshot', { demandGeneration: ${demandGeneration} })`,
-    )) as UsageSmokeSnapshot
   }
 }
 

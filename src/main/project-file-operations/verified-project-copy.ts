@@ -41,7 +41,6 @@ export interface VerifiedProjectCopySource extends TreeReadPort {
 export interface VerifiedProjectCopyOutcome {
   readonly result: ProjectFileItemResult
   readonly entryCount: number
-  readonly totalBytes: number
   readonly receipt?: VerifiedProjectCopyReceipt
 }
 
@@ -68,7 +67,7 @@ export async function copyVerifiedProjectEntry(options: {
   const limits = options.limits ?? PROJECT_FILE_COPY_LIMITS
   const destination = joinHostPath(options.visibleDestinationDirectory, options.name)
   if (options.signal.aborted) {
-    return { result: cancelledItem(options), entryCount: 0, totalBytes: 0 }
+    return { result: cancelledItem(options), entryCount: 0 }
   }
   try {
     options.assertCurrent()
@@ -80,7 +79,6 @@ export async function copyVerifiedProjectEntry(options: {
       return {
         result: conflict(options.itemId, destination),
         entryCount: 0,
-        totalBytes: 0,
       }
     }
     const plan = await preflight(
@@ -98,7 +96,6 @@ export async function copyVerifiedProjectEntry(options: {
     return {
       ...copied,
       entryCount: plan.entries.length,
-      totalBytes: plan.totalBytes,
     }
   } catch (reason) {
     return {
@@ -113,7 +110,6 @@ export async function copyVerifiedProjectEntry(options: {
               reason: boundedReason(reason, 'The source could not be inspected'),
             },
       entryCount: 0,
-      totalBytes: 0,
     }
   }
 }

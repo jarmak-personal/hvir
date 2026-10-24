@@ -132,21 +132,18 @@ One operation is bounded to all of the following:
 - at most 256 selected top-level sources;
 - at most 4,096 total entries, including selected roots and every visited descendant;
 - depth 32, where a selected top-level entry is depth zero;
-- at most 256 MiB for one regular file;
-- at most 1 GiB of logical source payload across all regular files;
 - at most four simultaneously open file stream handles;
 - one active operation per host-qualified workspace and two across the application; and
 - ten minutes from accepted request through final source disposition, including verification,
   publication, and any source retention, trash, or permanent-removal outcome.
 
 Capacity is not an unbounded queue: a request beyond the workspace or application operation
-limit receives a visible busy result and may be retried explicitly. Limits are checked during a
-preflight traversal and again while streaming so a changing source cannot bypass them. Reaching
-an entry, depth, file, or aggregate bound skips that top-level source without publication. The
-1 GiB aggregate counts each logical source file once; source revalidation and destination
-verification perform additional I/O without consuming a second logical payload allowance. These
-bounds do not promise that admitted work will finish: transfer speed and required multi-pass
-verification may still reach the ten-minute deadline.
+limit receives a visible busy result and may be retried explicitly. Entry and depth limits are
+checked during preflight traversal. Reaching either bound skips that top-level source without
+publication. File size and total payload bytes have no copy limit.
+Streaming still checks that each file matches its preflight size. These bounds do not promise
+that admitted work will finish: transfer speed and required multi-pass verification may still
+reach the ten-minute deadline.
 
 Files stream with backpressure through the narrow ports. Neither renderer nor main buffers a
 complete file or directory tree. Each open read or write handle counts toward the four-stream
@@ -301,8 +298,8 @@ copy path supports imports, duplication, cross-device project moves, and externa
 of allowing those workflows to drift.
 
 The contract deliberately rejects symbolic-link copies, directory merges, overwrites, arbitrary
-metadata, huge transfers, and offline cleanup guarantees. Some valid operating-system filenames
-or filesystem objects therefore remain unsupported. Normalizing modes and modification-time
+metadata, and offline cleanup guarantees. Some valid operating-system filenames or filesystem
+objects therefore remain unsupported. Normalizing modes and modification-time
 resolution favors truthful cross-host parity over perfect archival fidelity.
 
 External move cannot be atomic across hosts. A destination can exist while its source remains,

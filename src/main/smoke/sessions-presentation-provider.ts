@@ -4,24 +4,21 @@ import {
   contextHarnessSnapshot,
 } from '../../shared'
 import type { HarnessProvider } from '../harness/harness-provider-contract'
-import { usageObservationHarnessTelemetry } from '../harness/harness-usage'
-
-export const SESSIONS_USAGE_SMOKE_TOTAL = 123_456
 
 /** Deterministic trusted-provider fixture exercised only by production Electron smoke. */
-export const sessionsUsageSmokeProvider: HarnessProvider = {
+export const sessionsPresentationSmokeProvider: HarnessProvider = {
   manifest: {
-    id: asHarnessProviderId('smoke-usage'),
-    displayName: 'Smoke usage',
+    id: asHarnessProviderId('smoke-presentation'),
+    displayName: 'Smoke presentation',
     sessionKind: 'agent',
     contextPresentation: 'pressure',
   },
   profile: {
     version: 1,
     defaultProfile: {
-      id: asHarnessProfileId('smoke-usage-default'),
-      displayName: 'Smoke usage',
-      description: 'Production-composed deterministic Usage smoke fixture.',
+      id: asHarnessProfileId('smoke-presentation-default'),
+      displayName: 'Smoke presentation',
+      description: 'Production-composed deterministic context smoke fixture.',
     },
     reservedArguments: [],
     reservedEnvironmentKeys: [],
@@ -43,7 +40,7 @@ export const sessionsUsageSmokeProvider: HarnessProvider = {
   telemetry: {
     observe: (_host, context) => {
       const telemetry = contextHarnessSnapshot({
-        providerId: sessionsUsageSmokeProvider.manifest.id,
+        providerId: sessionsPresentationSmokeProvider.manifest.id,
         sessionId: context.sessionId,
         provenance: 'Deterministic Sessions presentation fixture',
         context: { usedTokens: 69_000, windowTokens: 100_000, usedPercent: 69 },
@@ -56,24 +53,6 @@ export const sessionsUsageSmokeProvider: HarnessProvider = {
           turn: { status: 'available', value: { state: 'waiting-for-user' } },
         },
       })
-      return () => undefined
-    },
-  },
-  usageTelemetry: {
-    observe: (_host, context) => {
-      const telemetry = usageObservationHarnessTelemetry({
-        providerId: sessionsUsageSmokeProvider.manifest.id,
-        sessionId: context.sessionId,
-        provenance: 'deterministic Electron Usage fixture',
-        counters: {
-          freshInputTokens: 100_000,
-          cacheReadInputTokens: 20_000,
-          cacheWriteInputTokens: 456,
-          outputTokens: 3_000,
-          reasoningTokens: 1_000,
-        },
-      })
-      if (telemetry) context.emit(telemetry)
       return () => undefined
     },
   },

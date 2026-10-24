@@ -94,26 +94,6 @@ export interface PtyObservationSource {
   observe(listener: () => void): Disposer
 }
 
-export type PtyUsageObservationResolution =
-  | { readonly status: 'pending' }
-  | { readonly status: 'unavailable' }
-  | {
-      readonly status: 'available'
-      readonly target: {
-        readonly instanceId: string
-        readonly providerId: HarnessProviderId
-        readonly host: ProjectHost
-        readonly sessionId: string
-        readonly cwd: HostPath
-        readonly sessionData?: unknown
-        readonly artifact: HarnessArtifactContext
-      }
-    }
-
-export interface PtyUsageObservationSource {
-  resolveUsageObservation(id: string, instanceId: string): PtyUsageObservationResolution
-}
-
 export type HarnessSessionIdentityStatus = TerminalIdentityStatus
 
 export interface PtyStreamHandlers {

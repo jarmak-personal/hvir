@@ -14,20 +14,26 @@ not restate a child-by-child verification plan.
 
 ## Decision summary
 
+The Session details popover has been removed from terminal rows and Sessions cards.
+Context meters and compaction indicators remain inline; context-menu gestures no longer
+request cumulative usage. Shared provider telemetry and contributor token accounting
+retain their existing owners. The dedicated Sessions usage IPC, demand controller,
+observation port, and PTY usage-target resolver have also been removed; Sessions has no
+cumulative-usage consumer.
+
 `SessionsProjectionCoordinator` is the one named projection coordinator. It lives in
 the existing Electron renderer process and is constructed by the Sessions feature, not
 by `App` as a global state owner. The renderer is the only process that already owns the
 current attention and terminal-presentation facts. Assembling there avoids copying those
-authorities into main. Heavy provider, artifact, host, and usage work remains in main
-behind narrow typed ports.
+authorities into main. Heavy provider, artifact, and host work remains in main behind
+narrow typed ports.
 
 The coordinator owns only an immutable derived snapshot and its consumer lifetime. It
 does not own any project, workspace, retained session, PTY, connection, telemetry,
 usage counter, attention, activity, runtime, surface, input, resize, or lifecycle-command
 state. Opening Sessions acquires one observation-demand lease; hiding or leaving Sessions
-releases it and disposes the coordinator's subscriptions, requests, timers, and recent
-sample buffers. Reopening reconstructs a current snapshot from the retained owners, so a
-quiet night does not turn the view into an empty state.
+releases it and disposes the coordinator's subscriptions and requests. Reopening
+reconstructs a current snapshot from the retained owners, so a quiet night does not turn the view into an empty state.
 
 Main exposes a renderer-generation-qualified `SessionsObservationPort` as an adapter over
 the existing owners. That port is not a store or a coordinator. It registers change
@@ -47,8 +53,8 @@ diagnostics, DOM attributes, or logs.
 Codex App Server and Claude Code hooks are both **unsupported for topology in this pass**.
 Neither satisfies the exact native-terminal, content-free, demand-scoped local and SSH
 boundary. Consequently the topology child must be deferred rather than inventing a
-contract. The global projection, overview, usage, terminal-detail, and ranking children
-remain unblocked.
+contract. The global projection, overview, and live terminal detail remain independent
+of provider topology.
 
 ## Owner and reuse inventory
 
@@ -59,8 +65,8 @@ remain unblocked.
 | Retained terminal session | Main `TerminalSessionRegistry` | Existing root-qualified `list()` and exact `get()` are the authority; later projection work may add a read-only snapshot/change port at this owner | Read loaded records only. Do not expose `harnessSessionId`, raw `HostPath`, artifact identity, or a mutation method. |
 | Live or exited PTY instance | Main `PtySupervisor` | `get()`, `list()`, `onExit()`, `onSessionIdentity()`, and renderer-generation checks | Adapt only safe liveness and an opaque instance handle. Do not attach an output stream, replay output, spawn, resume, kill, write, or resize for card projection. |
 | Provider identity and structured telemetry | Main harness provider registry and the exact `PtySupervisor` entry | Provider capability descriptors, `HarnessSnapshot`, and the current PTY telemetry snapshot | Provider IDs stay opaque data. Providers observe and normalize; projection code never branches on `codex` or `claude-code`. |
-| Host-multiplexed live provider observation | Provider-owned `HarnessTelemetryHubRegistry` per `(host, provider)` | Its exact-session subscription and empty-hub eviction | Reuse when its semantics match. A Sessions consumer may add demand; a retained record alone never does. The hub survives only while some named consumer still demands it. |
-| Cumulative token counters | Each bundled provider's `usageSnapshots` implementation | Provider-owned artifact qualification and normalization; `nonNegativeUsageCounter()` and safe summation/delta policy | Extract the provider-neutral counter vocabulary and arithmetic narrowly if runtime consumers need it. Do not import the GitHub agent-work ledger or add monetary-cost fields. |
+| Host-multiplexed live provider observation | Provider-owned `HarnessTelemetryHubRegistry` per `(host, provider)` | Its exact-session subscription and empty-hub eviction | Reuse current terminal telemetry without creating a Sessions-only provider observer. The hub survives only while some named terminal consumer still demands it. |
+| Cumulative token counters | Each bundled provider's `usageSnapshots` implementation | Provider-owned artifact qualification and normalization; `nonNegativeUsageCounter()` and safe summation/delta policy | Preserve provider snapshots and contributor accounting. Sessions does not request cumulative counters or import the GitHub agent-work ledger. |
 | Attention and Working activity | Renderer terminal workspace model and `useTerminalAttentionController` | Existing `TerminalAttention`, `terminalActionableAttentionCount()`, and `terminalWorkingCount()` policy | Observe the current model; never reclassify output or provider turns. Working remains the deliberately imperfect generic input/output/idle heuristic. |
 | Materialized terminal workspace and runtime | Renderer `TerminalWorkspaceRuntimeOwner`, `TerminalRuntimeRegistry`, and exact `TerminalRuntime` | Existing snapshot/subscription patterns and runtime identity | Add only a read-only observation port for already materialized runtimes. Projection does not retain or materialize a workspace. |
 | Terminal presentation and event delivery | Exact `TerminalRuntime`, `TerminalSurfaceAttachment`, `TerminalEventRouter`, and `TerminalPane` | Existing reparent, visible/hidden presentation, bounded hidden delivery, fit, focus, and disposal behavior | Cards create no surface. Detail borrows the actual current surface through one qualified lease; it creates no pane, PTY, event route, or output copy. |
@@ -100,14 +106,12 @@ to the existing renderer attention owner and ADR-019 policy.
 4. Main source changes publish a monotonic revision to that exact lease. Renderer runtime
    changes publish through the existing external-store pattern. Repeated facts are
    deduplicated; gaps request a new current snapshot rather than guessing.
-5. Leaving or hiding Sessions aborts in-flight snapshot and sample work, disposes both
-   subscriptions, increments the demand generation, and drops Sessions-only recent
-   samples. Main releases the renderer-scoped observation resource even if renderer
-   cleanup cannot send a final message.
+5. Leaving or hiding Sessions aborts in-flight snapshot work, disposes both subscriptions,
+   and increments the demand generation. Main releases the renderer-scoped observation
+   resource even if renderer cleanup cannot send a final message.
 
 Project catalog, retained-session, PTY lifecycle, connection, and renderer runtime changes
-are event-driven. They require no projection tick. Only the usage feature may request a
-bounded cadence while visible; that cadence is selected and tested in its own child.
+are event-driven. They require no projection tick or usage-sampling cadence.
 Provider freshness remains the `HarnessSnapshot` provenance and freshness contract rather
 than a Sessions timer.
 
@@ -120,9 +124,8 @@ alive only because its existing terminal consumer still declares demand. Hiding 
 does not stop that other consumer and does not stop a PTY.
 
 The coordinator stores no overnight history. Retained sessions and registered workspaces
-remain available from their existing owners when the view reopens. Cumulative usage can
-be sampled again from an exact provider artifact; the recent moving window begins again
-without pretending to have observed the hidden interval.
+remain available from their existing owners when the view reopens. Sessions retains no
+cumulative usage or moving-window sample buffer.
 
 Opening Sessions never:
 
@@ -133,30 +136,18 @@ Opening Sessions never:
 - creates a terminal pane or surface for a card; or
 - parses PTY output, terminal cells, titles, paths, or ambient latest provider state.
 
-### Usage demand and retention
+### Cumulative usage removal
 
-A main-owned `HarnessUsageDemandController` accepts exact, renderer-qualified demand
-leases. It resolves the provider and host behind the existing registry and `ProjectHost`,
-runs artifact reads and normalization off the renderer thread, and reuses the telemetry
-hub when a live snapshot already has the required semantics. It owns provider
-subscriptions, sample timers, abort controllers, and any host resource created for that
-demand. Removing its last lease disposes them.
+Sessions has no cumulative-usage demand path. Removing the popover removes its renderer
+subscriptions, the `sessions:usage-*` IPC contract and authority entries, main demand and
+observation owners, and the dedicated PTY target resolver. No dormant runtime seam is
+retained for a future consumer.
 
-`SessionsProjectionCoordinator` owns the bounded in-memory recent-sample buffer because
-that buffer exists solely for Sessions presentation. It accepts only current cumulative,
-normalized counters with provenance and observation time. It performs safe provider-neutral
-arithmetic, not artifact parsing. It discards the buffer on hide, renderer rollover, or
-dispose. Process restart and view reopen therefore reset the moving window. Exact counter
-names, cadence, window size, aggregation, chart tuning, and card copy remain decisions for
-the usage children.
-
-The runtime vocabulary is token usage, never monetary cost. GitHub agent-work planning and
-delivery records are not a Sessions source.
-
-Local and SSH sampling use the same `ProjectHost` port. Demand against a disconnected host
-returns an unavailable fact and releases its request resources; it does not connect or
-retry the host. Only the existing explicit host connection lifecycle can make a later
-visible demand eligible for a new sample.
+Provider-owned usage parsing, snapshots, telemetry, and provider-neutral arithmetic remain
+available to their existing consumers. Contributor token capture and accounting retain
+their separate owners; GitHub agent-work records are not a Sessions source. Local and SSH
+context and compaction observation continue through the same existing `ProjectHost` and
+provider boundaries.
 
 ## Exclusive terminal-surface lease
 
@@ -313,8 +304,8 @@ a substitute.
 No evaluated provider qualifies, so provider topology and per-subagent usage attribution
 must be deferred from the current epic. Later work must not infer relationships from
 paths, terminal titles, timing, current directories, ambient latest state, or provider
-content. This result does not block the global Sessions projection, overview, per-session
-usage, live terminal detail, or moving session-usage ranking.
+content. This result does not block the global Sessions projection, overview, or live
+terminal detail. Cumulative-usage presentation and its dedicated demand path have since been removed.
 
 This architecture gate itself changes documentation only and therefore adds no runtime
 observer, process, timer, buffer, IPC channel, surface, or test fixture.

@@ -69,7 +69,6 @@ export async function copyExternalFileGrant(
   const limits = options.limits ?? PROJECT_FILE_COPY_LIMITS
   const results: ProjectFileItemResult[] = []
   let acceptedEntries = 0
-  let acceptedBytes = 0
   for (const item of options.grant.items) {
     options.onProgress(results.length, options.grant.items.length, item.name)
     const destination = joinHostPath(options.visibleDestinationDirectory, item.name)
@@ -120,13 +119,11 @@ export async function copyExternalFileGrant(
         limits: {
           ...limits,
           maxEntries: Math.max(0, limits.maxEntries - acceptedEntries),
-          maxTotalBytes: Math.max(0, limits.maxTotalBytes - acceptedBytes),
         },
         createStagingId: options.createStagingId,
         cleanupStaging: (path) => options.cleanupStaging(options.destinationHost, path),
       })
       acceptedEntries += copied.entryCount
-      acceptedBytes += copied.totalBytes
       results.push(
         options.completeItem
           ? await options.completeItem({ item: supportedItem, source, copied })

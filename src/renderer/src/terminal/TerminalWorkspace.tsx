@@ -16,7 +16,6 @@ import {
   type WorkspaceState,
 } from '../../../shared'
 import type { SessionsRendererSession } from '../sessions/sessions-renderer-observation'
-import type { SessionsProjectionCoordinator } from '../sessions/sessions-projection-coordinator'
 import { fitSplitPrimaryWidth } from '../layout/split-layout-policy'
 import type { TerminalPreferences } from '../settings/settings'
 import {
@@ -77,7 +76,6 @@ interface TerminalWorkspaceProps {
   readonly onOpenHarnessSettings: () => void
   readonly onAddHarness: () => void
   readonly runtimes: TerminalRuntimeRegistry
-  readonly sessionsProjection: SessionsProjectionCoordinator
   readonly moveTargets: readonly WorkspaceState[]
   readonly onMaterializationChange: (workspaceId: string, retained: boolean) => void
   readonly onSessionsSource: (
@@ -125,7 +123,6 @@ export function TerminalWorkspace({
   onOpenHarnessSettings,
   onAddHarness,
   runtimes,
-  sessionsProjection,
   moveTargets,
   onMaterializationChange,
   onSessionsSource,
@@ -366,7 +363,6 @@ export function TerminalWorkspace({
           railCompact={railCompact}
           onRailCompact={onRailCompact}
           menuOpen={menuOpen}
-          sessionsProjection={sessionsProjection}
           connectionState={connectionState}
           setMenuOpen={setMenuOpen}
           model={model}
