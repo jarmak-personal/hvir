@@ -21,8 +21,6 @@ import {
   type SessionsOpenRequest,
   type SessionsOpenResponse,
   type SessionsTerminalResolutionResponse,
-  type SessionsUsageDemandTarget,
-  type SessionsUsageSnapshot,
 } from '../src/shared'
 import type {
   SessionsTerminalSurfaceLease,
@@ -59,7 +57,9 @@ describe('SessionsOverview', () => {
     })
     expect(host.querySelector('main')?.getAttribute('aria-label')).toBe('Sessions')
     expect(host.textContent).not.toContain('Usage')
-    expect(api.usageObserve).not.toHaveBeenCalled()
+    expect(
+      api.invoke.mock.calls.some(([channel]) => channel.startsWith('sessions:usage-')),
+    ).toBe(false)
     expect(host.querySelectorAll('.session-card')).toHaveLength(2)
     expect(host.querySelector('.sessions-group h2')?.textContent).toBe('Project One')
     expect(host.querySelector('.sessions-pagination div')).toBeNull()
@@ -114,8 +114,25 @@ describe('SessionsOverview', () => {
       'AttentionBell',
     )
     expect(agentCard.querySelectorAll('.session-fact.available')).toHaveLength(1)
-    void act(() => agentCard.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })))
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    void act(() =>
+      agentCard.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })),
+    )
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    act(() => {
+      agentCard.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ContextMenu', bubbles: true }),
+      )
+      agentCard.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }),
+      )
+    })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(
+      api.invoke.mock.calls.some(([channel]) => channel.startsWith('sessions:usage-')),
+    ).toBe(false)
+    expect(
+      api.on.mock.calls.some(([channel]) => channel.startsWith('sessions:usage-')),
+    ).toBe(false)
     act(() => button('Shells').click())
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     act(() => button('All sessions').click())
@@ -622,14 +639,9 @@ function installApi(
     readonly resolveTerminal?: (
       request: unknown,
     ) => Promise<SessionsTerminalResolutionResponse>
-    readonly usageSnapshot?: (
-      demandGeneration: number,
-      targets: readonly SessionsUsageDemandTarget[],
-    ) => SessionsUsageSnapshot
   } = {},
 ) {
   const listeners = new Set<(payload: unknown) => void>()
-  const usageListeners = new Set<(payload: unknown) => void>()
   const readSnapshot = options.snapshot ?? snapshot
   const observe = vi.fn((generation: number) => Promise.resolve(readSnapshot(generation)))
   const release = vi.fn((_generation: number) => Promise.resolve())
@@ -649,32 +661,6 @@ function installApi(
         })
       }),
   )
-  let usageTargets: readonly SessionsUsageDemandTarget[] = []
-  const readUsageSnapshot =
-    options.usageSnapshot ??
-    ((demandGeneration: number, targets: readonly SessionsUsageDemandTarget[]) => ({
-      version: SESSIONS_PROJECTION_VERSION,
-      demandGeneration,
-      revision: 1,
-      sampledAt: 10_000,
-      rows: targets.map((target) => ({
-        handle: target.handle,
-        usage: { status: 'pending' as const, reason: 'observation-pending' as const },
-      })),
-    }))
-  const usageObserve = vi.fn(
-    (request: {
-      demandGeneration: number
-      targets: readonly SessionsUsageDemandTarget[]
-    }) => {
-      usageTargets = request.targets
-      return Promise.resolve(readUsageSnapshot(request.demandGeneration, usageTargets))
-    },
-  )
-  const usageSnapshot = vi.fn((demandGeneration: number) =>
-    Promise.resolve(readUsageSnapshot(demandGeneration, usageTargets)),
-  )
-  const usageRelease = vi.fn((_demandGeneration: number) => Promise.resolve())
   const api = {
     observe,
     release,
@@ -683,35 +669,18 @@ function installApi(
     emit: (payload: unknown) => {
       for (const listener of listeners) listener(payload)
     },
-    usageEmit: (payload: unknown) => {
-      for (const listener of usageListeners) listener(payload)
-    },
-    usageObserve,
-    usageSnapshot,
-    usageRelease,
-    usageListenerCount: () => usageListeners.size,
     listenerCount: () => listeners.size,
     invoke: vi.fn((channel: string, request: { demandGeneration: number }) => {
       if (channel === 'sessions:observe') return observe(request.demandGeneration)
       if (channel === 'sessions:snapshot')
         return Promise.resolve(readSnapshot(request.demandGeneration))
       if (channel === 'sessions:release') return release(request.demandGeneration)
-      if (channel === 'sessions:usage-observe') return usageObserve(request as never)
-      if (channel === 'sessions:usage-snapshot')
-        return usageSnapshot(request.demandGeneration)
-      if (channel === 'sessions:usage-release')
-        return usageRelease(request.demandGeneration)
       if (channel === 'sessions:open') return open(request)
       if (channel === 'sessions:resolve-terminal') return resolveTerminal(request)
       return Promise.reject(new Error(`Unexpected channel ${channel}`))
     }),
     on: vi.fn((channel: string, listener: (payload: unknown) => void) => {
-      const selected =
-        channel === 'sessions:changed'
-          ? listeners
-          : channel === 'sessions:usage-changed'
-            ? usageListeners
-            : undefined
+      const selected = channel === 'sessions:changed' ? listeners : undefined
       selected?.add(listener)
       return () => selected?.delete(listener)
     }),

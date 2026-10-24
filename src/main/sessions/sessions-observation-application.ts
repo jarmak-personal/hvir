@@ -1,22 +1,16 @@
 import { harnessProviders } from '../harness/harness-provider'
-import { HarnessUsageDemandController } from '../harness/harness-usage-demand-controller'
 import type { ProjectState, ProjectHostOption } from '../../shared'
 import type { Disposer } from '../project-host/project-host'
-import type {
-  PtyObservationSource,
-  PtyUsageObservationSource,
-} from '../pty/pty-supervisor'
+import type { PtyObservationSource } from '../pty/pty-supervisor'
 import type { RendererEventPublisher } from '../renderer-event-publisher'
 import type { TerminalSessionObservationSource } from '../terminal/session-registry'
 import type { LiveSessionMetadataSources } from '../terminal/live-session-metadata'
 import type { WorkbenchRuntime } from '../workbench-runtime'
 import { SessionsObservationPort } from './sessions-observation-port'
-import { SessionsUsageObservationPort } from './sessions-usage-observation-port'
 
 export interface ApplicationSessionsObservation {
   readonly context: LiveSessionMetadataSources
   readonly observation: SessionsObservationPort
-  readonly usage: SessionsUsageObservationPort
 }
 
 /** Feature-owned application composition for demand-scoped Sessions observation. */
@@ -25,7 +19,7 @@ export function installApplicationSessionsObservation(
   projects: { state(): ProjectState; observe(listener: () => void): Disposer },
   hosts: { listHosts(): readonly ProjectHostOption[] },
   sessions: TerminalSessionObservationSource,
-  ptys: PtyObservationSource & PtyUsageObservationSource,
+  ptys: PtyObservationSource,
   events: Pick<RendererEventPublisher, 'toRenderer'>,
 ): ApplicationSessionsObservation {
   const observation = runtime.own(
@@ -49,20 +43,5 @@ export function installApplicationSessionsObservation(
     }),
     (observation) => observation.dispose(),
   )
-  const demand = runtime.own(
-    'Harness usage demand controller',
-    new HarnessUsageDemandController(harnessProviders),
-    (controller) => controller.dispose(),
-  )
-  const usage = runtime.own(
-    'Sessions usage observation port',
-    new SessionsUsageObservationPort({
-      sessions: observation,
-      ptys,
-      usage: demand,
-      emit: (owner, change) => events.toRenderer(owner, 'sessions:usage-changed', change),
-    }),
-    (port) => port.dispose(),
-  )
-  return { observation, usage, context: observation.context }
+  return { observation, context: observation.context }
 }

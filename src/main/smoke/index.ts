@@ -38,13 +38,11 @@ import {
   harnessProviderCatalog,
   harnessProviders,
 } from '../harness/harness-provider'
-import { HarnessUsageDemandController } from '../harness/harness-usage-demand-controller'
 import { sendRendererEvent } from '../renderer-event-delivery'
 import { registerIpcHandlers } from '../ipc'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { PtySupervisor } from '../pty/pty-supervisor'
 import { SessionsObservationPort } from '../sessions/sessions-observation-port'
-import { SessionsUsageObservationPort } from '../sessions/sessions-usage-observation-port'
 import { createWorkerClient, workerPath } from '../worker-host'
 import { createWorkspaceCleanup } from '../workspace-cleanup'
 import { SmokeCleanup } from './cleanup'
@@ -73,7 +71,7 @@ import { verifyViewerContent } from './viewer-content'
 import { verifyWorkbenchHealthScenario } from './workbench-health-scenario'
 import { verifyRendererRecoveryScenario } from './renderer-recovery-scenario'
 import { verifySessionsProjectionScenario } from './sessions-projection-scenario'
-import { sessionsUsageSmokeProvider } from './sessions-usage-provider'
+import { sessionsPresentationSmokeProvider } from './sessions-presentation-provider'
 import { createTerminalMoveSmokeHarness } from './terminal-move'
 import { createSmokeTerminalSessionStore } from './terminal-session-store'
 import { smokeSessionsObservationProviders } from './sessions-observation-providers'
@@ -263,7 +261,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     const smokeTerminalSessions = smokeTerminalSessionHarness.store
     const smokeSessionsProviders = new HarnessProviderRegistry([
       ...harnessProviders.all(),
-      sessionsUsageSmokeProvider,
+      sessionsPresentationSmokeProvider,
     ])
     const smokeHarnessProfiles = await HarnessProfileStore.load(host, harnessProfilesPath)
     await host.removeFile(documentReviewPath, { ignoreMissing: true })
@@ -306,22 +304,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       },
     })
     cleanup.defer('Sessions observation', () => sessionsObservation.dispose())
-    const sessionsUsageDemand = new HarnessUsageDemandController(smokeSessionsProviders)
-    cleanup.defer('Sessions usage demand', () => sessionsUsageDemand.dispose())
-    const sessionsUsage = new SessionsUsageObservationPort({
-      sessions: sessionsObservation,
-      ptys: supervisor,
-      usage: sessionsUsageDemand,
-      emit: (owner, change) => {
-        if (
-          smokeWindow?.webContents.id === owner.id &&
-          rendererResources.isCurrent(owner)
-        ) {
-          sendRendererEvent(smokeWindow.webContents, 'sessions:usage-changed', change)
-        }
-      },
-    })
-    cleanup.defer('Sessions usage observation', () => sessionsUsage.dispose())
     const terminalMoveSmoke = createTerminalMoveSmokeHarness({
       sourceState: smokeProjectState,
       targetRoot: smokeWebSwitchRoot,
@@ -414,7 +396,6 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       ...extensionPtyPorts(supervisor, smokeTerminalSessions, projectFixture),
       terminalHandoffs: dependencies.extensions.terminalHandoffs,
       sessionsObservation,
-      sessionsUsage,
       terminalMoves: terminalMoveSmoke.coordinator,
       harnessProfiles: smokeHarnessProfiles,
       harnessProbes: harnessProbeManager,
@@ -508,8 +489,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         roots: [smokeWebSwitchRoot, smokeCloseableRoot, smokeRemoteRoot],
         addRetained: smokeTerminalSessionHarness.add,
         supervisor,
-        usageHost: host,
-        usageProvider: sessionsUsageSmokeProvider,
+        host,
+        provider: sessionsPresentationSmokeProvider,
         captureDirectory: process.env.HVIR_SESSIONS_CAPTURE_DIR
           ? localPath(process.env.HVIR_SESSIONS_CAPTURE_DIR)
           : undefined,

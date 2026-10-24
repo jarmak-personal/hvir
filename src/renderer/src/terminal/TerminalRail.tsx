@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore, type ReactElement } from 'react'
+import type { ReactElement } from 'react'
 
 import {
   sessionsCompactionFact,
@@ -10,11 +10,6 @@ import {
 } from '../../../shared'
 import { ExtensionTerminalItems } from '../extensions/ExtensionTerminalItems'
 import { CompactionMarkers } from '../harness/CompactionMarkers'
-import { SessionDetailsPopover } from '../harness/SessionDetailsPopover'
-import { sessionDetailsModel } from '../harness/session-details-model'
-import { useSessionDetailsPopover } from '../harness/use-session-details-popover'
-import { useSessionsDetailsUsage } from '../harness/use-session-details-usage'
-import type { SessionsProjectionCoordinator } from '../sessions/sessions-projection-coordinator'
 import { useSessionsForeground } from '../sessions/use-sessions-foreground'
 import { terminalAttentionBadgeText, terminalAttentionLabel } from './terminal-attention'
 import {
@@ -43,7 +38,6 @@ export function TerminalRail({
   recoveryReady,
   available,
   menuOpen,
-  sessionsProjection,
   connectionState = 'connected',
   moveMenuOpen,
   moveTargets,
@@ -74,7 +68,6 @@ export function TerminalRail({
   readonly recoveryReady: boolean
   readonly available: boolean
   readonly menuOpen: boolean
-  readonly sessionsProjection: SessionsProjectionCoordinator
   readonly connectionState?: HostConnectionState
   readonly moveMenuOpen: boolean
   readonly moveTargets: readonly WorkspaceState[]
@@ -97,55 +90,8 @@ export function TerminalRail({
   readonly onMoveSession: (id: string) => void
   readonly onCloseSession: (id: string) => void
 }): ReactElement {
-  const rail = useRef<HTMLElement>(null)
-  const details = useSessionDetailsPopover(label, () => {
-    rail.current?.querySelector<HTMLButtonElement>('.terminal-list-main')?.focus()
-  })
-  const detailsRequest = details.request
-  const dismissDetails = details.dismiss
   const foreground = useSessionsForeground()
-  const projection = useSyncExternalStore(
-    sessionsProjection.subscribe,
-    sessionsProjection.snapshot,
-    sessionsProjection.snapshot,
-  )
   const surfaceActive = visible && !compact && foreground
-  const detailsActive = surfaceActive && detailsRequest !== undefined
-  useEffect(() => {
-    if (!surfaceActive) dismissDetails(false)
-  }, [dismissDetails, surfaceActive])
-  const detailsRow =
-    projection.status === 'available' && detailsRequest
-      ? projection.rows.find(
-          (candidate) => String(candidate.handle) === detailsRequest.target,
-        )
-      : undefined
-  const detailsUsage = useSessionsDetailsUsage(detailsRow, projection, detailsActive)
-  useEffect(() => {
-    if (detailsActive) return sessionsProjection.acquire()
-  }, [detailsActive, sessionsProjection])
-  useEffect(() => {
-    if (!detailsRequest) return
-    if (projection.status === 'available' && !detailsRow) {
-      dismissDetails(false)
-      return
-    }
-    if (projection.status !== 'unavailable') return
-    let cancelled = false
-    queueMicrotask(() => {
-      if (!cancelled && sessionsProjection.snapshot().status === 'unavailable') {
-        dismissDetails(false)
-      }
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [detailsRequest, detailsRow, dismissDetails, projection.status, sessionsProjection])
-  const detailsModel = detailsRow
-    ? sessionDetailsModel(detailsRow, detailsUsage)
-    : detailsRequest && projection.status === 'available'
-      ? null
-      : undefined
   const { menuRef: launchMenuRef, menuStyle: launchMenuStyle } =
     useTerminalLaunchMenuLayout(menuOpen)
   const applyCompact = (next: boolean): void => {
@@ -156,7 +102,6 @@ export function TerminalRail({
 
   return (
     <aside
-      ref={rail}
       className="terminal-rail hvir-panel"
       aria-label={`Open terminals in ${label}`}
       data-terminal-theme={terminalTheme}
@@ -354,14 +299,12 @@ export function TerminalRail({
               }
               data-terminal-dormant={session.dormant ? 'true' : undefined}
               role="listitem"
-              onContextMenu={(event) => details.openFromPointer(event, session.id)}
             >
               <button
                 type="button"
                 className="terminal-list-main hvir-button"
                 data-terminal-session={session.id}
                 onClick={() => onFocusSession(session.id)}
-                onKeyDown={(event) => details.openFromKeyboard(event, session.id)}
               >
                 <span className="terminal-list-copy">
                   <span className="terminal-list-title">{session.title}</span>
@@ -434,7 +377,6 @@ export function TerminalRail({
         onFocusSession={onFocusSession}
         onRestore={() => applyCompact(false)}
       />
-      <SessionDetailsPopover controller={details} details={detailsModel} />
     </aside>
   )
 }
