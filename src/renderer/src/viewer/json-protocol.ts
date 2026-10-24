@@ -4,6 +4,9 @@ export interface JsonNodeDescriptor {
   readonly label: string
   readonly path: readonly string[]
   readonly kind: JsonNodeKind
+  readonly sourceLine?: number
+  readonly error?: string
+  readonly truncated?: boolean
   readonly count?: number
   readonly value?: string | number | boolean | null
 }
@@ -12,7 +15,7 @@ interface JsonWorkerParseInput {
   readonly type: 'parse'
   readonly documentId: number
   readonly source: string
-  readonly format: 'json' | 'yaml'
+  readonly format: 'json' | 'jsonl' | 'yaml'
 }
 
 interface JsonWorkerChildrenInput {

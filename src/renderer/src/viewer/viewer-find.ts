@@ -48,6 +48,7 @@ export function viewerFindUnavailable(
   if (
     type === 'markdown' ||
     type === 'json' ||
+    type === 'jsonl' ||
     type === 'yaml' ||
     type === 'csv' ||
     type === 'mermaid'
