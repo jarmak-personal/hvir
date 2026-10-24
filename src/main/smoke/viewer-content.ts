@@ -1,3 +1,4 @@
+import { verifyRenderedResponsiveness } from './rendered-responsiveness'
 import { verifyPresentationFeedback } from './presentation-feedback'
 import { focusSmokeWindow } from './window-focus'
 import {
@@ -38,6 +39,7 @@ export async function verifyViewerContent(options: {
     await focusSmokeWindow(win)
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' })
+    await verifyRenderedResponsiveness(win, host, dirnameHostPath(liveReloadPath))
     const viewerStatus = (await win.webContents.executeJavaScript(`
         new Promise((resolve, reject) => {
           const poll = () => {

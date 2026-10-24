@@ -1,11 +1,15 @@
-import { parseCsv } from './csv-parser'
+import { boundCsvTable, parseCsv } from './csv-parser'
 import type { CsvWorkerRequest, CsvWorkerResponse } from './csv-protocol'
 
 self.onmessage = (event: MessageEvent<CsvWorkerRequest>): void => {
   const request = event.data
   let response: CsvWorkerResponse
   try {
-    response = { id: request.id, ok: true, table: parseCsv(request.source) }
+    response = {
+      id: request.id,
+      ok: true,
+      table: boundCsvTable(parseCsv(request.source)),
+    }
   } catch (error) {
     response = {
       id: request.id,

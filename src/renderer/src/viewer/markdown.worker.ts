@@ -5,6 +5,8 @@ import {
 import { renderMarkdownDocument } from '../../../shared/presentation/document-markdown/rendering'
 import { createViewerGrammarRegistry } from './shiki-grammar-registry'
 
+import { assertRenderedMarkdown, assertRenderedMarkup } from './rendered-workload-policy'
+
 const grammars = createViewerGrammarRegistry()
 
 self.onmessage = (event: MessageEvent<MarkdownRenderRequest>): void => {
@@ -13,16 +15,15 @@ self.onmessage = (event: MessageEvent<MarkdownRenderRequest>): void => {
 
 async function render(request: MarkdownRenderRequest): Promise<void> {
   try {
-    post({
-      id: request.id,
-      ok: true,
-      html: await renderMarkdownDocument(
-        request.markdown,
-        request.theme,
-        grammars,
-        request.resources,
-      ),
-    })
+    if (request.bounded) assertRenderedMarkdown(request.markdown)
+    const html = await renderMarkdownDocument(
+      request.markdown,
+      request.theme,
+      grammars,
+      request.resources,
+    )
+    if (request.bounded) assertRenderedMarkup(html)
+    post({ id: request.id, ok: true, html })
   } catch (error) {
     post({
       id: request.id,

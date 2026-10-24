@@ -67,6 +67,21 @@ async function originalMessages(owner: string, source: string) {
 describe('resolved adapter for existing dependency direction policy', () => {
   it.each([
     [
+      'src/main/viewer/mermaid-render-owner.ts',
+      'src/main/viewer/electron-mermaid-computation.ts',
+      './electron-mermaid-computation',
+    ],
+    [
+      'src/renderer/src/mermaid-computation.ts',
+      'src/preload/index.ts',
+      '../../preload/index',
+    ],
+    [
+      'src/renderer/src/viewer/rendered-workload-policy.ts',
+      'src/renderer/src/viewer/mermaid-client.ts',
+      './mermaid-client',
+    ],
+    [
       'src/shared/extensions/guest-client.mjs',
       'src/main/extensions/guest-owner.ts',
       '../../main/extensions/guest-owner',

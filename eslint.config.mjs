@@ -381,6 +381,23 @@ export default tseslint.config(
     ),
   },
 
+  {
+    files: ['src/main/viewer/mermaid-render-owner.ts'],
+    rules: dependencyDirectionRules(
+      '^electron$|^react$|(^|/)(preload|renderer)(/|$)|(^|/)electron-mermaid-computation(\\.[cm]?[jt]sx?)?$',
+      'Finite Mermaid job policy consumes content contracts and a computation port, never concrete browser or presentation adapters.',
+      true,
+    ),
+  },
+  {
+    files: ['src/renderer/src/mermaid-computation.ts'],
+    rules: dependencyDirectionRules(
+      '^node:|^electron$|^react$|(^|/)(main|preload)(/|$)|(^|/)renderer/src/(?!mermaid-computation)',
+      'Diagram computation imports only browser-safe presentation contracts and libraries, never workbench or native authority.',
+      true,
+    ),
+  },
+
   // Viewer presentation and effects depend inward, including erased imports.
   {
     files: ['src/renderer/src/viewer/**/*.{ts,tsx}'],
@@ -398,11 +415,13 @@ export default tseslint.config(
     files: [
       'src/renderer/src/viewer/highlight-protocol.ts',
       'src/renderer/src/viewer/viewer-workload-policy.ts',
+      'src/renderer/src/viewer/rendered-workload-policy.ts',
       'src/renderer/src/viewer/source-coordinate.ts',
       'src/renderer/src/viewer/viewer-position.ts',
     ],
     rules: dependencyDirectionRules(
-      '(^|/)(main|preload|workers)(/|$)|' + VIEWER_PRESENTATION_IMPORT_BAN,
+      '(^|/)(main|preload|workers)(/|$)|(^|/)mermaid-client(\\.[cm]?[jt]sx?)?$|' +
+        VIEWER_PRESENTATION_IMPORT_BAN,
       'Pure viewer policy and highlight contracts cannot import presentation, effect, or process implementations.',
       true,
     ),
