@@ -21,7 +21,6 @@ export interface PlannedEntry {
 
 export interface PlannedTree {
   readonly entries: readonly PlannedEntry[]
-  readonly totalBytes: number
 }
 
 export interface ManifestRow extends PlannedEntry {
@@ -48,7 +47,6 @@ export async function preflight(
   limits: ProjectFileCopyLimits,
 ): Promise<PlannedTree> {
   const entries: PlannedEntry[] = []
-  let totalBytes = 0
   const visit = async (path: HostPath, relativePath: string, depth: number) => {
     signal.throwIfAborted()
     if (depth > limits.maxDepth) {
@@ -69,13 +67,6 @@ export async function preflight(
       )
     }
     const entry = plannedEntry(relativePath, stat)
-    if (entry.size > limits.maxFileBytes) {
-      throw new UnsupportedSourceError('A source file exceeds the 256 MiB limit')
-    }
-    totalBytes += entry.size
-    if (totalBytes > limits.maxTotalBytes) {
-      throw new UnsupportedSourceError('The source exceeds the total byte limit')
-    }
     entries.push(entry)
     if (entry.type === 'directory') {
       const children = [...(await source.readdir(path))].sort((a, b) =>
@@ -91,7 +82,7 @@ export async function preflight(
     }
   }
   await visit(root, '', 0)
-  return { entries, totalBytes }
+  return { entries }
 }
 
 export async function manifestTree(

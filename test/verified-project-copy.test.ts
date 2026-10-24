@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
   copyVerifiedProjectEntry,
+  PROJECT_FILE_COPY_LIMITS,
   removeExactStagingTree,
   type ProjectFileCopyLimits,
   type VerifiedProjectCopySource,
@@ -25,7 +26,8 @@ import {
   type ProjectFileTransferPort,
   type ProjectHost,
 } from '../src/main/project-host'
-import { localPath } from '../src/shared'
+import { preflight } from '../src/main/project-file-operations/verified-project-copy-manifest'
+import { asHostId, hostPath, localPath } from '../src/shared'
 
 describe('verified project copy', () => {
   let directory: string
@@ -87,6 +89,43 @@ describe('verified project copy', () => {
     ).toBe(rootMtime.getTime() / 1_000)
   })
 
+  it.each([localPath('/source'), hostPath(asHostId('ssh:copy'), '/source')])(
+    'admits file sizes above 256 MiB and a tree above 1 GiB on $hostId without reading bytes',
+    async (root) => {
+      const size = 512 * 1024 * 1024 + 1
+      const plan = await preflight(
+        {
+          stat: (path) =>
+            Promise.resolve({
+              type: path.path === root.path ? 'dir' : 'file',
+              size: path.path === root.path ? 0 : size,
+              mode: 0o644,
+              mtimeMs: 1_700_000_000_000,
+            }),
+          readdir: () =>
+            Promise.resolve([
+              { name: 'one.bin', type: 'file' },
+              { name: 'two.bin', type: 'file' },
+            ]),
+          readFileChunks: () => {
+            throw new Error('Preflight must not read file contents')
+          },
+        },
+        root,
+        new AbortController().signal,
+        PROJECT_FILE_COPY_LIMITS,
+      )
+
+      expect(
+        plan.entries.map(({ relativePath, size }) => ({ relativePath, size })),
+      ).toEqual([
+        { relativePath: '', size: 0 },
+        { relativePath: 'one.bin', size },
+        { relativePath: 'two.bin', size },
+      ])
+    },
+  )
+
   it.each([
     {
       label: 'entry',
@@ -105,24 +144,6 @@ describe('verified project copy', () => {
       sourceType: 'directory' as const,
       limits: { maxDepth: 0 },
       reason: 'depth limit',
-    },
-    {
-      label: 'file-size',
-      makeSource: async (root: string) => writeFile(root, '1234'),
-      sourceType: 'file' as const,
-      limits: { maxFileBytes: 3 },
-      reason: 'file exceeds',
-    },
-    {
-      label: 'total-size',
-      makeSource: async (root: string) => {
-        await mkdir(root)
-        await writeFile(join(root, 'one.txt'), '123')
-        await writeFile(join(root, 'two.txt'), '456')
-      },
-      sourceType: 'directory' as const,
-      limits: { maxTotalBytes: 5 },
-      reason: 'total byte limit',
     },
   ])('fails visibly at the $label bound before staging', async (testCase) => {
     const source = join(directory, `bounded-${testCase.label}`)
@@ -349,7 +370,5 @@ function generousLimits(): ProjectFileCopyLimits {
   return {
     maxEntries: 100,
     maxDepth: 100,
-    maxFileBytes: 100,
-    maxTotalBytes: 100,
   }
 }

@@ -466,7 +466,6 @@ describe('project entry organization policy', () => {
               mtimeSeconds: Math.floor(initial.mtimeMs / 1_000),
             },
           ],
-          totalBytes: initial.size,
         },
         manifest: [],
       },

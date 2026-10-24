@@ -89,7 +89,7 @@ describe('copyExternalFileGrant', () => {
     })
   })
 
-  it('enforces operation-wide totals while keeping file streams sequential', async () => {
+  it('enforces operation-wide entry counts while keeping file streams sequential', async () => {
     const sources = await Promise.all(
       ['one.txt', 'two.txt', 'three.txt'].map(async (name) => {
         const path = localPath(join(directory, name))
@@ -144,10 +144,8 @@ describe('copyExternalFileGrant', () => {
       assertCurrent: () => undefined,
       revalidateDestinationDirectory: () => Promise.resolve(destination),
       limits: {
-        maxEntries: 10,
+        maxEntries: 2,
         maxDepth: 10,
-        maxFileBytes: 10,
-        maxTotalBytes: 5,
       },
       createStagingId: (() => {
         let id = 0
@@ -162,7 +160,7 @@ describe('copyExternalFileGrant', () => {
       { status: 'completed', effect: 'copied-file' },
       { status: 'skipped', effect: 'none' },
     ])
-    expect(result.items[2]?.reason).toContain('total byte limit')
+    expect(result.items[2]?.reason).toContain('entry limit')
     expect(maxActiveStreams).toBe(1)
   })
 })
