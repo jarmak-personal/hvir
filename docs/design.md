@@ -847,6 +847,16 @@ and truthful partial completion.
 
 ---
 
+### [ADR-084 — Isolated Mermaid rendering](adr/ADR-084-isolated-mermaid-rendering.md)
+
+> Lifecycle: Active
+
+Mermaid layout runs in a separate sandboxed browser renderer behind a finite viewer-owned
+port; bounded passive SVG returns to the workbench without granting the computation page
+filesystem or application IPC authority.
+
+---
+
 ## 5. Architecture
 
 ### Process model

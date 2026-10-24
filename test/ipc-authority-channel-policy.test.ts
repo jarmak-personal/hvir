@@ -102,6 +102,7 @@ it('keeps the reviewed owner and authority channel policies explicit', () => {
       'fs:deletion-disclosure',
       'fs:delete-entry',
       'fs:cancel-file-operation',
+      'mermaid:render',
       'html-preview:create',
       'web-pane:open',
       'web-pane:close',
