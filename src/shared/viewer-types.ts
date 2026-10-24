@@ -59,7 +59,7 @@ export function canRender(path: HostPath): boolean {
 }
 
 export type RenderedFileType =
-  'markdown' | 'mermaid' | 'html' | 'json' | 'yaml' | 'csv' | 'image'
+  'markdown' | 'mermaid' | 'html' | 'json' | 'jsonl' | 'yaml' | 'csv' | 'image'
 
 export function renderedFileType(path: HostPath): RenderedFileType | undefined {
   const name = path.path.toLowerCase()
@@ -71,6 +71,7 @@ export function renderedFileType(path: HostPath): RenderedFileType | undefined {
   if (extension === 'mmd' || extension === 'mermaid') return 'mermaid'
   if (extension === 'htm' || extension === 'html') return 'html'
   if (extension === 'json') return 'json'
+  if (extension === 'jsonl') return 'jsonl'
   if (extension === 'yaml' || extension === 'yml') return 'yaml'
   if (extension === 'csv') return 'csv'
   return undefined
@@ -80,6 +81,7 @@ const RENDERED_EXTENSIONS = new Set([
   'htm',
   'html',
   'json',
+  'jsonl',
   'yaml',
   'yml',
   'markdown',
