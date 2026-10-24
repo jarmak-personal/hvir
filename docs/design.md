@@ -862,8 +862,6 @@ with operation-scoped authority and no additional confirmation.
 
 ---
 
----
-
 ## 5. Architecture
 
 ### Process model

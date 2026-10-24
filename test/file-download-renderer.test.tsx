@@ -8,6 +8,7 @@ import {
   hostPath,
   localPath,
   type HostPath,
+  type DirEntry,
   type ProjectFileOperationProgress,
 } from '../src/shared'
 
@@ -18,6 +19,7 @@ let invoke: ReturnType<typeof vi.fn>
 let listeners: Set<(event: ProjectFileOperationProgress) => void>
 let downloadResult: unknown
 let drop: ReturnType<typeof vi.fn>
+let entries: readonly DirEntry[]
 const viewers = {
   canRebindPath: () => true,
   rebindPath: () => true,
@@ -27,6 +29,12 @@ const viewers = {
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   listeners = new Set()
+  entries = [
+    { name: 'output.txt', type: 'file' },
+    { name: 'other.txt', type: 'file' },
+    { name: 'folder', type: 'dir' },
+    { name: 'link', type: 'symlink' },
+  ]
   downloadResult = {
     outcome: 'started',
     operationId: 'download-1',
@@ -44,14 +52,7 @@ beforeEach(() => {
     if (channel === 'fs:readdir')
       return {
         ok: true,
-        value:
-          request?.path?.path === '/repo'
-            ? [
-                { name: 'output.txt', type: 'file' },
-                { name: 'folder', type: 'dir' },
-                { name: 'link', type: 'symlink' },
-              ]
-            : [],
+        value: request?.path?.path === '/repo' ? entries : [],
       }
     if (channel === 'fs:download-entry') return { ok: true, value: downloadResult }
     if (channel === 'fs:acquire-clipboard-files')
@@ -99,12 +100,19 @@ afterEach(() => {
   container.remove()
   vi.unstubAllGlobals()
 })
-async function render(path = root) {
+async function render(
+  path = root,
+  options: {
+    readonly selected?: HostPath
+    readonly refreshVersion?: number
+  } = {},
+) {
   await act(async () => {
     reactRoot.render(
       <FileTree
         root={path}
-        refreshVersion={0}
+        refreshVersion={options.refreshVersion ?? 0}
+        selected={options.selected}
         searchRefreshVersion={0}
         ignoredRefreshVersion={0}
         gitEnabled={false}
@@ -151,7 +159,7 @@ describe('Files downloads', () => {
     await click(row('link'))
     expect(downloadButton().disabled).toBe(true)
     await click(row('folder'))
-    expect(row('folder').getAttribute('aria-selected')).toBe('true')
+    expect(downloadButton().title).toBe('Download folder')
     expect(downloadButton().disabled).toBe(false)
     await click(row('output.txt'))
     await click(downloadButton())
@@ -165,6 +173,10 @@ describe('Files downloads', () => {
       'Downloading',
     )
     await click(row('folder'))
+    await render(root, {
+      selected: hostPath(root.hostId, '/repo/other.txt'),
+      refreshVersion: 1,
+    })
     expect(
       invoke.mock.calls.filter(([channel]) => channel === 'fs:download-entry'),
     ).toHaveLength(1)
@@ -196,6 +208,91 @@ describe('Files downloads', () => {
     expect(document.body.textContent).toContain('1 entry downloaded.')
     expect(document.body.textContent).toContain('/chosen/output.txt')
   })
+  it('keeps the viewer highlight independent of the download target and follows tab changes', async () => {
+    await render(root, { selected: hostPath(root.hostId, '/repo/output.txt') })
+    await click(row('folder'))
+    expect(row('output.txt').getAttribute('aria-selected')).toBe('true')
+    expect(row('folder').getAttribute('aria-selected')).toBe('false')
+    expect(downloadButton().title).toBe('Download folder')
+
+    await render(root, { selected: hostPath(root.hostId, '/repo/output.txt') })
+    expect(downloadButton().disabled).toBe(false)
+    await render(root, { selected: hostPath(root.hostId, '/repo/other.txt') })
+    expect(row('other.txt').getAttribute('aria-selected')).toBe('true')
+    expect(row('output.txt').getAttribute('aria-selected')).toBe('false')
+    expect(downloadButton().disabled).toBe(true)
+    expect(container.textContent).toContain('Select a file or folder')
+  })
+
+  it('preserves a clicked file target when opening it updates the active viewer selection', async () => {
+    await render(root, { selected: hostPath(root.hostId, '/repo/other.txt') })
+    await click(row('output.txt'))
+    await render(root, { selected: hostPath(root.hostId, '/repo/output.txt') })
+    expect(row('output.txt').getAttribute('aria-selected')).toBe('true')
+    expect(downloadButton().disabled).toBe(false)
+    await click(downloadButton())
+    expect(invoke).toHaveBeenCalledWith('fs:download-entry', {
+      workspaceRoot: root,
+      source: hostPath(root.hostId, '/repo/output.txt'),
+    })
+  })
+
+  it.each(['rename', 'delete'] as const)(
+    'invalidates a target after external %s and tree refresh',
+    async (action) => {
+      const selected = hostPath(root.hostId, '/repo/output.txt')
+      await render(root, { selected })
+      await click(row('output.txt'))
+      entries = entries.filter((entry) => entry.name !== 'output.txt')
+      if (action === 'rename')
+        entries = [...entries, { name: 'renamed.txt', type: 'file' }]
+      await render(root, { selected, refreshVersion: 1 })
+      expect(row('output.txt')).toBeNull()
+      expect(downloadButton().disabled).toBe(true)
+      expect(downloadButton().title).toBe('Select a file or folder to download')
+      expect(
+        container.querySelector('.file-download-controls')?.textContent,
+      ).not.toContain('output.txt')
+      if (action === 'rename') expect(row('renamed.txt')).not.toBeNull()
+    },
+  )
+
+  it('invalidates a target after a Files operation refresh without a parent refresh', async () => {
+    await render()
+    await click(row('output.txt'))
+    await act(async () => {
+      row('folder').dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'v',
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+      await Promise.resolve()
+    })
+    await emit({
+      operationId: 'upload-1',
+      phase: 'completed',
+      completedItems: 1,
+      result: {
+        outcome: 'completed',
+        operationId: 'upload-1',
+        generation: 1,
+        items: [
+          {
+            itemId: 'external:0',
+            destination: hostPath(root.hostId, '/repo/folder/input.txt'),
+            status: 'completed',
+            effect: 'copied-file',
+          },
+        ],
+      },
+    })
+    expect(downloadButton().disabled).toBe(true)
+    expect(downloadButton().title).toBe('Select a file or folder to download')
+  })
+
   it('silently handles native picker cancellation and releases the pending control', async () => {
     downloadResult = { outcome: 'cancelled' }
     await render()

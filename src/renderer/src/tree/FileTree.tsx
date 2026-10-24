@@ -111,6 +111,18 @@ export function FileTree({
     setDropTarget(undefined)
     setDownloadSelection(undefined)
   }, [connected, root.hostId, root.path])
+  const selectedHostId = selected?.hostId
+  const selectedPath = selected?.path
+  useEffect(() => {
+    setDownloadSelection((current) =>
+      current?.path.hostId === selectedHostId && current?.path.path === selectedPath
+        ? current
+        : undefined,
+    )
+  }, [selectedHostId, selectedPath])
+  useEffect(() => {
+    setDownloadSelection(undefined)
+  }, [refreshVersion, fileCreate.refreshVersion])
   const gitDecorations = useMemo(
     () =>
       buildTreeGitDecorations(
@@ -349,9 +361,7 @@ export function FileTree({
                 refreshVersion={refreshVersion + fileCreate.refreshVersion}
                 ignoredRefreshVersion={ignoredRefreshVersion}
                 gitDecorations={gitDecorations}
-                selected={
-                  fileCreate.selectedDirectory ?? downloadSelection?.path ?? selected
-                }
+                selected={fileCreate.selectedDirectory ?? selected}
                 revealRequest={fileCreate.revealRequest ?? revealRequest}
                 pathCopyRoot={root}
                 entryActions={fileCreate.entryActions}
