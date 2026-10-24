@@ -109,6 +109,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'fs:deletion-disclosure',
   'fs:delete-entry',
   'fs:cancel-file-operation',
+  'mermaid:render',
   'html-preview:create',
   'web-pane:open',
   'web-pane:close',

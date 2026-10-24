@@ -111,6 +111,7 @@ const baseConfig: UserConfig = {
       rollupOptions: {
         input: {
           index: resolve('src/renderer/index.html'),
+          mermaid: resolve('src/renderer/mermaid.html'),
         },
       },
     },

@@ -9,6 +9,7 @@ export type RendererResourceQualifier =
   | {
       readonly lifetime: 'renderer'
       readonly type:
+        | 'mermaid-render'
         | 'extension-views'
         | 'extension-package-import'
         | 'extension-program-connection'

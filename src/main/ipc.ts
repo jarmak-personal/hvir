@@ -1,3 +1,6 @@
+import { MermaidRenderOwner } from './viewer/mermaid-render-owner'
+import { ElectronMermaidComputation } from './viewer/electron-mermaid-computation'
+import { registerMermaidIpc } from './ipc/features/mermaid'
 /** Compose capability-specific IPC registrars behind one authority router. */
 
 import { IpcAuthorityRouter, type IpcMainRegistrationPort } from './ipc/authority-router'
@@ -41,6 +44,11 @@ export function registerIpcHandlers(
     registerImagePasteIpc(router, deps)
     registerClipboardIpc(router, deps)
     registerPreviewIpc(router, deps)
+    registerMermaidIpc(
+      router,
+      deps.rendererResources,
+      new MermaidRenderOwner(new ElectronMermaidComputation()),
+    )
     registerWebPaneIpc(router, deps)
     registerTerminalIpc(router, deps)
     registerTerminalFilePasteIpc(router, new ElectronClipboardFilePaste())

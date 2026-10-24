@@ -1,4 +1,4 @@
-# ADR-084: Picker-scoped local destinations for SSH downloads
+# ADR-085: Picker-scoped local destinations for SSH downloads
 
 > Lifecycle: Active
 

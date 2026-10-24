@@ -5,9 +5,12 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { RenderedView } from '../src/renderer/src/viewer/RenderedView'
+import { renderMermaid } from '../src/renderer/src/viewer/mermaid-client'
 import { renderMarkdown } from '../src/renderer/src/viewer/markdown-client'
 import type { ViewerPositionCapture } from '../src/renderer/src/viewer/viewer-position'
 import { localPath, type HostPath, type ReadAssetResponse } from '../src/shared'
+
+vi.mock('../src/renderer/src/viewer/mermaid-client', () => ({ renderMermaid: vi.fn() }))
 
 vi.mock('../src/renderer/src/viewer/markdown-client', () => ({
   renderMarkdown: vi.fn(),
@@ -64,6 +67,38 @@ afterEach(() => {
 })
 
 describe('RenderedView Markdown repository image refresh', () => {
+  it('rejects diagram completion after document replacement', async () => {
+    const late = deferred<string>()
+    vi.mocked(renderMarkdown).mockResolvedValue(
+      '<div class="mermaid-diagram"><pre>graph TD; A-->B</pre></div>',
+    )
+    vi.mocked(renderMermaid)
+      .mockReturnValueOnce(late.promise)
+      .mockResolvedValue('<svg><text>latest</text></svg>')
+    const props = {
+      path: localPath('/repo/diagrams.md'),
+      content: 'first',
+      position: { mode: 'rendered' as const, line: 1, scrollTop: 0 },
+      onPosition: vi.fn(),
+      positionCapture: { current: undefined },
+      onOpenPath: vi.fn(),
+      onDependencies: vi.fn(),
+      registerFindTarget: () => () => undefined,
+    }
+    render(<RenderedView {...props} />)
+    await act(async () => settle())
+    const previousSignal = vi.mocked(renderMermaid).mock.calls.at(-1)![2]
+    render(<RenderedView {...props} content="replacement" />)
+    await act(async () => settle())
+    expect(previousSignal.aborted).toBe(true)
+    await act(async () => {
+      late.resolve('<svg><text>stale</text></svg>')
+      await settle()
+    })
+    expect(host.textContent).toContain('latest')
+    expect(host.textContent).not.toContain('stale')
+  })
+
   it('keeps the Markdown tree mounted while applying two coalesced dependency events', async () => {
     const documentPath = localPath('/repo/docs/readme.md')
     const firstPath = localPath('/repo/assets/first.png')
