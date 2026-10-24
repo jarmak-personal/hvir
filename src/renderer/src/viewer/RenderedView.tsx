@@ -119,7 +119,7 @@ export function RenderedView({
       <HtmlPreview path={path} content={content} renderGeneration={renderGeneration} />
     )
   }
-  if (type === 'json' || type === 'yaml') {
+  if (type === 'json' || type === 'jsonl' || type === 'yaml') {
     return (
       <StructuredDataView
         content={content}
@@ -506,7 +506,7 @@ function StructuredDataView({
   registerFindTarget,
 }: {
   readonly content: string
-  readonly format: 'json' | 'yaml'
+  readonly format: 'json' | 'jsonl' | 'yaml'
   readonly renderGeneration: number
   readonly position: ViewerDocumentPosition
   readonly onPosition: (position: ViewerDocumentPosition) => void
@@ -542,7 +542,14 @@ function StructuredDataView({
     }
   }, [content, format, renderGeneration])
 
-  useRenderedPosition(container, content, position, onPosition, positionCapture, document)
+  useRenderedPosition(
+    container,
+    format === 'jsonl' ? '' : content,
+    position,
+    onPosition,
+    positionCapture,
+    document,
+  )
   useRenderedFindTarget(container, document, registerFindTarget)
 
   if (error)
@@ -553,9 +560,132 @@ function StructuredDataView({
     )
   if (!document)
     return <div className="viewer-empty hvir-state">Parsing {format.toUpperCase()}…</div>
+  if (format === 'jsonl')
+    return (
+      <JsonRecords
+        key={document.id}
+        documentId={document.id}
+        total={document.root.count ?? 0}
+        content={content}
+        position={position}
+        onPosition={onPosition}
+        positionCapture={positionCapture}
+        registerFindTarget={registerFindTarget}
+      />
+    )
   return (
     <div className="rendered-scroll json-tree hvir-scroll" ref={container}>
       <JsonNode node={document.root} documentId={document.id} initiallyOpen />
+    </div>
+  )
+}
+
+/** Replace pages rather than accumulating record nodes for a large log. */
+function JsonRecords({
+  documentId,
+  total,
+  content,
+  position,
+  onPosition,
+  positionCapture,
+  registerFindTarget,
+}: {
+  readonly documentId: number
+  readonly total: number
+  readonly content: string
+  readonly position: ViewerDocumentPosition
+  readonly onPosition: (position: ViewerDocumentPosition) => void
+  readonly positionCapture: ViewerPositionCapture
+  readonly registerFindTarget: RegisterViewerFindTarget
+}): ReactElement {
+  const pageSize = 100
+  const container = useRef<HTMLDivElement>(null)
+  const [offset, setOffset] = useState(() =>
+    Math.min(
+      Math.floor(Math.max(0, position.line - 1) / pageSize) * pageSize,
+      Math.max(0, Math.floor((total - 1) / pageSize) * pageSize),
+    ),
+  )
+  const [records, setRecords] = useState<readonly JsonNodeDescriptor[]>()
+  const [error, setError] = useState<string>()
+  useEffect(() => {
+    let cancelled = false
+    setRecords(undefined)
+    setError(undefined)
+    void requestJson({
+      type: 'children',
+      documentId,
+      path: [],
+      offset,
+      limit: pageSize,
+    }).then(
+      (response) => {
+        if (!cancelled && response.type === 'children') setRecords(response.children)
+      },
+      () => {
+        if (!cancelled) setError('Unable to load records')
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [documentId, offset])
+  useRenderedPosition(container, content, position, onPosition, positionCapture, records)
+  useRenderedFindTarget(container, records, registerFindTarget)
+  const changePage = (nextOffset: number): void => {
+    setOffset(nextOffset)
+    onPosition({ mode: 'rendered', line: nextOffset + 1, scrollTop: 0 })
+  }
+  return (
+    <div className="rendered-scroll json-tree jsonl-tree hvir-scroll" ref={container}>
+      <nav
+        className="jsonl-pages"
+        aria-label="JSONL records"
+        data-source-line={offset + 1}
+      >
+        <button
+          type="button"
+          className="json-more hvir-button"
+          disabled={offset === 0}
+          onClick={() => changePage(offset - pageSize)}
+        >
+          Previous records
+        </button>
+        <span>
+          {total === 0
+            ? 'No records'
+            : `Records ${offset + 1}–${Math.min(total, offset + pageSize)} of ${total}`}
+        </span>
+        <button
+          type="button"
+          className="json-more hvir-button"
+          disabled={offset + pageSize >= total}
+          onClick={() => changePage(offset + pageSize)}
+        >
+          Next records
+        </button>
+      </nav>
+      {!records && !error ? <div role="status">Loading records…</div> : null}
+      {error ? (
+        <div className="json-error" role="alert">
+          {error}
+        </div>
+      ) : null}
+      {records?.map((node) => (
+        <section
+          className="jsonl-record"
+          key={node.sourceLine}
+          data-source-line={node.sourceLine}
+        >
+          {node.error ? (
+            <div className="json-error">
+              Line {node.sourceLine}: {node.error}
+            </div>
+          ) : (
+            <JsonNode node={node} documentId={documentId} />
+          )}
+        </section>
+      ))}
     </div>
   )
 }
@@ -689,7 +819,7 @@ function JsonNode({
         <div className="json-children">
           {children.map((child) => (
             <JsonNode
-              key={`${child.path.length}:${child.label}`}
+              key={`${child.path.length}:${child.path.at(-1)}`}
               node={child}
               documentId={documentId}
             />
@@ -708,7 +838,12 @@ function JsonNode({
 
 function JsonScalar({ node }: { readonly node: JsonNodeDescriptor }): ReactElement {
   const text = node.kind === 'string' ? JSON.stringify(node.value) : String(node.value)
-  return <span className={`json-${node.kind}`}>{text}</span>
+  return (
+    <span className={`json-${node.kind}`}>
+      {text}
+      {node.truncated ? '… (value preview; full value in source)' : null}
+    </span>
+  )
 }
 
 function requestJson(input: JsonWorkerRequestInput): Promise<JsonWorkerResponse> {

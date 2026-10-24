@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { defaultViewMode, localPath, renderedFileType } from '../src/shared'
+import {
+  asHostId,
+  defaultViewMode,
+  hostPath,
+  localPath,
+  renderedFileType,
+} from '../src/shared'
 
 describe('view mode inference', () => {
   it.each([
@@ -8,6 +14,7 @@ describe('view mode inference', () => {
     ['diagram.mmd', 'mermaid'],
     ['page.html', 'html'],
     ['data.json', 'json'],
+    ['events.jsonl', 'jsonl'],
     ['workflow.yml', 'yaml'],
     ['config.yaml', 'yaml'],
     ['report.csv', 'csv'],
@@ -32,4 +39,13 @@ describe('view mode inference', () => {
     )
     expect(defaultViewMode(localPath('/project/App.tsx'), 'git-untracked')).toBe('source')
   })
+})
+
+it('uses the same JSONL defaults for SSH and local files and preserves entry context', () => {
+  const path = hostPath(asHostId('ssh:fixture'), '/project/events.JSONL')
+  expect(renderedFileType(path)).toBe('jsonl')
+  expect(defaultViewMode(path)).toBe('rendered')
+  expect(defaultViewMode(path, 'git')).toBe('diff')
+  expect(defaultViewMode(path, 'git-untracked')).toBe('rendered')
+  expect(defaultViewMode(path, 'created-file')).toBe('source')
 })

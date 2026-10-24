@@ -4,16 +4,27 @@ import type {
   JsonWorkerRequest,
   JsonWorkerResponse,
 } from './json-protocol'
-import { parseStructuredData } from './structured-data'
+import {
+  parseJsonLines,
+  parseStructuredData,
+  type JsonLineRecord,
+} from './structured-data'
 
-const documents = new Map<number, unknown>()
+const documents = new Map<
+  number,
+  { value: unknown; records?: readonly JsonLineRecord[] }
+>()
 
 self.onmessage = (event: MessageEvent<JsonWorkerRequest>): void => {
   const request = event.data
   try {
     if (request.type === 'parse') {
-      const value = parseStructuredData(request.source, request.format)
-      documents.set(request.documentId, value)
+      const records =
+        request.format === 'jsonl' ? parseJsonLines(request.source) : undefined
+      const value = records
+        ? records.map((record) => record.value ?? null)
+        : parseStructuredData(request.source, request.format === 'yaml' ? 'yaml' : 'json')
+      documents.set(request.documentId, { value, records })
       post({
         type: 'parsed',
         requestId: request.requestId,
@@ -27,9 +38,9 @@ self.onmessage = (event: MessageEvent<JsonWorkerRequest>): void => {
       return
     }
 
-    const root = documents.get(request.documentId)
-    if (!documents.has(request.documentId)) throw new Error('JSON document expired')
-    const parent = resolvePath(root, request.path)
+    const document = documents.get(request.documentId)
+    if (!document) throw new Error('JSON document expired')
+    const parent = resolvePath(document.value, request.path)
     if (parent === null || typeof parent !== 'object') {
       throw new Error('JSON node has no children')
     }
@@ -48,7 +59,17 @@ self.onmessage = (event: MessageEvent<JsonWorkerRequest>): void => {
       : (objectKeys?.slice(offset, offset + limit) ?? [])
     const children = keys.map((key) => {
       const value = arrayParent ? arrayParent[Number(key)] : objectParent?.[key]
-      return describe(key, [...request.path, key], value)
+      const node = describe(key, [...request.path, key], value, Boolean(document.records))
+      const record =
+        request.path.length === 0 ? document.records?.[Number(key)] : undefined
+      return record
+        ? {
+            ...node,
+            label: `Line ${record.line}`,
+            sourceLine: record.line,
+            error: record.error,
+          }
+        : node
     })
     post({
       type: 'children',
@@ -69,7 +90,9 @@ function describe(
   label: string,
   path: readonly string[],
   value: unknown,
+  bounded = false,
 ): JsonNodeDescriptor {
+  if (bounded && label.length > 4096) label = `${label.slice(0, 4096)}… (key preview)`
   const kind = kindOf(value)
   if (kind === 'array') {
     return { label, path, kind, count: (value as unknown[]).length }
@@ -86,7 +109,11 @@ function describe(
     label,
     path,
     kind,
-    value: value as string | number | boolean | null,
+    value:
+      typeof value === 'string' && bounded
+        ? value.slice(0, 4096)
+        : (value as string | number | boolean | null),
+    truncated: bounded && typeof value === 'string' && value.length > 4096,
   }
 }
 
