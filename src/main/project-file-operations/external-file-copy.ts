@@ -121,7 +121,7 @@ export async function copyExternalFileGrant(
           maxEntries: Math.max(0, limits.maxEntries - acceptedEntries),
         },
         createStagingId: options.createStagingId,
-        cleanupStaging: options.cleanupStaging,
+        cleanupStaging: (path) => options.cleanupStaging(options.destinationHost, path),
       })
       acceptedEntries += copied.entryCount
       results.push(

@@ -204,3 +204,18 @@
   font-weight: 600;
   line-height: 1.35;
 }
+
+.file-download-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  min-width: 0;
+}
+
+.file-download-controls span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}

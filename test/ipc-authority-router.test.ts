@@ -191,6 +191,7 @@ function fixture() {
     rendererResources,
     recordIpcContractDiagnostic,
     projectFiles: {
+      download: vi.fn().mockResolvedValue({ outcome: 'cancelled' }),
       create: createProjectFile,
       organize: organizeProjectFile,
       discloseDeletion,
@@ -660,6 +661,37 @@ describe('IpcAuthorityRouter', () => {
     expect(send).toHaveBeenCalledWith('fs:project-file-operation', {
       ...progress,
     })
+  })
+
+  it('delegates downloads with rebuilt source/workspace paths and no renderer destination authority', async () => {
+    const { deps, transport } = fixture()
+    registerIpcHandlers(deps, transport)
+    const invoke = transport.invokes.get('fs:download-entry')?.[0]
+    const response = await invoke?.(ipcEvent(), {
+      workspaceRoot: { hostId: 'local', path: '/project' },
+      source: { hostId: 'local', path: '/project/output.txt' },
+      destinationDirectory: { hostId: 'local', path: '/attacker' },
+      grantId: 'forged',
+    })
+    expect(response).toEqual({ ok: true, value: { outcome: 'cancelled' } })
+    const request = vi.mocked(deps.projectFiles.download).mock.calls[0]?.[0]
+    expect(request).toMatchObject({
+      owner,
+      workspaceRoot: localPath('/project'),
+      source: localPath('/project/output.txt'),
+    })
+    expect(Object.keys(request ?? {}).sort()).toEqual([
+      'owner',
+      'publish',
+      'source',
+      'workspaceRoot',
+    ])
+    expect(typeof request?.publish).toBe('function')
+    await invoke?.(ipcEvent(), {
+      workspaceRoot: { hostId: 'local', path: '/project' },
+      source: { hostId: 'local', path: '/project/../escape' },
+    })
+    expect(deps.projectFiles.download).toHaveBeenCalledTimes(1)
   })
 
   it('rejects hostile organization discriminants and paths before the coordinator', async () => {

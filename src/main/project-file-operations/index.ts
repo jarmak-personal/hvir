@@ -10,6 +10,7 @@ import {
   ProjectFileOperationCoordinator,
   type ProjectFileWorkspaceAuthority,
 } from './project-file-operation-coordinator'
+import { createElectronDownloadDirectoryPicker } from './electron-download-picker'
 import { ElectronClipboardFileSource } from './electron-clipboard-files'
 import type { ExternalMovePickerPort } from './electron-external-move-picker'
 import { createElectronExternalMovePicker } from './electron-external-move-picker'
@@ -87,6 +88,8 @@ export function createProjectFileOperationCoordinator(
   const clipboardFiles = new ElectronClipboardFileSource()
   return new ProjectFileOperationCoordinator({
     resolveWorkspace,
+    localHost: sourceHost,
+    downloadPicker: createElectronDownloadDirectoryPicker(),
     externalFiles,
     externalMovePicker: externalMovePicker ?? createElectronExternalMovePicker(),
     readClipboardPaths: () => clipboardFiles.readPaths(),

@@ -13,6 +13,8 @@ import {
   type ProjectFileExternalMoveDisclosure,
   type ProjectFileExternalMoveRequest,
   type ProjectFileCreateRequest,
+  type ProjectFileDownloadRequest,
+  type ProjectFileDownloadStartResult,
   type ProjectFileDeleteRequest,
   type ProjectFileDeletionDisclosure,
   type ProjectFileDeletionDisclosureRequest,
@@ -94,6 +96,10 @@ export const filesystemIpc = {
     'fs:acquire-dropped-files': preloadInvoke<
       AcquireDroppedFilesRequest,
       OperationResult<ExternalFileGrantResult>
+    >(),
+    'fs:download-entry': invoke<
+      ProjectFileDownloadRequest,
+      OperationResult<ProjectFileDownloadStartResult>
     >(),
     'fs:copy-external': invoke<
       ProjectFileExternalCopyRequest,

@@ -6,7 +6,7 @@ import {
   type OperationResult,
   type ProjectFileOperationProgress,
   type ProjectFileOperationResult,
-  type ProjectFileOperationStartResult,
+  type ProjectFileDownloadStartResult,
 } from '../../../shared'
 import { projectFileOwnerKey } from './project-file-owner-key'
 
@@ -14,7 +14,7 @@ export interface StartedProjectFileOperationController {
   readonly pending: boolean
   readonly progress?: ProjectFileOperationProgress
   start(
-    launch: () => Promise<OperationResult<ProjectFileOperationStartResult>>,
+    launch: () => Promise<OperationResult<ProjectFileDownloadStartResult>>,
     phase: ProjectFileOperationProgress['phase'],
     errorFallback: string,
   ): boolean
@@ -86,7 +86,7 @@ export function useProjectFileOperation(options: {
 
   const start = useCallback(
     (
-      launch: () => Promise<OperationResult<ProjectFileOperationStartResult>>,
+      launch: () => Promise<OperationResult<ProjectFileDownloadStartResult>>,
       phase: ProjectFileOperationProgress['phase'],
       errorFallback: string,
     ) => {
@@ -100,6 +100,13 @@ export function useProjectFileOperation(options: {
         .then(unwrapOperation)
         .then((started) => {
           if (!alive.current || latestOwnerKey.current !== requestOwnerKey) return
+          if (started.outcome === 'cancelled') {
+            launching.current = false
+            earlyEvent.current = undefined
+            setProgress(undefined)
+            setPending(false)
+            return
+          }
           if (started.outcome === 'busy') throw new Error(started.reason)
           active.current = {
             operationId: started.operationId,
