@@ -845,8 +845,6 @@ A human selects project originals from Skillager's complete native inventory and
 accepts their exact versions through one bounded public batch decision, preserving originals
 and truthful partial completion.
 
----
-
 ### [ADR-084 — Isolated Mermaid rendering](adr/ADR-084-isolated-mermaid-rendering.md)
 
 > Lifecycle: Active
@@ -854,6 +852,13 @@ and truthful partial completion.
 Mermaid layout runs in a separate sandboxed browser renderer behind a finite viewer-owned
 port; bounded passive SVG returns to the workbench without granting the computation page
 filesystem or application IPC authority.
+
+### [ADR-085 — Picker-scoped local destinations for SSH downloads](adr/ADR-085-picker-scoped-ssh-downloads.md)
+
+> Lifecycle: Active
+
+A native folder selection authorizes one verified SSH download to that exact local directory,
+with operation-scoped authority and no additional confirmation.
 
 ---
 

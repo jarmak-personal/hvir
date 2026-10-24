@@ -319,7 +319,7 @@ describe('verified project copy', () => {
         overrides.revalidate ?? (() => Promise.resolve(localPath(destinationPath))),
       ...(overrides.limits ? { limits: overrides.limits } : {}),
       createStagingId: () => 'test-stage',
-      cleanupStaging: removeExactStagingTree,
+      cleanupStaging: (path) => removeExactStagingTree(destinationHost, path),
     })
   }
 })

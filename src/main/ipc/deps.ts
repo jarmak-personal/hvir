@@ -60,6 +60,7 @@ export interface IpcDeps extends IpcRouterAuthorityPort {
   readonly projectFiles: Pick<
     ProjectFileOperationCoordinator,
     | 'create'
+    | 'download'
     | 'acquireClipboard'
     | 'acquireDropped'
     | 'copyExternal'

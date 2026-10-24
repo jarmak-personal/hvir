@@ -197,7 +197,7 @@ async function duplicateEntry(
       ),
     limits: options.limits,
     createStagingId: options.createStagingId,
-    cleanupStaging: options.cleanupStaging,
+    cleanupStaging: (path) => options.cleanupStaging(options.host, path),
   })
   return {
     ...copied.result,
@@ -323,8 +323,8 @@ async function crossDeviceMove(
     limits: options.limits,
     createStagingId: options.createStagingId,
     cleanupStaging: staging
-      ? (_host, path) => staging.cleanup(path)
-      : options.cleanupStaging,
+      ? (path) => staging.cleanup(path)
+      : (path) => options.cleanupStaging(options.host, path),
   })
   const copiedResult = {
     ...copied.result,

@@ -1,5 +1,12 @@
+import {
+  pasteClipboardFromRenderer,
+  dropDiskFileFromRenderer,
+  rendererValue,
+  verifySshDownloadSmoke,
+  setFileClipboard,
+  verifySshClipboardPasteSmoke,
+} from './file-transfer'
 import { clipboard, type BrowserWindow } from 'electron'
-import { pathToFileURL } from 'node:url'
 
 import {
   containsHostPath,
@@ -14,12 +21,10 @@ import type {
   ProjectHost,
   ReadFileOptions,
 } from '../project-host'
-import { ElectronClipboardFileSource } from '../project-file-operations/electron-clipboard-files'
 import {
   verifyExternalFileMoveSmoke,
   type ExternalMoveSmokeControl,
 } from './external-file-move'
-import { writeMacFilePasteboard } from './macos-file-pasteboard'
 import {
   deleteProjectEntryFromRenderer,
   openDeletionFixture,
@@ -312,26 +317,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
     publish(localState())
     await localHost.writeFile(clipboardSource, 'clipboard smoke payload')
     await localHost.writeFile(droppedSource, 'drop smoke payload')
-    const clipboardFormat =
-      process.platform === 'darwin' ? 'public.file-url' : 'text/uri-list'
-    if (process.platform === 'darwin') {
-      await writeMacFilePasteboard(localHost, clipboardSource)
-    } else {
-      clipboard.writeBuffer(
-        clipboardFormat,
-        Buffer.from(`${pathToFileURL(clipboardSource.path).href}\r\n`),
-      )
-    }
-    if (process.platform === 'darwin') {
-      await waitForMacClipboardFileList(clipboardSource.path)
-    } else if (
-      !new ElectronClipboardFileSource().readPaths().includes(clipboardSource.path)
-    ) {
-      const availableFormats = clipboard.availableFormats()
-      throw new Error(
-        `smoke clipboard did not retain reviewed ${clipboardFormat} file-list data; available=${availableFormats.join(',')}`,
-      )
-    }
+    await setFileClipboard(localHost, clipboardSource)
     await pasteClipboardFromRenderer(win, localRoot, clipboardName)
     const clipboardDestination = joinHostPath(localRoot, clipboardName)
     await waitForHostPath(localHost, clipboardDestination)
@@ -351,6 +337,22 @@ export async function verifyProjectFileOperationsSmoke(options: {
       throw new Error('remote drop copy did not preserve exact file content')
     }
     checkpoint('project-files-remote-drop-ready')
+    await verifySshClipboardPasteSmoke({
+      win,
+      localHost,
+      localRoot,
+      remoteRoot,
+      externalDirectory,
+    })
+    checkpoint('project-files-download-awaiting')
+    await verifySshDownloadSmoke({
+      win,
+      localHost,
+      localRoot,
+      remoteRoot,
+      sourceName: droppedName,
+    })
+    checkpoint('project-files-download-ready')
 
     checkpoint('project-files-external-move-awaiting')
     const externalMoveResult = await verifyExternalFileMoveSmoke({
@@ -413,7 +415,7 @@ export async function verifyProjectFileOperationsSmoke(options: {
     }
     checkpoint('project-files-workspace-switch-ready')
 
-    return `pointer create + clean rename · local dirty-tab drag move + deletion block · recoverable local deletion + outside-workspace recovery + Files/search/Git/tab refresh · remote drag move + permanent keyboard deletion · clipboard local copy · preload drop remote copy · ${externalMoveResult} · workspace switch preserved snapshot`
+    return `pointer create + clean rename · local dirty-tab drag move + deletion block · recoverable local deletion + outside-workspace recovery + Files/search/Git/tab refresh · remote drag move + permanent keyboard deletion · clipboard local + remote copy · preload drop remote copy · picker-scoped SSH download · ${externalMoveResult} · workspace switch preserved snapshot`
   } catch (reason) {
     const state = await readProjectFileSmokeState(win)
     throw new Error(
@@ -826,107 +828,6 @@ async function expectMissingHostPath(host: ProjectHost, path: HostPath): Promise
   throw new Error(`source remained after organization: ${path.path}`)
 }
 
-async function pasteClipboardFromRenderer(
-  win: BrowserWindow,
-  root: HostPath,
-  name: string,
-): Promise<void> {
-  const destination = joinHostPath(root, name)
-  await rendererValue(
-    win,
-    `(() => {
-      const row = document.querySelector(
-        '.files-panel .directory-row[title=${JSON.stringify(root.path)}]'
-      );
-      if (!(row instanceof HTMLButtonElement)) return undefined;
-      if (!window.__hvirClipboardPasteSent) {
-        row.focus();
-        row.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 'v', bubbles: true,
-          metaKey: ${process.platform === 'darwin'},
-          ctrlKey: ${process.platform !== 'darwin'}
-        }));
-        window.__hvirClipboardPasteSent = true;
-        return undefined;
-      }
-      const feedback = document.querySelector('.file-operation-feedback.error');
-      if (feedback) throw new Error(feedback.textContent || 'clipboard paste failed');
-      return document.querySelector(
-        '.files-panel [role="treeitem"][title=${JSON.stringify(destination.path)}]'
-      ) ? true : undefined;
-    })()`,
-  )
-  await win.webContents.executeJavaScript('delete window.__hvirClipboardPasteSent')
-}
-
-async function dropDiskFileFromRenderer(
-  win: BrowserWindow,
-  root: HostPath,
-  source: string,
-  name: string,
-): Promise<void> {
-  const debuggerPort = win.webContents.debugger
-  const attachedHere = !debuggerPort.isAttached()
-  if (attachedHere) debuggerPort.attach('1.3')
-  try {
-    await win.webContents.executeJavaScript(`
-      document.querySelector('#hvir-smoke-drop-input')?.remove();
-      const input = document.createElement('input');
-      input.id = 'hvir-smoke-drop-input';
-      input.type = 'file';
-      input.hidden = true;
-      document.body.append(input);
-    `)
-    const document = (await debuggerPort.sendCommand('DOM.getDocument')) as {
-      root: { nodeId: number }
-    }
-    const input = (await debuggerPort.sendCommand('DOM.querySelector', {
-      nodeId: document.root.nodeId,
-      selector: '#hvir-smoke-drop-input',
-    })) as { nodeId: number }
-    await debuggerPort.sendCommand('DOM.setFileInputFiles', {
-      nodeId: input.nodeId,
-      files: [source],
-    })
-    const destination = joinHostPath(root, name)
-    await rendererValue(
-      win,
-      `(() => {
-        const row = document.querySelector(
-          '.files-panel .directory-row[title=${JSON.stringify(root.path)}]'
-        );
-        const file = document.querySelector('#hvir-smoke-drop-input')?.files?.[0];
-        if (!(row instanceof HTMLButtonElement) || !(file instanceof File)) {
-          return undefined;
-        }
-        if (!window.__hvirDropSent) {
-          const transfer = new DataTransfer();
-          transfer.items.add(file);
-          row.dispatchEvent(new DragEvent('dragover', {
-            bubbles: true, cancelable: true, dataTransfer: transfer
-          }));
-          row.dispatchEvent(new DragEvent('drop', {
-            bubbles: true, cancelable: true, dataTransfer: transfer
-          }));
-          window.__hvirDropSent = true;
-          return undefined;
-        }
-        const feedback = document.querySelector('.file-operation-feedback.error');
-        if (feedback) throw new Error(feedback.textContent || 'disk drop failed');
-        return document.querySelector(
-          '.files-panel [role="treeitem"][title=${JSON.stringify(destination.path)}]'
-        ) ? true : undefined;
-      })()`,
-    )
-  } finally {
-    await win.webContents.executeJavaScript(`
-      document.querySelector('#hvir-smoke-drop-input')?.remove();
-      delete window.__hvirDropSent;
-    `)
-    if (attachedHere && debuggerPort.isAttached()) debuggerPort.detach()
-  }
-}
-
 async function createFromRenderer(options: {
   readonly win: BrowserWindow
   readonly root: HostPath
@@ -1111,14 +1012,6 @@ async function waitForHostPath(host: ProjectHost, path: HostPath): Promise<void>
   }
 }
 
-async function waitForMacClipboardFileList(expectedPath: string): Promise<void> {
-  const source = new ElectronClipboardFileSource()
-  for (;;) {
-    if (source.readPaths().includes(expectedPath)) return
-    await new Promise<void>((resolve) => setTimeout(resolve, 25))
-  }
-}
-
 function clearRendererCreateMarkers(win: BrowserWindow): Promise<unknown> {
   return win.webContents.executeJavaScript(`
     delete window.__hvirProjectFileMenu;
@@ -1127,22 +1020,6 @@ function clearRendererCreateMarkers(win: BrowserWindow): Promise<unknown> {
   `)
 }
 
-function rendererValue(win: BrowserWindow, expression: string): Promise<unknown> {
-  return win.webContents.executeJavaScript(`
-    new Promise((resolve, reject) => {
-      const poll = () => {
-        try {
-          const value = ${expression};
-          if (value) return resolve(value);
-        } catch (error) {
-          return reject(error);
-        }
-        setTimeout(poll, 25);
-      };
-      poll();
-    })
-  `) as Promise<unknown>
-}
 function isMissingPathError(reason: unknown): boolean {
   return (
     typeof reason === 'object' &&

@@ -110,6 +110,8 @@ export const SMOKE_FAILURE_CHECKPOINTS = [
   'project-files-clipboard-copy-ready',
   'project-files-remote-drop-awaiting',
   'project-files-remote-drop-ready',
+  'project-files-download-awaiting',
+  'project-files-download-ready',
   'project-files-external-move-awaiting',
   'project-files-external-move-ready',
   'project-files-workspace-switch-awaiting',
