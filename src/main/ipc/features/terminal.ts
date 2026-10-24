@@ -1,8 +1,4 @@
-import {
-  hostPathEquals,
-  sessionsWorkspaceQualifier,
-  isTerminalTitleText,
-} from '../../../shared'
+import { hostPathEquals, isTerminalTitleText } from '../../../shared'
 import { resolveHarnessLaunch } from '../../harness/harness-launch'
 import { harnessProvider, selectHarnessLaunch } from '../../harness/harness-provider'
 import {
@@ -25,7 +21,6 @@ import { operationResult } from '../operation-result'
 type TerminalIpcDeps = Pick<
   IpcDeps,
   | 'getHost'
-  | 'getProjectState'
   | 'emit'
   | 'terminalSessions'
   | 'harnessProfiles'
@@ -49,25 +44,12 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       ) {
         throw new Error('Use a plain-text session name of at most 512 characters.')
       }
-      const resolveRoot = () => {
-        const state = deps.getProjectState()
-        for (const [projectIndex, project] of state.projects.entries()) {
-          for (const [workspaceIndex, workspace] of project.workspaces.entries()) {
-            if (
-              sessionsWorkspaceQualifier(state.revision, projectIndex, workspaceIndex) ===
-              req.workspaceQualifier
-            ) {
-              return ipc.authority.workspaceRoot(workspace.root)
-            }
-          }
-        }
-        throw new Error('The owning workspace changed. Reopen Rename and try again.')
-      }
-      const root = resolveRoot()
+      const retained = deps.terminalSessions.get(req.id)
+      if (!retained) throw new Error('This retained session is no longer available.')
+      const root = ipc.authority.workspaceRoot(retained.workspaceRoot)
       const assertCurrent = () => {
         deps.rendererResources.assertCurrent(owner)
-        if (!hostPathEquals(root, resolveRoot()))
-          throw new Error('The owning workspace changed.')
+        ipc.authority.workspaceRoot(root)
       }
       const renamed = await deps.terminalSessions.rename(
         req.id,

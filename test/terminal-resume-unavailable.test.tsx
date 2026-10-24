@@ -1,7 +1,5 @@
 // @vitest-environment happy-dom
 
-import { sessionsWorkspaceQualifier as renameWorkspaceQualifier } from '../src/shared'
-
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -687,7 +685,6 @@ describe('terminal resume unavailable state', () => {
     act(() => {
       root.render(
         <TerminalRail
-          sessionsWorkspaceQualifier={renameWorkspaceQualifier(1, 0, 0)}
           label="repo"
           visible
           compact={false}

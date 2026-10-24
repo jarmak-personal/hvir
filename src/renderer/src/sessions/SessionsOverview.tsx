@@ -490,7 +490,6 @@ export function SessionsOverview({
                               <SessionRenameTarget
                                 key={row.handle}
                                 id={row.handle}
-                                workspaceQualifier={row.workspace.qualifier}
                                 customName={row.customName}
                                 nameRevision={row.nameRevision}
                               >

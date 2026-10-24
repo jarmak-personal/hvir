@@ -5,7 +5,6 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { SessionRenameTarget } from '../src/renderer/src/terminal/SessionRenameTarget'
-import { sessionsWorkspaceQualifier } from '../src/shared'
 
 let container: HTMLDivElement
 let root: Root
@@ -25,7 +24,6 @@ beforeEach(() => {
     root.render(
       <SessionRenameTarget
         id="inactive-terminal"
-        workspaceQualifier={sessionsWorkspaceQualifier(1, 0, 0)}
         customName="Existing name"
         nameRevision={4}
       >
@@ -94,7 +92,6 @@ it('saves an exact target and supports clearing through the same control', async
   })
   expect(invoke).toHaveBeenCalledExactlyOnceWith('terminal:rename', {
     id: 'inactive-terminal',
-    workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0),
     customName: '   ',
     expectedNameRevision: 4,
   })

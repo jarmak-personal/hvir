@@ -1,7 +1,5 @@
 // @vitest-environment happy-dom
 
-import { sessionsWorkspaceQualifier as renameWorkspaceQualifier } from '../src/shared'
-
 import { act, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -34,6 +32,23 @@ afterEach(() => {
 })
 
 describe('compact terminal rail', () => {
+  it('keeps the custom name and state visible in compact hover text alongside the automatic title', () => {
+    renderRail({
+      compact: true,
+      sessions: [
+        {
+          ...session('named', 'idle'),
+          title: 'Automatic title',
+          customName: 'Named work',
+        },
+      ],
+      activeId: 'named',
+    })
+    const marker = markerButtons()[0]!
+    expect(marker.getAttribute('aria-label')).toBe('Named work, Ready, active terminal')
+    expect(marker.title).toBe('Named work, Ready, active terminal · Automatic title')
+  })
+
   it('shows a labelled bell icon in the expanded rail and keeps Ready and Working text', () => {
     renderRail({
       sessions: [
@@ -190,7 +205,6 @@ describe('compact terminal rail', () => {
 
 function renderRail(overrides: Partial<ComponentProps<typeof TerminalRail>> = {}): void {
   const props: ComponentProps<typeof TerminalRail> = {
-    sessionsWorkspaceQualifier: renameWorkspaceQualifier(1, 0, 0),
     label: 'main',
     visible: true,
     compact: false,

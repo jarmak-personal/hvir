@@ -33,7 +33,6 @@ export interface TerminalLaunchMenuEntry {
 
 export function TerminalRail({
   label,
-  sessionsWorkspaceQualifier,
   visible,
   compact,
   onCompact,
@@ -63,7 +62,6 @@ export function TerminalRail({
   onMoveSession,
   onCloseSession,
 }: {
-  readonly sessionsWorkspaceQualifier: import('../../../shared').SessionsWorkspaceQualifier
   readonly label: string
   readonly visible: boolean
   readonly compact: boolean
@@ -312,7 +310,6 @@ export function TerminalRail({
             <SessionRenameTarget
               key={session.id}
               id={session.id}
-              workspaceQualifier={sessionsWorkspaceQualifier}
               customName={session.customName}
               nameRevision={session.nameRevision}
             >
@@ -402,7 +399,6 @@ export function TerminalRail({
       </div>
       <TerminalRailCompact
         hidden={!compact}
-        sessionsWorkspaceQualifier={sessionsWorkspaceQualifier}
         sessions={sessions}
         activeId={activeId}
         onFocusSession={onFocusSession}

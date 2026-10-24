@@ -7,17 +7,14 @@ import {
   type IpcInvokeContext,
 } from '../src/main/ipc/authority-router'
 import { registerTerminalIpc } from '../src/main/ipc/features/terminal'
-import {
-  hostPathEquals,
-  sessionsWorkspaceQualifier,
-  type ProjectState,
-} from '../src/shared'
+import { hostPathEquals, type ProjectState } from '../src/shared'
 import { terminalNamingFixture } from './terminal-session-naming-fixture'
 
 async function fixture(remote = false) {
   const f = await terminalNamingFixture(remote)
   let revision = 2
   let current = true
+  let registered = true
   const getProjectState = (): ProjectState => ({
     revision,
     root: f.root,
@@ -54,7 +51,7 @@ async function fixture(remote = false) {
       throw new Error('Active host must not be acquired')
     },
     getRegisteredWorkspaceRoot: (root) =>
-      hostPathEquals(root, f.root) ? f.root : undefined,
+      registered && hostPathEquals(root, f.root) ? f.root : undefined,
   })
   let rename!: IpcInvokeHandler<'terminal:rename'>
   const ipc = {
@@ -83,7 +80,6 @@ async function fixture(remote = false) {
   } as IpcInvokeContext
   const request = {
     id: f.spawn.id,
-    workspaceQualifier: sessionsWorkspaceQualifier(2, 0, 0),
     expectedNameRevision: 0,
     customName: 'My work',
   }
@@ -95,8 +91,11 @@ async function fixture(remote = false) {
     revoke: () => {
       current = false
     },
-    changeWorkspace: () => {
+    publishActivity: () => {
       revision++
+    },
+    unregister: () => {
+      registered = false
     },
   }
 }
@@ -118,7 +117,7 @@ describe.each([false, true])('rename IPC (disconnected SSH: %s)', (remote) => {
   })
 })
 
-it('rejects malformed names, invalid IDs, stale workspace revisions, and missing targets without publication', async () => {
+it('rejects malformed names, invalid IDs, stale naming decisions, and missing targets without publication', async () => {
   const f = await fixture()
   for (const request of [
     { ...f.request, id: 'invalid id' },
@@ -127,7 +126,7 @@ it('rejects malformed names, invalid IDs, stale workspace revisions, and missing
     { ...f.request, customName: 'x'.repeat(513) },
     { ...f.request, expectedNameRevision: -1 },
     { ...f.request, expectedNameRevision: Number.MAX_SAFE_INTEGER },
-    { ...f.request, workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0) },
+    { ...f.request, expectedNameRevision: 1 },
   ])
     expect(await f.rename(request)).toMatchObject({ ok: false })
   expect(f.emit).not.toHaveBeenCalled()
@@ -140,7 +139,7 @@ it('returns failure on persistence errors and on revocation or workspace replace
     f.writeFile.mockImplementationOnce(() => {
       if (failure === 'disk') throw new Error('Disk unavailable')
       if (failure === 'renderer') f.revoke()
-      if (failure === 'workspace') f.changeWorkspace()
+      if (failure === 'workspace') f.unregister()
       return Promise.resolve()
     })
     expect(await f.rename()).toMatchObject({ ok: false })
@@ -149,3 +148,17 @@ it('returns failure on persistence errors and on revocation or workspace replace
     expect((await f.reload()).get(f.spawn.id)?.customName).toBeUndefined()
   }
 })
+
+it.each([false, true])(
+  'ignores unrelated activity and connection-state publications (SSH: %s)',
+  async (remote) => {
+    const f = await fixture(remote)
+    f.publishActivity()
+    f.writeFile.mockImplementationOnce(() => {
+      f.publishActivity()
+      return Promise.resolve()
+    })
+    expect(await f.rename()).toMatchObject({ ok: true, value: { customName: 'My work' } })
+    expect(f.registry.get(f.spawn.id)?.customName).toBe('My work')
+  },
+)

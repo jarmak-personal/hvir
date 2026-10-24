@@ -7,7 +7,6 @@ import { type HarnessProfileId } from '../harness-profile'
 import { type ProjectState } from '../workspace-types'
 import { type OperationResult } from '../operation-result'
 import type { TerminalName } from '../terminal-title'
-import type { SessionsWorkspaceQualifier } from '../sessions-projection'
 import type { TerminalAttentionState } from '../terminal-attention'
 
 export interface TerminalCommandRequest {
@@ -172,7 +171,6 @@ export const MAX_CLIPBOARD_WRITE_BYTES = 64 * 1024
 
 export interface RenameTerminalRequest {
   readonly id: string
-  readonly workspaceQualifier: SessionsWorkspaceQualifier
   readonly expectedNameRevision: number
   readonly customName: string
 }

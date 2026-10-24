@@ -1,7 +1,5 @@
 // @vitest-environment happy-dom
 
-import { sessionsWorkspaceQualifier as renameWorkspaceQualifier } from '../src/shared'
-
 import { act, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -424,7 +422,6 @@ function terminalSession(count: number): TerminalSession {
 
 function terminalRailProps(): ComponentProps<typeof TerminalRail> {
   return {
-    sessionsWorkspaceQualifier: renameWorkspaceQualifier(1, 0, 0),
     label: 'main',
     visible: true,
     compact: false,

@@ -8,13 +8,11 @@ import { TerminalBellIcon } from './TerminalBellIcon'
 
 export function TerminalRailCompact({
   hidden,
-  sessionsWorkspaceQualifier,
   sessions,
   activeId,
   onFocusSession,
   onRestore,
 }: {
-  readonly sessionsWorkspaceQualifier: import('../../../shared').SessionsWorkspaceQualifier
   readonly hidden: boolean
   readonly sessions: readonly TerminalSession[]
   readonly activeId?: string
@@ -80,7 +78,6 @@ export function TerminalRailCompact({
             <SessionRenameTarget
               key={session.id}
               id={session.id}
-              workspaceQualifier={sessionsWorkspaceQualifier}
               customName={session.customName}
               nameRevision={session.nameRevision}
             >
@@ -95,7 +92,9 @@ export function TerminalRailCompact({
                   data-terminal-state={state}
                   aria-current={active ? 'true' : undefined}
                   aria-label={label}
-                  title={terminalTitleTooltip(session.title, session.customName) ?? label}
+                  title={[label, terminalTitleTooltip(session.title, session.customName)]
+                    .filter(Boolean)
+                    .join(' · ')}
                   onClick={() => onFocusSession(session.id)}
                 >
                   <span aria-hidden="true">

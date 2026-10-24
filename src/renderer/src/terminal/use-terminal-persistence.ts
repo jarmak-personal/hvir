@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-import { hostPathEquals, type HostPath } from '../../../shared'
+import type { HostPath } from '../../../shared'
 import {
   readTerminalSplitLayout,
   writeTerminalSplitLayout,
@@ -8,31 +8,17 @@ import {
 import {
   settledTerminalSessions,
   type TerminalWorkspaceModel,
-  type TerminalSession,
 } from './terminal-workspace-model'
 
-export function useTerminalPersistence(
-  root: HostPath,
-  model: TerminalWorkspaceModel,
-  ready: boolean,
-  updateSession: (
-    id: string,
-    update: (session: TerminalSession) => TerminalSession,
-  ) => void,
-): void {
-  useEffect(() => {
-    const dispose = window.hvir.on('terminal:name-changed', (name) => {
-      if (!hostPathEquals(name.root, root)) return
-      updateSession(name.id, (current) =>
-        (name.nameRevision ?? 0) > (current.nameRevision ?? 0)
-          ? { ...current, customName: name.customName, nameRevision: name.nameRevision }
-          : current,
-      )
-    })
-    return () => {
-      void dispose()
-    }
-  }, [root, updateSession])
+export function useTerminalPersistence({
+  root,
+  model,
+  ready,
+}: {
+  readonly root: HostPath
+  readonly model: TerminalWorkspaceModel
+  readonly ready: boolean
+}): void {
   const modelRef = useRef(model)
   modelRef.current = model
   const layoutKey = JSON.stringify(

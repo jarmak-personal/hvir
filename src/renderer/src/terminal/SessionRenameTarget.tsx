@@ -8,13 +8,11 @@ import { ConfirmationDialog } from '../workbench/ConfirmationDialog'
 /** Shared presentation command. Opening this interaction never activates a terminal. */
 export function SessionRenameTarget({
   id,
-  workspaceQualifier,
   customName,
   nameRevision,
   children,
 }: {
   readonly id: string
-  readonly workspaceQualifier: RenameTerminalRequest['workspaceQualifier']
   readonly children: ReactNode
 } & TerminalName): ReactElement {
   const [menu, setMenu] = useState<{ id: number; x: number; y: number }>()
@@ -135,7 +133,6 @@ export function SessionRenameTarget({
                   setValue(customName ?? '')
                   setEditing({
                     id,
-                    workspaceQualifier,
                     expectedNameRevision: nameRevision ?? 0,
                     customName: customName ?? '',
                   })

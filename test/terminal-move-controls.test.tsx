@@ -1,7 +1,5 @@
 // @vitest-environment happy-dom
 
-import { sessionsWorkspaceQualifier as renameWorkspaceQualifier } from '../src/shared'
-
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -40,7 +38,6 @@ describe('terminal workspace move controls', () => {
     act(() => {
       root.render(
         <TerminalRail
-          sessionsWorkspaceQualifier={renameWorkspaceQualifier(1, 0, 0)}
           label="main"
           visible
           compact={false}
@@ -95,7 +92,6 @@ describe('terminal workspace move controls', () => {
     act(() => {
       root.render(
         <TerminalRail
-          sessionsWorkspaceQualifier={renameWorkspaceQualifier(1, 0, 0)}
           label="main"
           visible
           compact={false}
@@ -140,7 +136,6 @@ describe('terminal workspace move controls', () => {
     act(() => {
       root.render(
         <TerminalRail
-          sessionsWorkspaceQualifier={renameWorkspaceQualifier(1, 0, 0)}
           label="main"
           visible
           compact={false}

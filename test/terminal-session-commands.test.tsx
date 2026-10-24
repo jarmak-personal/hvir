@@ -15,6 +15,8 @@ import {
 } from '../src/renderer/src/terminal/terminal-workspace-model'
 import { useTerminalSessionCommands } from '../src/renderer/src/terminal/use-terminal-session-commands'
 import {
+  terminalTitle,
+  type TerminalNameChanged,
   asHostId,
   asHarnessProfileId,
   asHarnessProviderId,
@@ -25,6 +27,7 @@ import {
   type HostPath,
 } from '../src/shared'
 
+const nameListeners = new Set<(name: TerminalNameChanged) => void>()
 let host: HTMLDivElement
 let root: Root
 let invoke: ReturnType<typeof vi.fn>
@@ -32,6 +35,7 @@ let reportError: ReturnType<typeof vi.fn<(message: string) => void>>
 let disposeSession: ReturnType<typeof vi.fn<(id: string) => string | undefined>>
 
 beforeEach(() => {
+  nameListeners.clear()
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -40,7 +44,16 @@ beforeEach(() => {
   disposeSession = vi.fn<(id: string) => string | undefined>(() => undefined)
   Object.defineProperty(window, 'hvir', {
     configurable: true,
-    value: { invoke, on: vi.fn(), send: vi.fn() },
+    value: {
+      invoke,
+      on: vi.fn((_channel: string, listener: (name: TerminalNameChanged) => void) => {
+        nameListeners.add(listener)
+        return () => {
+          nameListeners.delete(listener)
+        }
+      }),
+      send: vi.fn(),
+    },
   })
 })
 
@@ -51,6 +64,43 @@ afterEach(() => {
 })
 
 describe('terminal session commands', () => {
+  it('reconciles only newer names for an exact existing session/root and releases its subscription', () => {
+    renderHarness({ fork: true })
+    const automatic = text('names')
+    const emit = (name: TerminalNameChanged) =>
+      act(() => {
+        for (const listener of nameListeners) listener(name)
+      })
+    emit({
+      id: 'source',
+      root: localPath('/repo'),
+      customName: 'Named work',
+      nameRevision: 2,
+    })
+    expect(text('names')).toBe('Named work')
+    emit({ id: 'source', root: localPath('/repo'), customName: 'Older', nameRevision: 1 })
+    emit({
+      id: 'source',
+      root: localPath('/elsewhere'),
+      customName: 'Wrong root',
+      nameRevision: 3,
+    })
+    emit({
+      id: 'missing',
+      root: localPath('/repo'),
+      customName: 'Wrong target',
+      nameRevision: 3,
+    })
+    expect(text('names')).toBe('Named work')
+    emit({ id: 'source', root: localPath('/repo'), nameRevision: 3 })
+    expect(text('names')).toBe(automatic)
+    expect(text('active')).toBe('source')
+    expect(invoke).not.toHaveBeenCalled()
+    expect(nameListeners.size).toBe(1)
+    act(() => root.render(<div />))
+    expect(nameListeners.size).toBe(0)
+  })
+
   it('admits one Bare Shell for a repeated empty-state launch gesture', () => {
     renderHarness()
 
@@ -224,6 +274,11 @@ function CommandsHarness({
   const source = model.sessions.find((session) => session.id === 'source')
   return (
     <>
+      <span data-testid="names">
+        {model.sessions
+          .map((session) => terminalTitle(session.title, session.customName))
+          .join(',')}
+      </span>
       <span data-testid="profiles">
         {model.sessions.map(({ profileId }) => profileId).join(',')}
       </span>

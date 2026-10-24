@@ -191,7 +191,7 @@ export type TerminalSessionRegistryDiagnostic =
 
 export class TerminalSessionRegistry implements TerminalSessionStore {
   private readonly sessions = new Map<string, StoredTerminalSession>()
-  private readonly pendingNames = new Map<string, OwnedTerminalSession>()
+  private readonly pendingNames = new Map<string, TerminalName>()
   private readonly forgotten = new Set<string>()
   private readonly pendingIdentities = new Map<string, PendingIdentityRegistration>()
   private pendingWrite: Promise<void> = Promise.resolve()
@@ -737,15 +737,13 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     assertCurrent: () => void,
   ): Promise<OwnedTerminalSession> {
     return renameTerminalSession(
-      id,
-      root,
-      expectedRevision,
-      customName,
-      assertCurrent,
-      this.sessions,
-      this.pendingNames,
-      () => this.persist(),
-      () => this.publishObservation(),
+      { id, root, expectedRevision, customName, assertCurrent },
+      {
+        sessions: this.sessions,
+        pending: this.pendingNames,
+        persist: () => this.persist(),
+        publish: () => this.publishObservation(),
+      },
     )
   }
 

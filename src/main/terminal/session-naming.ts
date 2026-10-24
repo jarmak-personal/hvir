@@ -1,16 +1,36 @@
-import { hostPathEquals, isTerminalTitleText, type HostPath } from '../../shared'
+import {
+  hostPathEquals,
+  isTerminalTitleText,
+  type HostPath,
+  type TerminalName,
+} from '../../shared'
 import type { OwnedTerminalSession } from './session-registry'
 
 export async function renameTerminalSession(
-  id: string,
-  root: HostPath,
-  expectedRevision: number,
-  customName: string,
-  assertCurrent: () => void,
-  sessions: Map<string, OwnedTerminalSession>,
-  pending: Map<string, OwnedTerminalSession>,
-  persist: () => Promise<void>,
-  publish: () => void,
+  {
+    id,
+    root,
+    expectedRevision,
+    customName,
+    assertCurrent,
+  }: {
+    readonly id: string
+    readonly root: HostPath
+    readonly expectedRevision: number
+    readonly customName: string
+    readonly assertCurrent: () => void
+  },
+  {
+    sessions,
+    pending,
+    persist,
+    publish,
+  }: {
+    readonly sessions: Map<string, OwnedTerminalSession>
+    readonly pending: Map<string, TerminalName>
+    readonly persist: () => Promise<void>
+    readonly publish: () => void
+  },
 ): Promise<OwnedTerminalSession> {
   assertCurrent()
   const prior = sessions.get(id)
@@ -24,7 +44,7 @@ export async function renameTerminalSession(
   if (!isTerminalTitleText(customName, true)) throw new Error('Invalid session name')
   if (pending.has(id))
     throw new Error('A name is already being saved. Try again shortly.')
-  pending.set(id, prior)
+  pending.set(id, { customName: prior.customName, nameRevision: prior.nameRevision })
   const nameRevision = expectedRevision + 1
   sessions.set(id, {
     ...prior,
