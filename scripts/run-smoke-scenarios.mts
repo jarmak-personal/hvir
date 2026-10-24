@@ -1,6 +1,6 @@
+import { withSmokeRunLock, spawnSmokeProcess } from './smoke-run-lock.mts'
 import { appendFile } from 'node:fs/promises'
 import type { SmokeFailureEvidence } from '../src/main/smoke/failure-evidence.mts'
-import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 import {
@@ -208,7 +208,7 @@ export function invokeSmokeScenario(
   const startedAt = performance.now()
   return new Promise((resolveResult) => {
     const collector = new SmokeAttemptEvidenceCollector()
-    const child = spawn(
+    const child = spawnSmokeProcess(
       options.command ?? 'bash',
       [...(options.args ?? [join(repositoryRoot, 'scripts/run-smoke.sh')])],
       {
@@ -547,7 +547,7 @@ export function registerSmokeLauncherSignals(
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  void main().catch((error: unknown) => {
+  void withSmokeRunLock(main).catch((error: unknown) => {
     console.error('[smoke:launcher] failed', error)
     process.exitCode = 1
   })

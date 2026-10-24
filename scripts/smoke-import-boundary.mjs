@@ -6,6 +6,7 @@ export const smokeImportBoundary = {
     type: 'problem',
     schema: [],
     messages: {
+      tooling: 'Desktop smoke locks belong only to contributor tooling and tests.',
       inward: 'Smoke scenarios and fixtures must not import the smoke root.',
       production:
         'Production features must not import smoke code; only the explicit bootstrap adapter may launch it.',
@@ -15,11 +16,20 @@ export const smokeImportBoundary = {
     const owner = resolve(context.filename).split(sep).join('/')
     const smokeDirectory = '/src/main/smoke'
     const inspect = (node, source) => {
-      if (typeof source !== 'string' || !source.startsWith('.')) return
+      if (typeof source !== 'string') return
+      if (source === 'proper-lockfile' || source === '@types/proper-lockfile') {
+        context.report({ node, messageId: 'tooling' })
+        return
+      }
+      if (!source.startsWith('.')) return
       const target = resolve(dirname(owner), source)
         .split(sep)
         .join('/')
         .replace(/\.[cm]?[jt]sx?$/, '')
+      if (target.endsWith('/scripts/smoke-run-lock')) {
+        context.report({ node, messageId: 'tooling' })
+        return
+      }
       const targetSmoke =
         target.endsWith(smokeDirectory) || target.includes(smokeDirectory + '/')
       if (!targetSmoke) return

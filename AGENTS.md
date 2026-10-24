@@ -58,7 +58,8 @@ normal merge/auto-merge path without a second repository dry run.
 
 **Do not publish a pull request that fails locally runnable checks.** After the final changes,
 run `npm run verify` before committing. Push without `--no-verify` so `.githooks/pre-push` runs;
-if hooks are not installed, run that hook directly before pushing. Fix failures locally or
+if hooks are not installed, run that hook directly before pushing. Waiting for the shared
+Electron smoke lock is normal: keep one invocation alive and wait for it. Fix failures locally or
 report an environment blocker instead of spending CI minutes on a known-bad branch.
 
 ## Hard constraints (do not violate without explicit sign-off)

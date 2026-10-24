@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { withSmokeRunLock, spawnSmokeProcess } from './smoke-run-lock.mts'
 import { randomUUID } from 'node:crypto'
 import { lstat, readFile, realpath, rm } from 'node:fs/promises'
 import { createConnection } from 'node:net'
@@ -384,12 +384,16 @@ function startInvocation(options: InvocationOptions): InvocationHandle {
       : {}),
   }
   delete environment.HVIR_SMOKE_REPEAT
-  const child = spawn('bash', [join(repositoryRoot, 'scripts/run-smoke.sh')], {
-    cwd: repositoryRoot,
-    detached: true,
-    env: environment,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const child = spawnSmokeProcess(
+    'bash',
+    [join(repositoryRoot, 'scripts/run-smoke.sh')],
+    {
+      cwd: repositoryRoot,
+      detached: true,
+      env: environment,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
   if (!child.pid || !child.stdout || !child.stderr) {
     throw new Error(`Failed to start isolated ${options.scenario} process`)
   }
@@ -726,7 +730,7 @@ function deferred<T>(): {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  void main().catch((error: unknown) => {
+  void withSmokeRunLock(main).catch((error: unknown) => {
     console.error('[smoke:isolation:fail]', error)
     process.exitCode = 1
   })

@@ -24,6 +24,10 @@ async function messages(owner: string, source: string) {
 describe('smoke ownership direction', () => {
   it.each([
     ['src/main/smoke/viewer-content.ts', './index'],
+    ['src/main/index.ts', '../../scripts/smoke-run-lock.mts'],
+    ['src/main/smoke/index.ts', '../../../scripts/smoke-run-lock.mts'],
+    ['src/main/index.ts', 'proper-lockfile'],
+    ['packages/extension-authoring/consumer.ts', 'proper-lockfile'],
     ['src/main/smoke/project-state-fixture.ts', '.'],
     ['src/main/smoke/nested/fixture.ts', '..'],
     ['src/main/smoke/nested/fixture.ts', '../index.ts'],

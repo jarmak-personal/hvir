@@ -55,6 +55,12 @@ if pkgutil --pkg-info "$receipt" >/dev/null 2>&1; then
 fi
 sudo -n true
 
+# One lease covers this entire invocation, including child cleanup.
+if [[ -z "${HVIR_SMOKE_LEASE:-}" ]]; then
+  exec node "$source_checkout/scripts/smoke-run-lock.mts" bash "$source_checkout/scripts/run-macos-package-smoke.sh" "$@"
+fi
+node "$source_checkout/scripts/smoke-run-lock.mts" --check-lease
+
 temporary_parent=$(cd "${TMPDIR:-/tmp}" && pwd -P)
 invocation_root=$(mktemp -d "$temporary_parent/hvir-macos-package-smoke.XXXXXX")
 project_root="$invocation_root/repository"

@@ -6,6 +6,12 @@ source_checkout=$PWD
 
 : "${HVIR_SMOKE_SCENARIO:?Select one Electron smoke scenario with HVIR_SMOKE_SCENARIO; use npm run smoke for the aggregate suite}"
 
+# One lease covers this entire invocation, including child cleanup.
+if [[ -z "${HVIR_SMOKE_LEASE:-}" ]]; then
+  exec node "$source_checkout/scripts/smoke-run-lock.mts" bash "$source_checkout/scripts/run-smoke.sh" "$@"
+fi
+node "$source_checkout/scripts/smoke-run-lock.mts" --check-lease
+
 # A smoke launched by a Git hook must not inherit the invoking repository as
 # implicit authority. Every Git process below must discover the temp project.
 while IFS= read -r variable; do

@@ -141,7 +141,7 @@ export default tseslint.config(
 
   js.configs.recommended,
   {
-    files: ['src/**/*.{ts,tsx,mts,cts}'],
+    files: ['src/**/*.{ts,tsx,mts,cts}', 'packages/**/*.{ts,tsx,mts,cts}'],
     plugins: { 'smoke-ownership': { rules: { inward: smokeImportBoundary } } },
     rules: { 'smoke-ownership/inward': 'error' },
   },
@@ -653,6 +653,7 @@ export default tseslint.config(
   {
     files: [
       'scripts/run-smoke-scenarios.mts',
+      'scripts/smoke-run-lock.mts',
       'scripts/architecture-hotspots.mts',
       'scripts/architecture-policy.mts',
       'scripts/architecture-inventory.mts',
