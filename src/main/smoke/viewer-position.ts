@@ -10,6 +10,7 @@ import type { ProjectHost } from '../project-host'
 import type { SmokeFailureCheckpoint } from './failure-evidence.mts'
 import { focusSmokeWindow } from './window-focus'
 import { verifyViewerFind } from './viewer-find'
+import { verifyViewerWorkload } from './viewer-workload'
 import {
   collectViewerPositionFailureState,
   runViewerPositionOperation,
@@ -54,6 +55,7 @@ export async function verifyFocusedViewer(
           joinHostPath(root, 'package.json'),
         ),
     })
+    await verifyViewerWorkload(win, root, checkpoint)
     const diffRefresh = await runViewerPositionOperation({
       awaiting: 'viewer-position-refresh-index-awaiting',
       ready: 'viewer-position-refresh-index-ready',

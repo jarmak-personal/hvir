@@ -188,6 +188,21 @@ describe('resolved adapter for existing dependency direction policy', () => {
       './pty-supervisor',
     ],
     [
+      'src/renderer/src/viewer/find-worker-protocol.ts',
+      'src/renderer/src/viewer/find-worker.ts',
+      './find-worker',
+    ],
+    [
+      'src/renderer/src/viewer/find-match-index.ts',
+      'src/renderer/src/viewer/find-decorations.ts',
+      './find-decorations',
+    ],
+    [
+      'src/renderer/src/viewer/find.worker.ts',
+      'src/renderer/src/viewer/codemirror-find-target.ts',
+      './codemirror-find-target',
+    ],
+    [
       'src/renderer/src/viewer/highlight-protocol.ts',
       'src/renderer/src/viewer/SourceView.tsx',
       './SourceView',

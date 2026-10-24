@@ -1,5 +1,6 @@
 import type {
   HighlightRequest,
+  HighlightWorkerCommand,
   HighlightResponse,
 } from '../../src/renderer/src/viewer/highlight-protocol'
 import type { HighlightWorkerPort } from '../../src/renderer/src/viewer/highlight-request'
@@ -7,6 +8,7 @@ import type { HighlightWorkerPort } from '../../src/renderer/src/viewer/highligh
 /** Immediate worker boundary: no editor, scheduling, or tokenizer simulation. */
 export class ViewerHighlightWorker extends EventTarget implements HighlightWorkerPort {
   readonly requests: HighlightRequest[] = []
+  readonly commands: HighlightWorkerCommand[] = []
   readonly messages = new Set<EventListenerOrEventListenerObject>()
   readonly errors = new Set<EventListenerOrEventListenerObject>()
   failPost = false
@@ -55,9 +57,10 @@ export class ViewerHighlightWorker extends EventTarget implements HighlightWorke
     super.removeEventListener(type, listener as EventListener)
   }
 
-  postMessage(request: HighlightRequest): void {
+  postMessage(request: HighlightWorkerCommand): void {
+    this.commands.push(request)
     if (this.failPost) throw new Error('unavailable')
-    this.requests.push(request)
+    if (!('type' in request)) this.requests.push(request)
   }
 
   respond(response: HighlightResponse): void {

@@ -173,12 +173,16 @@ function InteractiveDiff({
   useEffect(() => {
     const parent = host.current
     if (!parent) return
+    const findTargetRef: { current?: CodeMirrorFindTarget } = {}
     const extensions = [
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),
       lineNumbers(),
       tokenDecorations,
       viewerFindDecorations,
+      EditorView.updateListener.of((update) => {
+        if (update.docChanged) findTargetRef.current?.contentChanged()
+      }),
       diffGroupBoundaries,
       themeCompartment.current.of(diffTheme(presentationRef.current.theme)),
       wrapCompartment.current.of(
@@ -206,6 +210,7 @@ function InteractiveDiff({
       ],
       { revealMatches: () => merge.reconfigure({ collapseUnchanged: undefined }) },
     )
+    findTargetRef.current = findTarget
     const unregisterFind = registerFindTarget(findTarget)
     const restorePosition = positionRef.current
     let userNavigated = false
@@ -250,6 +255,7 @@ function InteractiveDiff({
       unregisterContextControls()
       unregisterFind()
       findTarget.clear()
+      findTargetRef.current = undefined
       merge.destroy()
     }
   }, [positionCapture, registerFindTarget])

@@ -32,6 +32,48 @@ afterEach(() => {
 })
 
 describe('FindControl', () => {
+  it('discloses pending results and worker failure without claiming a complete count', () => {
+    const update = vi.fn((): ViewerFindResult => ({
+      current: 0,
+      total: 0,
+      pending: true,
+    }))
+    let changed: (() => void) | undefined
+    const target: ViewerFindTarget = {
+      update,
+      clear: vi.fn(),
+      subscribe: (listener) => {
+        changed = listener
+        return () => {
+          changed = undefined
+        }
+      },
+    }
+    act(() =>
+      root.render(
+        <FindControl
+          requestSerial={1}
+          target={target}
+          boundedPreview={false}
+          onRequestHandled={() => undefined}
+        />,
+      ),
+    )
+    setInput(host.querySelector('[role="search"] > input'), 'x')
+    expect(host.querySelector('[role="status"]')?.textContent).toBe('Searching…')
+    expect(
+      [...host.querySelectorAll('button')]
+        .filter((button) => ['Next', 'Previous'].includes(button.textContent))
+        .every((button) => button.disabled),
+    ).toBe(true)
+    update.mockReturnValue({ current: 1, total: 2000000 })
+    act(() => changed?.())
+    expect(host.querySelector('[role="status"]')?.textContent).toBe('1 of 2000000')
+    update.mockReturnValue({ current: 0, total: 0, error: true })
+    act(() => changed?.())
+    expect(host.querySelector('[role="status"]')?.textContent).toBe('Search unavailable')
+  })
+
   it('updates counts, wraps navigation, toggles case, and restores focus', () => {
     const previous = document.createElement('button')
     document.body.append(previous)

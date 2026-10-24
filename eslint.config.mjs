@@ -87,7 +87,7 @@ const HARNESS_DIRECTION_MESSAGE =
   'Harness contracts and neutral policy depend inward, never on bundled assembly, concrete providers, or their observation implementations.'
 
 const VIEWER_PRESENTATION_IMPORT_BAN =
-  '(^|/)[A-Z][^/]*$|(^|/)(highlight-worker|highlight-request|source-highlighting|source-blame-gutter|use-[^/]+)(\\.[cm]?[jt]sx?)?$|^react(/|$)|^electron$'
+  '(^|/)[A-Z][^/]*$|(^|/)(highlight-worker|highlight-request|source-highlighting|source-blame-gutter|find-worker|find-decorations|codemirror-find-target|use-[^/]+)(\\.[cm]?[jt]sx?)?$|^react(/|$)|^electron$'
 
 function dependencyDirectionRules(
   pattern,
@@ -414,6 +414,9 @@ export default tseslint.config(
   {
     files: [
       'src/renderer/src/viewer/highlight-protocol.ts',
+      'src/renderer/src/viewer/find-worker-protocol.ts',
+      'src/renderer/src/viewer/find-match-index.ts',
+      'src/renderer/src/viewer/viewer-find.ts',
       'src/renderer/src/viewer/viewer-workload-policy.ts',
       'src/renderer/src/viewer/rendered-workload-policy.ts',
       'src/renderer/src/viewer/source-coordinate.ts',

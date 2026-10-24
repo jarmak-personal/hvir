@@ -9,6 +9,15 @@ export interface HighlightRequest {
   readonly theme: 'dark' | 'light'
 }
 
+export const HIGHLIGHT_BATCH_TOKENS = 1024
+
+export type HighlightWorkerCommand =
+  | HighlightRequest
+  | {
+      readonly type: 'ack' | 'cancel'
+      readonly id: number
+    }
+
 export type HighlightLanguage = BundledLanguage
 
 const EXTENSION_OVERRIDES: Readonly<Record<string, string>> = {

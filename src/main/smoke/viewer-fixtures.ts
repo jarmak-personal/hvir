@@ -39,6 +39,19 @@ export async function createViewerFixtures(
   const liveReloadBefore = `${Array.from({ length: 240 }, (_, index) => `line ${index}`).join('\n')}\n`
   await host.writeFile(liveReloadPath, liveReloadBefore)
   if (requirements.positionDocument) {
+    for (const [name, content] of [
+      ['.hvir-smoke-dense-find.txt', 'x\n'.repeat(2_097_152)],
+      [
+        '.hvir-smoke-dense-highlight.js',
+        ('let a=' + '1+'.repeat(500) + '0;\n').repeat(200),
+      ],
+    ] as const) {
+      const path = joinHostPath(smokeRoot, name)
+      cleanup.defer('dense viewer fixture', () =>
+        host.exec('rm', ['-f', '--', path.path]).then(() => undefined),
+      )
+      await host.writeFile(path, content)
+    }
     await host.writeFile(
       viewerPositionPath,
       Array.from(
