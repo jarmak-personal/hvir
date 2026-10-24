@@ -1,6 +1,14 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, readFile, rm, writeFile, readdir, utimes } from 'node:fs/promises'
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+  readdir,
+  utimes,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -137,18 +145,41 @@ it('preserves failure status and releases only after lingering descendants termi
   expect((await next.done).code).toBe(0)
 }, 15000)
 
-it('holds the lease through heartbeat updates and forced interruption cleanup', async () => {
-  const { target, start } = await fixture()
-  const first = start(`process.on('SIGTERM', () => {}); ${hold}`)
+it('lets the scenario launcher retain interruption evidence after its full grace period', async () => {
+  const { root, target, start } = await fixture()
+  const runner = pathToFileURL(resolve('scripts/run-smoke-scenarios.mts')).href
+  const leaf = `process.on('SIGTERM', () => {}); ${hold}`
+  const first = start(`
+    import(${JSON.stringify(runner)}).then(async ({ invokeSmokeScenario, registerSmokeLauncherSignals, formatSmokeScenarioResults }) => {
+      const controller = new AbortController();
+      const remove = registerSmokeLauncherSignals(controller);
+      const result = await invokeSmokeScenario('pty-native', 1, 1, {
+        command: process.execPath, args: ['-e', ${JSON.stringify(leaf)}],
+        interruptionSignal: controller.signal, artifactDirectory: ${JSON.stringify(join(root, 'artifacts'))},
+      });
+      console.log('RECEIVED_SIGNAL=' + controller.signal.reason);
+      console.log(formatSmokeScenarioResults([{ scenario: 'pty-native', iteration: 1, repetitionCount: 1, ...result }]));
+      remove(); process.exitCode = 1;
+    });
+  `)
   await until(() => first.output().includes('WORKLOAD_READY'))
-  first.child.kill('SIGTERM')
+  first.child.kill('SIGINT')
   const successor = start(`console.log('SUCCESSOR_AFTER_KILL')`, '25000')
   await until(() => successor.output().includes('Waiting'))
   expect(successor.output()).not.toContain('SUCCESSOR_AFTER_KILL')
   expect(await readdir(`${target}.lock`)).toContain('owner.json')
-  expect((await first.done).code).toBe(137)
+  expect((await first.done).code).toBe(1)
+  expect(first.output()).toContain('RECEIVED_SIGNAL=SIGINT')
+  expect(first.output()).toContain('[smoke:summary]')
+  expect(first.output()).toContain('launcher interrupted')
+  const artifact: unknown = JSON.parse(
+    await readFile(join(root, 'artifacts', 'pty-native-iteration-1-of-1.json'), 'utf8'),
+  )
+  expect(artifact).toMatchObject({
+    outcome: 'launcher-interrupted',
+    process: { signal: 'SIGKILL' },
+  })
   expect((await successor.done).code).toBe(0)
-  expect(successor.output()).toContain('SUCCESSOR_AFTER_KILL')
 }, 25000)
 
 it('retains incomplete spawn evidence and diagnoses explicit recovery', async () => {
@@ -163,4 +194,42 @@ it('retains incomplete spawn evidence and diagnoses explicit recovery', async ()
   const next = start(`console.log('UNEXPECTED_START')`)
   expect((await next.done).code).toBe(1)
   expect(next.output()).not.toContain('UNEXPECTED_START')
+}, 15000)
+
+it('reports explicit recovery when a held gate has no owner record', async () => {
+  const { target, start } = await fixture()
+  await mkdir(join(`${target}.lock`, 'gate'), { recursive: true })
+  const next = start(`console.log('UNEXPECTED_START')`, '100')
+  expect((await next.done).code).toBe(1)
+  expect(next.output()).toContain('no owner evidence')
+  expect(next.output()).toContain('remove this exact directory')
+  expect(next.output()).not.toContain('UNEXPECTED_START')
+}, 15000)
+
+it('re-enters a lease and runs parallel nested groups without reacquiring it', async () => {
+  const { target, start } = await fixture()
+  const leaf = `process.send('ready'); process.on('message', () => process.exit(0))`
+  const nested = start(`
+    import(${JSON.stringify(moduleUrl)}).then(async ({withSmokeRunLock, hasSmokeRunLease, spawnSmokeProcess}) => {
+      await withSmokeRunLock(async () => {
+        if (!hasSmokeRunLease()) throw new Error('missing inherited lease');
+        const children = [1, 2].map(() => spawnSmokeProcess(process.execPath, ['-e', ${JSON.stringify(leaf)}], {
+          detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], env: process.env,
+        }));
+        await Promise.all(children.map(child => new Promise(resolve => child.once('message', resolve))));
+        console.log('TWO_GROUPS_READY');
+        const outcomes = children.map(child => new Promise(resolve => child.once('close', resolve)));
+        children.forEach(child => child.send('finish'));
+        await Promise.all(outcomes);
+        const check = spawnSmokeProcess(process.execPath, [${JSON.stringify(resolve('scripts/smoke-run-lock.mts'))}, '--check-lease'], {
+          detached: true, stdio: 'inherit', env: process.env,
+        });
+        const code = await new Promise(resolve => check.once('close', resolve));
+        if (code !== 0) throw new Error('lease CLI validation failed');
+      });
+    });
+  `)
+  expect((await nested.done).code, nested.output()).toBe(0)
+  expect(nested.output()).toContain('TWO_GROUPS_READY')
+  expect(await readdir(`${target}.lock`)).toEqual([])
 }, 15000)

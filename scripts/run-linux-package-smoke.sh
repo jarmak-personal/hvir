@@ -4,12 +4,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source_checkout=$PWD
 
-# One lease covers this entire invocation, including child cleanup.
-if [[ -z "${HVIR_SMOKE_LEASE:-}" ]]; then
-  exec node "$source_checkout/scripts/smoke-run-lock.mts" bash "$source_checkout/scripts/run-linux-package-smoke.sh" "$@"
-fi
-node "$source_checkout/scripts/smoke-run-lock.mts" --check-lease
-
 if [[ "$#" -gt 1 ]]; then
   echo 'Usage: run-linux-package-smoke.sh [--software-rendering]' >&2
   exit 2
@@ -70,6 +64,12 @@ if dpkg-query -W -f='${Status}' hvir 2>/dev/null | grep -Fq 'install ok installe
   echo 'Native package acceptance requires a host without hvir already installed.' >&2
   exit 2
 fi
+
+# One lease covers this entire invocation, including child cleanup.
+if [[ -z "${HVIR_SMOKE_LEASE:-}" ]]; then
+  exec node "$source_checkout/scripts/smoke-run-lock.mts" bash "$source_checkout/scripts/run-linux-package-smoke.sh" "$@"
+fi
+node "$source_checkout/scripts/smoke-run-lock.mts" --check-lease
 
 temporary_parent=$(cd "${TMPDIR:-/tmp}" && pwd -P)
 invocation_root=$(mktemp -d "$temporary_parent/hvir-linux-package-smoke.XXXXXX")

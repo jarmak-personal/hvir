@@ -3,7 +3,12 @@ import {
   execFileSync,
   type SpawnOptions,
   type ChildProcess,
+  type ChildProcessByStdio,
+  type SpawnOptionsWithStdioTuple,
+  type StdioNull,
+  type StdioPipe,
 } from 'node:child_process'
+import type { Readable } from 'node:stream'
 import { randomUUID } from 'node:crypto'
 import {
   mkdirSync,
@@ -81,6 +86,16 @@ export function hasSmokeRunLease(): boolean {
 
 // Write intent before spawning: death between spawn and recording its PID must
 // leave an uncertain record, never an apparently safe lock to reclaim.
+export function spawnSmokeProcess(
+  command: string,
+  args: readonly string[],
+  options: SpawnOptionsWithStdioTuple<StdioNull, StdioPipe, StdioPipe>,
+): ChildProcessByStdio<null, Readable, Readable>
+export function spawnSmokeProcess(
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions,
+): ChildProcess
 export function spawnSmokeProcess(
   command: string,
   args: readonly string[],
@@ -165,10 +180,15 @@ async function acquire(signal: AbortSignal, target: string): Promise<() => void>
   mkdirSync(lockDirectory, { recursive: true, mode: 0o700 })
   const started = performance.now()
   let lastReport = -Infinity
+  let missingOwnerEvidence = false
   while (true) {
     signal.throwIfAborted()
     const elapsed = performance.now() - started
     if (elapsed >= limit) {
+      if (missingOwnerEvidence)
+        throw recovery(
+          '[smoke:lock] Acquisition timed out with a held gate and no owner evidence; Electron was not started',
+        )
       throw new Error(
         `[smoke:lock] Acquisition timed out after ${Math.round(elapsed / 1000)}s; Electron was not started`,
       )
@@ -188,7 +208,8 @@ async function acquire(signal: AbortSignal, target: string): Promise<() => void>
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ELOCKED') throw error
     }
-    if (existsSync(join(lockDirectory, 'owner.json'))) {
+    missingOwnerEvidence = !existsSync(join(lockDirectory, 'owner.json'))
+    if (!missingOwnerEvidence) {
       let current: Owner
       try {
         current = owner()
@@ -203,6 +224,8 @@ async function acquire(signal: AbortSignal, target: string): Promise<() => void>
       console.error(
         `[smoke:lock] Waiting for another smoke run (${Math.floor(elapsed / 1000)}s elapsed); keep this invocation alive`,
       )
+      if (missingOwnerEvidence)
+        console.error(recovery('Held smoke gate has no owner evidence').message)
       lastReport = elapsed
     }
     await delay(Math.min(1800 + Math.random() * 400, limit - elapsed), undefined, {
@@ -248,14 +271,13 @@ export async function runSmokeLocked(
     throw new Error('Smoke locking requires POSIX process groups')
   const cancellation = new AbortController()
   let acquired = false
-  let killTimer: ReturnType<typeof setTimeout> | undefined
+  let child: ChildProcess | undefined
   const handlers = SIGNALS.map((signal) => {
     const handler = (): void => {
       if (!cancellation.signal.aborted) cancellation.abort(signal)
-      if (acquired) {
-        signalGroups('SIGTERM')
-        killTimer ??= setTimeout(() => signalGroups('SIGKILL'), GRACE_MS)
-      }
+      // The direct launcher owns its signal semantics, grace period and failure
+      // artifact. Sweeping its groups here could kill it before evidence flushes.
+      child?.kill(signal)
     }
     process.on(signal, handler)
     return [signal, handler] as const
@@ -284,17 +306,18 @@ export async function runSmokeLocked(
     process.env.HVIR_SMOKE_LEASE = token
     process.env.HVIR_SMOKE_LOCK_DIRECTORY = lockDirectory
     acquired = true
-    const child = spawnSmokeProcess(command, args, {
+    const launched = spawnSmokeProcess(command, args, {
       detached: true,
       stdio: 'inherit',
       env: process.env,
     })
+    child = launched
     const outcome = await new Promise<{
       code: number | null
       signal: NodeJS.Signals | null
     }>((resolveOutcome, reject) => {
-      child.once('error', reject)
-      child.once('close', (code, signal) => resolveOutcome({ code, signal }))
+      launched.once('error', reject)
+      launched.once('close', (code, signal) => resolveOutcome({ code, signal }))
     })
     process.exitCode =
       outcome.code ??
@@ -304,7 +327,6 @@ export async function runSmokeLocked(
       if (acquired) await finishSmokeRun(release)
       else release?.()
     } finally {
-      if (killTimer) clearTimeout(killTimer)
       for (const [signal, handler] of handlers) process.off(signal, handler)
     }
   }

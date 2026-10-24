@@ -435,8 +435,8 @@ function startInvocation(options: InvocationOptions): InvocationHandle {
         rejectInvocation(error)
       }
     }
-    createInterface({ input: child.stdout! }).on('line', consume)
-    createInterface({ input: child.stderr! }).on('line', consume)
+    createInterface({ input: child.stdout }).on('line', consume)
+    createInterface({ input: child.stderr }).on('line', consume)
     timer = setTimeout(
       () => rejectInvocation(isolationProcessTimeoutError(options.scenario, tail)),
       PROCESS_TIMEOUT_MS,

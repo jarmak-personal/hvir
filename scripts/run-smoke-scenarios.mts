@@ -218,8 +218,8 @@ export function invokeSmokeScenario(
         stdio: ['inherit', 'pipe', 'pipe'],
       },
     )
-    child.stdout!.setEncoding('utf8')
-    child.stderr!.setEncoding('utf8')
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
     let settled = false
     let disposedFrameDeliveryFailure = false
     let stderrMarkerSuffix = ''
@@ -253,8 +253,8 @@ export function invokeSmokeScenario(
       settled = true
       clearTimers()
       releaseInterruptionOwnership()
-      child.stdout!.destroy()
-      child.stderr!.destroy()
+      child.stdout.destroy()
+      child.stderr.destroy()
       collector.finish()
       const durationMs = performance.now() - startedAt
       const result = {
@@ -308,11 +308,11 @@ export function invokeSmokeScenario(
     unregisterSignalEscalation = options.registerSignalEscalation?.(
       escalateForcedTermination,
     )
-    child.stdout!.on('data', (chunk: string) => {
+    child.stdout.on('data', (chunk: string) => {
       process.stdout.write(chunk)
       collector.observe('stdout', chunk)
     })
-    child.stderr!.on('data', (chunk: string) => {
+    child.stderr.on('data', (chunk: string) => {
       process.stderr.write(chunk)
       collector.observe('stderr', chunk)
       const candidate = `${stderrMarkerSuffix}${chunk}`
