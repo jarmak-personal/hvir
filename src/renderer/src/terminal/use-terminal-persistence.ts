@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-import type { HostPath } from '../../../shared'
+import { hostPathEquals, type HostPath } from '../../../shared'
 import {
   readTerminalSplitLayout,
   writeTerminalSplitLayout,
@@ -8,17 +8,31 @@ import {
 import {
   settledTerminalSessions,
   type TerminalWorkspaceModel,
+  type TerminalSession,
 } from './terminal-workspace-model'
 
-export function useTerminalPersistence({
-  root,
-  model,
-  ready,
-}: {
-  readonly root: HostPath
-  readonly model: TerminalWorkspaceModel
-  readonly ready: boolean
-}): void {
+export function useTerminalPersistence(
+  root: HostPath,
+  model: TerminalWorkspaceModel,
+  ready: boolean,
+  updateSession: (
+    id: string,
+    update: (session: TerminalSession) => TerminalSession,
+  ) => void,
+): void {
+  useEffect(() => {
+    const dispose = window.hvir.on('terminal:name-changed', (name) => {
+      if (!hostPathEquals(name.root, root)) return
+      updateSession(name.id, (current) =>
+        (name.nameRevision ?? 0) > (current.nameRevision ?? 0)
+          ? { ...current, customName: name.customName, nameRevision: name.nameRevision }
+          : current,
+      )
+    })
+    return () => {
+      void dispose()
+    }
+  }, [root, updateSession])
   const modelRef = useRef(model)
   modelRef.current = model
   const layoutKey = JSON.stringify(
@@ -35,13 +49,15 @@ export function useTerminalPersistence({
   useEffect(() => {
     if (!ready) return
     const current = modelRef.current
-    const sessions = settledTerminalSessions(current.sessions).map((session, position) => ({
-      id: session.id,
-      title: session.title,
-      position,
-      active: session.id === current.activeId,
-      attention: session.attention,
-    }))
+    const sessions = settledTerminalSessions(current.sessions).map(
+      (session, position) => ({
+        id: session.id,
+        title: session.title,
+        position,
+        active: session.id === current.activeId,
+        attention: session.attention,
+      }),
+    )
     void window.hvir
       .invoke('terminal:update-layout', { root, sessions })
       .catch(() => undefined)

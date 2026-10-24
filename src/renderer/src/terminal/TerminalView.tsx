@@ -30,6 +30,7 @@ import { useTerminalContextMenu } from './use-terminal-context-menu'
 interface TerminalViewProps {
   readonly commandTicket?: string
   readonly commandWorkspaceId?: string
+  readonly displayTitle?: string
   readonly sessionId: string
   readonly profileId: HarnessProfileId
   readonly launchRevision: number
@@ -113,7 +114,7 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
   const {
     containerRef,
     live,
-    title,
+    title: automaticTitle,
     status,
     exited,
     semanticRegionsAvailable,
@@ -127,6 +128,7 @@ export function TerminalView(props: TerminalViewProps): ReactElement | null {
     getContextMenuTarget,
     focus,
   } = controller
+  const title = props.displayTitle ?? automaticTitle
   const contextMenu = useTerminalContextMenu(getContextMenuTarget, visible)
   const forkAvailability = terminalForkAvailability(
     {

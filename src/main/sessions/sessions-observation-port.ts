@@ -297,6 +297,8 @@ export function assembleSessionsObservation({
       workspaceId: workspace.workspaceId,
       providerId: retained.providerId,
       profile: { status: 'available', value: { id: retained.profileId } },
+      customName: retained.customName,
+      nameRevision: retained.nameRevision,
       title: sessionsProjectionDisplayTitle(
         retained.title,
         handle,

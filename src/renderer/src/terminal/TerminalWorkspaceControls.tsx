@@ -18,7 +18,7 @@ import type { useTerminalSessionCommands } from './use-terminal-session-commands
 import type { useTerminalWorkspaceMove } from './use-terminal-workspace-move'
 
 export function TerminalWorkspaceControls({
-  label,
+  workspace,
   visible,
   available,
   railCompact,
@@ -35,7 +35,10 @@ export function TerminalWorkspaceControls({
   onOpenHarnessSettings,
   onAddHarness,
 }: {
-  readonly label: string
+  readonly workspace: {
+    readonly label: string
+    readonly qualifier: import('../../../shared').SessionsWorkspaceQualifier
+  }
   readonly visible: boolean
   readonly available: boolean
   readonly railCompact: boolean
@@ -88,7 +91,8 @@ export function TerminalWorkspaceControls({
   return (
     <>
       <TerminalRail
-        label={label}
+        label={workspace.label}
+        sessionsWorkspaceQualifier={workspace.qualifier}
         visible={visible}
         compact={railCompact}
         onCompact={onRailCompact}

@@ -1,3 +1,4 @@
+import { terminalTitle } from '../../../shared'
 import type { ReactElement } from 'react'
 
 import type {
@@ -106,6 +107,7 @@ export function TerminalSessionRuntimes({
             commandTicket={session.commandTicket}
             commandWorkspaceId={session.commandWorkspaceId}
             sessionId={session.id}
+            displayTitle={terminalTitle(session.title, session.customName)}
             profileId={session.profileId}
             launchRevision={session.launchRevision}
             supportsResume={session.capabilities.exactResume}

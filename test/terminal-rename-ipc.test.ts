@@ -1,0 +1,151 @@
+import { describe, expect, it, vi } from 'vitest'
+
+import {
+  IpcAuthority,
+  type IpcRegistrar,
+  type IpcInvokeHandler,
+  type IpcInvokeContext,
+} from '../src/main/ipc/authority-router'
+import { registerTerminalIpc } from '../src/main/ipc/features/terminal'
+import {
+  hostPathEquals,
+  sessionsWorkspaceQualifier,
+  type ProjectState,
+} from '../src/shared'
+import { terminalNamingFixture } from './terminal-session-naming-fixture'
+
+async function fixture(remote = false) {
+  const f = await terminalNamingFixture(remote)
+  let revision = 2
+  let current = true
+  const getProjectState = (): ProjectState => ({
+    revision,
+    root: f.root,
+    connectionState: remote ? 'disconnected' : 'connected',
+    watchTier: 'native',
+    activeProjectId: 'project',
+    activeWorkspaceId: 'workspace',
+    projects: [
+      {
+        id: 'project',
+        registeredRoot: f.root,
+        displayName: 'Project',
+        connectionState: remote ? 'disconnected' : 'connected',
+        watchTier: 'native',
+        activeWorkspaceId: 'workspace',
+        workspaces: [
+          {
+            id: 'workspace',
+            root: f.root,
+            name: 'Workspace',
+            main: true,
+            closed: false,
+            missing: false,
+            repository: true,
+            changedFiles: 0,
+          },
+        ],
+      },
+    ],
+  })
+  const authority = new IpcAuthority({
+    getProjectState,
+    getProject: () => {
+      throw new Error('Active host must not be acquired')
+    },
+    getRegisteredWorkspaceRoot: (root) =>
+      hostPathEquals(root, f.root) ? f.root : undefined,
+  })
+  let rename!: IpcInvokeHandler<'terminal:rename'>
+  const ipc = {
+    authority,
+    handle: (channel: string, handler: unknown) => {
+      if (channel === 'terminal:rename') rename = handler as typeof rename
+    },
+    handleSend: vi.fn(),
+  } as unknown as IpcRegistrar
+  const emit = vi.fn()
+  const assertCurrent = vi.fn(() => {
+    if (!current) throw new Error('Renderer revoked')
+  })
+  const deps = {
+    getProjectState,
+    terminalSessions: f.registry,
+    rendererResources: { assertCurrent },
+    emit,
+  } as unknown as Parameters<typeof registerTerminalIpc>[1]
+  registerTerminalIpc(ipc, deps)
+  const context = {
+    owner: () => {
+      assertCurrent()
+      return { id: 7, generation: 3 }
+    },
+  } as IpcInvokeContext
+  const request = {
+    id: f.spawn.id,
+    workspaceQualifier: sessionsWorkspaceQualifier(2, 0, 0),
+    expectedNameRevision: 0,
+    customName: 'My work',
+  }
+  return {
+    ...f,
+    request,
+    rename: (req = request) => rename(req, context),
+    emit,
+    revoke: () => {
+      current = false
+    },
+    changeWorkspace: () => {
+      revision++
+    },
+  }
+}
+
+describe.each([false, true])('rename IPC (disconnected SSH: %s)', (remote) => {
+  it('uses only retained metadata, qualifies the exact target, and publishes after persistence', async () => {
+    const f = await fixture(remote)
+    expect(await f.rename()).toEqual({
+      ok: true,
+      value: { id: f.spawn.id, root: f.root, customName: 'My work', nameRevision: 1 },
+    })
+    expect(f.emit).toHaveBeenCalledWith(
+      'terminal:name-changed',
+      expect.objectContaining({ id: f.spawn.id, nameRevision: 1 }),
+    )
+    expect((await f.reload()).get(f.spawn.id)?.customName).toBe('My work')
+    expect(await f.rename()).toMatchObject({ ok: false })
+    expect(f.emit).toHaveBeenCalledOnce()
+  })
+})
+
+it('rejects malformed names, invalid IDs, stale workspace revisions, and missing targets without publication', async () => {
+  const f = await fixture()
+  for (const request of [
+    { ...f.request, id: 'invalid id' },
+    { ...f.request, id: 'another-terminal' },
+    { ...f.request, customName: 'a\ncommand' },
+    { ...f.request, customName: 'x'.repeat(513) },
+    { ...f.request, expectedNameRevision: -1 },
+    { ...f.request, expectedNameRevision: Number.MAX_SAFE_INTEGER },
+    { ...f.request, workspaceQualifier: sessionsWorkspaceQualifier(1, 0, 0) },
+  ])
+    expect(await f.rename(request)).toMatchObject({ ok: false })
+  expect(f.emit).not.toHaveBeenCalled()
+  expect(f.registry.get(f.spawn.id)?.customName).toBeUndefined()
+})
+
+it('returns failure on persistence errors and on revocation or workspace replacement during a write', async () => {
+  for (const failure of ['disk', 'renderer', 'workspace']) {
+    const f = await fixture()
+    f.writeFile.mockImplementationOnce(() => {
+      if (failure === 'disk') throw new Error('Disk unavailable')
+      if (failure === 'renderer') f.revoke()
+      if (failure === 'workspace') f.changeWorkspace()
+      return Promise.resolve()
+    })
+    expect(await f.rename()).toMatchObject({ ok: false })
+    expect(f.emit).not.toHaveBeenCalled()
+    expect(f.registry.get(f.spawn.id)?.customName).toBeUndefined()
+    expect((await f.reload()).get(f.spawn.id)?.customName).toBeUndefined()
+  }
+})

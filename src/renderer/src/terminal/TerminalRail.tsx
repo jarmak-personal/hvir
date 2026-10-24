@@ -1,3 +1,5 @@
+import { terminalTitle, terminalTitleTooltip } from '../../../shared'
+import { SessionRenameTarget } from './SessionRenameTarget'
 import type { ReactElement } from 'react'
 
 import {
@@ -31,6 +33,7 @@ export interface TerminalLaunchMenuEntry {
 
 export function TerminalRail({
   label,
+  sessionsWorkspaceQualifier,
   visible,
   compact,
   onCompact,
@@ -60,6 +63,7 @@ export function TerminalRail({
   onMoveSession,
   onCloseSession,
 }: {
+  readonly sessionsWorkspaceQualifier: import('../../../shared').SessionsWorkspaceQualifier
   readonly label: string
   readonly visible: boolean
   readonly compact: boolean
@@ -100,6 +104,7 @@ export function TerminalRail({
     onCompact(next)
   }
 
+  const activeSession = sessions.find((session) => session.id === activeId)
   return (
     <aside
       className="terminal-rail hvir-panel"
@@ -151,8 +156,17 @@ export function TerminalRail({
               <div className="terminal-move-menu" role="menu">
                 <p>
                   Move{' '}
-                  <strong>
-                    {sessions.find((session) => session.id === activeId)?.title}
+                  <strong
+                    title={
+                      activeSession
+                        ? terminalTitleTooltip(
+                            activeSession.title,
+                            activeSession.customName,
+                          )
+                        : undefined
+                    }
+                  >
+                    {terminalTitle(activeSession?.title ?? '', activeSession?.customName)}
                   </strong>{' '}
                   from {label}
                 </p>
@@ -277,7 +291,11 @@ export function TerminalRail({
         </div>
       </header>
       <div className="terminal-list" role="list" hidden={compact}>
-        {sessions.map((session) => {
+        {sessions.map((rawSession) => {
+          const session = {
+            ...rawSession,
+            title: terminalTitle(rawSession.title, rawSession.customName),
+          }
           const provider = providerDescriptor(providers, session.providerId)
           const contextPresentation = provider?.capabilities.contextPresentation
           const showsContext =
@@ -291,87 +309,100 @@ export function TerminalRail({
           )
           const status = session.status.replace(/(?:^| · )pid -?\d+$/, '')
           return (
-            <div
+            <SessionRenameTarget
               key={session.id}
-              className={
-                `terminal-list-row${session.id === activeId ? ' active' : ''}${session.dormant ? ' dormant' : ''}` +
-                ' hvir-row'
-              }
-              data-terminal-dormant={session.dormant ? 'true' : undefined}
-              role="listitem"
+              id={session.id}
+              workspaceQualifier={sessionsWorkspaceQualifier}
+              customName={session.customName}
+              nameRevision={session.nameRevision}
             >
-              <button
-                type="button"
-                className="terminal-list-main hvir-button"
-                data-terminal-session={session.id}
-                onClick={() => onFocusSession(session.id)}
+              <div
+                className={
+                  `terminal-list-row${session.id === activeId ? ' active' : ''}${session.dormant ? ' dormant' : ''}` +
+                  ' hvir-row'
+                }
+                data-terminal-dormant={session.dormant ? 'true' : undefined}
+                role="listitem"
               >
-                <span className="terminal-list-copy">
-                  <span className="terminal-list-title">{session.title}</span>
-                  <span className="terminal-list-meta">
-                    <span className="terminal-list-profile">
-                      {profileDisplayName(profiles, session.profileId)}
-                      {status ? ` · ${status}` : ''}
-                      {identityLabel(session.identityStatus)}
-                    </span>
-                    <CompactionMarkers
-                      fact={compactionFact}
-                      className="terminal-list-compactions"
-                    />
-                  </span>
-                  {showsContext ? (
-                    <TerminalContextMeter
-                      telemetry={session.telemetry}
-                      countOnly={contextPresentation === 'count'}
-                      pressurePolicy={provider?.capabilities.contextPressure}
-                    />
-                  ) : null}
-                </span>
-                {session.attention ? (
-                  <span
-                    className={`terminal-attention-badge ${session.attention}`}
-                    aria-label={terminalAttentionLabel(session.attention)}
-                    title={terminalAttentionLabel(session.attention)}
-                  >
-                    {session.attention === 'bell' ? (
-                      <TerminalBellIcon />
-                    ) : (
-                      terminalAttentionBadgeText(session.attention)
-                    )}
-                  </span>
-                ) : null}
-              </button>
-              <ExtensionTerminalItems
-                placement="session"
-                terminalId={session.id}
-                active={surfaceActive}
-              />
-              {split ? (
                 <button
                   type="button"
-                  className="terminal-move-button hvir-button"
-                  aria-label={`Move ${session.title} to ${session.pane === 'primary' ? 'right' : 'left'} split`}
-                  title={`Move to ${session.pane === 'primary' ? 'right' : 'left'} split`}
-                  onClick={() => onMoveSession(session.id)}
+                  className="terminal-list-main hvir-button"
+                  data-terminal-session={session.id}
+                  onClick={() => onFocusSession(session.id)}
                 >
-                  {session.pane === 'primary' ? '→' : '←'}
+                  <span className="terminal-list-copy">
+                    <span
+                      className="terminal-list-title"
+                      title={terminalTitleTooltip(rawSession.title, session.customName)}
+                    >
+                      {session.title}
+                    </span>
+                    <span className="terminal-list-meta">
+                      <span className="terminal-list-profile">
+                        {profileDisplayName(profiles, session.profileId)}
+                        {status ? ` · ${status}` : ''}
+                        {identityLabel(session.identityStatus)}
+                      </span>
+                      <CompactionMarkers
+                        fact={compactionFact}
+                        className="terminal-list-compactions"
+                      />
+                    </span>
+                    {showsContext ? (
+                      <TerminalContextMeter
+                        telemetry={session.telemetry}
+                        countOnly={contextPresentation === 'count'}
+                        pressurePolicy={provider?.capabilities.contextPressure}
+                      />
+                    ) : null}
+                  </span>
+                  {session.attention ? (
+                    <span
+                      className={`terminal-attention-badge ${session.attention}`}
+                      aria-label={terminalAttentionLabel(session.attention)}
+                      title={terminalAttentionLabel(session.attention)}
+                    >
+                      {session.attention === 'bell' ? (
+                        <TerminalBellIcon />
+                      ) : (
+                        terminalAttentionBadgeText(session.attention)
+                      )}
+                    </span>
+                  ) : null}
                 </button>
-              ) : null}
-              <button
-                type="button"
-                className="terminal-close-button hvir-button"
-                aria-label={`Close ${session.title}`}
-                title="Close terminal"
-                onClick={() => onCloseSession(session.id)}
-              >
-                ×
-              </button>
-            </div>
+                <ExtensionTerminalItems
+                  placement="session"
+                  terminalId={session.id}
+                  active={surfaceActive}
+                />
+                {split ? (
+                  <button
+                    type="button"
+                    className="terminal-move-button hvir-button"
+                    aria-label={`Move ${session.title} to ${session.pane === 'primary' ? 'right' : 'left'} split`}
+                    title={`Move to ${session.pane === 'primary' ? 'right' : 'left'} split`}
+                    onClick={() => onMoveSession(session.id)}
+                  >
+                    {session.pane === 'primary' ? '→' : '←'}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="terminal-close-button hvir-button"
+                  aria-label={`Close ${session.title}`}
+                  title="Close terminal"
+                  onClick={() => onCloseSession(session.id)}
+                >
+                  ×
+                </button>
+              </div>
+            </SessionRenameTarget>
           )
         })}
       </div>
       <TerminalRailCompact
         hidden={!compact}
+        sessionsWorkspaceQualifier={sessionsWorkspaceQualifier}
         sessions={sessions}
         activeId={activeId}
         onFocusSession={onFocusSession}

@@ -30,7 +30,9 @@ export function SessionsOverviewCard({
       <header>
         <div className="session-card-identity">
           <span className={`session-kind ${row.provider.kind}`}>{identity.label}</span>
-          <h3>{identity.title}</h3>
+          <h3 title={row.customName ? row.automaticTitle : undefined}>
+            {identity.title}
+          </h3>
         </div>
       </header>
       {row.context.status === 'available' || row.context.status === 'stale' ? (

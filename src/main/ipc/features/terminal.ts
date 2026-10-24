@@ -1,4 +1,8 @@
-import { hostPathEquals } from '../../../shared'
+import {
+  hostPathEquals,
+  sessionsWorkspaceQualifier,
+  isTerminalTitleText,
+} from '../../../shared'
 import { resolveHarnessLaunch } from '../../harness/harness-launch'
 import { harnessProvider, selectHarnessLaunch } from '../../harness/harness-provider'
 import {
@@ -21,6 +25,8 @@ import { operationResult } from '../operation-result'
 type TerminalIpcDeps = Pick<
   IpcDeps,
   | 'getHost'
+  | 'getProjectState'
+  | 'emit'
   | 'terminalSessions'
   | 'harnessProfiles'
   | 'harnessProbes'
@@ -31,6 +37,56 @@ type TerminalIpcDeps = Pick<
 >
 
 export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): void {
+  ipc.handle('terminal:rename', (req, context) =>
+    operationResult(async () => {
+      const owner = context.owner()
+      if (
+        !isTerminalId(req.id) ||
+        !isTerminalTitleText(req.customName, true) ||
+        !Number.isSafeInteger(req.expectedNameRevision) ||
+        req.expectedNameRevision < 0 ||
+        req.expectedNameRevision >= Number.MAX_SAFE_INTEGER
+      ) {
+        throw new Error('Use a plain-text session name of at most 512 characters.')
+      }
+      const resolveRoot = () => {
+        const state = deps.getProjectState()
+        for (const [projectIndex, project] of state.projects.entries()) {
+          for (const [workspaceIndex, workspace] of project.workspaces.entries()) {
+            if (
+              sessionsWorkspaceQualifier(state.revision, projectIndex, workspaceIndex) ===
+              req.workspaceQualifier
+            ) {
+              return ipc.authority.workspaceRoot(workspace.root)
+            }
+          }
+        }
+        throw new Error('The owning workspace changed. Reopen Rename and try again.')
+      }
+      const root = resolveRoot()
+      const assertCurrent = () => {
+        deps.rendererResources.assertCurrent(owner)
+        if (!hostPathEquals(root, resolveRoot()))
+          throw new Error('The owning workspace changed.')
+      }
+      const renamed = await deps.terminalSessions.rename(
+        req.id,
+        root,
+        req.expectedNameRevision,
+        req.customName,
+        assertCurrent,
+      )
+      const changed = {
+        id: renamed.id,
+        root,
+        customName: renamed.customName,
+        nameRevision: renamed.nameRevision,
+      }
+      deps.emit('terminal:name-changed', changed)
+      return changed
+    }),
+  )
+
   ipc.handle('terminal:recovery', (req) => {
     const root = ipc.authority.workspaceRoot(req.root)
     return deps.terminalSessions.list(root)
@@ -517,23 +573,11 @@ function recoveryDecisionIds(value: unknown): readonly string[] {
 }
 
 function isTerminalTitle(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    value.length <= 512 &&
-    !hasControlCharacter(value)
-  )
+  return isTerminalTitleText(value)
 }
 
 function isTerminalAttention(value: unknown): value is 'working' | 'bell' | 'idle' {
   return value === 'working' || value === 'bell' || value === 'idle'
-}
-
-function hasControlCharacter(value: string): boolean {
-  return [...value].some((character) => {
-    const code = character.charCodeAt(0)
-    return code <= 31 || code === 127
-  })
 }
 
 function isClassifiedHarnessLaunchFailure(reason: unknown): boolean {

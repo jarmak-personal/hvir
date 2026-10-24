@@ -21,6 +21,7 @@ import { verifyTerminalProjectReturn } from './terminal-project-return'
 import { verifyTerminalSemanticNavigation } from './terminal-semantic-navigation'
 import { verifyTerminalSearch } from './terminal-search'
 import { verifyStreamingTerminalSearch } from './terminal-search-streaming'
+import { verifySessionNaming } from './session-naming'
 import { focusSmokeWindow } from './window-focus'
 import { verifyTerminalThemeGalleryPresentation } from './terminal-theme-gallery-presentation'
 import { verifySynchronizedOutput } from './terminal-synchronized-output'
@@ -246,7 +247,9 @@ export async function verifyTerminalPresentationLifecycle(
   checkpoint('terminal-presentation-theme-gallery-awaiting')
   const themeGalleryStatus = await verifyTerminalThemeGalleryPresentation(win, supervisor)
   checkpoint('terminal-presentation-theme-gallery-ready')
+  const namingStatus = await verifySessionNaming(win, supervisor)
   return [
+    namingStatus,
     streamingSearch,
     explicitLaunch,
     engineStatus,

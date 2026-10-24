@@ -1,3 +1,7 @@
+.session-rename-target {
+  display: contents;
+}
+
 .terminal-context-menu {
   z-index: 42;
   position: fixed;

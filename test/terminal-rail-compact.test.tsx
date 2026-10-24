@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { sessionsWorkspaceQualifier as renameWorkspaceQualifier } from '../src/shared'
+
 import { act, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -188,6 +190,7 @@ describe('compact terminal rail', () => {
 
 function renderRail(overrides: Partial<ComponentProps<typeof TerminalRail>> = {}): void {
   const props: ComponentProps<typeof TerminalRail> = {
+    sessionsWorkspaceQualifier: renameWorkspaceQualifier(1, 0, 0),
     label: 'main',
     visible: true,
     compact: false,

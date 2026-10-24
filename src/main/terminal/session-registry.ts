@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto'
+import { renameTerminalSession } from './session-naming'
 
 import {
+  isTerminalTitleText,
+  type TerminalName,
   asHostId,
   asHarnessProfileId,
   hostPath,
@@ -26,7 +29,7 @@ const TERMINAL_ID = /^[a-zA-Z0-9-]{1,80}$/
 const MAX_SESSIONS = 500
 const MAX_TITLE_LENGTH = 512
 
-interface StoredTerminalSession {
+interface StoredTerminalSession extends TerminalName {
   readonly id: string
   readonly providerId: HarnessProviderId
   readonly profileId: HarnessProfileId
@@ -158,6 +161,13 @@ export interface TerminalSessionStore {
   authorizeResume(request: AuthorizeTerminalResume): boolean
   authorizeFork(request: AuthorizeTerminalFork): boolean
   authorizeReplacement(request: AuthorizeTerminalReplacement): boolean
+  rename(
+    id: string,
+    root: HostPath,
+    expectedRevision: number,
+    customName: string,
+    assertCurrent: () => void,
+  ): Promise<OwnedTerminalSession>
   flush(): Promise<void>
 }
 
@@ -181,6 +191,7 @@ export type TerminalSessionRegistryDiagnostic =
 
 export class TerminalSessionRegistry implements TerminalSessionStore {
   private readonly sessions = new Map<string, StoredTerminalSession>()
+  private readonly pendingNames = new Map<string, OwnedTerminalSession>()
   private readonly forgotten = new Set<string>()
   private readonly pendingIdentities = new Map<string, PendingIdentityRegistration>()
   private pendingWrite: Promise<void> = Promise.resolve()
@@ -286,16 +297,20 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
         (left, right) =>
           left.position - right.position || left.updatedAt - right.updatedAt,
       )
-      .map(({ workspaceRoot: _workspaceRoot, ...session }) => session)
+      .map((stored) => {
+        const { workspaceRoot: _workspaceRoot, ...session } =
+          this.publishedSession(stored)
+        return session
+      })
   }
 
   get(id: string): OwnedTerminalSession | undefined {
     const session = this.sessions.get(id)
-    return session ? { ...session } : undefined
+    return session ? this.publishedSession(session) : undefined
   }
 
   observationSnapshot(): readonly OwnedTerminalSession[] {
-    return [...this.sessions.values()].map((session) => ({ ...session }))
+    return [...this.sessions.values()].map((session) => this.publishedSession(session))
   }
 
   observe(listener: () => void): Disposer {
@@ -413,6 +428,8 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       position: cleanPosition(spawn.position),
       active: spawn.active,
       attention: retainedAttention,
+      customName: previous?.customName,
+      nameRevision: previous?.nameRevision,
       updatedAt: now,
     }
     this.sessions.set(spawn.id, recorded)
@@ -618,7 +635,9 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
         this.sessions.set(request.id, current)
       throw error
     }
-    const { workspaceRoot: _workspaceRoot, ...result } = updated
+    const { workspaceRoot: _workspaceRoot, ...result } = this.publishedSession(
+      this.sessions.get(request.id) ?? updated,
+    )
     return result
   }
 
@@ -647,7 +666,9 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       }
       throw error
     }
-    const { workspaceRoot: _workspaceRoot, ...result } = updated
+    const { workspaceRoot: _workspaceRoot, ...result } = this.publishedSession(
+      this.sessions.get(request.id) ?? updated,
+    )
     return result
   }
 
@@ -708,6 +729,26 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
     )
   }
 
+  rename(
+    id: string,
+    root: HostPath,
+    expectedRevision: number,
+    customName: string,
+    assertCurrent: () => void,
+  ): Promise<OwnedTerminalSession> {
+    return renameTerminalSession(
+      id,
+      root,
+      expectedRevision,
+      customName,
+      assertCurrent,
+      this.sessions,
+      this.pendingNames,
+      () => this.persist(),
+      () => this.publishObservation(),
+    )
+  }
+
   flush(): Promise<void> {
     return this.pendingWrite
   }
@@ -726,6 +767,13 @@ export class TerminalSessionRegistry implements TerminalSessionStore {
       })
     this.pendingWrite = write
     return write
+  }
+
+  private publishedSession(session: StoredTerminalSession): OwnedTerminalSession {
+    const pending = this.pendingNames.get(session.id)
+    return pending
+      ? { ...session, customName: pending.customName, nameRevision: pending.nameRevision }
+      : { ...session }
   }
 
   private publishObservation(): void {
@@ -766,6 +814,8 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
   const workspaceRoot =
     parsePath(value['workspaceRoot']) ?? parsePath(value['projectRoot'])
   const cwd = parsePath(value['cwd'])
+  const customName = value['customName']
+  const nameRevision = value['nameRevision']
   const title = value['title']
   const position = value['position']
   const active = value['active']
@@ -791,6 +841,11 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
     !cwd ||
     workspaceRoot.hostId !== hostId ||
     cwd.hostId !== hostId ||
+    (customName !== undefined && !isTerminalTitleText(customName)) ||
+    (nameRevision !== undefined &&
+      (typeof nameRevision !== 'number' ||
+        !Number.isSafeInteger(nameRevision) ||
+        nameRevision < 0)) ||
     typeof title !== 'string' ||
     title.length > MAX_TITLE_LENGTH ||
     typeof position !== 'number' ||
@@ -816,6 +871,9 @@ function parseStoredSession(value: unknown): StoredTerminalSession | undefined {
     hostId,
     workspaceRoot,
     cwd,
+    customName:
+      typeof customName === 'string' ? customName.trim() || undefined : undefined,
+    nameRevision: typeof nameRevision === 'number' ? nameRevision : undefined,
     title,
     position,
     active,

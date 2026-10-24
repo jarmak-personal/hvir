@@ -1,4 +1,5 @@
 import {
+  terminalTitle,
   hostPathEquals,
   type MoveTerminalRequest,
   type MoveTerminalResponse,
@@ -128,7 +129,7 @@ export class TerminalWorkspaceMoveCoordinator {
     }
     return {
       terminalId: request.terminalId,
-      terminalTitle: recovery.title,
+      terminalTitle: terminalTitle(recovery.title, recovery.customName),
       sourceProjectId: project.id,
       sourceWorkspaceId: source.id,
       sourceWorkspaceName: source.name,

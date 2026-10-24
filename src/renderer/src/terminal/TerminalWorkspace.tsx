@@ -252,7 +252,7 @@ export function TerminalWorkspace({
     },
   })
   const { ready: recoveryReady, defaultProvider, defaultProfile } = recovery
-  useTerminalPersistence({ root: workspaceRoot, model, ready: recoveryReady })
+  useTerminalPersistence(workspaceRoot, model, recoveryReady, updateSession)
   const commands = useTerminalSessionCommands({
     available,
     workspaceRoot,
@@ -357,7 +357,7 @@ export function TerminalWorkspace({
       />
       {visible ? (
         <TerminalWorkspaceControls
-          label={label}
+          workspace={{ label, qualifier: sessionsWorkspaceQualifier }}
           visible={presentationVisible}
           available={available}
           railCompact={railCompact}
