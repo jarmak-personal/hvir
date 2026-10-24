@@ -2,6 +2,7 @@ import { ExternalDocumentWorkspace } from './external-document-context'
 import {
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactElement,
@@ -15,6 +16,12 @@ import {
   type HostPath,
 } from '../../../shared'
 import { renderMarkdown, resetMarkdownRenderer } from './markdown-client'
+import {
+  assertRenderedMarkup,
+  admitRenderedDiagram,
+  assertRenderedDiagramIndex,
+} from './rendered-workload-policy'
+import { renderMermaid } from './mermaid-client'
 import { DomFindTarget } from './dom-find-target'
 import { handleRenderedLinkClick } from './rendered-link-handler'
 import type {
@@ -38,8 +45,6 @@ import type { DocumentReviewDocumentProjection } from '../document-review/use-do
 let jsonWorker: Worker | undefined
 let jsonRequestId = 0
 let jsonDocumentId = 0
-let mermaidRequestId = 0
-let mermaidPromise: Promise<typeof import('mermaid').default> | undefined
 let csvWorker: Worker | undefined
 let csvRequestId = 0
 
@@ -211,7 +216,10 @@ function CsvView({
   const columnIndexes = Array.from({ length: visibleColumns }, (_, index) => index)
   const notes = [
     table.truncated
-      ? `Showing ${table.rows.length.toLocaleString()} of ${table.totalRows.toLocaleString()} rows`
+      ? `Showing ${table.rows.length.toLocaleString()} of ${table.totalRows.toLocaleString()} rows; use Source for complete data`
+      : undefined,
+    table.contentTruncated
+      ? 'Cell text omitted to keep the preview responsive; use Source for complete data'
       : undefined,
     table.columnsTruncated
       ? `first ${visibleColumns.toLocaleString()} of ${table.totalColumns.toLocaleString()} columns`
@@ -332,9 +340,15 @@ function MarkdownView({
     let cancelled = false
     setHtml('')
     setError(undefined)
-    void renderMarkdown(content, theme).then(
+    void renderMarkdown(content, theme, undefined, true).then(
       (rendered) => {
         if (cancelled) return
+        try {
+          assertRenderedMarkup(rendered)
+        } catch (reason) {
+          setError(reason instanceof Error ? reason.message : String(reason))
+          return
+        }
         setHtml(rendered)
         setError(undefined)
       },
@@ -353,14 +367,14 @@ function MarkdownView({
     const root = container.current
     if (!root || !html) return
     appliedRefreshVersion.current = refreshRef.current?.version ?? 0
-    let cancelled = false
+    const diagrams = new AbortController()
     const images = new MarkdownRepositoryImages(path, workspaceRoot)
     images.mount(root, html)
     repositoryImages.current = images
     onDependencies(images.hydrate(root))
-    void renderMermaidNodes(root, () => cancelled, theme)
+    void renderMermaidNodes(root, diagrams.signal, theme)
     return () => {
-      cancelled = true
+      diagrams.abort()
       onDependencies([])
       images.dispose()
       if (repositoryImages.current === images) repositoryImages.current = undefined
@@ -433,19 +447,19 @@ function StandaloneMermaid({
   useEffect(() => {
     const root = ref.current
     if (!root) return
-    let cancelled = false
+    const controller = new AbortController()
     root.textContent = 'Rendering diagram…'
-    void renderMermaid(content, `mermaid-${++mermaidRequestId}`, theme).then(
+    void renderMermaid(content, theme, controller.signal).then(
       (svg) => {
-        if (!cancelled) root.innerHTML = svg
+        if (!controller.signal.aborted) root.innerHTML = svg
       },
       (error: unknown) => {
-        if (!cancelled)
+        if (!controller.signal.aborted)
           root.textContent = error instanceof Error ? error.message : String(error)
       },
     )
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [content, renderGeneration, theme])
   useRenderedFindTarget(
@@ -458,39 +472,28 @@ function StandaloneMermaid({
 
 async function renderMermaidNodes(
   root: HTMLElement,
-  cancelled: () => boolean,
+  signal: AbortSignal,
   theme: 'dark' | 'light',
 ): Promise<void> {
   const nodes = [...root.querySelectorAll<HTMLElement>('.mermaid-diagram')]
-  for (const node of nodes) {
-    if (cancelled()) return
+  let budget = { elements: root.querySelectorAll('*').length, characters: 0 }
+  for (const [index, node] of nodes.entries()) {
+    if (signal.aborted) return
     const source = node.querySelector('pre')?.textContent
     if (source === undefined) continue
     try {
-      node.innerHTML = await renderMermaid(source, `mermaid-${++mermaidRequestId}`, theme)
+      assertRenderedDiagramIndex(index)
+      const svg = await renderMermaid(source, theme, signal)
+      if (signal.aborted) return
+      budget = admitRenderedDiagram(budget, svg, node.querySelectorAll('*').length)
+      node.innerHTML = svg
     } catch (error) {
+      if (signal.aborted) return
       node.textContent = error instanceof Error ? error.message : String(error)
       node.classList.add('render-error')
     }
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   }
-}
-
-async function renderMermaid(
-  source: string,
-  id: string,
-  theme: 'dark' | 'light',
-): Promise<string> {
-  mermaidPromise ??= import('mermaid').then(({ default: mermaid }) => mermaid)
-  const mermaid = await mermaidPromise
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: 'strict',
-    theme: theme === 'light' ? 'default' : 'dark',
-    suppressErrorRendering: true,
-  })
-  const { svg } = await mermaid.render(id, source)
-  return svg
 }
 
 function StructuredDataView({
@@ -567,7 +570,7 @@ function useRenderedPosition(
 ): void {
   const positionRef = useRef(position)
   const onPositionRef = useRef(onPosition)
-  const lines = documentLineCount(content)
+  const lines = useMemo(() => documentLineCount(content), [content])
   positionRef.current = position
   onPositionRef.current = onPosition
 
@@ -613,7 +616,6 @@ function useDevRendererGeneration(): number {
       resetMarkdownRenderer()
       jsonWorker?.terminate()
       jsonWorker = undefined
-      mermaidPromise = undefined
       setGeneration((current) => current + 1)
     }
     hot.on('vite:afterUpdate', refresh)

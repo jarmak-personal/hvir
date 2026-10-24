@@ -1,9 +1,12 @@
+import { RENDERED_LIMITS } from './rendered-workload-policy'
+
 export interface CsvTableData {
   readonly rows: readonly (readonly string[])[]
   readonly totalRows: number
   readonly totalColumns: number
   readonly truncated: boolean
   readonly columnsTruncated: boolean
+  readonly contentTruncated?: boolean
 }
 
 const DEFAULT_MAX_ROWS = 500
@@ -83,5 +86,27 @@ export function parseCsv(
     totalColumns,
     truncated: totalRows > rows.length,
     columnsTruncated,
+  }
+}
+
+/** Bound the rectangular DOM, including padding cells and text, inside the worker. */
+export function boundCsvTable(table: CsvTableData): CsvTableData {
+  const width = Math.max(1, ...table.rows.map((row) => row.length))
+  const rowLimit = Math.floor(RENDERED_LIMITS.csvCells / width)
+  let remaining: number = RENDERED_LIMITS.csvCharacters
+  let contentTruncated = false
+  const rows = table.rows.slice(0, rowLimit).map((row) =>
+    row.map((cell) => {
+      const text = cell.slice(0, Math.min(RENDERED_LIMITS.csvCellCharacters, remaining))
+      remaining -= text.length
+      contentTruncated ||= text.length !== cell.length
+      return text
+    }),
+  )
+  return {
+    ...table,
+    rows,
+    truncated: table.truncated || rows.length < table.rows.length,
+    ...(contentTruncated ? { contentTruncated: true } : {}),
   }
 }

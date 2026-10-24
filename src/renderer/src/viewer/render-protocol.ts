@@ -3,6 +3,7 @@ export interface MarkdownRenderRequest {
   readonly markdown: string
   readonly theme: 'dark' | 'light'
   readonly resources?: 'inert'
+  readonly bounded?: boolean
 }
 
 export type MarkdownRenderResponse =
