@@ -51,7 +51,7 @@ afterEach(async () => {
   await rm(directory, { recursive: true, force: true })
 })
 
-function fixture(options: { readonly maxFileBytes?: number } = {}) {
+function fixture(options: { readonly maxEntries?: number } = {}) {
   let current = true
   let open = true
   let connection: HostConnectionState = 'connected'
@@ -105,10 +105,10 @@ function fixture(options: { readonly maxFileBytes?: number } = {}) {
         }
       },
     },
-    ...(options.maxFileBytes === undefined
+    ...(options.maxEntries === undefined
       ? {}
       : {
-          copyLimits: { ...PROJECT_FILE_COPY_LIMITS, maxFileBytes: options.maxFileBytes },
+          copyLimits: { ...PROJECT_FILE_COPY_LIMITS, maxEntries: options.maxEntries },
         }),
     createStagingId: () => 'owned-download-stage',
   })
@@ -279,10 +279,17 @@ describe('SSH downloads through the project-file coordinator', () => {
     expect(f.events.some((event) => event.phase === 'completed')).toBe(false)
   })
 
-  it('skips oversized files without publication', async () => {
-    const f = fixture({ maxFileBytes: 5 })
-    await f.start()
-    expect(await item(f)).toMatchObject({ status: 'skipped', effect: 'none' })
+  it('skips trees exceeding the entry limit without publication', async () => {
+    const f = fixture({ maxEntries: 1 })
+    await mkdir(join(directory, 'remote', 'tree'))
+    await writeFile(join(directory, 'remote', 'tree', 'file.txt'), 'remote bytes')
+    await f.start('tree')
+    const skipped = await item(f)
+    expect(skipped).toMatchObject({
+      status: 'skipped',
+      effect: 'none',
+    })
+    expect(skipped.reason).toContain('entry limit')
     expect(await readdir(join(directory, 'destination'))).toEqual([])
   })
 
