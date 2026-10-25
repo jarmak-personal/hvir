@@ -106,10 +106,18 @@ export async function dropDiskFileFromRenderer(
   }
 }
 
-export function rendererValue(win: BrowserWindow, expression: string): Promise<unknown> {
+export function rendererValue(
+  win: BrowserWindow,
+  expression: string,
+  waitFor?: string,
+): Promise<unknown> {
   return win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
+      const deadline = Date.now() + 15000;
       const poll = () => {
+        if (${JSON.stringify(waitFor)} && Date.now() > deadline) {
+          return reject(new Error('Timed out waiting for ' + ${JSON.stringify(waitFor)}));
+        }
         try {
           const value = ${expression};
           if (value) return resolve(value);
@@ -146,10 +154,16 @@ export async function verifySshDownloadSmoke(options: {
       `(() => {
       const row = document.querySelector('[data-file-path=' + ${JSON.stringify(JSON.stringify(joinHostPath(remoteRoot, sourceName).path))} + ']');
       if (!(row instanceof HTMLElement)) return undefined;
-      if (!window.__hvirDownloadSelected) { row.click(); window.__hvirDownloadSelected = true; return undefined; }
       const button = [...document.querySelectorAll('.file-download-controls button')].find(node => node.textContent === 'Download…');
+      // A completed copy can still publish a watcher refresh, which intentionally
+      // clears download selection. Reacquire the exact visible source after that
+      // invalidation; never retry the download operation itself.
+      if (!window.__hvirDownloadSelected || (button instanceof HTMLButtonElement && button.disabled && button.title === 'Select a file or folder to download')) {
+        row.click(); window.__hvirDownloadSelected = true; return undefined;
+      }
       return button instanceof HTMLButtonElement && !button.disabled;
     })()`,
+      'the exact SSH download selection after filesystem refresh',
     )
     await win.webContents.executeJavaScript(`
       window.__hvirDownloadFinished = false;
@@ -167,6 +181,7 @@ export async function verifySshDownloadSmoke(options: {
       if (document.querySelector('[role="dialog"]')) throw new Error('Download requested an extra confirmation');
       return window.__hvirDownloadFinished === 'completed';
     })()`,
+      'SSH download completion',
     )
     if (selections !== 1)
       throw new Error('Download did not use exactly one native selection')

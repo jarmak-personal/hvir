@@ -1,3 +1,4 @@
+import type { TerminalName } from './terminal-title'
 import type { HostConnectionState } from './fs-types'
 import type { HarnessProfileId } from './harness-profile'
 import type { HarnessContextPressurePolicy, HarnessProviderId } from './harness-provider'
@@ -236,7 +237,7 @@ export interface SessionsLivePtyQualifier {
 }
 
 /** Main-safe facts before renderer runtime/attention state is joined. */
-export interface SessionsObservedSession {
+export interface SessionsObservedSession extends TerminalName {
   readonly handle: SessionsTerminalHandle
   readonly workspaceId: SessionsWorkspaceHandle
   readonly providerId: HarnessProviderId
@@ -315,7 +316,8 @@ export type SessionsTerminalResolutionResponse =
 export type SessionsLifecycle =
   'retained' | 'starting' | 'resuming' | 'live' | 'stopped' | 'unavailable'
 
-export interface SessionsProjectionRow {
+export interface SessionsProjectionRow extends TerminalName {
+  readonly automaticTitle?: string
   readonly handle: SessionsTerminalHandle
   readonly project: { readonly id: SessionsProjectHandle; readonly name: string }
   readonly workspace: {

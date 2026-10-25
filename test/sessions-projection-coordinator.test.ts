@@ -23,6 +23,31 @@ const providerId = asHarnessProviderId('codex')
 const profileId = asHarnessProfileId('codex-default')
 
 describe('SessionsProjectionCoordinator', () => {
+  it('joins main-owned names over live automatic titles and reveals latest automatic title when cleared', () => {
+    const session = {
+      ...observed('named', 'workspace-a', 'live'),
+      customName: 'My work',
+      nameRevision: 2,
+    }
+    const snapshot = observation(1, [session])
+    const live = [renderer('named', 'workspace-a', { title: 'Latest program title' })]
+    expect(joinSessionsProjection(snapshot, live)[0]).toMatchObject({
+      title: 'My work',
+      automaticTitle: 'Latest program title',
+      customName: 'My work',
+      nameRevision: 2,
+    })
+    expect(
+      joinSessionsProjection(
+        {
+          ...snapshot,
+          sessions: [{ ...session, customName: undefined, nameRevision: 3 }],
+        },
+        live,
+      )[0],
+    ).toMatchObject({ title: 'Latest program title', nameRevision: 3 })
+  })
+
   it('joins lifecycle, connection, attention, Working, and telemetry as independent axes', () => {
     const snapshot = observation(1, [
       observed('live', 'workspace-a', 'live'),

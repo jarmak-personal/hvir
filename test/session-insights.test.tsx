@@ -43,10 +43,10 @@ afterEach(() => {
 
 describe('compaction marker presentation', () => {
   it.each(['local', 'ssh'] as const)(
-    'leaves context gestures available without opening details for %s sessions',
+    'offers Rename without activating or opening details for %s sessions',
     (hostKind) => {
       const props = terminalRailProps()
-      const session = terminalSession(1)
+      const session = { ...terminalSession(1), customName: 'Named session' }
       const invoke = vi.fn(() => Promise.resolve())
       Object.defineProperty(window, 'hvir', {
         configurable: true,
@@ -80,8 +80,20 @@ describe('compaction marker presentation', () => {
         )
       })
       expect(document.querySelector('[role="dialog"]')).toBeNull()
-      expect(document.activeElement).toBe(button)
+      const rename = document.querySelector<HTMLButtonElement>('[role="menuitem"]')!
+      expect(rename.textContent).toBe('Rename…')
+      expect(document.activeElement).toBe(rename)
+      expect(props.onFocusSession).not.toHaveBeenCalled()
+      act(() => rename.click())
+      expect(
+        document.querySelector<HTMLInputElement>('[role="dialog"] input')?.value,
+      ).toBe('Named session')
+      const cancel = [
+        ...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+      ].find((entry) => entry.textContent === 'Cancel')!
+      act(() => cancel.click())
       expect(invoke).not.toHaveBeenCalled()
+      expect(props.onFocusSession).not.toHaveBeenCalled()
       act(() => button.click())
       expect(props.onFocusSession).toHaveBeenCalledWith(session.id)
       expect(document.querySelector('.compaction-markers')?.textContent?.trim()).toBe(

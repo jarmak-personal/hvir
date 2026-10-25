@@ -41,6 +41,7 @@ export async function createSmokeTerminalSessionStore(
       }
     },
     recordRecoveryDecision: () => Promise.resolve(),
+    rename: () => Promise.reject(new Error('Smoke recovery is read-only')),
     recordSpawn: () => Promise.resolve(),
     recordReplacement: () => Promise.resolve(),
     recordIdentity: () => Promise.resolve(true),
@@ -73,7 +74,8 @@ export async function createSmokeTerminalSessionStore(
     flush: () => Promise.resolve(),
   }
   const selected =
-    process.env['HVIR_EXTENSION_TERMINAL_PROBE'] === '1'
+    process.env['HVIR_EXTENSION_TERMINAL_PROBE'] === '1' ||
+    process.env['HVIR_SMOKE_SCENARIO'] === 'terminal-presentation'
       ? await TerminalSessionRegistry.load(
           resources.host,
           joinHostPath(defaultRoot, '.terminal-command-recovery.json'),

@@ -10,6 +10,7 @@ import {
   type ReactElement,
 } from 'react'
 
+import { SessionRenameTarget } from '../terminal/SessionRenameTarget'
 import type {
   ProjectState,
   SessionsLivePtyQualifier,
@@ -486,53 +487,65 @@ export function SessionsOverview({
                               policy.group,
                             )
                             return (
-                              <article
+                              <SessionRenameTarget
                                 key={row.handle}
-                                className={
-                                  `session-card${isSelected ? ' selected' : ''}` +
-                                  ' hvir-row'
-                                }
-                                role="listitem"
-                                aria-current={isSelected ? 'true' : undefined}
-                                aria-label={cardIdentity.accessibleName}
-                                tabIndex={isSelected ? 0 : -1}
-                                ref={(element) => {
-                                  if (element)
-                                    rowElements.current.set(row.handle, element)
-                                  else rowElements.current.delete(row.handle)
-                                }}
-                                onFocus={() => setSelected(row.handle)}
-                                onClick={() => setSelected(row.handle)}
-                                onKeyDown={(event) => {
-                                  if (
-                                    event.key === 'Enter' &&
-                                    event.target === event.currentTarget
-                                  ) {
-                                    event.preventDefault()
-                                    if (liveTerminal) void open(row)
-                                    return
-                                  }
-                                  moveFocus(event, row)
-                                }}
+                                id={row.handle}
+                                customName={row.customName}
+                                nameRevision={row.nameRevision}
                               >
-                                <SessionsOverviewCard
-                                  row={row}
-                                  group={policy.group}
-                                  opening={opening === row.handle}
-                                  onOpen={liveTerminal ? () => void open(row) : undefined}
-                                  onInteract={
-                                    liveTerminal
-                                      ? () => {
-                                          detailOrigin.current =
-                                            sessionsTerminalOverlayOrigin(
-                                              rowElements.current.get(row.handle),
-                                            )
-                                          detail.open(row, source.snapshot(), foreground)
-                                        }
-                                      : undefined
+                                <article
+                                  className={
+                                    `session-card${isSelected ? ' selected' : ''}` +
+                                    ' hvir-row'
                                   }
-                                />
-                              </article>
+                                  role="listitem"
+                                  aria-current={isSelected ? 'true' : undefined}
+                                  aria-label={cardIdentity.accessibleName}
+                                  tabIndex={isSelected ? 0 : -1}
+                                  ref={(element) => {
+                                    if (element)
+                                      rowElements.current.set(row.handle, element)
+                                    else rowElements.current.delete(row.handle)
+                                  }}
+                                  onFocus={() => setSelected(row.handle)}
+                                  onClick={() => setSelected(row.handle)}
+                                  onKeyDown={(event) => {
+                                    if (
+                                      event.key === 'Enter' &&
+                                      event.target === event.currentTarget
+                                    ) {
+                                      event.preventDefault()
+                                      if (liveTerminal) void open(row)
+                                      return
+                                    }
+                                    moveFocus(event, row)
+                                  }}
+                                >
+                                  <SessionsOverviewCard
+                                    row={row}
+                                    group={policy.group}
+                                    opening={opening === row.handle}
+                                    onOpen={
+                                      liveTerminal ? () => void open(row) : undefined
+                                    }
+                                    onInteract={
+                                      liveTerminal
+                                        ? () => {
+                                            detailOrigin.current =
+                                              sessionsTerminalOverlayOrigin(
+                                                rowElements.current.get(row.handle),
+                                              )
+                                            detail.open(
+                                              row,
+                                              source.snapshot(),
+                                              foreground,
+                                            )
+                                          }
+                                        : undefined
+                                    }
+                                  />
+                                </article>
+                              </SessionRenameTarget>
                             )
                           })}
                         </div>

@@ -35,13 +35,15 @@ export function useTerminalPersistence({
   useEffect(() => {
     if (!ready) return
     const current = modelRef.current
-    const sessions = settledTerminalSessions(current.sessions).map((session, position) => ({
-      id: session.id,
-      title: session.title,
-      position,
-      active: session.id === current.activeId,
-      attention: session.attention,
-    }))
+    const sessions = settledTerminalSessions(current.sessions).map(
+      (session, position) => ({
+        id: session.id,
+        title: session.title,
+        position,
+        active: session.id === current.activeId,
+        attention: session.attention,
+      }),
+    )
     void window.hvir
       .invoke('terminal:update-layout', { root, sessions })
       .catch(() => undefined)

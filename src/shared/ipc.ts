@@ -79,6 +79,8 @@ export {
   type StartPtyRequest,
   type StartPtyResponse,
   type TerminalIdentityStatus,
+  type RenameTerminalRequest,
+  type TerminalNameChanged,
   type TerminalRecoverySession,
   type TerminalLayoutEntry,
   type TerminalRecoveryRequest,

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 
 import {
+  terminalTitle,
+  terminalTitleTooltip,
   basenameHostPath,
   type HarnessProfile,
   type HarnessProfileId,
@@ -142,7 +144,7 @@ export function TerminalRecoveryDialog({
               <div key={session.id} className="terminal-recovery-option">
                 <input
                   type="checkbox"
-                  aria-label={`Restore ${session.title}`}
+                  aria-label={`Restore ${terminalTitle(session.title, session.customName)}`}
                   disabled={
                     submitting || !provider || !profile || probeLaunchUnavailable(probe)
                   }
@@ -159,7 +161,9 @@ export function TerminalRecoveryDialog({
                   className="hvir-input hvir-control"
                 />
                 <span>
-                  <strong>{session.title}</strong>
+                  <strong title={terminalTitleTooltip(session.title, session.customName)}>
+                    {terminalTitle(session.title, session.customName)}
+                  </strong>
                   <small>
                     {profile?.displayName ??
                       (defaultRebindProfile
@@ -184,7 +188,7 @@ export function TerminalRecoveryDialog({
                   {provider && !profile && sameProviderProfiles.length > 0 ? (
                     <span className="terminal-recovery-rebind">
                       <select
-                        aria-label={`Rebind ${session.title} profile`}
+                        aria-label={`Rebind ${terminalTitle(session.title, session.customName)} profile`}
                         disabled={submitting}
                         value={selectedRebindId}
                         onChange={(event) => {

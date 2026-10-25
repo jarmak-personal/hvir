@@ -32,6 +32,23 @@ afterEach(() => {
 })
 
 describe('compact terminal rail', () => {
+  it('keeps the custom name and state visible in compact hover text alongside the automatic title', () => {
+    renderRail({
+      compact: true,
+      sessions: [
+        {
+          ...session('named', 'idle'),
+          title: 'Automatic title',
+          customName: 'Named work',
+        },
+      ],
+      activeId: 'named',
+    })
+    const marker = markerButtons()[0]!
+    expect(marker.getAttribute('aria-label')).toBe('Named work, Ready, active terminal')
+    expect(marker.title).toBe('Named work, Ready, active terminal · Automatic title')
+  })
+
   it('shows a labelled bell icon in the expanded rail and keeps Ready and Working text', () => {
     renderRail({
       sessions: [

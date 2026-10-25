@@ -8,6 +8,7 @@ import {
   type HarnessTelemetry,
   type HostPath,
   type TerminalIdentityStatus,
+  type TerminalName,
 } from '../../../shared'
 import type { TerminalAttention } from './terminal-attention'
 
@@ -19,7 +20,7 @@ export interface TerminalForkRequest {
   readonly parentHarnessSessionId: string
 }
 
-export interface TerminalSession {
+export interface TerminalSession extends TerminalName {
   readonly commandTicket?: string
   readonly commandWorkspaceId?: string
   readonly id: string
@@ -192,6 +193,8 @@ export function createTerminalForkSession(
     ...source,
     id,
     title: source.fallbackTitle,
+    customName: undefined,
+    nameRevision: undefined,
     status: 'Forking conversation…',
     attention: undefined,
     telemetry: undefined,
