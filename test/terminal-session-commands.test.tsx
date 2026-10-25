@@ -64,6 +64,34 @@ afterEach(() => {
 })
 
 describe('terminal session commands', () => {
+  it('resets the name and revision when Start fresh replaces a retained terminal id', () => {
+    renderHarness({ fork: true })
+    act(() => {
+      for (const listener of nameListeners)
+        listener({
+          id: 'source',
+          root: localPath('/repo'),
+          customName: 'Old name',
+          nameRevision: 4,
+        })
+    })
+    expect(text('names')).toBe('Old name')
+    act(() => button('accept-fresh').click())
+    expect(text('ids')).toBe('fresh')
+    expect(text('names')).not.toBe('Old name')
+    expect(text('name-revisions')).toBe('0')
+    act(() => {
+      for (const listener of nameListeners)
+        listener({
+          id: 'fresh',
+          root: localPath('/repo'),
+          customName: 'Fresh name',
+          nameRevision: 1,
+        })
+    })
+    expect(text('names')).toBe('Fresh name')
+  })
+
   it('reconciles only newer names for an exact existing session/root and releases its subscription', () => {
     renderHarness({ fork: true })
     const automatic = text('names')
@@ -279,6 +307,9 @@ function CommandsHarness({
           .map((session) => terminalTitle(session.title, session.customName))
           .join(',')}
       </span>
+      <span data-testid="name-revisions">
+        {model.sessions.map((session) => session.nameRevision ?? 0).join(',')}
+      </span>
       <span data-testid="profiles">
         {model.sessions.map(({ profileId }) => profileId).join(',')}
       </span>
@@ -313,6 +344,19 @@ function CommandsHarness({
         onClick={() => commands.add(chosen.id)}
       />
       <button type="button" data-testid="split" onClick={commands.split} />
+      <button
+        type="button"
+        data-testid="accept-fresh"
+        onClick={() => {
+          if (source)
+            commands.acceptFreshStart(source.id, {
+              sessionId: 'fresh',
+              status: 'New session',
+              identityStatus: 'none',
+              capabilities: source.capabilities,
+            })
+        }}
+      />
       <button
         type="button"
         data-testid="fork-source-twice"

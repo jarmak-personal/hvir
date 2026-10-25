@@ -65,6 +65,7 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
         nameRevision: renamed.nameRevision,
       }
       deps.emit('terminal:name-changed', changed)
+      assertCurrent()
       return changed
     }),
   )

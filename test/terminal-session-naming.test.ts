@@ -114,30 +114,22 @@ it('keeps pending names invisible and rolls back disk failures without losing ne
   expect(restored.position).toBe(2)
 })
 
-it('rejects late completion after renderer revocation and forget without resurrecting a target', async () => {
+it('keeps a write committed after dispatch and never resurrects a forgotten target', async () => {
   const f = await terminalNamingFixture()
-  let resolveWrite!: () => void
-  f.writeFile.mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        resolveWrite = resolve
-      }),
-  )
+  const write = f.writeFile.getMockImplementation()!
   let current = true
-  const rename = f.registry.rename(f.spawn.id, f.root, 0, 'Late', () => {
-    if (!current) throw new Error('Renderer revoked')
+  f.writeFile.mockImplementationOnce((file, data) => {
+    current = false
+    return write(file, data)
   })
-  const rejected = expect(rename).rejects.toThrow('revoked')
-  await Promise.resolve()
-  await Promise.resolve()
-  current = false
-  resolveWrite()
-  await rejected
-  expect((await f.reload()).get(f.spawn.id)?.customName).toBeUndefined()
+  await f.registry.rename(f.spawn.id, f.root, 0, 'Committed', () => {
+    if (!current) throw new Error('Revoked')
+  })
+  expect((await f.reload()).get(f.spawn.id)?.customName).toBe('Committed')
   const renameAgain = f.registry.rename(
     f.spawn.id,
     f.root,
-    0,
+    1,
     'Forgotten',
     () => undefined,
   )
@@ -146,6 +138,33 @@ it('rejects late completion after renderer revocation and forget without resurre
   await forgotten
   expect((await f.reload()).get(f.spawn.id)).toBeUndefined()
 })
+
+it('surfaces both storage failures instead of claiming that a failed rollback succeeded', async () => {
+  const f = await terminalNamingFixture()
+  f.writeFile
+    .mockRejectedValueOnce(new Error('Initial write failed'))
+    .mockRejectedValueOnce(new Error('Rollback failed'))
+  await expect(
+    f.registry.rename(f.spawn.id, f.root, 0, 'Unsaved', () => undefined),
+  ).rejects.toThrow('could not be saved or restored')
+  expect(f.registry.get(f.spawn.id)?.customName).toBeUndefined()
+})
+
+it.each(['fork', 'fresh'])(
+  'new %s records start unnamed and accept a first rename at revision zero',
+  async (kind) => {
+    const f = await terminalNamingFixture()
+    await f.registry.rename(f.spawn.id, f.root, 0, 'Source name', () => undefined)
+    const spawn = { ...f.spawn, id: 'new-terminal' }
+    if (kind === 'fresh')
+      await f.registry.recordReplacement({ replacedId: f.spawn.id, spawn })
+    else await f.registry.recordSpawn(spawn)
+    expect(f.registry.get(spawn.id)?.customName).toBeUndefined()
+    expect(f.registry.get(spawn.id)?.nameRevision).toBeUndefined()
+    await f.registry.rename(spawn.id, f.root, 0, 'New name', () => undefined)
+    expect((await f.reload()).get(spawn.id)?.customName).toBe('New name')
+  },
+)
 
 it('does not return an uncommitted name through a concurrent move response', async () => {
   const f = await terminalNamingFixture()
@@ -164,10 +183,9 @@ it('does not return an uncommitted name through a concurrent move response', asy
     () => undefined,
   )
   const rejected = expect(renaming).rejects.toThrow('Disk full')
+  await vi.waitFor(() => expect(f.writeFile).toHaveBeenCalledTimes(2))
   const targetRoot = localPath('/project/branch')
   const moving = f.registry.move({ id: f.spawn.id, sourceRoot: f.root, targetRoot })
-  await Promise.resolve()
-  await Promise.resolve()
   rejectWrite(new Error('Disk full'))
   await rejected
   expect((await moving).customName).toBeUndefined()

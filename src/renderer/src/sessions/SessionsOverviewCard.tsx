@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 
-import type { SessionsProjectionRow } from '../../../shared'
+import { terminalTitleTooltip, type SessionsProjectionRow } from '../../../shared'
 import { ProviderContextMeter } from '../harness/ProviderContextMeter'
 import { CompactionMarkers } from '../harness/CompactionMarkers'
 import {
@@ -30,7 +30,9 @@ export function SessionsOverviewCard({
       <header>
         <div className="session-card-identity">
           <span className={`session-kind ${row.provider.kind}`}>{identity.label}</span>
-          <h3 title={row.customName ? row.automaticTitle : undefined}>
+          <h3
+            title={terminalTitleTooltip(row.automaticTitle ?? row.title, row.customName)}
+          >
             {identity.title}
           </h3>
         </div>

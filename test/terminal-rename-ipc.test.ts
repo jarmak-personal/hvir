@@ -133,20 +133,57 @@ it('rejects malformed names, invalid IDs, stale naming decisions, and missing ta
   expect(f.registry.get(f.spawn.id)?.customName).toBeUndefined()
 })
 
-it('returns failure on persistence errors and on revocation or workspace replacement during a write', async () => {
-  for (const failure of ['disk', 'renderer', 'workspace']) {
+it('reports a failed write without publishing a successful rename', async () => {
+  const f = await fixture()
+  f.writeFile.mockRejectedValueOnce(new Error('Disk unavailable'))
+  expect(await f.rename()).toMatchObject({ ok: false })
+  expect(f.emit).not.toHaveBeenCalled()
+  expect((await f.reload()).get(f.spawn.id)?.customName).toBeUndefined()
+})
+
+it.each(['renderer', 'workspace'])(
+  'rejects a late reply after %s revocation while keeping the committed name consistent',
+  async (failure) => {
     const f = await fixture()
-    f.writeFile.mockImplementationOnce(() => {
-      if (failure === 'disk') throw new Error('Disk unavailable')
-      if (failure === 'renderer') f.revoke()
-      if (failure === 'workspace') f.unregister()
-      return Promise.resolve()
-    })
+    const write = f.writeFile.getMockImplementation()!
+    f.writeFile
+      .mockImplementationOnce((file, data) => {
+        if (failure === 'renderer') f.revoke()
+        else f.unregister()
+        return write(file, data)
+      })
+      .mockRejectedValueOnce(new Error('An undo write must never be attempted'))
     expect(await f.rename()).toMatchObject({ ok: false })
-    expect(f.emit).not.toHaveBeenCalled()
-    expect(f.registry.get(f.spawn.id)?.customName).toBeUndefined()
-    expect((await f.reload()).get(f.spawn.id)?.customName).toBeUndefined()
-  }
+    expect(f.writeFile).toHaveBeenCalledTimes(2) // spawn + the one committed rename
+    expect(f.emit).toHaveBeenCalledWith(
+      'terminal:name-changed',
+      expect.objectContaining({ customName: 'My work' }),
+    )
+    expect(f.registry.get(f.spawn.id)?.customName).toBe('My work')
+    expect((await f.reload()).get(f.spawn.id)?.customName).toBe('My work')
+  },
+)
+
+it('rejects authority revoked while the rename is queued before disk dispatch', async () => {
+  const f = await fixture()
+  let release!: () => void
+  f.writeFile.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve
+      }),
+  )
+  const layout = f.registry.updateLayout(f.root, [
+    { id: f.spawn.id, title: 'Automatic', position: 0, active: false },
+  ])
+  await vi.waitFor(() => expect(f.writeFile).toHaveBeenCalledTimes(2))
+  const renaming = f.rename()
+  f.revoke()
+  release()
+  await layout
+  expect(await renaming).toMatchObject({ ok: false })
+  expect(f.emit).not.toHaveBeenCalled()
+  expect((await f.reload()).get(f.spawn.id)?.customName).toBeUndefined()
 })
 
 it.each([false, true])(

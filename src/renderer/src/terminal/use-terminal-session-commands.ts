@@ -273,6 +273,8 @@ export function useTerminalSessionCommands({
         session: {
           ...session,
           id: started.sessionId,
+          customName: undefined,
+          nameRevision: undefined,
           status: started.status,
           telemetry: undefined,
           attention: undefined,

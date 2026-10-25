@@ -193,6 +193,8 @@ export function createTerminalForkSession(
     ...source,
     id,
     title: source.fallbackTitle,
+    customName: undefined,
+    nameRevision: undefined,
     status: 'Forking conversation…',
     attention: undefined,
     telemetry: undefined,
