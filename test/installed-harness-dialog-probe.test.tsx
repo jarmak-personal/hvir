@@ -54,48 +54,37 @@ function installCompleteHarnessFlow(
     const addHarness = document.createElement('button')
     addHarness.type = 'button'
     addHarness.textContent = 'Add a harness…'
-    addHarness.addEventListener('click', () => appendPendingDialog(onDirectDialog))
+    addHarness.addEventListener('click', openHarnessSettings)
     menu.append(addHarness)
     document.body.append(menu)
   })
 
-  const openSettings = document.createElement('button')
-  openSettings.type = 'button'
-  openSettings.setAttribute('aria-label', 'Open settings')
-  openSettings.addEventListener('click', () => {
+  function openHarnessSettings(): void {
     const settings = document.createElement('div')
     settings.className = 'settings-dialog'
     let shellDraft = false
 
-    const index = document.createElement('div')
-    index.className = 'settings-section-index'
-    const harnesses = document.createElement('button')
-    harnesses.type = 'button'
-    harnesses.textContent = 'Harnesses'
-    harnesses.addEventListener('click', () => {
-      const actions = document.createElement('div')
-      actions.className = 'settings-harness-actions'
-      const addHarness = document.createElement('button')
-      addHarness.type = 'button'
-      addHarness.textContent = 'Add a harness…'
-      configureSettingsAdd(addHarness)
-      addHarness.addEventListener('click', () =>
-        appendPendingDialog(onSettingsDialog, () => {
-          shellDraft = true
-          const grid = document.createElement('div')
-          grid.className = 'settings-profile-grid'
-          const label = document.createElement('label')
-          const name = document.createElement('input')
-          name.value = 'Additional shell'
-          label.append(name)
-          grid.append(label)
-          settings.append(grid)
-        }),
-      )
-      actions.append(addHarness)
-      settings.append(actions)
-    })
-    index.append(harnesses)
+    const actions = document.createElement('div')
+    actions.className = 'settings-harness-actions'
+    const addHarness = document.createElement('button')
+    addHarness.type = 'button'
+    addHarness.textContent = 'Add a harness…'
+    configureSettingsAdd(addHarness)
+    addHarness.addEventListener('click', () =>
+      appendPendingDialog(onSettingsDialog, () => {
+        shellDraft = true
+        const grid = document.createElement('div')
+        grid.className = 'settings-profile-grid'
+        const label = document.createElement('label')
+        const name = document.createElement('input')
+        name.value = 'Additional shell'
+        label.append(name)
+        grid.append(label)
+        settings.append(grid)
+      }),
+    )
+    actions.append(addHarness)
+    settings.append(actions)
 
     const close = document.createElement('button')
     close.type = 'button'
@@ -117,10 +106,10 @@ function installCompleteHarnessFlow(
       unsaved.append(discard)
       document.body.append(unsaved)
     })
-    settings.append(index, close)
+    settings.append(close)
     document.body.append(settings)
-  })
-  document.body.append(openSettings)
+    appendPendingDialog(onDirectDialog)
+  }
 }
 
 describe('installed harness dialog exercise', () => {
