@@ -136,19 +136,7 @@ export async function runInstalledHarnessDialogExercise(): Promise<string> {
   )
   await closeAddDialog(directDialog)
 
-  const openSettings = await waitFor(
-    () => document.querySelector('button[aria-label="Open settings"]') ?? undefined,
-    'Settings action missing',
-  )
-  openSettings.click()
-  const harnesses = await waitFor(
-    () =>
-      [...document.querySelectorAll('.settings-section-index button')].find(
-        (button) => button.textContent?.trim() === 'Harnesses',
-      ),
-    'Harnesses settings section missing',
-  )
-  harnesses.click()
+  // Cancelling the direct entry leaves Settings open on Harnesses.
   await activateWhenReady(
     () =>
       [...document.querySelectorAll('.settings-harness-actions button')].find(
