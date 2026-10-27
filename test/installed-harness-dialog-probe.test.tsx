@@ -46,6 +46,7 @@ function installCompleteHarnessFlow(
   addTerminal: HTMLButtonElement,
   onDirectDialog: () => void,
   onSettingsDialog: () => void,
+  configureSettingsAdd: (button: HTMLButtonElement) => void = () => {},
 ): void {
   addTerminal.addEventListener('click', () => {
     const menu = document.createElement('div')
@@ -53,47 +54,37 @@ function installCompleteHarnessFlow(
     const addHarness = document.createElement('button')
     addHarness.type = 'button'
     addHarness.textContent = 'Add a harness…'
-    addHarness.addEventListener('click', () => appendPendingDialog(onDirectDialog))
+    addHarness.addEventListener('click', openHarnessSettings)
     menu.append(addHarness)
     document.body.append(menu)
   })
 
-  const openSettings = document.createElement('button')
-  openSettings.type = 'button'
-  openSettings.setAttribute('aria-label', 'Open settings')
-  openSettings.addEventListener('click', () => {
+  function openHarnessSettings(): void {
     const settings = document.createElement('div')
     settings.className = 'settings-dialog'
     let shellDraft = false
 
-    const index = document.createElement('div')
-    index.className = 'settings-section-index'
-    const harnesses = document.createElement('button')
-    harnesses.type = 'button'
-    harnesses.textContent = 'Harnesses'
-    harnesses.addEventListener('click', () => {
-      const actions = document.createElement('div')
-      actions.className = 'settings-harness-actions'
-      const addHarness = document.createElement('button')
-      addHarness.type = 'button'
-      addHarness.textContent = 'Add a harness…'
-      addHarness.addEventListener('click', () =>
-        appendPendingDialog(onSettingsDialog, () => {
-          shellDraft = true
-          const grid = document.createElement('div')
-          grid.className = 'settings-profile-grid'
-          const label = document.createElement('label')
-          const name = document.createElement('input')
-          name.value = 'Additional shell'
-          label.append(name)
-          grid.append(label)
-          settings.append(grid)
-        }),
-      )
-      actions.append(addHarness)
-      settings.append(actions)
-    })
-    index.append(harnesses)
+    const actions = document.createElement('div')
+    actions.className = 'settings-harness-actions'
+    const addHarness = document.createElement('button')
+    addHarness.type = 'button'
+    addHarness.textContent = 'Add a harness…'
+    configureSettingsAdd(addHarness)
+    addHarness.addEventListener('click', () =>
+      appendPendingDialog(onSettingsDialog, () => {
+        shellDraft = true
+        const grid = document.createElement('div')
+        grid.className = 'settings-profile-grid'
+        const label = document.createElement('label')
+        const name = document.createElement('input')
+        name.value = 'Additional shell'
+        label.append(name)
+        grid.append(label)
+        settings.append(grid)
+      }),
+    )
+    actions.append(addHarness)
+    settings.append(actions)
 
     const close = document.createElement('button')
     close.type = 'button'
@@ -115,13 +106,66 @@ function installCompleteHarnessFlow(
       unsaved.append(discard)
       document.body.append(unsaved)
     })
-    settings.append(index, close)
+    settings.append(close)
     document.body.append(settings)
-  })
-  document.body.append(openSettings)
+    appendPendingDialog(onDirectDialog)
+  }
 }
 
 describe('installed harness dialog exercise', () => {
+  it('waits for Settings Add a harness to become enabled before opening its dialog', async () => {
+    vi.useFakeTimers()
+    const directDialogs = vi.fn()
+    const settingsDialogs = vi.fn()
+    let settingsAdd: HTMLButtonElement | undefined
+    installCompleteHarnessFlow(
+      newTerminalButton(false),
+      directDialogs,
+      settingsDialogs,
+      (button) => {
+        button.disabled = true
+        settingsAdd = button
+      },
+    )
+
+    const exercise = runInstalledHarnessDialogExercise()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(directDialogs).toHaveBeenCalledTimes(1)
+    expect(settingsAdd?.disabled).toBe(true)
+    expect(settingsDialogs).not.toHaveBeenCalled()
+
+    settingsAdd!.disabled = false
+    await vi.advanceTimersByTimeAsync(25)
+
+    await expect(exercise).resolves.toBe(
+      'both add-harness entries painted while Claude probe was pending; direct shell draft retained the dirty guard',
+    )
+    expect(settingsDialogs).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('.settings-dialog')).toBeNull()
+  })
+
+  it('reports Settings Add a harness that remains disabled without opening its dialog', async () => {
+    vi.useFakeTimers()
+    const settingsDialogs = vi.fn()
+    installCompleteHarnessFlow(
+      newTerminalButton(false),
+      vi.fn(),
+      settingsDialogs,
+      (button) => {
+        button.disabled = true
+      },
+    )
+
+    const exercise = runInstalledHarnessDialogExercise()
+    const failure = expect(exercise).rejects.toThrow(
+      'Settings add-harness action remained disabled',
+    )
+    await vi.advanceTimersByTimeAsync(8_000)
+
+    await failure
+    expect(settingsDialogs).not.toHaveBeenCalled()
+  })
+
   it('distinguishes a missing New terminal control', async () => {
     vi.useFakeTimers()
 
