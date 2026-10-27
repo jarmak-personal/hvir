@@ -46,6 +46,7 @@ function installCompleteHarnessFlow(
   addTerminal: HTMLButtonElement,
   onDirectDialog: () => void,
   onSettingsDialog: () => void,
+  configureSettingsAdd: (button: HTMLButtonElement) => void = () => {},
 ): void {
   addTerminal.addEventListener('click', () => {
     const menu = document.createElement('div')
@@ -77,6 +78,7 @@ function installCompleteHarnessFlow(
       const addHarness = document.createElement('button')
       addHarness.type = 'button'
       addHarness.textContent = 'Add a harness…'
+      configureSettingsAdd(addHarness)
       addHarness.addEventListener('click', () =>
         appendPendingDialog(onSettingsDialog, () => {
           shellDraft = true
@@ -122,6 +124,59 @@ function installCompleteHarnessFlow(
 }
 
 describe('installed harness dialog exercise', () => {
+  it('waits for Settings Add a harness to become enabled before opening its dialog', async () => {
+    vi.useFakeTimers()
+    const directDialogs = vi.fn()
+    const settingsDialogs = vi.fn()
+    let settingsAdd: HTMLButtonElement | undefined
+    installCompleteHarnessFlow(
+      newTerminalButton(false),
+      directDialogs,
+      settingsDialogs,
+      (button) => {
+        button.disabled = true
+        settingsAdd = button
+      },
+    )
+
+    const exercise = runInstalledHarnessDialogExercise()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(directDialogs).toHaveBeenCalledTimes(1)
+    expect(settingsAdd?.disabled).toBe(true)
+    expect(settingsDialogs).not.toHaveBeenCalled()
+
+    settingsAdd!.disabled = false
+    await vi.advanceTimersByTimeAsync(25)
+
+    await expect(exercise).resolves.toBe(
+      'both add-harness entries painted while Claude probe was pending; direct shell draft retained the dirty guard',
+    )
+    expect(settingsDialogs).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('.settings-dialog')).toBeNull()
+  })
+
+  it('reports Settings Add a harness that remains disabled without opening its dialog', async () => {
+    vi.useFakeTimers()
+    const settingsDialogs = vi.fn()
+    installCompleteHarnessFlow(
+      newTerminalButton(false),
+      vi.fn(),
+      settingsDialogs,
+      (button) => {
+        button.disabled = true
+      },
+    )
+
+    const exercise = runInstalledHarnessDialogExercise()
+    const failure = expect(exercise).rejects.toThrow(
+      'Settings add-harness action remained disabled',
+    )
+    await vi.advanceTimersByTimeAsync(8_000)
+
+    await failure
+    expect(settingsDialogs).not.toHaveBeenCalled()
+  })
+
   it('distinguishes a missing New terminal control', async () => {
     vi.useFakeTimers()
 

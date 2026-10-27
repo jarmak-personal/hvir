@@ -149,14 +149,14 @@ export async function runInstalledHarnessDialogExercise(): Promise<string> {
     'Harnesses settings section missing',
   )
   harnesses.click()
-  const settingsAdd = await waitFor(
+  await activateWhenReady(
     () =>
       [...document.querySelectorAll('.settings-harness-actions button')].find(
         (button) => button.textContent?.trim() === 'Add a harness…',
-      ),
+      ) ?? null,
     'Settings add-harness action missing',
+    'Settings add-harness action remained disabled',
   )
-  settingsAdd.click()
   const settingsDialog = await waitFor(
     pendingDialog,
     'Settings add-harness entry did not paint while the real provider probe was pending',
@@ -168,14 +168,11 @@ export async function runInstalledHarnessDialogExercise(): Promise<string> {
     throw new Error('Direct add-shell action missing')
   }
   addShell.click()
-  await waitFor(
-    () => {
-      if (document.querySelector('.add-harness-dialog')) return undefined
-      const name = document.querySelector('.settings-profile-grid label:first-child input')
-      return name?.value === 'Additional shell' ? true : undefined
-    },
-    'Direct add-shell action did not open the existing manual shell draft',
-  )
+  await waitFor(() => {
+    if (document.querySelector('.add-harness-dialog')) return undefined
+    const name = document.querySelector('.settings-profile-grid label:first-child input')
+    return name?.value === 'Additional shell' ? true : undefined
+  }, 'Direct add-shell action did not open the existing manual shell draft')
 
   const closeSettings = [...document.querySelectorAll('.settings-dialog button')].find(
     (button) => button.textContent?.trim() === 'Close settings',
