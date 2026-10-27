@@ -364,6 +364,11 @@ describe('native release automation', () => {
       const acceptanceIndex = steps.findIndex(
         (step) => step.name === 'Install, update, launch, and remove native package',
       )
+      const dependencyIndex = steps.findIndex(
+        (step) => step.run === 'npm ci --ignore-scripts',
+      )
+      expect(dependencyIndex).toBeGreaterThan(0)
+      expect(verifyIndex).toBeGreaterThan(dependencyIndex)
       expect(downloadIndex).toBeGreaterThan(-1)
       expect(verifyIndex).toBeGreaterThan(downloadIndex)
       expect(acceptanceIndex).toBeGreaterThan(verifyIndex)
@@ -373,6 +378,8 @@ describe('native release automation', () => {
       )
       const commands = steps.map((step) => step.run ?? '').join('\n')
       expect(commands).not.toContain('pack:linux')
+      expect(commands).not.toMatch(/\bnpm run (?:build|install:runtime)\b/)
+      expect(commands).not.toMatch(/\b(?:electron-rebuild|node-gyp)\b/)
       expect(commands).not.toContain('git rev-parse HEAD')
     }
     const debianCommands = (debian?.steps ?? []).map((step) => step.run ?? '').join('\n')
