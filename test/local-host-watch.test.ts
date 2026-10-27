@@ -1,8 +1,7 @@
 import { once } from 'node:events'
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
 import chokidar, { type FSWatcher } from 'chokidar'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -45,24 +44,21 @@ it('preserves atomic saves after native watch capacity forces polling', async ()
     native.emit('error', Object.assign(new Error('Watch capacity'), { code: 'ENOSPC' }))
     await pollingReady
     expect(native.closed).toBe(true)
+    expect(polling!.options.atomic).toBe(true)
 
-    // Wait for the polling backend to observe the missing file before replacing it.
-    const observedRemoval = new Promise<void>((resolve) => {
-      polling!.on('raw', (_event, path) => {
-        if (path === file.path) resolve()
-      })
-    })
-    await rm(file.path)
-    await observedRemoval
-    // Model a save's brief missing-file interval within the 100 ms atomic window.
-    await delay(20)
-    await writeFile(file.path, 'after')
+    // A real atomic save has no scheduling-dependent missing-file interval.
+    // Directory reconciliation may retire a file poll before it emits `raw`,
+    // so observe the public change instead of waiting for that backend detail.
+    const replacement = join(directory, 'replacement.md')
+    await writeFile(replacement, 'after')
+    await rename(replacement, file.path)
     await vi.waitFor(() => {
       expect(events).toContainEqual({ type: 'change', path: file })
     })
-    for (const event of events.filter((event) => event.path.path === file.path)) {
-      expect(event).toEqual({ type: 'change', path: file })
-    }
+    // Both add and change refresh an open document; an unlink would wrongly
+    // mark its review deleted. Inode replacement can also produce an add.
+    expect(events).not.toContainEqual({ type: 'unlink', path: file })
+    expect(await readFile(file.path, 'utf8')).toBe('after')
 
     // Real deletion must still reach consumers after the coalescing window.
     await rm(file.path)

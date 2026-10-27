@@ -126,12 +126,12 @@ it('the actual packager identity resolver cannot silently bypass forced signing 
   const { MacPackager } = require('app-builder-lib/out/macPackager') as {
     MacPackager: {
       prototype: {
-        sign(app: string, out: string, config: unknown, arch: number): Promise<boolean>
+        sign(app: string, config: unknown, arch: number): Promise<boolean>
       }
     }
   }
   expect(
-    await MacPackager.prototype.sign.call(packager, '/unbuilt.app', '/output', config, 3),
+    await MacPackager.prototype.sign.call(packager, '/unbuilt.app', config, 3),
   ).toBe(false)
   const prepare = require('../build/native/prepare-agent-clients.cjs') as (context: {
     packager: unknown

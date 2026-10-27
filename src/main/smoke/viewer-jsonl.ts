@@ -21,7 +21,13 @@ export async function verifyJsonLines(
     )
     await win.webContents.executeJavaScript(`
       new Promise((resolve, reject) => {
-        const deadline = setTimeout(() => { stopped = true; reject(new Error('JSONL smoke timed out at stage ' + stage)); }, 20000);
+        const deadline = setTimeout(() => {
+          stopped = true;
+          reject(new Error('JSONL smoke timed out: ' + JSON.stringify({
+            stage, mode: activeMode(), firstLine: firstLine(),
+            records: records().length, sourceLine: sourceLine(),
+          })));
+        }, 20000);
         let stage = 'open';
         let frameCount = 0;
         let stopped = false;
@@ -32,6 +38,16 @@ export async function verifyJsonLines(
         const activeMode = () => document.querySelector('.mode-control button.active')?.textContent?.trim();
         const records = () => [...document.querySelectorAll('.jsonl-record')];
         const firstLine = () => Number(records()[0]?.dataset.sourceLine);
+        const sourceLine = () => {
+          const root = document.querySelector('.cm-scroller');
+          if (!root) return null;
+          const top = root.getBoundingClientRect().top + 1;
+          const marker = [...root.querySelectorAll('.cm-lineNumbers .cm-gutterElement')]
+            .filter(node => /^[0-9]+$/.test(node.textContent?.trim() || ''))
+            .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)
+            .find(node => node.getBoundingClientRect().bottom > top);
+          return marker ? Number(marker.textContent.trim()) : null;
+        };
         const next = () => {
           if (stopped) return;
           try {
@@ -56,7 +72,7 @@ export async function verifyJsonLines(
             } else if (stage === 'page' && firstLine() === 101) {
               if (records().length !== 100 || records().at(-1)?.dataset.sourceLine !== '200') throw new Error('JSONL page accumulated nodes');
               mode('source').click(); stage = 'source';
-            } else if (stage === 'source' && activeMode() === 'source' && document.querySelector('.cm-editor')) {
+            } else if (stage === 'source' && activeMode() === 'source' && sourceLine() === 101) {
               mode('rendered').click(); stage = 'restored';
             } else if (stage === 'restored' && firstLine() === 101) {
               mode('diff').click(); stage = 'diff';
