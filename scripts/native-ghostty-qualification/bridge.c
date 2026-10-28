@@ -97,7 +97,6 @@ static void present(void *source, uint32_t width, uint32_t height) {
   void *pool = objc_autoreleasePoolPush();
   if (!slot->surface || !slot->texture || slot->width != width || slot->height != height) {
     clear_slot(slot);
-    slot->state = 1;
     CFMutableDictionaryRef properties = CFDictionaryCreateMutable(NULL, 0,
       &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     number(properties, kIOSurfaceWidth, width);

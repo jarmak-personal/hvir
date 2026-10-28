@@ -166,9 +166,12 @@ ipcMain.on('qualification:ready', () => {
       )
       sent++
     } catch (error) {
-      record({ event: 'transfer-error', error: String(error) })
-      process.exitCode = 1
-      void finish()
+      // Destroying the receiver during normal shutdown may reject an in-flight send.
+      if (!closing) {
+        record({ event: 'transfer-error', error: String(error) })
+        process.exitCode = 1
+        void finish()
+      }
     } finally {
       imported.release()
       transferring = false

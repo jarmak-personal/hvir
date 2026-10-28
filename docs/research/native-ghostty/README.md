@@ -21,7 +21,7 @@ Keep the epic open. Agree the next work boundaries after reviewing these finding
 | Browser baseline | hvir's installed `ghostty-web` artifact `hvir-v0.4.0-20`, fork `18fc0d2bddb0c788ef5f1c58464603bd20d1c391` |
 | Host | macOS 15.7.3, build 24G419; Apple M2, 8 GPU cores, Metal 3 |
 | Display | Built-in Retina, 2560×1664 physical; Electron reported 1470×956 logical, scale 2, 60.0024 Hz |
-| Native target | 960×600 logical at scale 2, 1920×1200 BGRA pixels; temporary resize to 1600×1000 pixels |
+| Native target | 960×600 logical at scale 2, 1920×1200 BGRA pixels; temporary resize requested at 1600×1000 pixels |
 | Native Ghostty GUI reference | Not installed on this machine; no native GUI timing comparison was performed |
 | Linux / SSH | No Linux GPU/display environment or configured disposable SSH test target used; source assessment only |
 
@@ -66,7 +66,7 @@ the retained run's corrected scale and post-render GPU-status sample.
 | Completed native textures | 563 imports sent, 563 released, zero still held at teardown | The macOS import/receiver/release path ran through actual presentation and shutdown. |
 | GPU status after drawing | `2d_canvas`, `gpu_compositing`, and `rasterization` enabled | Hardware-accelerated browser paths were available during the successful run. An early startup sample reports disabled values before GPU initialization and is not the result. |
 | Saturated consumer | Hold three consecutive VideoFrames for 150 ms each; seven producer frames dropped, then output resumes | A finite export pool can contain delayed consumption without reusing held textures or accumulating a frame queue. This is not exhaustive fence validation. |
-| Resize | Native target resized down and back while the renderer remained live | This simple dimension transition works with the leased pool. Multi-display scale changes and resize storms are unqualified. |
+| Resize request / PTY grid | Native resize requested down and back; native grid and external `stty size` both reported 29×99 during the smaller request | Grid/PTY resize forwarding was observed. Taken/drawn frame dimensions were not logged across the early resize, so resized-frame presentation, stale-size rejection, and resize-generation safety remain unmeasured. |
 | Hide / show | Window hidden for one second, then shown; terminal resumes presentation | This short visibility transition works. The prototype continues producer work while hidden; production needs a separate presentation policy. |
 | Export copy | Last periodic sample: mean 0.710 ms, maximum 1.530 ms | Cost from export reservation through GPU copy completion on this M2, including allocation/encoding overhead. It excludes Ghostty's preceding render and Electron presentation. |
 | Local PTY | Native DSR response, `native-input\r`, and `stty size` result `29 99`; child exit 0 | Manual output feeding, actual native-generated replies/input, and explicit resize forwarding can compose with an externally owned local PTY. |
@@ -115,8 +115,12 @@ transfer, not JSON integers. This study does not select either production proces
 
 ## Patch inventory and Linux risk
 
-The retained Ghostty patch changes seven upstream files. This is an exact description of the
-experiment, not an estimate of the final migration patch set:
+The retained `ghostty.patch.txt` is the exact upstream reproduction patch artifact authorized
+by #1091, applied only to the pinned external Ghostty archive. It is not a repository home for
+new native source or a source-policy exemption. The separately retained `bridge.c` is maintained
+C source counted under the ordinary existing policy. No language/disposition rule is changed.
+The patch changes seven upstream files. This describes the experiment, not an estimate of the
+final migration patch set:
 
 | Actual upstream change | Purpose / likely disposition |
 | --- | --- |
