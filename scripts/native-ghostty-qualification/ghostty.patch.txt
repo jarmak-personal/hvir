@@ -1,0 +1,85 @@
+--- a/build.zig
++++ b/build.zig
+@@ -225,0 +226 @@
++        lib_shared.install("libghostty.dylib");
+--- a/src/build/GhosttyLib.zig
++++ b/src/build/GhosttyLib.zig
+@@ -111,0 +112 @@
++    lib.root_module.linkFramework("Metal", .{});
+--- a/src/build/SharedDeps.zig
++++ b/src/build/SharedDeps.zig
+@@ -503,2 +503,2 @@
+-        const metallib = self.metallib.?;
+-        metallib.output.addStepDependencies(&step.step);
++        _ = self.metallib;
++        // Qualification only: compile the unchanged MSL at runtime.
+@@ -506 +506 @@
+-            .root_source_file = metallib.output,
++            .root_source_file = b.path("src/renderer/shaders/shaders.metal"),
+--- a/src/renderer/metal/shaders.zig
++++ b/src/renderer/metal/shaders.zig
+@@ -339,4 +339,2 @@
+-    const data = try macos.dispatch.Data.create(
+-        @embedFile("ghostty_metallib"),
+-        macos.dispatch.queue.getMain(),
+-        macos.dispatch.Data.DESTRUCTOR_DEFAULT,
++    const source = try macos.foundation.String.createWithBytes(
++        @embedFile("ghostty_metallib"), .utf8, false,
+@@ -344,2 +342 @@
+-    defer data.release();
+-
++    defer source.release();
+@@ -347,8 +344,3 @@
+-    const library = device.msgSend(
+-        objc.Object,
+-        objc.sel("newLibraryWithData:error:"),
+-        .{
+-            data,
+-            &err,
+-        },
+-    );
++    const library = device.msgSend(objc.Object,
++        objc.sel("newLibraryWithSource:options:error:"),
++        .{ source, @as(?*anyopaque, null), &err });
+--- a/src/renderer/Metal.zig
++++ b/src/renderer/Metal.zig
+@@ -238,5 +238,3 @@
+-    if (sync) {
+-        self.layer.setSurfaceSync(target.surface);
+-    } else {
+-        try self.layer.setSurface(target.surface);
+-    }
++    _ = self;
++    _ = sync;
++    if (qualification_present) |callback| callback(target.surface, @intCast(target.width), @intCast(target.height));
+@@ -387,0 +386,7 @@
++
++// Experimental single-surface hook. Called only after Ghostty's GPU work completes.
++const QualificationPresent = *const fn (?*anyopaque, u32, u32) callconv(.c) void;
++var qualification_present: ?QualificationPresent = null;
++export fn hvir_qualification_set_present(callback: ?QualificationPresent) void {
++    qualification_present = callback;
++}
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1983,0 +1984,5 @@
++    // Qualification-only manual input; the exec backend remains alive but idle.
++    export fn hvir_qualification_feed(surface: *Surface, data: [*]const u8, len: usize) void {
++        surface.core_surface.io.processOutput(data[0..len]);
++    }
++
+--- a/src/termio/backend.zig
++++ b/src/termio/backend.zig
+@@ -82,0 +83,4 @@
++        if (qualification_write) |callback| {
++            callback(data.ptr, data.len);
++            return;
++        }
+@@ -129,0 +134,7 @@
++
++// Qualification only: intercept writes before the idle exec backend.
++const QualificationWrite = *const fn ([*]const u8, usize) callconv(.c) void;
++var qualification_write: ?QualificationWrite = null;
++export fn hvir_qualification_set_write(callback: ?QualificationWrite) void {
++    qualification_write = callback;
++}

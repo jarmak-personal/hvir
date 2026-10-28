@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe-inline'"
+    />
+    <title>Disposable ghostty-web comparison</title>
+    <style>
+      body {
+        margin: 12px;
+        background: #222;
+        color: #ddd;
+        font: 14px system-ui;
+      }
+      #terminal {
+        width: 960px;
+        height: 600px;
+      }
+    </style>
+    <script src="../../node_modules/ghostty-web/dist/ghostty-web.umd.cjs"></script>
+    <script type="module" src="./web.mjs"></script>
+  </head>
+  <body>
+    <p>
+      Installed ghostty-web artifact. Synthetic baseline outside hvir's full workbench.
+    </p>
+    <div id="terminal"></div>
+  </body>
+</html>
