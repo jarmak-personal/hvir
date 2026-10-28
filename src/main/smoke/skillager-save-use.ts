@@ -6,6 +6,7 @@ import {
   skillagerManagementControls,
   type SkillagerManagementControls,
 } from './skillager-management-controls'
+import { smokeScriptValue } from './script-value'
 
 /** Real installed CLI and isolated guest controls; all fixture/library writes stay owned. */
 export async function verifyOwnedSaveUse(
@@ -381,7 +382,7 @@ export async function verifyOwnedSaveUse(
   ) {
     const control = mode === 'stub' ? 'exposure-stub' : 'exposure-full'
     await ui.ready(
-      `(() => {const context=document.getElementById('exposure-context'),button=document.getElementById(${JSON.stringify(control)});return !!context&&!!button&&context.checkVisibility()&&!button.hidden&&!button.disabled})()`,
+      `(() => {const context=document.getElementById('exposure-context'),button=document.getElementById(${smokeScriptValue(control)});return !!context&&!!button&&context.checkVisibility()&&!button.hidden&&!button.disabled})()`,
       'original copy choice',
     )
     await ui.click(control)
@@ -404,7 +405,7 @@ export async function verifyOwnedSaveUse(
   ) {
     try {
       await ui.ready(
-        `(() => {try{return JSON.parse(document.getElementById('import-result').textContent).outcome===${JSON.stringify(expected)}}catch{return false}})()`,
+        `(() => {try{return JSON.parse(document.getElementById('import-result').textContent).outcome===${smokeScriptValue(expected)}}catch{return false}})()`,
         `Save and use ${expected} result`,
       )
     } catch (error) {
