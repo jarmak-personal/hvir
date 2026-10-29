@@ -4,28 +4,49 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src 'unsafe-inline'"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe-inline'"
     />
-    <title>Disposable native Ghostty qualification</title>
+    <title>Disposable Ghostty comparison</title>
     <style>
       body {
-        margin: 12px;
+        margin: 14px;
         background: #222;
         color: #ddd;
         font: 14px system-ui;
       }
-      canvas {
-        width: 960px;
-        height: 600px;
-        background: #111;
+      button {
+        padding: 5px 12px;
+        margin-right: 8px;
+      }
+      #surface {
+        margin-top: 12px;
+        width: fit-content;
+        max-width: 100%;
+        outline: 1px solid #555;
+      }
+      #native {
+        display: block;
+      }
+      #status {
+        white-space: pre-wrap;
+        margin-top: 10px;
       }
     </style>
+    <script src="../../node_modules/ghostty-web/dist/ghostty-web.umd.cjs"></script>
+    <script type="module" src="./workbench.mjs"></script>
   </head>
   <body>
+    <h3 id="title">Loading qualification…</h3>
     <p>
-      Experimental native Ghostty GPU frames. Synthetic output only; typing echoes
-      locally.
+      Replay-only synthetic terminal output; no interactive shell or hvir session is
+      attached.
     </p>
-    <canvas width="960" height="600"></canvas>
+    <div id="controls" hidden>
+      <button id="top">Top</button><button id="bottom">Bottom</button>
+      <button id="output">Start output</button><button id="resize">Toggle width</button>
+      <span>Wheel/trackpad over terminal · PageUp/PageDown · Home/End</span>
+    </div>
+    <div id="surface"><canvas id="native"></canvas></div>
+    <div id="status"></div>
   </body>
 </html>

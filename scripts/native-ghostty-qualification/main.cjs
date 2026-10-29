@@ -1,223 +1,223 @@
-/* global performance, process, __dirname, console, setInterval, clearInterval, setTimeout, Buffer */
-// Explicitly invoked experiment; this is not an hvir application entry point.
+/* global process, __dirname, console, performance, setInterval, clearInterval, clearTimeout, setTimeout, Buffer */
+// Explicit experiment entry point, shared by the native and installed-web comparisons.
 const { app, BrowserWindow, ipcMain, sharedTexture, screen } = require('electron')
 const { join } = require('node:path')
-const { writeFileSync } = require('node:fs')
-const bridge = require(process.env.HVIR_QUALIFICATION_BRIDGE)
-const pty = require('node-pty')
-
-let window
-let timer
-let closing = false
-let external
-let sent = 0
-let released = 0
-let transferring = false
-const started = performance.now()
-const observations = []
-const lifetime = new Set()
-
-function record(event) {
-  const item = { atMs: Math.round(performance.now() - started), ...event }
-  observations.push(item)
-  console.log(JSON.stringify(item))
+const { writeFileSync, mkdtempSync, rmSync } = require('node:fs')
+const { tmpdir } = require('node:os')
+const engine = process.env.HVIR_QUALIFICATION_ENGINE || 'native'
+const interactive = process.env.HVIR_QUALIFICATION_INTERACTIVE === '1'
+if (!['native', 'web'].includes(engine)) throw new Error('Expected native or web engine')
+const bridge =
+  engine === 'native' ? require(process.env.HVIR_QUALIFICATION_BRIDGE) : undefined
+const scratch = mkdtempSync(join(tmpdir(), 'hvir-qualification-window-'))
+app.setPath('userData', join(scratch, 'user-data'))
+const configPath = join(scratch, 'ghostty-config')
+writeFileSync(
+  configPath,
+  'font-family = Menlo\nfont-size = 14\nadjust-cell-width = 1\nadjust-cell-height = -3\nwindow-padding-x = 0\nwindow-padding-y = 0\ncursor-style-blink = false\nshell-integration = none\nscrollback-limit = 10000000\n',
+)
+let window, timer, watchdog
+let closing = false,
+  transferring = false,
+  initialized = false
+let sent = 0,
+  released = 0
+let lastFrame
+const leases = new Set()
+const result = { engine, interactive, phases: [], observations: [] }
+function observe(data) {
+  result.observations.push(data)
+  console.log(JSON.stringify(data))
 }
-
 async function finish() {
   if (closing) return
   closing = true
   clearInterval(timer)
-  external?.kill()
-  external = undefined
+  clearTimeout(watchdog)
   window?.destroy()
   const deadline = performance.now() + 5000
-  while (lifetime.size && performance.now() < deadline)
+  while (leases.size && performance.now() < deadline)
     await new Promise((resolve) => setTimeout(resolve, 20))
-  record({ event: 'cleanup', sent, released, held: lifetime.size })
-  if (!sent || lifetime.size) process.exitCode = 1
+  const cleanup = { event: 'cleanup', sent, released, held: leases.size }
+  if ((bridge && !sent) || leases.size) process.exitCode = 1
   try {
-    bridge.stop()
+    if (initialized) bridge?.stop()
   } catch (error) {
-    record({ event: 'cleanup-error', error: String(error) })
+    cleanup.error = String(error)
     process.exitCode = 1
   }
+  observe(cleanup)
+  result.exitCode = process.exitCode || 0
   if (process.env.HVIR_QUALIFICATION_LOG)
     writeFileSync(
       process.env.HVIR_QUALIFICATION_LOG,
-      JSON.stringify(observations, null, 2),
+      JSON.stringify(result, null, 2) + '\n',
     )
   app.quit()
 }
-
-app.on('window-all-closed', () => void finish())
-app.on('before-quit', () => clearInterval(timer))
-process.on('SIGINT', () => void finish())
-process.on('SIGTERM', () => void finish())
-for (const failure of ['uncaughtException', 'unhandledRejection'])
-  process.on(failure, (error) => {
-    record({ event: 'failure', error: String(error) })
-    process.exitCode = 1
-    void finish()
-  })
-setTimeout(() => {
-  if (!timer && !closing) {
-    record({ event: 'failure', error: 'Receiver did not become ready within 20 seconds' })
-    process.exitCode = 1
-    void finish()
-  }
-}, 20000)
-ipcMain.on('qualification:observation', (_event, data) => record(data))
-ipcMain.on('qualification:key', (_event, text) => {
-  if (!closing && typeof text === 'string' && text.length < 64)
-    bridge.input(Buffer.from(text))
-})
-ipcMain.on('qualification:ready', () => {
-  bridge.start()
-  bridge.feed(
-    Buffer.from('\x1b[2J\x1b[HNative Ghostty 1.4 → Metal → IOSurface → Electron\r\n'),
-  )
-  const initialSize = bridge.size()
-  record({ event: 'native-size', ...initialSize })
-  external = pty.spawn(
-    '/bin/sh',
-    [
-      '-c',
-      'stty -echo; printf "\\033[6n"; IFS= read -r reply; printf "RECEIVED:%s\\r\\n" "$reply"; stty size',
-    ],
-    {
-      name: 'xterm-256color',
-      cols: initialSize.cols,
-      rows: initialSize.rows,
-      cwd: '/tmp',
-      env: { PATH: '/usr/bin:/bin', TERM: 'xterm-256color' },
+async function pump() {
+  if (closing || !initialized) return
+  bridge.tick()
+  if (transferring) return
+  const frame = bridge.take()
+  if (frame.copyErrors) throw new Error('Native export copy failed')
+  if (!frame.ioSurface) return
+  transferring = true
+  const token = `${frame.slot}:${frame.serial}`
+  leases.add(token)
+  const imported = sharedTexture.importSharedTexture({
+    textureInfo: {
+      handle: { ioSurface: frame.ioSurface },
+      codedSize: { width: frame.width, height: frame.height },
+      pixelFormat: 'bgra',
     },
+    allReferencesReleased() {
+      bridge.release(frame.slot, frame.serial)
+      leases.delete(token)
+      released++
+    },
+  })
+  const metadata = {
+    serial: frame.serial,
+    width: frame.width,
+    height: frame.height,
+    copyMeanMs: frame.copyMeanMs,
+    copyMaxMs: frame.copyMaxMs,
+    dropped: frame.dropped,
+  }
+  try {
+    await sharedTexture.sendSharedTexture(
+      { frame: window.webContents.mainFrame, importedSharedTexture: imported },
+      metadata,
+    )
+    sent++
+  } catch (error) {
+    if (!closing) throw error
+  } finally {
+    imported.release()
+    transferring = false
+  }
+}
+function resize(cols, rows) {
+  if (
+    !Number.isInteger(cols) ||
+    !Number.isInteger(rows) ||
+    cols < 20 ||
+    cols > 180 ||
+    rows < 10 ||
+    rows > 60
   )
-  external.onData((data) => {
-    record({ event: 'local-pty-output', data })
-    bridge.feed(Buffer.from(data))
-  })
-  external.onExit((exit) => {
-    record({ event: 'local-pty-exit', ...exit })
-    external = undefined
-  })
-  setTimeout(() => {
-    if (closing || !external) return
-    bridge.resize(1600, 1000)
-    const size = bridge.size()
-    external.resize(size.cols, size.rows)
-    record({ event: 'local-pty-resize', ...size })
-    bridge.input(Buffer.from('native-input\r'))
-  }, 250)
-  setTimeout(() => {
-    if (!closing) bridge.resize(1920, 1200)
-  }, 500)
-  const workloadStart = performance.now()
-  let lines = 0
-  timer = setInterval(async () => {
-    if (closing) return
-    bridge.tick()
-    const reply = bridge.drain()
-    if (reply.length) {
-      record({ event: 'native-output', data: reply.toString() })
-      external?.write(reply.toString())
-    }
-    const elapsed = performance.now() - workloadStart
-    if (elapsed > 750 && elapsed < 10000) {
-      const output = Array.from(
-        { length: 10 },
-        () =>
-          `\x1b[38;5;${16 + (lines++ % 216)}m${String(lines).padStart(6)} Ghostty native qualification αβ 🚀\x1b[0m\r\n`,
-      ).join('')
-      bridge.feed(Buffer.from(output))
-    }
-    if (transferring) return
-    const frame = bridge.take()
-    if (frame.copyErrors) throw new Error(`GPU copies failed: ${frame.copyErrors}`)
-    if (!frame.ioSurface) return
-    transferring = true
-    const token = `${frame.slot}:${frame.serial}`
-    lifetime.add(token)
-    const imported = sharedTexture.importSharedTexture({
-      textureInfo: {
-        handle: { ioSurface: frame.ioSurface },
-        codedSize: { width: frame.width, height: frame.height },
-        pixelFormat: 'bgra',
-        timestamp: Math.round(performance.now() * 1000),
-      },
-      allReferencesReleased() {
-        bridge.release(frame.slot, frame.serial)
-        lifetime.delete(token)
-        released++
-      },
-    })
-    try {
-      await sharedTexture.sendSharedTexture(
-        {
-          frame: window.webContents.mainFrame,
-          importedSharedTexture: imported,
-        },
-        {
-          serial: frame.serial,
-          produced: frame.produced,
-          dropped: frame.dropped,
-          copyMeanMs: frame.copyMeanMs,
-          copyMaxMs: frame.copyMaxMs,
-        },
-      )
-      sent++
-    } catch (error) {
-      // Destroying the receiver during normal shutdown may reject an in-flight send.
-      if (!closing) {
-        record({ event: 'transfer-error', error: String(error) })
-        process.exitCode = 1
-        void finish()
+    throw new Error('Grid outside experiment bounds')
+  const metrics = bridge.size()
+  bridge.resize(cols * metrics.cellWidth, rows * metrics.cellHeight)
+  const actual = bridge.size()
+  if (actual.cols !== cols || actual.rows !== rows)
+    throw new Error('Native grid did not match request')
+  return actual
+}
+ipcMain.handle('qualification:call', async (_event, op, args = []) => {
+  if (closing && op !== 'finish') throw new Error('Experiment is closing')
+  switch (op) {
+    case 'initialize': {
+      if (bridge) {
+        bridge.start(configPath)
+        initialized = true
+        const geometry = resize(100, 30)
+        result.geometry = geometry
+        timer = setInterval(() => void pump().catch(fail), 4)
       }
-    } finally {
-      imported.release()
-      transferring = false
+      return {
+        engine,
+        interactive,
+        interactiveProbe: process.env.HVIR_QUALIFICATION_INTERACTIVE_PROBE === '1',
+        cols: 100,
+        rows: 30,
+        font: 'Menlo',
+        fontSize: 14,
+        scale: screen.getPrimaryDisplay().scaleFactor,
+        geometry: result.geometry,
+      }
     }
-  }, 8)
-  setTimeout(async () => {
-    if (closing) return
-    const image = await window.webContents.capturePage()
-    const path = process.env.HVIR_QUALIFICATION_SCREENSHOT
-    if (path) writeFileSync(path, image.toPNG())
-    record({
-      event: 'capture',
-      size: image.getSize(),
-      sent,
-      released,
-      gpu: app.getGPUFeatureStatus(),
-    })
-  }, 3500)
-  setTimeout(() => {
-    if (!closing) {
-      window.hide()
-      record({ event: 'hidden' })
+    case 'feed': {
+      if (typeof args[0] !== 'string' || Buffer.byteLength(args[0]) > 2 * 1024 * 1024)
+        throw new Error('Output outside experiment bound')
+      return bridge.feed(Buffer.from(args[0]))
     }
-  }, 6500)
-  setTimeout(() => {
-    if (!closing) {
-      window.show()
-      record({ event: 'shown' })
+    case 'snapshot':
+      return bridge.snapshot(Boolean(args[0]))
+    case 'scroll':
+      bridge.scroll(args[0], args[1])
+      return null
+    case 'binding':
+      return bridge.binding(args[0])
+    case 'resize':
+      return resize(args[0], args[1])
+    case 'record':
+      result.phases.push(args[0])
+      return null
+    case 'geometry':
+      result.geometry = args[0]
+      return null
+    case 'input-wheel': {
+      window.webContents.sendInputEvent({
+        type: 'mouseWheel',
+        x: 150,
+        y: 180,
+        deltaX: 0,
+        deltaY: args[0],
+        canScroll: true,
+      })
+      return null
     }
-  }, 7500)
-  setTimeout(() => void finish(), 13000)
+    case 'capture': {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      if (process.env.HVIR_QUALIFICATION_SCREENSHOT) {
+        const image = await window.webContents.capturePage()
+        const label = ['top', 'scrolled'].includes(args[0]) ? `.${args[0]}` : ''
+        writeFileSync(
+          process.env.HVIR_QUALIFICATION_SCREENSHOT + label + '.png',
+          image.toPNG(),
+        )
+      }
+      return { gpu: app.getGPUFeatureStatus(), lastFrame }
+    }
+    case 'finish':
+      await finish()
+      return null
+    case 'fail':
+      fail(new Error(args[0]))
+      return null
+    default:
+      throw new Error('Unknown experiment operation')
+  }
 })
-
+ipcMain.on('qualification:draw', (_event, metadata) => {
+  lastFrame = metadata
+})
+ipcMain.on('qualification:observe', (_event, data) => observe(data))
+function fail(error) {
+  observe({ event: 'failure', error: String(error) })
+  process.exitCode = 1
+  void finish()
+}
+for (const event of ['uncaughtException', 'unhandledRejection']) process.on(event, fail)
+for (const event of ['SIGINT', 'SIGTERM']) process.on(event, () => void finish())
+app.on('window-all-closed', () => void finish())
+app.on('will-quit', () => rmSync(scratch, { recursive: true, force: true }))
 app
   .whenReady()
   .then(async () => {
-    record({
-      event: 'environment',
+    result.environment = {
       electron: process.versions.electron,
       chromium: process.versions.chrome,
       display: screen.getPrimaryDisplay(),
-      gpu: app.getGPUFeatureStatus(),
-    })
+      platform: process.platform,
+      architecture: process.arch,
+    }
     window = new BrowserWindow({
-      width: 1000,
-      height: 680,
+      width: 1050,
+      height: 780,
+      title: `${engine} Ghostty qualification`,
       webPreferences: {
         preload: join(__dirname, 'preload.cjs'),
         sandbox: true,
@@ -231,9 +231,8 @@ app
         void finish()
       }
     })
+    if (!interactive)
+      watchdog = setTimeout(() => fail(new Error('Comparison deadline exceeded')), 90000)
     await window.loadFile(join(__dirname, 'window.html'))
   })
-  .catch((error) => {
-    record({ event: 'failure', error: String(error) })
-    void finish()
-  })
+  .catch(fail)
