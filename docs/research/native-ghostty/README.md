@@ -146,6 +146,13 @@ teardown. Browser runs dispose their terminal by destroying their isolated windo
 bounded-run cleanup evidence; crashes, long-lived stress, and production multi-session
 lifecycle remain separate work.
 
+The frozen six-process numerical schedule was collected with candidate
+`0d1a0048a83421d0b8a91da131b92d031b62c1c6`. Subsequent review corrections add configuration
+diagnostic/pixel-geometry guards, restrict native actions to the four scrolling bindings,
+and expose the existing interactive proof through an explicit CLI mode. They do not change
+the timed workload or API timing boundaries. Interactive proof artifacts were regenerated
+through the supported probe commands after those corrections.
+
 ## Reproduce the comparison
 
 ```sh
@@ -158,6 +165,20 @@ a failure makes the aggregate fail. Per-process JSON files and the aggregate `co
 are written there. The committed aggregate embeds all raw per-run values; its `artifact` names
 identify the separate files that reproduction also writes. Keep other desktop workloads,
 builds and tests quiet during collection. Do not use this exploratory run as a release budget.
+
+Reproduce the bounded interactive wheel proof and its screenshots separately:
+
+```sh
+node scripts/native-ghostty-qualification/run.mjs probe native \
+  /absolute/path/to/bridge.node /absolute/path/to/new/native-probe-results
+node scripts/native-ghostty-qualification/run.mjs probe web \
+  /absolute/path/to/new/web-probe-results
+```
+
+Each probe verifies complete seeded retention, sends real Electron wheel input, records
+`probe.json`, captures `viewport.top.png` and `viewport.scrolled.png`, then closes and cleans up.
+Use `demo` for the persistent hands-on window. Configuration diagnostics or unexpected pixel
+geometry fail explicitly rather than silently collecting an unmatched comparison.
 
 The current eight-file upstream patch is an issue-authorized reproduction artifact against
 pinned external source, not an alternate repository home for executable bridge source.

@@ -8,7 +8,7 @@ import { runSmokeLocked } from '../smoke-run-lock.mts'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(import.meta.url)
 const electron = require('electron')
-const [mode, target, extra] = process.argv.slice(2)
+const [mode, target, extra, fourth] = process.argv.slice(2)
 const main = join(root, 'scripts/native-ghostty-qualification/main.cjs')
 function bridge(path) {
   if (!path || !existsSync(resolve(path)))
@@ -24,9 +24,24 @@ async function run(engine, log) {
     throw new Error(`${engine} experiment failed; retain its output and log`)
 }
 async function mainRun() {
+  if (mode === 'probe' && ['native', 'web'].includes(target ?? '')) {
+    const requestedOutput = target === 'native' ? fourth : extra
+    if (!requestedOutput) throw new Error('Supply a new probe output directory')
+    const output = resolve(requestedOutput)
+    if (existsSync(output)) throw new Error('Probe output directory must be new')
+    if (target === 'native') process.env.HVIR_QUALIFICATION_BRIDGE = bridge(extra)
+    mkdirSync(output, { recursive: true })
+    process.env.HVIR_QUALIFICATION_INTERACTIVE = '1'
+    process.env.HVIR_QUALIFICATION_INTERACTIVE_PROBE = '1'
+    process.env.HVIR_QUALIFICATION_SCREENSHOT = join(output, 'viewport')
+    await run(target, join(output, 'probe.json'))
+    console.log(`Interactive wheel proof and screenshots: ${output}`)
+    return
+  }
   if (mode === 'demo' && ['native', 'web'].includes(target ?? '')) {
     process.env.HVIR_QUALIFICATION_INTERACTIVE = '1'
     delete process.env.HVIR_QUALIFICATION_INTERACTIVE_PROBE
+    delete process.env.HVIR_QUALIFICATION_SCREENSHOT
     if (target === 'native') process.env.HVIR_QUALIFICATION_BRIDGE = bridge(extra)
     console.log(
       `${target} replay-only demo: wheel/trackpad, PageUp/PageDown, Top/Bottom; close to clean up.`,
@@ -88,7 +103,7 @@ async function mainRun() {
     return
   }
   throw new Error(
-    'Usage: run.mjs demo native BRIDGE | demo web | compare BRIDGE NEW_OUTPUT_DIRECTORY',
+    'Usage: run.mjs demo native BRIDGE | demo web | probe native BRIDGE NEW_OUTPUT | probe web NEW_OUTPUT | compare BRIDGE NEW_OUTPUT',
   )
 }
 void mainRun().catch((error) => {

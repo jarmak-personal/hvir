@@ -182,6 +182,10 @@ static napi_value start(napi_env env, napi_callback_info info) {
     ghostty_config_load_file(config, path);
   }
   ghostty_config_finalize(config); // No personal configuration loaded.
+  if (ghostty_config_diagnostics_count(config) != 0) {
+    ghostty_config_free(config);
+    return fail(env, "Experiment configuration has diagnostics; refusing silent fallback");
+  }
   ghostty_runtime_config_s runtime = { .wakeup_cb = wakeup, .action_cb = action,
     .read_clipboard_cb = read_clipboard, .confirm_read_clipboard_cb = confirm_clipboard,
     .write_clipboard_cb = write_clipboard, .close_surface_cb = close_surface };

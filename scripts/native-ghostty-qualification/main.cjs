@@ -115,6 +115,15 @@ function resize(cols, rows) {
     throw new Error('Native grid did not match request')
   return actual
 }
+function requireMatchedGeometry(geometry) {
+  if (
+    geometry?.cols !== 100 ||
+    geometry?.rows !== 30 ||
+    geometry?.width !== 1800 ||
+    geometry?.height !== 900
+  )
+    throw new Error('Comparison requires a 100×30 grid with an 1800×900 pixel canvas')
+}
 ipcMain.handle('qualification:call', async (_event, op, args = []) => {
   if (closing && op !== 'finish') throw new Error('Experiment is closing')
   switch (op) {
@@ -123,6 +132,7 @@ ipcMain.handle('qualification:call', async (_event, op, args = []) => {
         bridge.start(configPath)
         initialized = true
         const geometry = resize(100, 30)
+        requireMatchedGeometry(geometry)
         result.geometry = geometry
         timer = setInterval(() => void pump().catch(fail), 4)
       }
@@ -149,6 +159,15 @@ ipcMain.handle('qualification:call', async (_event, op, args = []) => {
       bridge.scroll(args[0], args[1])
       return null
     case 'binding':
+      if (
+        ![
+          'scroll_to_top',
+          'scroll_to_bottom',
+          'scroll_page_up',
+          'scroll_page_down',
+        ].includes(args[0])
+      )
+        throw new Error('Only the four scrolling bindings are allowed')
       return bridge.binding(args[0])
     case 'resize':
       return resize(args[0], args[1])
@@ -156,6 +175,7 @@ ipcMain.handle('qualification:call', async (_event, op, args = []) => {
       result.phases.push(args[0])
       return null
     case 'geometry':
+      requireMatchedGeometry(args[0])
       result.geometry = args[0]
       return null
     case 'input-wheel': {
