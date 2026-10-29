@@ -1,253 +1,201 @@
-# Native Ghostty qualification
+# Native Ghostty: matched probes and interactive scrolling
 
-Qualification for [#1091](https://github.com/jarmak-personal/hvir/issues/1091), under
-[#1090](https://github.com/jarmak-personal/hvir/issues/1090). Recorded 2026-10-28.
-This report is evidence for a migration decision, not a selected production architecture.
+Continuation of [#1091](https://github.com/jarmak-personal/hvir/issues/1091), under
+[#1090](https://github.com/jarmak-personal/hvir/issues/1090). The [initial study](initial-study.md)
+proved native Metal/IOSurface delivery into sandboxed Electron. This continuation adds matched
+numerical workloads, exact text checks, and a persistent scrolling demo.
 
-**Recommendation: proceed conditionally with a small integration design and Linux presentation
-qualification.** Native Ghostty terminal pixels reached a sandboxed Electron window on macOS.
-The experiment substantially reduces uncertainty about the presentation bridge. It does not
-establish a fluidity improvement over current hvir, qualify Linux, or establish production parity.
-Keep the epic open. Agree the next work boundaries after reviewing these findings.
+**Recommendation remains proceed conditionally.** The native feed API is substantially faster
+in these small workloads, but scheduling observations are mixed. These results do not establish
+a GPU-caused speedup, improved physical presentation latency, or production readiness.
 
-## What ran
+## Run the demo
 
-| Input | Recorded value |
-| --- | --- |
-| hvir base | `54e3e43489808a51b0003590555ded846a548783` |
-| Ghostty | v1.4.0, `83fb95624b0439ee660c2679b43b38c8b63769cd`, plus [experiment patch](../../../scripts/native-ghostty-qualification/ghostty.patch.txt) |
-| Compiler | Zig 0.17.0 aarch64 macOS; Apple clang 17.0.0; Command Line Tools SDK |
-| Electron / Chromium | 43.8.1 / 150.0.7871.250, from hvir's locked installation |
-| Browser baseline | hvir's installed `ghostty-web` artifact `hvir-v0.4.0-20`, fork `18fc0d2bddb0c788ef5f1c58464603bd20d1c391` |
-| Host | macOS 15.7.3, build 24G419; Apple M2, 8 GPU cores, Metal 3 |
-| Display | Built-in Retina, 2560×1664 physical; Electron reported 1470×956 logical, scale 2, 60.0024 Hz |
-| Native target | 960×600 logical at scale 2, 1920×1200 BGRA pixels; temporary resize requested at 1600×1000 pixels |
-| Native Ghostty GUI reference | Not installed on this machine; no native GUI timing comparison was performed |
-| Linux / SSH | No Linux GPU/display environment or configured disposable SSH test target used; source assessment only |
+From this worktree, with locked dependencies installed:
 
-The native path was:
+```sh
+# Persistent native demo, using a bridge already compiled by build.sh:
+node scripts/native-ghostty-qualification/run.mjs demo native /absolute/path/to/bridge.node
 
-```text
-replayed bytes / disposable local PTY
-  → existing Ghostty Termio and terminal state
-  → existing font/shaping/Metal renderer
-  → completed Ghostty IOSurface
-  → Metal blit into one of three independently leased IOSurfaces
-  → Electron sharedTexture import and send
-  → sandboxed, context-isolated preload: VideoFrame → Canvas2D
-  → Chromium composition in a visible BrowserWindow
+# The same replay-only demo with the exact installed ghostty-web:
+node scripts/native-ghostty-qualification/run.mjs demo web
 ```
 
-There is no per-cell JavaScript rendering in this native path. No application pixel readback is
-used for frame transport. A diagnostic `capturePage()` readback produces the screenshot once;
-it is outside the presentation path and perturbs timing. The bridge deliberately waits for the
-export blit's GPU completion on Ghostty's completion thread before permitting source reuse.
-This is a GPU copy with a synchronization wait, not a claim of zero copies or zero stalls.
-Chromium's internal copy/readback behavior was not traced.
-Color accuracy is also unqualified: Ghostty's Metal target carries Display P3 semantics, while
-this export/import probe supplies no explicit color-space metadata. Production must settle
-color conversion, alpha/premultiplication, pixel orientation, and scale across both platforms.
-The screenshot proves content delivery, not theme/color fidelity.
+Both seed 3,000 synthetic agent/git/build/test lines and start with output paused. Wheel or
+trackpad-scroll over the terminal; use Top/Bottom, PageUp/PageDown, Home/End, width toggle, or
+start/pause output. There is no interactive shell or hvir session attached. The window stays
+open until closed; it no longer quits after 13 seconds. The shared desktop smoke lock remains
+held until close, so close the demo before running desktop acceptance checks.
 
-The window retains `sandbox: true`, `contextIsolation: true`, and `nodeIntegration: false`.
-The preload draws the received VideoFrame directly; it does not need to pass it through
-`contextBridge`. The dummy NSView required by the existing embedder is unattached, so this is
-texture composition rather than a native view overlaid on the workbench.
+Both use Menlo 14, 100×30 cells and a fixed 2× native scale. To match the browser canvas on the
+recorded host, native Ghostty uses explicit `adjust-cell-width = 1` and
+`adjust-cell-height = -3` physical-pixel overrides; web uses `smoothScrollDuration: 0`.
+These are experiment settings, not unmodified Ghostty or hvir defaults. The recorded canvases
+are both 1800×900 physical pixels. Monitor/DPI migration and complete terminal input/selection
+behavior are outside this demo.
 
-## Observed results
-
-[Native observations](native-observations.json) and [browser observations](web-observations.json)
-are retained compact logs. [The captured presentation](native-presentation.png) shows actual
-Ghostty-rendered colored text, Unicode, and emoji. Earlier exploratory runs were superseded by
-the retained run's corrected scale and post-render GPU-status sample.
-
-| Probe | Observation | What it establishes |
-| --- | --- | --- |
-| Completed native textures | 563 imports sent, 563 released, zero still held at teardown | The macOS import/receiver/release path ran through actual presentation and shutdown. |
-| GPU status after drawing | `2d_canvas`, `gpu_compositing`, and `rasterization` enabled | Hardware-accelerated browser paths were available during the successful run. An early startup sample reports disabled values before GPU initialization and is not the result. |
-| Saturated consumer | Hold three consecutive VideoFrames for 150 ms each; seven producer frames dropped, then output resumes | A finite export pool can contain delayed consumption without reusing held textures or accumulating a frame queue. This is not exhaustive fence validation. |
-| Resize request / PTY grid | Native resize requested down and back; native grid and external `stty size` both reported 29×99 during the smaller request | Grid/PTY resize forwarding was observed. Taken/drawn frame dimensions were not logged across the early resize, so resized-frame presentation, stale-size rejection, and resize-generation safety remain unmeasured. |
-| Hide / show | Window hidden for one second, then shown; terminal resumes presentation | This short visibility transition works. The prototype continues producer work while hidden; production needs a separate presentation policy. |
-| Export copy | Last periodic sample: mean 0.710 ms, maximum 1.530 ms | Cost from export reservation through GPU copy completion on this M2, including allocation/encoding overhead. It excludes Ghostty's preceding render and Electron presentation. |
-| Local PTY | Native DSR response, `native-input\r`, and `stty size` result `29 99`; child exit 0 | Manual output feeding, actual native-generated replies/input, and explicit resize forwarding can compose with an externally owned local PTY. |
-
-Both isolated renderers approached this display's 60 Hz ceiling during modest sustained output.
-For the installed ghostty-web baseline, 584 render notifications occurred during 10.003 seconds
-and 8,840 synthetic lines; synchronous `write()` calls totalled about 52.9 ms. The native run
-fed output on the same nominal 8 ms / ten-line cadence, with a shorter output phase to allow its
-transport probe and teardown. Neither a write return nor a render notification is a display
-presentation timestamp. Native draw notifications generally advance at about 60 per second.
-
-**No measurable fluidity win is established here.** These short single runs use different
-terminal geometry/default fonts, warmup, deliberate lease delays, hide/show, and a screenshot.
-The final native rerun also overlapped repository unit verification, so its timing is not controlled.
-Their largest gaps include startup, stress, and idle cursor work and cannot be compared as
-latency percentiles. The browser baseline uses the exact installed engine outside hvir's React,
-IPC, and terminal-runtime composition. Current hvir's local-platform smoke validates familiar
-terminal behavior separately; it does not provide a matched performance comparison. Native
-Ghostty GUI and high-refresh reference measurements remain missing. The promising result is
-that the native rendering mechanism works; improved feel remains a production acceptance gate.
-
-## Transport and process findings
-
-The external-transport probe is intentionally incomplete. Ghostty still starts one disposable
-`/bin/sleep 120` through its existing exec backend, in `/tmp`, and frees it with the surface.
-The experiment does not load personal Ghostty configuration. A separate `node-pty` `/bin/sh`
-process uses a fixed noninteractive test command and environment. Its output feeds
-`Termio.processOutput`; intercepted `Backend.queueWrite` bytes return through a bounded 64 KiB
-probe buffer to that external PTY. Overflow fails the experiment. The shell disables echo,
-requests a cursor report, receives that report plus native input, prints its resized geometry,
-and exits. The successful log records the round trip and exit. No user session is attached.
-
-The write interception bypasses the exec backend but leaves its lifecycle and resize mechanics
-present. It is not an external backend implementation: linefeed transformation, subprocess
-status, flow control, sustained byte transport, detach/replay semantics, and error propagation
-still need design. Production must never drop PTY bytes merely because presentation is slow.
-Manual feeding currently runs synchronously on Electron main in this tiny experiment; a real
-integration must dispatch bounded input to the native I/O owner off the main event loop.
-
-Loading a Node-API bridge into Electron main is enough to prove the mechanism, but native crashes
-would terminate the app. A dedicated native host improves crash containment at the cost of
-actual platform-handle transfer and more lifecycle work. Electron's `ioSurface` buffer contains
-a process-local IOSurfaceRef, not a serializable global handle; moving this design to another
-process needs a Mach-port transfer/lookup bridge. Linux file descriptors likewise require FD
-transfer, not JSON integers. This study does not select either production process model.
-
-## Patch inventory and Linux risk
-
-The retained `ghostty.patch.txt` is the exact upstream reproduction patch artifact authorized
-by #1091, applied only to the pinned external Ghostty archive. It is not a repository home for
-new native source or a source-policy exemption. The separately retained `bridge.c` is maintained
-C source counted under the ordinary existing policy. No language/disposition rule is changed.
-The patch changes seven upstream files. This describes the experiment, not an estimate of the
-final migration patch set:
-
-| Actual upstream change | Purpose / likely disposition |
-| --- | --- |
-| `build.zig`, `src/build/GhosttyLib.zig` | Install the Darwin shared-library artifact and link Metal explicitly. The first native link failed on six unresolved Metal symbols before that link was added. A private native target needs a maintained build path. |
-| `src/build/SharedDeps.zig`, `src/renderer/metal/shaders.zig` | Compile unchanged upstream MSL at runtime because this machine has no `xcrun metal`. Experimental toolchain accommodation; production may keep upstream offline compilation instead. |
-| `src/renderer/Metal.zig` | Replace layer presentation with a completed-surface callback. Reuse the upstream renderer, shaders, font path, and texture allocation. A production API would be per instance and include explicit lifetime/generation handling. |
-| `src/apprt/embedded.zig` | Expose the existing manual output API. Production needs a selected external transport seam, not this global experimental facade. |
-| `src/termio/backend.zig` | Intercept writes for the transport probe. Replace with a real external backend if that ownership model is chosen. |
-
-The small standalone C bridge is ordinary maintained source under
-the existing source budget. It is a disposable test adapter, not an application plugin or a
-proposed public API. The installed experimental dylib was approximately 18 MiB on this target;
-that is not a release payload-size or dependency-closure promise.
-
-Additional production work is **inferred**, not demonstrated: remove the dummy NSView dependence
-with explicit size/scale/runtime options; provide a per-session presentation and event facade;
-design consumer leases or fences through resize and renderer loss; replace idle exec ownership;
-bound stream/mailbox work; integrate actual keyboard/IME and hvir events; and package supported
-targets. Render-target retention alone is insufficient: upstream's three-frame swap chain releases
-a frame after Ghostty GPU completion, before Chromium is necessarily finished reading it.
-The experiment's extra GPU export pool is one demonstrated solution, with measured local cost.
-
-Linux remains the largest unqualified platform risk. Source-backed improvements in 1.4 include
-the renderer-owned EGL context, offscreen targets, DMA-BUF export, and a completed-frame queue.
-`opengl/Device.zig` can use an external display or the surfaceless Mesa default.
-`opengl/Frame.zig` calls `gl.finish()` before publishing an exported frame: do not assume an
-asynchronous zero-stall path. `OpenGL.zig` also has a CPU pixel fallback when DMA-BUF export fails;
-that fallback does not qualify the intended GPU path. The embedded platform API is still macOS/iOS,
-so Linux needs runtime/presentation/build integration beyond this macOS callback patch.
-
-No Linux build or DMA-BUF import was run. EGL/display selection, export modifiers and formats,
-FD lifetimes, browser import compatibility, NVIDIA/Mesa, Wayland/X11, and multi-GPU behavior remain
-open. GTK-free distribution is not established. The smaller renderer/runtime coupling is useful
-evidence, not a promise that all drivers or headless library builds now work.
-
-## Preserving the hvir experience
-
-Current owners are starting points: `TerminalPane`/Ghostty adapter; terminal runtime and
-presentation registry; PTY supervisor and `ProjectHost`; harness providers; and main clipboard,
-file/link, recovery, and renderer-authority owners. This experiment changes none of them.
-It introduces no production dependency direction, budget exception, or permanent API.
-
-| Behavior | Qualification / next integration obligation |
-| --- | --- |
-| Keyboard protocols, IME, mouse, selection, bracketed paste | Native mechanisms exist; only native text input was exercised. Browser/native event translation and composing text require targeted real interaction probes. Do not replace them with the experiment's simple key echo. |
-| Scrollback/search, semantic navigation, exact copy | Internal redesign required around native state. Current hvir occurrence/provenance identity must fail closed on overwrite/reflow/eviction. Coordinate snapshots or atomic native query/extract operations must preserve exact text; public VT location anchors alone are insufficient. |
-| Clipboard and image paste | Keep reads denied, bounded writes qualified by a current live authorized attachment, and replay inert. Native clipboard callbacks in this prototype always refuse/ignore; this is an unimplemented workflow, not a proposed user-visible removal. Retain explicit image-paste host targeting and cleanup. |
-| Links | Native recognition/OSC8 must produce user-activated typed events with the correct host/session. Printing a link grants no read; link text is never executed. Existing outside-project viewing and loopback policies remain product outcomes. |
-| Titles, attention, palette, semantic events | Native callbacks/internal handlers cover useful mechanisms, but hvir's raw event distinctions and authority need an explicit mapping. Do not blindly port every ghostty-web patch. |
-| Settings, splits, focus, Workspace/Sessions | Keep hvir's existing controls and familiar behavior. Native terminal lifetime must outlive DOM presentation attachment; reparenting, hidden state, and close must remain distinct. Native app window/split/config actions must not create a parallel user workflow. |
-| Launch/recovery and local/SSH | Preserve exact provider-owned recovery, host/session identity, and visible failure states. Input/paste/copy must target the intended current session. The local transport probe supports the approach, not full ProjectHost integration. SSH is untested here; coordinate with #1080/#1086 without implementing that feature. |
-
-No user-visible difference is proposed for adoption by this report. All missing prototype
-features remain required behavior or subjects for an explicit later decision. ADR-003's stable
-Linux API prerequisite and current interface/process/PTY assumptions are candidates for deliberate
-replacement, as the maintainer authorized. ADR-001/010/014/024/035/040 describe current constraints
-to account for; they do not forbid exploring a better internal design. Record durable changes
-when the production design is selected, not as experimental results in ADRs.
-
-## Proposed next work and acceptance method
-
-The next smallest useful boundaries are (1) real Linux GPU import plus a matched responsiveness
-comparison; (2) selected process/transport/presentation ownership and a pinned private embedding
-facade; then (3) focused behavior integration and distribution. These are recommendations only;
-no further issues were created. Retain the demonstrated upstream mechanism and risk evidence.
-Discard or rewrite this bridge, global callbacks, idle exec, fixed scale, and synthetic key handling.
-
-Before production adoption, agree a repeatable comparison against current hvir and native Ghostty
-on the same machine, display, fonts/grid, workload, and power settings. Include 60 Hz and available
-120/144 Hz displays, multiple visible terminals, inactive live sessions, and workbench navigation.
-Run warmed repeated samples for inertial scrolling, sustained output, input echo, and resize;
-separate normal runs from delayed consumer, hide/show, renderer-loss, and GPU-failure probes.
-Reuse hvir's capacity/presentation fixtures where useful rather than add a permanent benchmark
-framework to this study.
-
-Suggested adoption bar for maintainer agreement: a perceptible improvement supported by lower
-missed presentation deadlines or input-to-present latency in the currently problematic workloads,
-without a material regression elsewhere; no ordinary workbench task above 50 ms caused by terminal
-load; bounded memory/queues and successful resource release under stress; and no unaccepted
-workflow/authority regressions. Collect presented-frame timing or a high-speed camera/trace
-correlation for input-to-visible-pixel latency, p50/p95/p99 frame intervals, main/renderer long
-tasks, CPU/GPU utilization, and memory. Define numerical regression tolerances on controlled
-hardware before judging adoption. JS `requestAnimationFrame`, PTY echo, and this copy timer alone
-cannot establish those results. Missing Linux/driver evidence prevents a dual-platform readiness claim.
-
-## Reproduce and clean up
-
-Prerequisites: Apple Silicon macOS with Metal, a Ghostty clone containing the exact tag commit,
-Zig 0.17.0, clang/SDK, a directory containing Node's `node_api.h`, and `npm ci` in this hvir worktree.
-Use absolute tool/header paths. The build downloads Ghostty's pinned dependencies as needed,
-archives source into a fresh temporary directory, and never edits the supplied Ghostty clone.
+If needed, build the pinned native bridge first, using absolute paths:
 
 ```sh
 bash scripts/native-ghostty-qualification/build.sh \
   /absolute/path/to/ghostty /absolute/path/to/zig-0.17.0/zig /absolute/path/to/node/headers
-
-# Set this to the exact experiment directory printed by build.sh.
-qualification_work=/absolute/path/printed/by/build
-HVIR_QUALIFICATION_BRIDGE="$qualification_work/bridge.node" \
-HVIR_QUALIFICATION_LOG="$qualification_work/native.json" \
-HVIR_QUALIFICATION_SCREENSHOT="$qualification_work/native.png" \
-node scripts/smoke-run-lock.mts \
-  node_modules/electron/dist/Electron.app/Contents/MacOS/Electron \
-  scripts/native-ghostty-qualification/main.cjs
-
-HVIR_QUALIFICATION_LOG="$qualification_work/web.json" \
-node scripts/smoke-run-lock.mts \
-  node_modules/electron/dist/Electron.app/Contents/MacOS/Electron \
-  scripts/native-ghostty-qualification/web-main.cjs
 ```
 
-The shared contributor smoke lock serializes desktop use. The native run ends after about
-13 seconds, or window close/SIGINT/SIGTERM: stop timers, terminate an outstanding disposable PTY,
-destroy the receiver, wait up to five seconds for all texture references, free Ghostty and native
-resources, write observations, then quit. A timeout/cleanup error is a failed run, not a pass.
-The browser run disposes its terminal after ten seconds; its watchdog fails after 25 seconds.
-Unexpected native process death still relies on OS resource cleanup; crash isolation is future work.
-Keep the printed temporary directory while inspecting artifacts, then remove only that scratch
-directory through normal local cleanup. No worktree, installation, or personal terminal data is modified.
+The script prints its fresh temporary directory and `bridge.node` path. It reads the Ghostty
+clone, archives the exact v1.4.0 commit, applies the experiment patch, and builds in scratch.
+It does not install an engine into hvir or edit the supplied clone. Close cleanup destroys the
+receiver, waits for texture leases, frees native resources and the disposable idle process,
+and removes the runner's temporary config/user-data directory. Build scratch and result
+artifacts remain for inspection and can be removed explicitly afterward.
 
-Verification of the retained upstream patch applied it to a fresh archive and compared all seven
-resulting files byte-for-byte with the successfully built source. C compilation used `-Wall -Wextra`.
-Normal app startup, installation, packaging, and production source do not import these scripts.
-The experiment is invoked only through the commands above.
+## What was checked
 
-## Primary implementation references
+The common runner drives both engines with identical bytes, grid changes, workload order,
+warmup and settling phases. It reuses bounded concepts from
+`src/main/smoke/capacity-output-fixtures.ts`, `capacity-terminals.ts`, and `capacity-reflow.ts`;
+it does not run their full 12-terminal topology or the unchanged hvir gauntlet against native.
 
-- [Ghostty v1.4.0 source](https://github.com/ghostty-org/ghostty/tree/83fb95624b0439ee660c2679b43b38c8b63769cd): `include/ghostty.h`, `src/apprt/embedded.zig`, `src/Surface.zig`, `src/termio/Termio.zig`, `src/termio/backend.zig`, `src/renderer/generic.zig`, and Metal/OpenGL device/target/frame implementations. Public `libghostty-vt` alone does not provide this native renderer.
-- [Linux EGL/DMA-BUF renderer separation](https://github.com/ghostty-org/ghostty/commit/2f0b65346918047518e7b32f9bbfa1240c15b62e).
-- [Electron sharedTexture](https://www.electronjs.org/docs/latest/api/shared-texture), [handle semantics](https://www.electronjs.org/docs/latest/api/structures/shared-texture-handle), and [native design](https://github.com/electron/electron/blob/main/shell/common/api/shared_texture/README.md). These remain experimental APIs; this report binds its measured claims to Electron 43.8.1.
+| Probe | Fixed input / assertion |
+| --- | --- |
+| Plain / ANSI / synchronized bursts | 2,000 numbered lines each; exact retained plain text, including ANSI removal and synchronized-mode output. The synchronized mode opens and closes in the same burst; this does not prove held-frame suppression. |
+| Unicode retained and reflow | 400 numbered rows containing `界é🙂` repeated 24 times; exact complete retained text before and after 100→72→110→100 columns, preserving combining and wide characters. |
+| Scrollback and wheel | 500 colored rows; exact retained contents, earliest/latest viewport markers, positive wheel moves down, negative wheel restores the original viewport, and all retained text survives scrolling. |
+| Paced output | 100 batches of ten lines at a nominal 16 ms period; exact final retained text plus raw draw-notification intervals. |
+| Persistent demo | All 3,000 rows match expected text; real Electron wheel input moves the native viewport from row 0 to row 20. Reviewed [before](interactive-top.png) and [after](interactive-scrolled.png) screenshots show it. |
+
+There are ten exact text checks per measured process, plus scroll-direction/restoration checks.
+All 60 exact checks passed across six measured processes. SHA-256 inputs/expected/observed
+values and raw timing arrays are embedded in [comparison.json](comparison.json). The
+[interactive native proof](interactive-native.json) independently verifies 3,000 retained rows,
+first/last markers, actual Electron wheel input, and release of all eight exported textures.
+The [web interactive proof](interactive-web.json) exercises the equivalent demo.
+
+Normalization removes terminal padding at line ends and empty trailing screen rows only;
+fixtures contain no intentional trailing whitespace. Exact text checks do not prove ANSI color,
+selection identity, or all reflow/provenance semantics. Text readback and hashing occur outside
+the timing intervals. Raw fixture bytes are generated from the retained workload source; logs
+contain numerical samples and hashes rather than arbitrary terminal transcripts.
+
+## Numerical observations
+
+Recorded host: Apple M2 with 8 GPU cores, macOS 15.7.3 (24G419), built-in Retina display at
+60.0024 Hz and scale 2; Electron 43.8.1 / Chromium 150.0.7871.250. Native uses Ghostty v1.4.0
+`83fb95624b0439ee660c2679b43b38c8b63769cd`, Zig 0.17.0 ReleaseFast and the experiment patch.
+Web uses the exact installed `hvir-v0.4.0-20` artifact (`18fc0d2bddb0c788ef5f1c58464603bd20d1c391`),
+whose Ghostty core is the earlier 1.3.1 revision `332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28`.
+This is a candidate-versus-incumbent comparison, not an isolated rendering-backend experiment.
+
+Three fresh processes per engine ran sequentially in counterbalanced order: native/web,
+web/native, native/web. No repository builds or tests ran concurrently. Each process performs
+two 300-line warmup rounds before measured phases. This is exploratory local evidence from
+three repeats, not a controlled-machine performance gate or a statistical latency guarantee.
+
+The table shows median milliseconds across three repeats:
+
+| Burst | UTF-8 bytes | Native API service | Web API service | Native caller round trip | Web caller round trip | Native next draw scheduling ack | Web next draw scheduling ack |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Plain | 82,000 | 0.268 | 1.9 | 0.6 | 1.9 | 14.3 | 12.6 |
+| ANSI | 98,000 | 0.405 | 2.5 | 0.6 | 2.5 | 13.3 | 12.1 |
+| Synchronized | 96,016 | 0.258 | 1.5 | 0.5 | 1.5 | 13.3 | 12.8 |
+| Unicode | 102,800 | 1.042 | 6.6 | 1.8 | 6.6 | 26.2 | 26.7 |
+
+Timing meanings matter:
+
+- **Native API service** times `Termio.processOutput` inside the C bridge, including its lock
+  and render-queue work, excluding IPC, UTF-8 buffer creation, GPU render/copy and presentation.
+  **Web API service** times the installed synchronous `Terminal.write`, including WASM parsing
+  and surrounding JavaScript terminal maintenance. It excludes subsequent Canvas rendering.
+- **Caller round trip** is measured in the common renderer around the awaited write. Native
+  includes IPC and main-process buffer creation; web calls its local API directly.
+- **Next draw scheduling ack** starts after the write returns and ends after a subsequent
+  renderer draw notification and rAF scheduling acknowledgment. A prior pending frame may
+  satisfy this observation; no output-generation/content tag proves causal completion of the
+  specific burst. It is not visible-pixel latency or a presentation fence.
+- Native service uses a monotonic nanosecond clock; browser timers have coarser resolution.
+  Small differences and three-sample percentiles must not be treated as precision guarantees.
+
+Native service medians are roughly six to seven times faster here. The native core version,
+ReleaseFast native build, WASM build, and different API responsibilities confound that result.
+**It is not evidence that GPU rendering caused those gains.** End-to-end scheduling does not
+show a comparable general improvement.
+
+| Scheduling observation | Native | Web |
+| --- | --- | --- |
+| Resize API through next draw scheduling ack, 9 samples | Median 31.4 ms; range 31.3–48.2 | Median 24.3 ms; range 23.3–26.3 |
+| Wheel dispatch through next draw scheduling ack, 6 samples | Median 13.95 ms; range 8.3–23.3 | Median 16.25 ms; range 14.2–46.5 |
+| Paced draw intervals, per-run p50 | 15.4 ms | 16.7 ms |
+| Paced draw intervals, per-run p95 | 20.4–20.5 ms | 17.0–17.4 ms |
+| Paced draw intervals, per-run p99/max | 20.5–20.6 ms | 33.4–33.7 ms |
+
+The resize interval stops before exact text readback/hashing. Native waits for a newly drawn
+frame with the requested dimensions, which are recorded (1296×900, 1980×900, 1800×900).
+This covers those observed transitions, not resize-generation safety or rejection of every
+stale completion. Wheel timing excludes the common 200 ms settling wait before viewport
+readback. Synthetic DOM wheel events drive matched numerical checks; the separate interactive
+proof uses actual `webContents.sendInputEvent` delivery.
+
+Pacing observations are mixed: native has the higher p95 but fewer long tail gaps in these
+runs. Native and web notification hooks also observe different points in their pipelines.
+Neither p95 nor p99 alone establishes a pacing winner. Polling the native export every 4 ms,
+IPC, the synchronous export GPU blit, native rendering, and Chromium scheduling are plausible
+sources of candidate overhead. Their individual causal contribution was not instrumented.
+No high-refresh, physical input-to-pixel, or native Ghostty GUI reference was measured.
+
+Native measured runs sent/released 138/138, 138/138 and 137/137 textures, with zero held at
+teardown. Browser runs dispose their terminal by destroying their isolated window. This is
+bounded-run cleanup evidence; crashes, long-lived stress, and production multi-session
+lifecycle remain separate work.
+
+The frozen six-process numerical schedule was collected with candidate
+`0d1a0048a83421d0b8a91da131b92d031b62c1c6`. Subsequent review corrections add configuration
+diagnostic/pixel-geometry guards, restrict native actions to the four scrolling bindings,
+and expose the existing interactive proof through an explicit CLI mode. They do not change
+the timed workload or API timing boundaries. Interactive proof artifacts were regenerated
+through the supported probe commands after those corrections.
+
+## Reproduce the comparison
+
+```sh
+node scripts/native-ghostty-qualification/run.mjs compare \
+  /absolute/path/to/bridge.node /absolute/path/to/a/new/results-directory
+```
+
+The output directory must be new. All six scheduled processes run sequentially, without retries;
+a failure makes the aggregate fail. Per-process JSON files and the aggregate `comparison.json`
+are written there. The committed aggregate embeds all raw per-run values; its `artifact` names
+identify the separate files that reproduction also writes. Keep other desktop workloads,
+builds and tests quiet during collection. Do not use this exploratory run as a release budget.
+
+Reproduce the bounded interactive wheel proof and its screenshots separately:
+
+```sh
+node scripts/native-ghostty-qualification/run.mjs probe native \
+  /absolute/path/to/bridge.node /absolute/path/to/new/native-probe-results
+node scripts/native-ghostty-qualification/run.mjs probe web \
+  /absolute/path/to/new/web-probe-results
+```
+
+Each probe verifies complete seeded retention, sends real Electron wheel input, records
+`probe.json`, captures `viewport.top.png` and `viewport.scrolled.png`, then closes and cleans up.
+Use `demo` for the persistent hands-on window. Configuration diagnostics or unexpected pixel
+geometry fail explicitly rather than silently collecting an unmatched comparison.
+
+The current eight-file upstream patch is an issue-authorized reproduction artifact against
+pinned external source, not an alternate repository home for executable bridge source.
+`bridge.c` is separately retained under the ordinary maintained-C policy. The additional
+`src/termio/Exec.zig` patch recognizes only the exact disposable `/bin/sleep 86400` command and
+executes it directly, bypassing macOS `login(1)`. An initial failed interactive check revealed
+an asynchronous “Last login” row; the corrected run verifies all 3,000 rows exactly. No user
+`.hushlogin` file was created and no ambient bytes are filtered away. This remains an idle
+exec backend, not a complete external transport integration.
+
+The patch was reapplied to a fresh v1.4.0 archive; all eight resulting source files matched the
+successfully built source byte-for-byte. Earlier local-PTY and artificial three-consumer-delay
+observations belong to the [historical harness](initial-study.md), not this runner's phases.
+
+Production ownership, clipboard/link/session authority, Linux DMA-BUF compatibility, P3/alpha
+fidelity, driver coverage, packaging and a focused embedding facade remain the risks identified
+in the initial study. This continuation proposes no user-visible hvir change and changes no
+production terminal owner, normal startup, installation, packaging, ADR or source policy.
+The next decision is which native presentation/process path to qualify further, informed by
+hands-on feel and matched visible-presentation measurements rather than feed timing alone.

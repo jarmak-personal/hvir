@@ -1,41 +1,28 @@
-/* global document, performance, requestAnimationFrame, setTimeout */
-const { ipcRenderer, sharedTexture } = require('electron')
-let count = 0
-let last = 0
-let longest = 0
+/* global document, requestAnimationFrame */
+const { contextBridge, ipcRenderer, sharedTexture } = require('electron')
+let onFrame = () => undefined
+contextBridge.exposeInMainWorld('qualification', {
+  call: (op, ...args) => ipcRenderer.invoke('qualification:call', op, args),
+  observe: (data) => ipcRenderer.send('qualification:observe', data),
+  onFrame: (callback) => {
+    onFrame = callback
+  },
+})
 sharedTexture.setSharedTextureReceiver(async ({ importedSharedTexture }, metadata) => {
   const frame = importedSharedTexture.getVideoFrame()
   try {
-    const canvas = document.querySelector('canvas')
+    const canvas = document.querySelector('#native')
     if (canvas.width !== frame.displayWidth) canvas.width = frame.displayWidth
     if (canvas.height !== frame.displayHeight) canvas.height = frame.displayHeight
+    canvas.style.width = `${frame.displayWidth / 2}px`
+    canvas.style.height = `${frame.displayHeight / 2}px`
     canvas.getContext('2d').drawImage(frame, 0, 0)
-    count++
-    const drawnCount = count
-    const now = performance.now()
-    if (last) longest = Math.max(longest, now - last)
-    last = now
-    // Deliberately retain the consumer's frame periodically to stress pool exhaustion.
-    if (drawnCount >= 180 && drawnCount <= 182)
-      await new Promise((resolve) => setTimeout(resolve, 150))
-    if (drawnCount % 30 === 0)
-      requestAnimationFrame(() =>
-        ipcRenderer.send('qualification:observation', {
-          event: 'draw-scheduled',
-          count: drawnCount,
-          longestMs: longest,
-          ...metadata,
-        }),
-      )
+    requestAnimationFrame(() => {
+      ipcRenderer.send('qualification:draw', metadata)
+      onFrame(metadata)
+    })
   } finally {
     frame.close()
     importedSharedTexture.release()
   }
-})
-document.addEventListener('DOMContentLoaded', () => {
-  document.addEventListener('keydown', (event) => {
-    if (event.key.length === 1) ipcRenderer.send('qualification:key', event.key)
-    else if (event.key === 'Enter') ipcRenderer.send('qualification:key', '\r\n')
-  })
-  ipcRenderer.send('qualification:ready')
 })

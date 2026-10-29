@@ -83,3 +83,15 @@
 +export fn hvir_qualification_set_write(callback: ?QualificationWrite) void {
 +    qualification_write = callback;
 +}
+--- a/src/termio/Exec.zig
++++ b/src/termio/Exec.zig
+@@ -1848,0 +1849,9 @@
++    // Qualification only: an idle fixture must not invoke login(1), emit ambient
++    // "Last login" data, or update login bookkeeping. This is not an external backend.
++    switch (command) {
++        .shell => |value| if (std.mem.eql(u8, value, "/bin/sleep 86400")) {
++            return &.{ "/bin/sleep", "86400" };
++        },
++        .direct => {},
++    }
++

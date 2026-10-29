@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 #include "ghostty.h"
 
 extern id MTLCreateSystemDefaultDevice(void);
@@ -168,11 +169,23 @@ static void field(napi_env env, napi_value object, const char *name, double n) {
   napi_value v; napi_create_double(env, n, &v); napi_set_named_property(env, object, name, v);
 }
 static napi_value start(napi_env env, napi_callback_info info) {
-  (void)info;
+  size_t argc = 1; napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
   if (app) return fail(env, "Only one disposable surface is supported");
   if (ghostty_init(0, NULL) != 0) return fail(env, "ghostty_init failed");
   ghostty_config_t config = ghostty_config_new();
+  if (argc == 1) {
+    char path[4096]; size_t length;
+    if (napi_get_value_string_utf8(env, argv[0], path, sizeof(path), &length) != napi_ok || length >= sizeof(path) - 1) {
+      ghostty_config_free(config); return fail(env, "Expected an explicit experiment config path");
+    }
+    ghostty_config_load_file(config, path);
+  }
   ghostty_config_finalize(config); // No personal configuration loaded.
+  if (ghostty_config_diagnostics_count(config) != 0) {
+    ghostty_config_free(config);
+    return fail(env, "Experiment configuration has diagnostics; refusing silent fallback");
+  }
   ghostty_runtime_config_s runtime = { .wakeup_cb = wakeup, .action_cb = action,
     .read_clipboard_cb = read_clipboard, .confirm_read_clipboard_cb = confirm_clipboard,
     .write_clipboard_cb = write_clipboard, .close_surface_cb = close_surface };
@@ -192,7 +205,7 @@ static napi_value start(napi_env env, napi_callback_info info) {
   options.platform_tag = GHOSTTY_PLATFORM_MACOS;
   options.platform.macos.nsview = view;
   options.scale_factor = 2;
-  options.command = "/bin/sleep 120"; // Disposable idle exec backend, not external PTY support.
+  options.command = "/bin/sleep 86400"; // Disposable idle exec backend, not external PTY support.
   options.working_directory = "/tmp";
   terminal = ghostty_surface_new(app, &options);
   if (!terminal) return fail(env, "ghostty_surface_new failed");
@@ -210,8 +223,10 @@ static napi_value feed(napi_env env, napi_callback_info info) {
   void *bytes;
   if (!terminal || count != 1 || napi_get_buffer_info(env, args[0], &bytes, &length) != napi_ok)
     return fail(env, "feed requires a Buffer and a live surface");
+  uint64_t started = now_ns();
   hvir_qualification_feed(terminal, bytes, length);
-  return undefined_value(env);
+  napi_value result; napi_create_double(env, (now_ns() - started) / 1e6, &result);
+  return result;
 }
 static napi_value take(napi_env env, napi_callback_info info) {
   (void)info; napi_value object; napi_create_object(env, &object);
@@ -293,8 +308,48 @@ static napi_value size(napi_env env, napi_callback_info info) {
   if (!terminal) return fail(env, "No surface");
   ghostty_surface_size_s size = ghostty_surface_size(terminal);
   napi_value result; napi_create_object(env, &result);
+  field(env, result, "width", size.width_px); field(env, result, "height", size.height_px);
+  field(env, result, "cellWidth", size.cell_width_px); field(env, result, "cellHeight", size.cell_height_px);
   field(env, result, "cols", size.columns); field(env, result, "rows", size.rows);
   return result;
+}
+// Bounded exact text readback for the disposable correctness workload, not a production API.
+static napi_value snapshot(napi_env env, napi_callback_info info) {
+  size_t argc = 1; napi_value argv[1]; bool viewport = false;
+  napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
+  if (!terminal) return fail(env, "No surface");
+  if (argc) napi_get_value_bool(env, argv[0], &viewport);
+  ghostty_point_tag_e tag = viewport ? GHOSTTY_POINT_VIEWPORT : GHOSTTY_POINT_SCREEN;
+  ghostty_selection_s selection = {
+    .top_left = { .tag = tag, .coord = GHOSTTY_POINT_COORD_TOP_LEFT },
+    .bottom_right = { .tag = tag, .coord = GHOSTTY_POINT_COORD_BOTTOM_RIGHT },
+  };
+  ghostty_text_s text = {0};
+  if (!ghostty_surface_read_text(terminal, selection, &text)) return fail(env, "Text readback failed");
+  napi_value result;
+  if (text.text_len > 2 * 1024 * 1024) {
+    ghostty_surface_free_text(terminal, &text); return fail(env, "Text readback exceeds probe bound");
+  }
+  napi_create_string_utf8(env, text.text ? text.text : "", text.text_len, &result);
+  ghostty_surface_free_text(terminal, &text);
+  return result;
+}
+static napi_value scroll(napi_env env, napi_callback_info info) {
+  size_t argc = 2; napi_value argv[2]; double x, y;
+  napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
+  if (!terminal || argc != 2 || napi_get_value_double(env, argv[0], &x) != napi_ok ||
+      napi_get_value_double(env, argv[1], &y) != napi_ok || !isfinite(x) || !isfinite(y) ||
+      fabs(x) > 100000 || fabs(y) > 100000) return fail(env, "Invalid pixel scroll");
+  ghostty_surface_mouse_scroll(terminal, x, y, 1); // precision offsets in physical pixels
+  return undefined_value(env);
+}
+static napi_value binding(napi_env env, napi_callback_info info) {
+  size_t argc = 1, length; napi_value argv[1]; char name[64];
+  napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
+  if (!terminal || argc != 1 || napi_get_value_string_utf8(env, argv[0], name, sizeof(name), &length) != napi_ok || length >= sizeof(name) - 1)
+    return fail(env, "Invalid binding");
+  bool accepted = ghostty_surface_binding_action(terminal, name, length);
+  napi_value result; napi_get_boolean(env, accepted, &result); return result;
 }
 NAPI_MODULE_INIT() {
   napi_property_descriptor methods[] = {
@@ -307,6 +362,9 @@ NAPI_MODULE_INIT() {
     { "drain", NULL, drain, NULL, NULL, NULL, napi_default, NULL },
     { "resize", NULL, resize, NULL, NULL, NULL, napi_default, NULL },
     { "size", NULL, size, NULL, NULL, NULL, napi_default, NULL },
+    { "snapshot", NULL, snapshot, NULL, NULL, NULL, napi_default, NULL },
+    { "scroll", NULL, scroll, NULL, NULL, NULL, napi_default, NULL },
+    { "binding", NULL, binding, NULL, NULL, NULL, napi_default, NULL },
     { "stop", NULL, stop, NULL, NULL, NULL, napi_default, NULL }
   };
   napi_define_properties(env, exports, sizeof(methods) / sizeof(methods[0]), methods);
