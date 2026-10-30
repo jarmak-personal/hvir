@@ -10,6 +10,7 @@ import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
 import { verifyExtensionRailGeometry } from './extension-presentation-geometry'
 import { focusSmokeWindow } from './window-focus'
+import { smokeScriptValue } from './script-value'
 
 interface ContributionControls {
   click(name: string): Promise<void>
@@ -363,7 +364,7 @@ export async function verifyExtensionContributions(
   console.log('[smoke] controlled top destination navigation/close OK')
   const terminalIds = extensions.contexts!.terminalIds(renderer)
   const bell = (await win.webContents.executeJavaScript(
-    `(() => { try { window.hvir.send('pty:write', {id:${JSON.stringify(terminalIds[sessions[0]!.id])},data:${JSON.stringify("printf '\\007'\r")}}); return {ok:true}; } catch (error) { return {ok:false,error:String(error),stack:String(error.stack)}; } })()`,
+    `(() => { try { window.hvir.send('pty:write', {id:${smokeScriptValue(terminalIds[sessions[0]!.id])},data:${smokeScriptValue("printf '\\007'\r")}}); return {ok:true}; } catch (error) { return {ok:false,error:String(error),stack:String(error.stack)}; } })()`,
   )) as { ok: boolean; error?: string; stack?: string }
   if (!bell.ok)
     throw new Error(`Inactive terminal bell send failed: ${bell.error}`, {
@@ -539,11 +540,11 @@ export async function verifyExtensionContributions(
     'ordinary Settings action context control',
   )
   await win.webContents.executeJavaScript(
-    `(() => { const select = document.querySelector('[aria-label="Extension action context"]'); select.value = ${JSON.stringify(`session:${sessions[0]!.id}`)}; select.dispatchEvent(new Event('change', { bubbles: true })); select.focus(); })()`,
+    `(() => { const select = document.querySelector('[aria-label="Extension action context"]'); select.value = ${smokeScriptValue(`session:${sessions[0]!.id}`)}; select.dispatchEvent(new Event('change', { bubbles: true })); select.focus(); })()`,
   )
   if (
     !(await dom(
-      `document.hasFocus() && document.activeElement?.getAttribute('aria-label') === 'Extension action context' && document.activeElement.value === ${JSON.stringify(`session:${sessions[0]!.id}`)}`,
+      `document.hasFocus() && document.activeElement?.getAttribute('aria-label') === 'Extension action context' && document.activeElement.value === ${smokeScriptValue(`session:${sessions[0]!.id}`)}`,
     ))
   )
     throw new Error('Settings action focus positive control failed')
@@ -951,7 +952,7 @@ export async function verifyExtensionContributions(
       },
     }
     const started = (await win.webContents.executeJavaScript(
-      `(() => { try { window.__extensionActions ??= {}; const record = window.__extensionActions[${JSON.stringify(id)}] = {state:'pending'}; window.hvir.invoke('extensions:action', ${JSON.stringify(action)}).then(result => {record.state='done';record.value=result.value}, error => {record.state='failed';record.error=error.message}); return {ok:true}; } catch (error) { return {ok:false,error:String(error),stack:String(error.stack)}; } })()`,
+      `(() => { try { window.__extensionActions ??= {}; const record = window.__extensionActions[${smokeScriptValue(id)}] = {state:'pending'}; window.hvir.invoke('extensions:action', ${smokeScriptValue(action)}).then(result => {record.state='done';record.value=result.value}, error => {record.state='failed';record.error=error.message}); return {ok:true}; } catch (error) { return {ok:false,error:String(error),stack:String(error.stack)}; } })()`,
     )) as { ok: boolean; error?: string; stack?: string }
     if (!started.ok)
       throw new Error(`Named action request failed: ${id}: ${started.error}`, {

@@ -1,6 +1,7 @@
 import { createServer } from 'node:net'
 import { createSocket } from 'node:dgram'
 import { BrowserWindow, type WebContents } from 'electron'
+import { smokeScriptValue } from './script-value'
 
 /** Positive transports establish that an absent guest packet means engine refusal. */
 export async function verifyExtensionWebRtc(guest: WebContents): Promise<void> {
@@ -39,7 +40,7 @@ export async function verifyExtensionWebRtc(guest: WebContents): Promise<void> {
         { urls: `stun:127.0.0.1:${udpPort}` },
       ],
     }
-    const setup = `const connection = new RTCPeerConnection(${JSON.stringify(configuration)}); connection.createDataChannel('fixture'); globalThis.fixtureConnection = connection; await connection.setLocalDescription(await connection.createOffer());`
+    const setup = `const connection = new RTCPeerConnection(${smokeScriptValue(configuration)}); connection.createDataChannel('fixture'); globalThis.fixtureConnection = connection; await connection.setLocalDescription(await connection.createOffer());`
     control = new BrowserWindow({
       show: false,
       webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
@@ -84,7 +85,7 @@ export async function verifyExtensionWebRtc(guest: WebContents): Promise<void> {
       let outcome;
       try {
         const Constructor = frame.contentWindow.RTCPeerConnection;
-        const connection = new Constructor(${JSON.stringify(configuration)});
+        const connection = new Constructor(${smokeScriptValue(configuration)});
         connection.createDataChannel('fresh-realm'); await connection.setLocalDescription(await connection.createOffer());
         outcome = await new Promise((resolve) => { const finish = () => resolve(connection.connectionState); connection.addEventListener('connectionstatechange', finish, { once: true }); if (connection.connectionState === 'failed') finish(); setTimeout(() => resolve(connection.connectionState), 1000) });
         connection.close();

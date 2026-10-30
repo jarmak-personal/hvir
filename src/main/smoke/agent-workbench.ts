@@ -17,6 +17,7 @@ import {
   verifyExtensionTerminalHandoff,
   verifyTerminalCommandProcessRestart,
 } from './extension-terminal-handoff'
+import { smokeScriptValue } from './script-value'
 
 interface AgentCliOutcome {
   readonly ok: boolean
@@ -564,7 +565,7 @@ async function click(win: BrowserWindow, name: string): Promise<void> {
     () =>
       dom(
         win,
-        `(() => { const button = [...document.querySelectorAll('button')].find(item => item.getAttribute('aria-label') === ${JSON.stringify(name)} || item.textContent.trim() === ${JSON.stringify(name)}); if (!button || button.disabled || !button.checkVisibility()) return false; button.click(); return true; })()`,
+        `(() => { const button = [...document.querySelectorAll('button')].find(item => item.getAttribute('aria-label') === ${smokeScriptValue(name)} || item.textContent.trim() === ${smokeScriptValue(name)}); if (!button || button.disabled || !button.checkVisibility()) return false; button.click(); return true; })()`,
       ),
     `ordinary ${name}`,
   )
@@ -597,7 +598,7 @@ async function setAgentAccess(win: BrowserWindow, enabled: boolean): Promise<voi
     () =>
       dom(
         win,
-        `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow agents to inspect and present workspace content')); if (!input || input.disabled || !input.checkVisibility()) return false; if (input.checked !== ${JSON.stringify(enabled)}) input.click(); return true; })()`,
+        `(() => { const input = [...document.querySelectorAll('input[type="checkbox"]')].find(input => input.parentElement.textContent.includes('Allow agents to inspect and present workspace content')); if (!input || input.disabled || !input.checkVisibility()) return false; if (input.checked !== ${smokeScriptValue(enabled)}) input.click(); return true; })()`,
       ),
     'ordinary ready agent access control',
   )
