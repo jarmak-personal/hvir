@@ -1,0 +1,89 @@
+{
+  "upstream": "83fb95624b0439ee660c2679b43b38c8b63769cd",
+  "patchSha256": "cecef164785bde0655b91dbbc475964b95348b15efc892db84575c63b1cf6842",
+  "cleanApply": true,
+  "files": [
+    {
+      "path": "build.zig",
+      "builtSha256": "5d3268a27cb4faf94948f61048cb11d2b81bb5c031684d60fc6caff47bbc8f56",
+      "reproducedSha256": "5d3268a27cb4faf94948f61048cb11d2b81bb5c031684d60fc6caff47bbc8f56",
+      "matches": true
+    },
+    {
+      "path": "src/build/GhosttyLib.zig",
+      "builtSha256": "d4f78acc8d041a2ac32d9fb4bf9534110a9a83932daafb23406c575b60745091",
+      "reproducedSha256": "d4f78acc8d041a2ac32d9fb4bf9534110a9a83932daafb23406c575b60745091",
+      "matches": true
+    },
+    {
+      "path": "src/build/SharedDeps.zig",
+      "builtSha256": "46df8a20f950c838bd2cf27e9923d31288d2008b2cd8392574580a51a47a2dbe",
+      "reproducedSha256": "46df8a20f950c838bd2cf27e9923d31288d2008b2cd8392574580a51a47a2dbe",
+      "matches": true
+    },
+    {
+      "path": "src/renderer/metal/shaders.zig",
+      "builtSha256": "870c7f0c8cc75dd4a6e8b855d4e0bc8a90d2a6165167e133f1230208f44bec35",
+      "reproducedSha256": "870c7f0c8cc75dd4a6e8b855d4e0bc8a90d2a6165167e133f1230208f44bec35",
+      "matches": true
+    },
+    {
+      "path": "src/renderer/Metal.zig",
+      "builtSha256": "531d2d7f6c511de9deb6f009380695a51b13862d488d8377c8e950230d86fe46",
+      "reproducedSha256": "531d2d7f6c511de9deb6f009380695a51b13862d488d8377c8e950230d86fe46",
+      "matches": true
+    },
+    {
+      "path": "src/apprt/embedded.zig",
+      "builtSha256": "d585f767d24d3430007fc1f31443d5401b2df42e6a96d87ed12f89dbae157067",
+      "reproducedSha256": "d585f767d24d3430007fc1f31443d5401b2df42e6a96d87ed12f89dbae157067",
+      "matches": true
+    },
+    {
+      "path": "src/termio/Termio.zig",
+      "builtSha256": "ce5f79f9555c59c55e161896a5e3584324bf5c06c74baa9d3d653eab0a82c3bb",
+      "reproducedSha256": "ce5f79f9555c59c55e161896a5e3584324bf5c06c74baa9d3d653eab0a82c3bb",
+      "matches": true
+    },
+    {
+      "path": "src/termio/Exec.zig",
+      "builtSha256": "25e5e028b3f0504475e340992da439265b66fd1d71da49fffe9150e28aba3f7c",
+      "reproducedSha256": "25e5e028b3f0504475e340992da439265b66fd1d71da49fffe9150e28aba3f7c",
+      "matches": true
+    },
+    {
+      "path": "src/termio/message.zig",
+      "builtSha256": "01bf14f502a3f230791cc74d035f8d88a6b4dcbd0da494727b5b612100c7a1be",
+      "reproducedSha256": "01bf14f502a3f230791cc74d035f8d88a6b4dcbd0da494727b5b612100c7a1be",
+      "matches": true
+    },
+    {
+      "path": "src/termio/Thread.zig",
+      "builtSha256": "2c0b1a75f7c7f4eb6ceee3e86b972ebba0dcd3bd60a6bb7f34ff0255647fa15a",
+      "reproducedSha256": "2c0b1a75f7c7f4eb6ceee3e86b972ebba0dcd3bd60a6bb7f34ff0255647fa15a",
+      "matches": true
+    }
+  ],
+  "bridgeSourceSha256": "1356564d8dd3bb3db6e35dbf8fe24726307bc4fe59fa1e8ed902e5bf5799cff1",
+  "linuxPortableExtraction": {
+    "executedOn": "darwin-arm64",
+    "nativeLinuxBuildExecuted": false,
+    "patchSha256": "7df728771b5eec414a81e7d9668da378bb44cb4d766e6596911a06e7b93ee689",
+    "files": [
+      "src/apprt/embedded.zig",
+      "src/termio/Termio.zig",
+      "src/termio/message.zig",
+      "src/termio/Thread.zig"
+    ],
+    "cleanApply": true,
+    "matchesBuiltPortableFiles": true
+  },
+  "linuxArtifactContract": {
+    "upstreamCommit": "83fb95624b0439ee660c2679b43b38c8b63769cd",
+    "source": "build.zig",
+    "line": 234,
+    "installCall": "lib_shared.install(\"ghostty-internal.so\");",
+    "expectedRelativePath": "native/lib/ghostty-internal.so",
+    "evidence": "Read pinned source on Darwin; Linux build still pending."
+  }
+}

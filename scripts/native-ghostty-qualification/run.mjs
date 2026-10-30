@@ -1,8 +1,17 @@
 /* global process, console */
 import { createRequire } from 'node:module'
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdtempSync,
+  rmSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { build } from 'esbuild'
 import { runSmokeLocked } from '../smoke-run-lock.mts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -24,6 +33,58 @@ async function run(engine, log) {
     throw new Error(`${engine} experiment failed; retain its output and log`)
 }
 async function mainRun() {
+  if (['live', 'live-probe', 'harness-probe', 'resize-probe'].includes(mode)) {
+    process.env.HVIR_QUALIFICATION_BRIDGE = bridge(target)
+    process.env.HVIR_QUALIFICATION_ROOT = root
+    process.env.HVIR_QUALIFICATION_NODE = process.execPath
+    const output = join(root, `out/native-ghostty-live-${process.pid}.mjs`)
+    await build({
+      entryPoints: [join(root, 'scripts/native-ghostty-qualification/live-main.mts')],
+      outfile: output,
+      bundle: true,
+      packages: 'external',
+      platform: 'node',
+      format: 'esm',
+    })
+    if (['live-probe', 'harness-probe', 'resize-probe'].includes(mode)) {
+      if (!extra) throw new Error('Supply a new live-probe output directory')
+      const directory = resolve(extra)
+      if (existsSync(directory))
+        throw new Error('Live probe output directory must be new')
+      mkdirSync(directory, { recursive: true })
+      process.env.HVIR_QUALIFICATION_LOG = join(directory, 'probe.json')
+      process.env.HVIR_QUALIFICATION_RESIZE_PROBE = mode === 'resize-probe' ? '1' : '0'
+      process.env.HVIR_QUALIFICATION_LIVE_PROBE = mode === 'live-probe' ? '1' : '0'
+      process.env.HVIR_QUALIFICATION_HARNESS_PROBE = mode === 'harness-probe' ? '1' : '0'
+      if (mode === 'harness-probe')
+        process.env.HVIR_QUALIFICATION_PROVIDER = 'claude-code'
+    } else {
+      if (!['plain-shell', 'claude-code'].includes(extra ?? 'plain-shell'))
+        throw new Error('Live demo provider must be plain-shell or claude-code')
+      process.env.HVIR_QUALIFICATION_PROVIDER = extra ?? 'plain-shell'
+      delete process.env.HVIR_QUALIFICATION_LIVE_PROBE
+      delete process.env.HVIR_QUALIFICATION_HARNESS_PROBE
+      delete process.env.HVIR_QUALIFICATION_RESIZE_PROBE
+      delete process.env.HVIR_QUALIFICATION_LOG
+    }
+    const scratch = mkdtempSync(join(tmpdir(), 'hvir-live-qualification-'))
+    process.env.HVIR_QUALIFICATION_LIVE_SCRATCH = scratch
+    mkdirSync(join(scratch, 'workspace'))
+    writeFileSync(
+      join(scratch, 'ghostty-config'),
+      'font-family = Menlo\nfont-size = 14\nadjust-cell-width = 1\nadjust-cell-height = -3\nwindow-padding-x = 0\nwindow-padding-y = 0\ncursor-style-blink = false\nshell-integration = none\nscrollback-limit = 10000000\n',
+    )
+    try {
+      await runSmokeLocked(electron, [output])
+    } finally {
+      rmSync(scratch, { recursive: true, force: true })
+      rmSync(output, { force: true })
+    }
+    if (process.exitCode)
+      throw new Error('Live qualification failed; retain its probe.json')
+    return
+  }
+
   if (mode === 'probe' && ['native', 'web'].includes(target ?? '')) {
     const requestedOutput = target === 'native' ? fourth : extra
     if (!requestedOutput) throw new Error('Supply a new probe output directory')
@@ -103,7 +164,7 @@ async function mainRun() {
     return
   }
   throw new Error(
-    'Usage: run.mjs demo native BRIDGE | demo web | probe native BRIDGE NEW_OUTPUT | probe web NEW_OUTPUT | compare BRIDGE NEW_OUTPUT',
+    'Usage: run.mjs live BRIDGE [plain-shell|claude-code] | live-probe BRIDGE NEW_OUTPUT | resize-probe BRIDGE NEW_OUTPUT | harness-probe BRIDGE NEW_OUTPUT | demo native BRIDGE | demo web | probe native BRIDGE NEW_OUTPUT | probe web NEW_OUTPUT | compare BRIDGE NEW_OUTPUT',
   )
 }
 void mainRun().catch((error) => {

@@ -1,5 +1,7 @@
 # Native Ghostty: matched probes and interactive scrolling
 
+The follow-up [live PTY and lifecycle study (#1094)](live-study.md) adds a maintainer-runnable live demo, three two-surface probes, refreshed comparisons and explicit Linux/harness gaps.
+
 Continuation of [#1091](https://github.com/jarmak-personal/hvir/issues/1091), under
 [#1090](https://github.com/jarmak-personal/hvir/issues/1090). The [initial study](initial-study.md)
 proved native Metal/IOSurface delivery into sandboxed Electron. This continuation adds matched
@@ -180,7 +182,7 @@ Each probe verifies complete seeded retention, sends real Electron wheel input, 
 Use `demo` for the persistent hands-on window. Configuration diagnostics or unexpected pixel
 geometry fail explicitly rather than silently collecting an unmatched comparison.
 
-The current eight-file upstream patch is an issue-authorized reproduction artifact against
+The eight-file upstream patch used by this historical recorded study was an issue-authorized reproduction artifact against
 pinned external source, not an alternate repository home for executable bridge source.
 `bridge.c` is separately retained under the ordinary maintained-C policy. The additional
 `src/termio/Exec.zig` patch recognizes only the exact disposable `/bin/sleep 86400` command and
@@ -189,7 +191,7 @@ an asynchronous “Last login” row; the corrected run verifies all 3,000 rows 
 `.hushlogin` file was created and no ambient bytes are filtered away. This remains an idle
 exec backend, not a complete external transport integration.
 
-The patch was reapplied to a fresh v1.4.0 archive; all eight resulting source files matched the
+That historical patch was reapplied to a fresh v1.4.0 archive; all eight resulting source files matched the
 successfully built source byte-for-byte. Earlier local-PTY and artificial three-consumer-delay
 observations belong to the [historical harness](initial-study.md), not this runner's phases.
 
@@ -199,3 +201,5 @@ in the initial study. This continuation proposes no user-visible hvir change and
 production terminal owner, normal startup, installation, packaging, ADR or source policy.
 The next decision is which native presentation/process path to qualify further, informed by
 hands-on feel and matched visible-presentation measurements rather than feed timing alone.
+
+The current [live study and width-toggle correction](live-study.md#width-toggle-correction) use a ten-file private patch with ticketed native/PTY resize ordering. The timings above retain their original measured-commit provenance.

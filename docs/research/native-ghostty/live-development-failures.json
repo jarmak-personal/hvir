@@ -1,0 +1,385 @@
+{
+  "schema": 1,
+  "purpose": "Retained development failures; not replaced by a retry. Fixed before the scheduled final three-run series.",
+  "records": [
+    {
+      "attempt": 1,
+      "error": "Error: A: emitted workload byte sequence preserved by PTY attachment",
+      "passedChecks": [
+        "A: exact reply bytes received by real PTY peer",
+        "A: exact text bytes received by real PTY peer",
+        "A: exact control bytes received by real PTY peer",
+        "A: exact navigation bytes received by real PTY peer",
+        "A: exact enter bytes received by real PTY peer",
+        "A: exact paste bytes received by real PTY peer",
+        "A: exact mouse bytes received by real PTY peer",
+        "A: alternate screen is session-qualified",
+        "A: exact alternate bytes received by real PTY peer",
+        "A: alternate screen exits to primary",
+        "B: exact reply bytes received by real PTY peer",
+        "B: exact text bytes received by real PTY peer",
+        "B: exact control bytes received by real PTY peer",
+        "B: exact navigation bytes received by real PTY peer",
+        "B: exact enter bytes received by real PTY peer",
+        "B: exact paste bytes received by real PTY peer",
+        "B: exact mouse bytes received by real PTY peer",
+        "B: alternate screen is session-qualified",
+        "B: exact alternate bytes received by real PTY peer",
+        "B: alternate screen exits to primary",
+        "A: all 2000 ordered rows retained without cross-session output"
+      ],
+      "streams": null,
+      "resources": [
+        {
+          "id": "A",
+          "sent": 7,
+          "released": 7,
+          "held": 0,
+          "maxLeases": 3,
+          "draws": 4,
+          "staleDraws": 0,
+          "native": {
+            "held": 0,
+            "pending": 0,
+            "copying": 0,
+            "slots": 3,
+            "produced": 9,
+            "dropped": 7,
+            "copyErrors": 0,
+            "outputBytes": 0,
+            "outputOverflow": 0
+          }
+        },
+        {
+          "id": "B",
+          "sent": 6,
+          "released": 6,
+          "held": 0,
+          "maxLeases": 1,
+          "draws": 6,
+          "staleDraws": 0,
+          "native": {
+            "held": 0,
+            "pending": 0,
+            "copying": 0,
+            "slots": 3,
+            "produced": 9,
+            "dropped": 0,
+            "copyErrors": 0,
+            "outputBytes": 0,
+            "outputOverflow": 0
+          }
+        }
+      ],
+      "exitCode": 1
+    },
+    {
+      "attempt": 2,
+      "error": "Error: A: ONLCR-transformed workload bytes preserved by PTY attachment",
+      "passedChecks": [
+        "A: exact reply bytes received by real PTY peer",
+        "A: exact text bytes received by real PTY peer",
+        "A: exact control bytes received by real PTY peer",
+        "A: exact navigation bytes received by real PTY peer",
+        "A: exact enter bytes received by real PTY peer",
+        "A: exact paste bytes received by real PTY peer",
+        "A: exact mouse bytes received by real PTY peer",
+        "A: alternate screen is session-qualified",
+        "A: exact alternate bytes received by real PTY peer",
+        "A: alternate screen exits to primary",
+        "B: exact reply bytes received by real PTY peer",
+        "B: exact text bytes received by real PTY peer",
+        "B: exact control bytes received by real PTY peer",
+        "B: exact navigation bytes received by real PTY peer",
+        "B: exact enter bytes received by real PTY peer",
+        "B: exact paste bytes received by real PTY peer",
+        "B: exact mouse bytes received by real PTY peer",
+        "B: alternate screen is session-qualified",
+        "B: exact alternate bytes received by real PTY peer",
+        "B: alternate screen exits to primary",
+        "A: all 2000 ordered rows retained without cross-session output"
+      ],
+      "streams": null,
+      "resources": [
+        {
+          "id": "A",
+          "sent": 6,
+          "released": 6,
+          "held": 0,
+          "maxLeases": 3,
+          "draws": 3,
+          "staleDraws": 0,
+          "native": {
+            "held": 0,
+            "pending": 0,
+            "copying": 0,
+            "slots": 3,
+            "produced": 9,
+            "dropped": 7,
+            "copyErrors": 0,
+            "outputBytes": 0,
+            "outputOverflow": 0
+          }
+        },
+        {
+          "id": "B",
+          "sent": 5,
+          "released": 5,
+          "held": 0,
+          "maxLeases": 1,
+          "draws": 5,
+          "staleDraws": 0,
+          "native": {
+            "held": 0,
+            "pending": 0,
+            "copying": 0,
+            "slots": 3,
+            "produced": 8,
+            "dropped": 0,
+            "copyErrors": 0,
+            "outputBytes": 0,
+            "outputOverflow": 0
+          }
+        }
+      ],
+      "exitCode": 1
+    },
+    {
+      "attempt": 3,
+      "error": "Error: A: ONLCR-transformed workload bytes preserved by PTY attachment",
+      "passedChecks": [
+        "A: exact reply bytes received by real PTY peer",
+        "A: exact text bytes received by real PTY peer",
+        "A: exact control bytes received by real PTY peer",
+        "A: exact navigation bytes received by real PTY peer",
+        "A: exact enter bytes received by real PTY peer",
+        "A: exact paste bytes received by real PTY peer",
+        "A: exact mouse bytes received by real PTY peer",
+        "A: alternate screen is session-qualified",
+        "A: exact alternate bytes received by real PTY peer",
+        "A: alternate screen exits to primary",
+        "B: exact reply bytes received by real PTY peer",
+        "B: exact text bytes received by real PTY peer",
+        "B: exact control bytes received by real PTY peer",
+        "B: exact navigation bytes received by real PTY peer",
+        "B: exact enter bytes received by real PTY peer",
+        "B: exact paste bytes received by real PTY peer",
+        "B: exact mouse bytes received by real PTY peer",
+        "B: alternate screen is session-qualified",
+        "B: exact alternate bytes received by real PTY peer",
+        "B: alternate screen exits to primary",
+        "A: all 2000 ordered rows retained without cross-session output"
+      ],
+      "streams": [
+        {
+          "session": "A",
+          "rows": 2000,
+          "sha256": "89d4bd629ffd07892eeb41eaaf3a37fa20936a67b4ad0236353d767bbc3454b3",
+          "exact": true,
+          "emittedBytes": 74000,
+          "ptyOnlcrBytes": 76000,
+          "receivedContiguousBytes": false,
+          "prefixHex": "412d303030303030206162636465666768696a6b6c6d6e6f707172737475767778797a0d0d0a412d303030303031206162636465666768696a6b6c6d6e6f707172737475767778797a0d0d0a412d303030303032206162636465666768696a6b6c6d6e6f707172737475767778797a0d0d0a412d30303030"
+        }
+      ],
+      "resources": [
+        {
+          "id": "A",
+          "sent": 6,
+          "released": 6,
+          "held": 0,
+          "maxLeases": 3,
+          "draws": 3,
+          "staleDraws": 0,
+          "native": {
+            "held": 0,
+            "pending": 0,
+            "copying": 0,
+            "slots": 3,
+            "produced": 9,
+            "dropped": 7,
+            "copyErrors": 0,
+            "outputBytes": 0,
+            "outputOverflow": 0
+          }
+        },
+        {
+          "id": "B",
+          "sent": 4,
+          "released": 4,
+          "held": 0,
+          "maxLeases": 1,
+          "draws": 4,
+          "staleDraws": 0,
+          "native": {
+            "held": 0,
+            "pending": 0,
+            "copying": 0,
+            "slots": 3,
+            "produced": 7,
+            "dropped": 0,
+            "copyErrors": 0,
+            "outputBytes": 0,
+            "outputOverflow": 0
+          }
+        }
+      ],
+      "exitCode": 1
+    },
+    {
+      "attempt": 4,
+      "error": "Error: A: ONLCR-transformed workload bytes preserved by PTY attachment",
+      "passedChecks": [
+        "A: exact reply bytes received by real PTY peer",
+        "A: exact text bytes received by real PTY peer",
+        "A: exact control bytes received by real PTY peer",
+        "A: exact navigation bytes received by real PTY peer",
+        "A: exact enter bytes received by real PTY peer",
+        "A: exact paste bytes received by real PTY peer",
+        "A: exact mouse bytes received by real PTY peer",
+        "A: alternate screen is session-qualified",
+        "A: exact alternate bytes received by real PTY peer",
+        "A: alternate screen exits to primary",
+        "B: exact reply bytes received by real PTY peer",
+        "B: exact text bytes received by real PTY peer",
+        "B: exact control bytes received by real PTY peer",
+        "B: exact navigation bytes received by real PTY peer",
+        "B: exact enter bytes received by real PTY peer",
+        "B: exact paste bytes received by real PTY peer",
+        "B: exact mouse bytes received by real PTY peer",
+        "B: alternate screen is session-qualified",
+        "B: exact alternate bytes received by real PTY peer",
+        "B: alternate screen exits to primary",
+        "A: all 2000 ordered rows retained without cross-session output"
+      ],
+      "streams": [
+        {
+          "mismatch": 43091,
+          "rawLength": 76002,
+          "mismatchHex": "696a6b6c6d6e6f707172737475767778797a0d0d0d0a412d303031313334206162636465666768696a6b6c6d6e6f707172737475767778797a0d0d0a412d303031313335206162636465666768696a6b6c6d6e6f707172737475767778797a0d0d0a412d",
+          "session": "A",
+          "rows": 2000,
+          "sha256": "89d4bd629ffd07892eeb41eaaf3a37fa20936a67b4ad0236353d767bbc3454b3",
+          "exact": true,
+          "emittedBytes": 74000,
+          "ptyOnlcrBytes": 76000,
+          "receivedContiguousBytes": false,
+          "prefixHex": "412d303030303030206162636465666768696a6b6c6d6e6f707172737475767778797a0d0d0a412d303030303031206162636465666768696a6b6c6d6e6f707172737475767778797a0d0d0a412d303030303032206162636465666768696a6b6c6d6e6f707172737475767778797a0d0d0a412d30303030"
+        }
+      ],
+      "resources": [
+        {
+          "id": "A",
+          "sent": 6,
+          "released": 6,
+          "held": 0,
+          "maxLeases": 3,
+          "draws": 3,
+          "staleDraws": 0,
+          "native": {
+            "held": 0,
+            "pending": 0,
+            "copying": 0,
+            "slots": 3,
+            "produced": 10,
+            "dropped": 7,
+            "copyErrors": 0,
+            "outputBytes": 0,
+            "outputOverflow": 0
+          }
+        },
+        {
+          "id": "B",
+          "sent": 4,
+          "released": 4,
+          "held": 0,
+          "maxLeases": 1,
+          "draws": 4,
+          "staleDraws": 0,
+          "native": {
+            "held": 0,
+            "pending": 0,
+            "copying": 0,
+            "slots": 3,
+            "produced": 7,
+            "dropped": 0,
+            "copyErrors": 0,
+            "outputBytes": 0,
+            "outputOverflow": 0
+          }
+        }
+      ],
+      "exitCode": 1
+    },
+    {
+      "attempt": 5,
+      "error": "Error: A retained stream differs from emitted ordered rows",
+      "passedChecks": [
+        "A: exact reply bytes received by real PTY peer",
+        "A: exact text bytes received by real PTY peer",
+        "A: exact control bytes received by real PTY peer",
+        "A: exact navigation bytes received by real PTY peer",
+        "A: exact enter bytes received by real PTY peer",
+        "A: exact paste bytes received by real PTY peer",
+        "A: exact mouse bytes received by real PTY peer",
+        "A: alternate screen is session-qualified",
+        "A: exact alternate bytes received by real PTY peer",
+        "A: alternate screen exits to primary",
+        "B: exact reply bytes received by real PTY peer",
+        "B: exact text bytes received by real PTY peer",
+        "B: exact control bytes received by real PTY peer",
+        "B: exact navigation bytes received by real PTY peer",
+        "B: exact enter bytes received by real PTY peer",
+        "B: exact paste bytes received by real PTY peer",
+        "B: exact mouse bytes received by real PTY peer",
+        "B: alternate screen is session-qualified",
+        "B: exact alternate bytes received by real PTY peer",
+        "B: alternate screen exits to primary"
+      ],
+      "streams": null,
+      "resources": [
+        {
+          "id": "A",
+          "sent": 22,
+          "released": 22,
+          "held": 0,
+          "maxLeases": 3,
+          "draws": 22,
+          "staleDraws": 0,
+          "native": {
+            "held": 0,
+            "pending": 1,
+            "copying": 0,
+            "slots": 3,
+            "produced": 26,
+            "dropped": 6,
+            "copyErrors": 0,
+            "outputBytes": 0,
+            "outputOverflow": 0
+          }
+        },
+        {
+          "id": "B",
+          "sent": 6,
+          "released": 6,
+          "held": 0,
+          "maxLeases": 1,
+          "draws": 6,
+          "staleDraws": 0,
+          "native": {
+            "held": 0,
+            "pending": 0,
+            "copying": 0,
+            "slots": 3,
+            "produced": 9,
+            "dropped": 0,
+            "copyErrors": 0,
+            "outputBytes": 0,
+            "outputOverflow": 0
+          }
+        }
+      ],
+      "exitCode": 1
+    }
+  ]
+}

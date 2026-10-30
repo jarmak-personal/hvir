@@ -1,0 +1,101 @@
+{
+  "engine": "web",
+  "interactive": true,
+  "phases": [
+    {
+      "kind": "correctness",
+      "name": "interactive-retained",
+      "passed": true,
+      "expectedHash": "0993ad83589d9a499e08ffde79f6fc4548c6b26f5aba0c4c5c2d0d2264083bbe",
+      "actualHash": "0993ad83589d9a499e08ffde79f6fc4548c6b26f5aba0c4c5c2d0d2264083bbe",
+      "expectedCharacters": 175267,
+      "actualCharacters": 175267
+    },
+    {
+      "kind": "interactive-retention",
+      "requestedRows": 3000,
+      "retainedRows": 3000,
+      "earliestRetainedRow": 0,
+      "latestRetainedRow": 2999
+    },
+    {
+      "kind": "interactive-ready",
+      "rows": 3000
+    },
+    {
+      "kind": "interactive-wheel-proof",
+      "passed": true,
+      "topFirstRow": 0,
+      "scrolledFirstRow": 20,
+      "topHash": "ea7fa645ecf21c50692d78119a6ccacfda44f511f7c1dc95619c4da8e08212d0",
+      "scrolledHash": "50cdb9eadb91b0bd404f0e87a0787b959e160c4b89c82104b6e7e5d608ab1fcd"
+    }
+  ],
+  "observations": [
+    {
+      "event": "cleanup",
+      "sent": 0,
+      "released": 0,
+      "held": 0
+    }
+  ],
+  "environment": {
+    "electron": "43.8.1",
+    "chromium": "150.0.7871.250",
+    "display": {
+      "accelerometerSupport": "unknown",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1470,
+        "height": 956
+      },
+      "colorDepth": 30,
+      "colorSpace": "{primaries:P3, transfer:{0.0777*x + 0.0000 if abs(x) < 0.0450 else sign(x)*((0.9495*abs(x) + 0.0495)**2.3955 + 0.0003)}, matrix:RGB, range:FULL}",
+      "depthPerComponent": 10,
+      "detected": true,
+      "displayFrequency": 60.00239944458008,
+      "id": 1,
+      "internal": true,
+      "label": "Built-in Retina Display",
+      "maximumCursorSize": {
+        "width": 0,
+        "height": 0
+      },
+      "monochrome": false,
+      "nativeOrigin": {
+        "x": 0,
+        "y": 0
+      },
+      "rotation": 0,
+      "scaleFactor": 2,
+      "size": {
+        "width": 1470,
+        "height": 956
+      },
+      "workArea": {
+        "x": 0,
+        "y": 37,
+        "width": 1470,
+        "height": 839
+      },
+      "workAreaSize": {
+        "width": 1470,
+        "height": 839
+      },
+      "touchSupport": "unknown"
+    },
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "geometry": {
+    "cols": 100,
+    "rows": 30,
+    "width": 1800,
+    "height": 900,
+    "scale": 2,
+    "font": "Menlo",
+    "fontSize": 14
+  },
+  "exitCode": 0
+}
