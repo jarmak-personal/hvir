@@ -8,6 +8,7 @@ import {
   type SkillagerManagementControls,
 } from './skillager-management-controls'
 import { focusSmokeWindow } from './window-focus'
+import { smokeScriptValue } from './script-value'
 
 type Ui = ReturnType<typeof skillagerManagementControls>
 interface Preservation {
@@ -350,7 +351,7 @@ export async function verifyOwnedAdvancedExposure(
       [three, 'remove'],
     ] as const)
       await ui.inspect(
-        `(() => {const select=document.querySelector('#exposure-departures select[data-skill-id=${JSON.stringify(source.skillId)}]');select.value=${JSON.stringify(mode)};select.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+        `(() => {const select=[...document.querySelectorAll('#exposure-departures select')].find(e=>e.dataset.skillId===${smokeScriptValue(source.skillId)});select.value=${smokeScriptValue(mode)};select.dispatchEvent(new Event('change',{bubbles:true}));})()`,
       )
     const removedMembers = await change(ui, 'set-members')
     const after = await cli([
@@ -480,11 +481,11 @@ export async function verifyOwnedAdvancedExposure(
     await ui.inspect("document.getElementById('search-form').requestSubmit()")
     const entry = joinHostPath(source.canonical, 'SKILL.md')
     await ui.ready(
-      `document.getElementById('state').dataset.state==='ready' && !!document.querySelector('[data-source-path=${JSON.stringify(entry.path)}]')`,
+      `document.getElementById('state').dataset.state==='ready' && !![...document.querySelectorAll('[data-source-path]')].find(e=>e.dataset.sourcePath===${smokeScriptValue(entry.path)})`,
       'selected exact canonical member',
     )
     await ui.inspect(
-      `document.querySelector('[data-source-path=${JSON.stringify(entry.path)}]').click()`,
+      `[...document.querySelectorAll('[data-source-path]')].find(e=>e.dataset.sourcePath===${smokeScriptValue(entry.path)}).click()`,
     )
     await selectedLibraryReady(source, ui)
     return ui
@@ -543,11 +544,11 @@ export async function verifyOwnedAdvancedExposure(
     await ui.set('exposure-member-query', source.skillId.slice(4))
     await ui.inspect("document.getElementById('exposure-member-search').requestSubmit()")
     await ui.ready(
-      `!document.getElementById('exposure-member-search-button').disabled && !!document.querySelector('#exposure-member-results [data-skill-id=${JSON.stringify(source.skillId)}]')`,
+      `!document.getElementById('exposure-member-search-button').disabled && !![...document.querySelectorAll('#exposure-member-results [data-skill-id]')].find(e=>e.dataset.skillId===${smokeScriptValue(source.skillId)})`,
       'exact searched member',
     )
     await ui.inspect(
-      `(() => {const input=document.querySelector('#exposure-member-results [data-skill-id=${JSON.stringify(source.skillId)}]');if(input.checked!==${checked})input.click();})()`,
+      `(() => {const input=[...document.querySelectorAll('#exposure-member-results [data-skill-id]')].find(e=>e.dataset.skillId===${smokeScriptValue(source.skillId)});if(input.checked!==${checked})input.click();})()`,
     )
   }
   async function review(ui: Ui, operation: string) {
@@ -574,7 +575,7 @@ export async function verifyOwnedAdvancedExposure(
     await review(ui, operation)
     await ui.click('exposure-confirm')
     await ui.ready(
-      `(() => {try{const r=JSON.parse(document.getElementById('exposure-result').textContent);return document.getElementById('exposure-review').hidden && !document.getElementById('exposure-operation-details').hidden && !document.getElementById('exposure-cancel').disabled && r.action==='change-exposure'&&r.operation===${JSON.stringify(operation)}}catch{return false}})()`,
+      `(() => {try{const r=JSON.parse(document.getElementById('exposure-result').textContent);return document.getElementById('exposure-review').hidden && !document.getElementById('exposure-operation-details').hidden && !document.getElementById('exposure-cancel').disabled && r.action==='change-exposure'&&r.operation===${smokeScriptValue(operation)}}catch{return false}})()`,
       'complete selected exposure result',
     )
     const result = (await ui.inspect(
@@ -603,7 +604,7 @@ export async function verifyOwnedAdvancedExposure(
       await focusSmokeWindow(win, 'window')
       await foreground(guest)
       const box = (await guest.executeJavaScript(
-        `(() => {const e=document.querySelector(${JSON.stringify(selector)});e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();if(!e.checkVisibility()||e.disabled||r.top<0||r.bottom>innerHeight)throw new Error('Selected task control is clipped');return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`,
+        `(() => {const e=document.querySelector(${smokeScriptValue(selector)});e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();if(!e.checkVisibility()||e.disabled||r.top<0||r.bottom>innerHeight)throw new Error('Selected task control is clipped');return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`,
       )) as { x: number; y: number }
       guest.focus()
       guest.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...box })

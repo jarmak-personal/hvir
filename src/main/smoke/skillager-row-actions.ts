@@ -8,6 +8,7 @@ import {
   skillagerManagementControls,
   type SkillagerManagementControls,
 } from './skillager-management-controls'
+import { smokeScriptValue } from './script-value'
 
 /** Maintained package, real guest input, trusted Files decision, and installed public CLI. */
 export async function verifyOwnedSkillRowActions(
@@ -288,7 +289,7 @@ export async function verifyOwnedSkillRowActions(
   }
   async function result(id: string, outcome: string): Promise<void> {
     await ui.ready(
-      `(() => {try{return JSON.parse(document.getElementById(${JSON.stringify(id)}).textContent).outcome===${JSON.stringify(outcome)}}catch{return false}})()`,
+      `(() => {try{return JSON.parse(document.getElementById(${smokeScriptValue(id)}).textContent).outcome===${smokeScriptValue(outcome)}}catch{return false}})()`,
       'inline operation result',
     )
   }

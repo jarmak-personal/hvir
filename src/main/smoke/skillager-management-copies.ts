@@ -3,6 +3,7 @@ import type { ProjectHost } from '../project-host/project-host'
 import type { skillagerManagementControls } from './skillager-management-controls'
 import { createHash } from 'node:crypto'
 import { verifyOwnedCopyProtections } from './skillager-copy-protections'
+import { smokeScriptValue } from './script-value'
 
 type Controls = ReturnType<typeof skillagerManagementControls>
 
@@ -81,7 +82,7 @@ export async function verifyOwnedManagedCopies(
     await controls.observeCopies({ agent, exposureId, target })
     await controls.set('copy-mode', 'stub')
     await controls.inspect(
-      `(() => { const row=[...document.querySelectorAll('#managed-copies > div')].find(e=>e.querySelector('p').textContent.startsWith(${JSON.stringify(agent)})); row.querySelector('button').click(); })()`,
+      `(() => { const row=[...document.querySelectorAll('#managed-copies > div')].find(e=>e.querySelector('p').textContent.startsWith(${smokeScriptValue(agent)})); row.querySelector('button').click(); })()`,
     )
     await controls.ready(
       "!document.getElementById('review').hidden",
@@ -144,7 +145,7 @@ export async function verifyOwnedManagedCopies(
   for (const { id: agent } of choices) {
     await controls.observeCopies({ agent, ...selected.get(agent)! })
     await controls.inspect(
-      `(() => { const row=[...document.querySelectorAll('#managed-copies > div')].find(e=>e.querySelector('p').textContent.startsWith(${JSON.stringify(agent)})); row.querySelectorAll('button')[1].click(); })()`,
+      `(() => { const row=[...document.querySelectorAll('#managed-copies > div')].find(e=>e.querySelector('p').textContent.startsWith(${smokeScriptValue(agent)})); row.querySelectorAll('button')[1].click(); })()`,
     )
     await controls.ready(
       "!document.getElementById('review').hidden",
