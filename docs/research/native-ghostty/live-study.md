@@ -91,11 +91,16 @@ check and resource count. Three of three runs passed all **37 checks**:
   that can discard or reorder them. Binary/non-UTF-8 stream handling remains
   unqualified because the existing LocalHost PTY API delivers decoded strings.
 - Alternate-screen entry/exit and session-qualified text passed independently.
-  B received its full output while hidden, then redrew after reveal. A real
+  B received its full output while hidden. Reveal requires a receiver acknowledgement
+  whose serial exceeds the producer's pre-reveal completed-frame barrier in the
+  current receiver generation; a historical rAF acknowledgement cannot pass. A real
   Electron wheel event changed the native scrollback viewport.
-- Six rapid grid/PTY resizes preserved retained text and eventually delivered
-  a frame matching the final pixel dimensions. This does not establish the
-  generation/content of every intermediate frame at reused dimensions.
+- Six rapid grid/PTY resizes preserved retained text and ended at a previously
+  unrequested 96×30 / 1728×900 size. A later receiver acknowledgement must exceed
+  the pre-resize producer serial barrier, match that size and the current receiver
+  generation, and carry the latest delivery geometry epoch (7 in these runs).
+  This is a delivery tag, not a native content-generation fence; intermediate
+  reused dimensions and causal content-to-pixel latency remain unmeasured.
 - Stop refused while Chromium owned a texture. Destroying A's delayed receiver
   released all its imports, preserved the PTY and terminal state, and allowed a
   new receiver generation to draw. Closing B terminated only B's PTY, and A then
@@ -106,14 +111,21 @@ check and resource count. Three of three runs passed all **37 checks**:
 
 Each surface owns three export slots and a 65,536-byte reply FIFO. A intentionally
 held receiver references for 100 ms. Its maximum outstanding leases was three;
-B's was one. A dropped 10, 10 and 9 obsolete frames while all workload bytes and
+B's was one. A dropped 6, 5 and 8 obsolete frames while all workload bytes and
 text remained intact. There were no GPU-copy errors or reply overflows.
 
 | Run | A imports / releases | B imports / releases | Held after teardown |
 | --- | --- | --- | --- |
-| 1 | 12 / 12 | 11 / 11 | 0 |
-| 2 | 11 / 11 | 7 / 7 | 0 |
-| 3 | 11 / 11 | 9 / 9 | 0 |
+| 1 | 16 / 16 | 13 / 13 | 0 |
+| 2 | 13 / 13 | 9 / 9 | 0 |
+| 3 | 13 / 13 | 9 / 9 | 0 |
+
+The raw `revealProof`, `resizeProof` and `survivorProof` retain each producer barrier,
+current receiver generation, observed serial/dimensions and delivery epoch. For
+example, final-resize barriers 11, 11 and 10 were followed by acknowledged serials
+12, 12 and 11 respectively, all at 1728×900 and epoch 7. These supersede the earlier
+loose reveal/resize predicates, which could accept historical acknowledgements.
+They prove later completed-frame delivery, not content-correlated physical display.
 
 An imported frame can be released after receiver destruction without a successful
 send. Import/release counts, successful sends and draw acknowledgements are separate
@@ -132,8 +144,10 @@ and preserves the same row workload. These were corrected fixture assumptions be
 the scheduled three-run series, not retries relabeled as passing measurements.
 
 [Claude startup](harness-startup.json) records a real **Claude Code 2.1.309** launch
-through the existing provider/supervisor/LocalHost path. Its title and workspace trust
-prompt rendered; 8 imports were released, the PTY and idle child exited, and no model
+through the existing provider/supervisor/LocalHost path. Its retained startup text
+contained the title and workspace trust prompt; three explicit assertions passed,
+including a subsequent completed-frame acknowledgement in the current receiver.
+All 5 imports were released, the PTY and idle child exited, and no model
 prompt or trust approval was automated. Input/reply checks above use the fixed PTY
 peer. They do **not** prove Claude's full composer, model-turn behavior, or transcript
 scrolling beyond the trust screen. Those remain maintainer hands-on checks using the
@@ -178,10 +192,10 @@ Resize favoured web; wheel scheduling favoured native in this sample. These mixe
 observations support neither a blanket pacing win nor a physical latency claim.
 
 The two-live-surface runs also observed main and renderer scheduling under their
-short fixed workload. Main 4 ms timer p95 was 5.18–5.24 ms, p99 7.50–12.73 ms,
-max 21.78–30.89 ms. Renderer rAF p95 was 18.6–18.7 ms, max 18.7–18.8 ms.
+short fixed workload. Main 4 ms timer p95 was 5.19–5.36 ms, p99 7.14–15.77 ms,
+max 23.77–24.43 ms. Renderer rAF p95 was 18.3–18.7 ms, max 18.7–24.7 ms.
 Synchronous feed calls for the roughly 1 kB PTY chunks had per-run p95
-0.016–0.024 ms and maxima 0.064–0.084 ms. These samples include setup/interaction
+0.017–0.025 ms and maxima 0.069–0.786 ms. These samples include setup/interaction
 phases, deliberate receiver delay and window changes. They show bounded observed
 service on this small case; they do not qualify workbench responsiveness or sustained
 large-output/capacity behaviour. Parsing still runs in Electron main in the prototype.
@@ -230,7 +244,12 @@ retain optional EGL information, compiler output and native initialization outpu
 The source limitation is announced **before** the runtime call: this pinned API
 exposes only macOS/iOS. If native app initialization succeeds, the probe checks the
 rejection of a deliberately **unsupported** tag 3. That confirms a known embedding
-API boundary; it is not a newly discovered GPU/driver failure. The library stays
+API boundary; it is not a newly discovered GPU/driver failure. The expected shared library is checked before loading: pinned `build.zig:234`
+installs `ghostty-internal.so` for non-Darwin/non-Windows targets. A missing artifact
+is reported separately. Runtime exit codes distinguish library loading (10), global
+initialization (11), config allocation (12), app initialization (13), and missing ABI
+symbols (14); code 3 confirms the known platform boundary. No cause is inferred from
+a shared generic initialization error. The library stays
 mapped until process exit because this ABI exposes no global shutdown operation.
 No surface, frame or descriptor-transport success is inferred from app initialization.
 
@@ -243,7 +262,7 @@ Electron scrolling demo**: an EGL embedding facade, DMA-BUF export/lease handlin
 Electron import path still need a real Linux experiment. No CPU fallback qualifies it.
 The Linux build/runtime command has not been executed here; local checks cover shell
 syntax, C syntax against the pinned header, patch extraction/application and evidence
-serialization only.
+serialization and the portable loader-failure exit code on macOS only.
 
 Pinned source provides useful leads only: `OpenGL.zig` exports DMA-BUFs when the
 runtime can present them; `opengl/Frame.zig` synchronizes with `gl.finish()`. The

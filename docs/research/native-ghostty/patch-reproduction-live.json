@@ -57,11 +57,16 @@
     "executedOn": "darwin-arm64",
     "nativeLinuxBuildExecuted": false,
     "patchSha256": "b5246d1a3c4a88b326495781c7073ab5579ddeb975c4a702af78a2675c0b6f41",
-    "files": [
-      "src/apprt/embedded.zig",
-      "src/termio/Termio.zig"
-    ],
+    "files": ["src/apprt/embedded.zig", "src/termio/Termio.zig"],
     "cleanApply": true,
     "matchesBuiltPortableFiles": true
+  },
+  "linuxArtifactContract": {
+    "upstreamCommit": "83fb95624b0439ee660c2679b43b38c8b63769cd",
+    "source": "build.zig",
+    "line": 234,
+    "installCall": "lib_shared.install(\"ghostty-internal.so\");",
+    "expectedRelativePath": "native/lib/ghostty-internal.so",
+    "evidence": "Read pinned source on Darwin; Linux build still pending."
   }
 }

@@ -23,7 +23,7 @@ static void write_clipboard(void *u, ghostty_clipboard_e c,
 static void close_surface(void *u, bool alive) { (void)u; (void)alive; }
 
 #define LOAD(name) __typeof__(&name) api_##name = (__typeof__(&name))dlsym(library, #name); \
-  if (!api_##name) { fprintf(stderr, "Missing pinned ABI symbol: %s\n", #name); return 4; }
+  if (!api_##name) { fprintf(stderr, "Missing pinned ABI symbol: %s\n", #name); return 14; }
 
 int main(int argc, char **argv) {
   if (argc != 2) { fprintf(stderr, "Usage: linux-probe /absolute/path/to/ghostty-internal.so\n"); return 64; }
@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
   fflush(stdout);
   // Keep the library mapped until process exit: this ABI has no global shutdown.
   void *library = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
-  if (!library) { fprintf(stderr, "dlopen: %s\n", dlerror()); return 4; }
+  if (!library) { fprintf(stderr, "dlopen: %s\n", dlerror()); return 10; }
   LOAD(ghostty_init);
   LOAD(ghostty_config_new);
   LOAD(ghostty_config_finalize);
@@ -45,10 +45,10 @@ int main(int argc, char **argv) {
   LOAD(ghostty_surface_free);
   if (api_ghostty_init(0, NULL) != 0) {
     fprintf(stderr, "Native global initialization failed before the platform probe.\n");
-    return 4;
+    return 11;
   }
   ghostty_config_t config = api_ghostty_config_new();
-  if (!config) { return 4; }
+  if (!config) { fprintf(stderr, "Native config allocation failed.\n"); return 12; }
   api_ghostty_config_finalize(config); // Never load the maintainer's personal config.
   ghostty_runtime_config_s runtime = { .wakeup_cb = wakeup, .action_cb = action,
     .read_clipboard_cb = read_clipboard, .confirm_read_clipboard_cb = confirm_clipboard,
@@ -56,8 +56,8 @@ int main(int argc, char **argv) {
   ghostty_app_t app = api_ghostty_app_new(&runtime, config);
   api_ghostty_config_free(config);
   if (!app) {
-    fprintf(stderr, "Native app/device initialization failed; inspect runtime.log before inferring a cause.\n");
-    return 4;
+    fprintf(stderr, "Native app initialization failed; inspect runtime.log before inferring a cause.\n");
+    return 13;
   }
   puts("Native app initialization succeeded; no exported frame has been produced.");
   ghostty_surface_config_s options = api_ghostty_surface_config_new();

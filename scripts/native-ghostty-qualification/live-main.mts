@@ -74,7 +74,13 @@ export interface LiveSurface {
   draws: number
   staleDraws: number
   geometryEpoch: number
-  lastDraw?: { width: number; height: number; generation: number; serial: number }
+  lastDraw?: {
+    width: number
+    height: number
+    generation: number
+    geometryEpoch: number
+    serial: number
+  }
   heartbeat: number[]
 }
 const require = createRequire(join(process.env.HVIR_QUALIFICATION_ROOT!, 'package.json'))
@@ -373,6 +379,7 @@ ipcMain.on(
     data: {
       session: string
       generation: number
+      geometryEpoch: number
       width: number
       height: number
       serial: number
@@ -496,14 +503,44 @@ void app
         () => ptys.streams.get(s.id)!.bytes > 0,
         'Supported harness produced no startup output',
       )
-      await delay(2000)
+      await until(() => {
+        const text = s.native.snapshot()
+        return text.includes('Claude Code') && /trust|Trust/.test(text)
+      }, 'Supported harness did not reach the expected title/trust startup state')
       const text = s.native.snapshot()
+      const barrier = {
+        produced: s.native.stats().produced,
+        draws: s.draws,
+        generation: s.generation,
+      }
       result.harnessStartup = {
         hasClaudeTitle: text.includes('Claude Code'),
         trustPrompt: /trust|Trust/.test(text),
         retainedCharacters: text.length,
         noModelPromptSubmitted: true,
+        barrier,
       }
+      check(
+        text.includes('Claude Code'),
+        'Supported harness retained startup contains Claude Code title',
+      )
+      check(
+        /trust|Trust/.test(text),
+        'Supported harness retained startup contains workspace trust prompt',
+      )
+      s.native.visible(true)
+      await until(
+        () =>
+          s.draws > barrier.draws &&
+          s.lastDraw?.generation === barrier.generation &&
+          s.lastDraw.serial > barrier.produced,
+        'Supported harness receiver did not acknowledge a later completed native frame',
+      )
+      result.harnessStartupDraw = { draws: s.draws, observed: { ...s.lastDraw } }
+      check(
+        true,
+        'Supported harness receiver acknowledges a later completed native frame in its current generation',
+      )
       s.idlePid = s.native.stats().idlePid
       await finish()
     } else if (probe) {

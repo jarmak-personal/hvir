@@ -108,10 +108,26 @@ export async function runLiveProbe(options: {
     a.native.stats().outputOverflow === 0 && b.native.stats().outputOverflow === 0,
     'Both terminal-reply queues remain within 65536 bytes',
   )
+  const revealBarrier = {
+    produced: b.native.stats().produced,
+    draws: b.draws,
+    generation: b.generation,
+  }
   b.window!.show()
   b.presenting = true
   b.native.visible(true)
-  await until(() => b.draws > 0, 'Hidden surface did not redraw after reveal')
+  await until(
+    () =>
+      b.draws > revealBarrier.draws &&
+      b.lastDraw?.generation === revealBarrier.generation &&
+      b.lastDraw.serial > revealBarrier.produced,
+    'Hidden surface did not acknowledge a later completed frame after reveal',
+  )
+  result.revealProof = {
+    barrier: revealBarrier,
+    observed: { ...b.lastDraw },
+    draws: b.draws,
+  }
   check(
     normalize(b.native.snapshot()) === burst('B', 2000).expected,
     'Hidden/revealed surface retains complete output',
@@ -137,22 +153,41 @@ export async function runLiveProbe(options: {
   check(true, 'Real Electron wheel changes terminal scrollback viewport')
   a.native.binding('scroll_to_bottom')
 
+  const resizeBarrier = {
+    produced: a.native.stats().produced,
+    draws: a.draws,
+    generation: a.generation,
+  }
   const resizeSamples: unknown[] = []
-  for (const cols of [80, 100, 90, 100, 80, 100]) {
+  for (const cols of [80, 100, 90, 100, 80, 96]) {
     const before = performance.now()
     const geometry = resize(a, cols, 30)
     resizeSamples.push({
       cols,
+      requestedEpoch: a.geometryEpoch,
       synchronousGridAndPtyResizeMs: performance.now() - before,
       geometry,
     })
   }
   const geometry = a.native.size()
   await until(
-    () => a.lastDraw?.width === geometry.width && a.lastDraw?.height === geometry.height,
+    () =>
+      a.draws > resizeBarrier.draws &&
+      a.lastDraw?.generation === resizeBarrier.generation &&
+      a.lastDraw.serial > resizeBarrier.produced &&
+      a.lastDraw.geometryEpoch === a.geometryEpoch &&
+      a.lastDraw.width === geometry.width &&
+      a.lastDraw.height === geometry.height,
     'Latest requested dimensions did not reach the receiver',
   )
   result.resize = resizeSamples
+  result.resizeProof = {
+    barrier: resizeBarrier,
+    requested: geometry,
+    requestedEpoch: a.geometryEpoch,
+    observed: { ...a.lastDraw },
+    draws: a.draws,
+  }
   check(
     ptys.supervisor.get(a.id) !== undefined,
     'Rapid resize retains the intended live PTY',
@@ -211,14 +246,25 @@ export async function runLiveProbe(options: {
     ptys.supervisor.get(b.id) === undefined && ptys.supervisor.get(a.id) !== undefined,
     'Closing one surface terminates only its intended PTY',
   )
-  const previousSerial = a.lastDraw?.serial ?? 0
+  const survivorBarrier = {
+    produced: a.native.stats().produced,
+    draws: a.draws,
+    generation: a.generation,
+  }
   a.native.input(Buffer.from('alive'))
   await until(
     () =>
       a.native.snapshot().includes('SURVIVOR:A') &&
-      (a.lastDraw?.serial ?? 0) > previousSerial,
+      a.draws > survivorBarrier.draws &&
+      a.lastDraw?.generation === survivorBarrier.generation &&
+      a.lastDraw.serial > survivorBarrier.produced,
     'Surviving PTY/native surface failed after the other app was freed',
   )
+  result.survivorProof = {
+    barrier: survivorBarrier,
+    observed: { ...a.lastDraw },
+    draws: a.draws,
+  }
   check(
     true,
     'Surviving PTY and native surface round-trip fresh input and redraw after peer teardown',

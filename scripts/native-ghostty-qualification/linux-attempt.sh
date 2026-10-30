@@ -81,6 +81,13 @@ else
   echo 'Native build stopped. Return result.json and build.log; no GPU claim is possible.' >&2
   exit 1
 fi
+# Pinned build.zig installs this exact name on non-Darwin, non-Windows targets.
+qualification_library="$qualification_output/native/lib/ghostty-internal.so"
+if [[ ! -f "$qualification_library" ]]; then
+  qualification_stage=expected-native-library-missing
+  echo 'Build succeeded but the pinned expected native/lib/ghostty-internal.so is absent.' >&2
+  exit 1
+fi
 qualification_stage=probe-compile
 if ! cc -std=gnu11 -Wall -Wextra \
   -I "$qualification_output/ghostty/include" \
@@ -91,14 +98,18 @@ if ! cc -std=gnu11 -Wall -Wextra \
 fi
 qualification_stage=runtime-init
 if timeout --signal=TERM --kill-after=5s 30s "$qualification_output/linux-probe" \
-  "$qualification_output/native/lib/ghostty-internal.so" > "$qualification_output/runtime.log" 2>&1; then
+  "$qualification_library" > "$qualification_output/runtime.log" 2>&1; then
   qualification_runtime_code=0
 else
   qualification_runtime_code=$?
 fi
 case "$qualification_runtime_code" in
   3) qualification_stage=known-embedding-platform-boundary ;;
-  4) qualification_stage=native-load-or-init-blocked ;;
+  10) qualification_stage=native-library-load-blocked ;;
+  11) qualification_stage=native-global-init-blocked ;;
+  12) qualification_stage=native-config-allocation-blocked ;;
+  13) qualification_stage=native-app-init-blocked ;;
+  14) qualification_stage=native-abi-symbol-blocked ;;
   *) qualification_stage=runtime-result-needs-inspection ;;
 esac
 echo 'Attempt retained. Return result.json, build.log, runtime.log and egl.log.'
