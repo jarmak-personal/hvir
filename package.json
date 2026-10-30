@@ -126,7 +126,7 @@
     "cross-env": "^10.0.0",
     "electron": "^43.8.1",
     "electron-builder": "^26.18.0",
-    "electron-vite": "^5.0.0",
+    "electron-vite": "^6.0.0",
     "eslint": "^10.13.0",
     "eslint-config-prettier": "^10.1.0",
     "eslint-plugin-react-hooks": "^7.1.0",
