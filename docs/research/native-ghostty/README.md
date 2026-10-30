@@ -1,5 +1,7 @@
 # Native Ghostty: matched probes and interactive scrolling
 
+The follow-up [live PTY and lifecycle study (#1094)](live-study.md) adds a maintainer-runnable live demo, three two-surface probes, refreshed comparisons and explicit Linux/harness gaps.
+
 Continuation of [#1091](https://github.com/jarmak-personal/hvir/issues/1091), under
 [#1090](https://github.com/jarmak-personal/hvir/issues/1090). The [initial study](initial-study.md)
 proved native Metal/IOSurface delivery into sandboxed Electron. This continuation adds matched

@@ -1,4 +1,4 @@
-// Disposable single-surface macOS qualification bridge. Never loaded by hvir.
+// Disposable two-surface macOS qualification bridge. Never loaded by hvir.
 // Uses C APIs, including Objective-C runtime messaging, rather than a new source language.
 #include <node_api.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -17,8 +17,9 @@
 extern id MTLCreateSystemDefaultDevice(void);
 extern void *objc_autoreleasePoolPush(void);
 extern void objc_autoreleasePoolPop(void *);
-extern void hvir_qualification_set_present(void (*)(void *, uint32_t, uint32_t));
-extern void hvir_qualification_set_write(void (*)(const char *, size_t));
+extern void hvir_qualification_set_present(void (*)(void *, void *, uint32_t, uint32_t));
+extern void hvir_qualification_set_write(void (*)(void *, const char *, size_t));
+extern void hvir_qualification_set_context(ghostty_surface_t, void *);
 extern void hvir_qualification_feed(ghostty_surface_t, const char *, size_t);
 
 // A slot is writable only before publication or after Electron releases every reference.
@@ -29,21 +30,38 @@ typedef struct {
   uint64_t serial;
   int state; // 0 free, 1 copying, 2 pending, 3 owned by Electron
 } Slot;
-static Slot slots[3];
-static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-static id device, queue, view;
-static ghostty_app_t app;
-static ghostty_surface_t terminal;
-static bool running;
-static uint64_t produced, dropped, copy_ns, max_copy_ns, copy_errors;
-static char output[65536];
-static size_t output_length;
-static bool output_overflow;
-static void write_output(const char *data, size_t length) {
-  pthread_mutex_lock(&lock);
-  if (length > sizeof(output) - output_length) output_overflow = true;
-  else { memcpy(output + output_length, data, length); output_length += length; }
-  pthread_mutex_unlock(&lock);
+typedef struct {
+  Slot slots[3];
+  pthread_mutex_t lock;
+  id device, queue, view;
+  ghostty_app_t app;
+  ghostty_surface_t terminal;
+  bool running;
+  uint64_t produced, dropped, copy_ns, max_copy_ns, copy_errors;
+  char output[65536];
+  size_t output_length;
+  bool output_overflow;
+} Session;
+// Two fixed slots make the disposable ownership bound explicit. JS objects are never
+// rebound to another session; callbacks keep stable userdata until surface_free joins.
+static Session sessions[2];
+static unsigned session_count;
+static bool ghostty_initialized;
+static Session *session(napi_env env, napi_callback_info info) {
+  napi_value self; void *data = NULL;
+  napi_get_cb_info(env, info, NULL, NULL, &self, NULL);
+  if (napi_unwrap(env, self, &data) != napi_ok) {
+    napi_throw_error(env, NULL, "Expected the original session object as receiver");
+    return NULL;
+  }
+  return data;
+}
+static void write_output(void *context, const char *data, size_t length) {
+  Session *s = context; if (!s) return;
+  pthread_mutex_lock(&s->lock);
+  if (length > sizeof(s->output) - s->output_length) s->output_overflow = true;
+  else { memcpy(s->output + s->output_length, data, length); s->output_length += length; }
+  pthread_mutex_unlock(&s->lock);
 }
 static uint64_t now_ns(void) {
   struct timespec time; clock_gettime(CLOCK_MONOTONIC, &time);
@@ -61,7 +79,7 @@ static void number(CFMutableDictionaryRef dict, CFStringRef key, int64_t value) 
   CFRelease(n);
 }
 
-static id texture(IOSurfaceRef surface, uint32_t width, uint32_t height) {
+static id texture(Session *s, IOSurfaceRef surface, uint32_t width, uint32_t height) {
   id desc = MSG0(id, (id)objc_getClass("MTLTextureDescriptor"), "new");
   MSG1(void, desc, "setWidth:", unsigned long, width);
   MSG1(void, desc, "setHeight:", unsigned long, height);
@@ -69,7 +87,7 @@ static id texture(IOSurfaceRef surface, uint32_t width, uint32_t height) {
   MSG1(void, desc, "setUsage:", unsigned long, 5); // shaderRead | renderTarget
   MSG1(void, desc, "setStorageMode:", unsigned long, 0); // shared, Apple Silicon
   id result = ((id (*)(id, SEL, id, IOSurfaceRef, unsigned long))objc_msgSend)(
-    device, SEL("newTextureWithDescriptor:iosurface:plane:"), desc, surface, 0);
+    s->device, SEL("newTextureWithDescriptor:iosurface:plane:"), desc, surface, 0);
   MSG0(void, desc, "release");
   return result;
 }
@@ -85,14 +103,15 @@ static void clear_slot(Slot *slot) {
 
 // Runs on Ghostty's Metal completion thread, not the JS event loop.
 // The synchronous GPU blit finishes before Ghostty can recycle its source texture.
-static void present(void *source, uint32_t width, uint32_t height) {
-  pthread_mutex_lock(&lock);
-  if (!running) { pthread_mutex_unlock(&lock); return; }
+static void present(void *context, void *source, uint32_t width, uint32_t height) {
+  Session *s = context; if (!s) return;
+  pthread_mutex_lock(&s->lock);
+  if (!s->running) { pthread_mutex_unlock(&s->lock); return; }
   Slot *slot = NULL;
-  for (int i = 0; i < 3; i++) if (slots[i].state == 0) { slot = &slots[i]; break; }
-  if (!slot) { dropped++; pthread_mutex_unlock(&lock); return; }
+  for (int i = 0; i < 3; i++) if (s->slots[i].state == 0) { slot = &s->slots[i]; break; }
+  if (!slot) { s->dropped++; pthread_mutex_unlock(&s->lock); return; }
   slot->state = 1;
-  pthread_mutex_unlock(&lock);
+  pthread_mutex_unlock(&s->lock);
 
   uint64_t copy_start = now_ns();
   void *pool = objc_autoreleasePoolPush();
@@ -107,16 +126,16 @@ static void present(void *source, uint32_t width, uint32_t height) {
     slot->surface = IOSurfaceCreate(properties);
     CFRelease(properties);
     slot->width = width; slot->height = height;
-    if (slot->surface) slot->texture = texture(slot->surface, width, height);
+    if (slot->surface) slot->texture = texture(s, slot->surface, width, height);
   }
-  id input = texture(source, width, height);
+  id input = texture(s, source, width, height);
   if (!slot->surface || !slot->texture || !input) {
     if (input) MSG0(void, input, "release");
     objc_autoreleasePoolPop(pool);
-    pthread_mutex_lock(&lock); copy_errors++; slot->state = 0; pthread_mutex_unlock(&lock);
+    pthread_mutex_lock(&s->lock); s->copy_errors++; slot->state = 0; pthread_mutex_unlock(&s->lock);
     return;
   }
-  id buffer = MSG0(id, queue, "commandBuffer");
+  id buffer = MSG0(id, s->queue, "commandBuffer");
   id blit = MSG0(id, buffer, "blitCommandEncoder");
   typedef struct { unsigned long width, height, depth; } Size;
   typedef struct { unsigned long x, y, z; } Origin;
@@ -132,16 +151,16 @@ static void present(void *source, uint32_t width, uint32_t height) {
   MSG0(void, input, "release");
 
   objc_autoreleasePoolPop(pool);
-  pthread_mutex_lock(&lock);
+  pthread_mutex_lock(&s->lock);
   // Latest completed frame wins. Never replace one held by Chromium.
-  for (int i = 0; i < 3; i++) if (slots[i].state == 2) slots[i].state = 0;
+  for (int i = 0; i < 3; i++) if (s->slots[i].state == 2) s->slots[i].state = 0;
   uint64_t duration = now_ns() - copy_start;
-  copy_ns += duration;
-  if (duration > max_copy_ns) max_copy_ns = duration;
-  slot->serial = ++produced;
-  if (!success) copy_errors++;
-  slot->state = running && success ? 2 : 0;
-  pthread_mutex_unlock(&lock);
+  s->copy_ns += duration;
+  if (duration > s->max_copy_ns) s->max_copy_ns = duration;
+  slot->serial = ++s->produced;
+  if (!success) s->copy_errors++;
+  slot->state = s->running && success ? 2 : 0;
+  pthread_mutex_unlock(&s->lock);
 }
 
 static void wakeup(void *unused) { (void)unused; }
@@ -168,11 +187,29 @@ static napi_value undefined_value(napi_env env) { napi_value v; napi_get_undefin
 static void field(napi_env env, napi_value object, const char *name, double n) {
   napi_value v; napi_create_double(env, n, &v); napi_set_named_property(env, object, name, v);
 }
+static void dispose_session(Session *s) {
+  pthread_mutex_lock(&s->lock); s->running = false; pthread_mutex_unlock(&s->lock);
+  if (s->terminal) { ghostty_surface_free(s->terminal); s->terminal = NULL; }
+  if (s->app) { ghostty_app_free(s->app); s->app = NULL; }
+  for (int i = 0; i < 3; i++) clear_slot(&s->slots[i]);
+  if (s->view) { MSG0(void, s->view, "release"); s->view = NULL; }
+  if (s->queue) { MSG0(void, s->queue, "release"); s->queue = NULL; }
+  if (s->device) { MSG0(void, s->device, "release"); s->device = NULL; }
+}
+static napi_value startup_failure(napi_env env, Session *s, const char *message) {
+  dispose_session(s); return fail(env, message);
+}
 static napi_value start(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
   size_t argc = 1; napi_value argv[1];
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
-  if (app) return fail(env, "Only one disposable surface is supported");
-  if (ghostty_init(0, NULL) != 0) return fail(env, "ghostty_init failed");
+  if (s->app) return fail(env, "Session already started");
+  if (!ghostty_initialized) {
+    if (ghostty_init(0, NULL) != 0) return fail(env, "ghostty_init failed");
+    ghostty_initialized = true;
+    hvir_qualification_set_present(present);
+    hvir_qualification_set_write(write_output);
+  }
   ghostty_config_t config = ghostty_config_new();
   if (argc == 1) {
     char path[4096]; size_t length;
@@ -189,124 +226,128 @@ static napi_value start(napi_env env, napi_callback_info info) {
   ghostty_runtime_config_s runtime = { .wakeup_cb = wakeup, .action_cb = action,
     .read_clipboard_cb = read_clipboard, .confirm_read_clipboard_cb = confirm_clipboard,
     .write_clipboard_cb = write_clipboard, .close_surface_cb = close_surface };
-  app = ghostty_app_new(&runtime, config);
+  s->app = ghostty_app_new(&runtime, config);
   ghostty_config_free(config);
-  if (!app) return fail(env, "ghostty_app_new failed");
-  device = MTLCreateSystemDefaultDevice();
-  if (!device) return fail(env, "Metal device unavailable");
-  queue = MSG0(id, device, "newCommandQueue");
-  if (!queue) return fail(env, "Metal queue unavailable");
-  view = MSG0(id, (id)objc_getClass("NSView"), "alloc");
-  view = MSG1(id, view, "initWithFrame:", CGRect, CGRectMake(0, 0, 960, 600));
-  running = true;
-  hvir_qualification_set_present(present);
-  hvir_qualification_set_write(write_output);
+  if (!s->app) return fail(env, "ghostty_app_new failed");
+  s->device = MTLCreateSystemDefaultDevice();
+  if (!s->device) return startup_failure(env, s, "Metal device unavailable");
+  s->queue = MSG0(id, s->device, "newCommandQueue");
+  if (!s->queue) return startup_failure(env, s, "Metal queue unavailable");
+  s->view = MSG0(id, (id)objc_getClass("NSView"), "alloc");
+  s->view = MSG1(id, s->view, "initWithFrame:", CGRect, CGRectMake(0, 0, 960, 600));
+  if (!s->view) return startup_failure(env, s, "NSView unavailable");
+  s->running = true;
   ghostty_surface_config_s options = ghostty_surface_config_new();
+  options.userdata = s;
   options.platform_tag = GHOSTTY_PLATFORM_MACOS;
-  options.platform.macos.nsview = view;
+  options.platform.macos.nsview = s->view;
   options.scale_factor = 2;
   options.command = "/bin/sleep 86400"; // Disposable idle exec backend, not external PTY support.
   options.working_directory = "/tmp";
-  terminal = ghostty_surface_new(app, &options);
-  if (!terminal) return fail(env, "ghostty_surface_new failed");
-  ghostty_surface_set_size(terminal, 1920, 1200);
-  ghostty_surface_set_focus(terminal, true);
-  ghostty_surface_refresh(terminal);
+  s->terminal = ghostty_surface_new(s->app, &options);
+  if (!s->terminal) return startup_failure(env, s, "ghostty_surface_new failed");
+  hvir_qualification_set_context(s->terminal, s);
+  ghostty_surface_set_size(s->terminal, 1920, 1200);
+  ghostty_surface_set_focus(s->terminal, true);
+  ghostty_surface_refresh(s->terminal);
   return undefined_value(env);
 }
 static napi_value tick(napi_env env, napi_callback_info info) {
-  (void)info; if (app) ghostty_app_tick(app); return undefined_value(env);
+  Session *s = session(env, info); if (!s) return NULL;
+  (void)info; if (s->app) ghostty_app_tick(s->app); return undefined_value(env);
 }
 static napi_value feed(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
   size_t count = 1, length; napi_value args[1];
   napi_get_cb_info(env, info, &count, args, NULL, NULL);
   void *bytes;
-  if (!terminal || count != 1 || napi_get_buffer_info(env, args[0], &bytes, &length) != napi_ok)
+  if (!s->terminal || count != 1 || napi_get_buffer_info(env, args[0], &bytes, &length) != napi_ok || length > 1024 * 1024)
     return fail(env, "feed requires a Buffer and a live surface");
   uint64_t started = now_ns();
-  hvir_qualification_feed(terminal, bytes, length);
+  hvir_qualification_feed(s->terminal, bytes, length);
   napi_value result; napi_create_double(env, (now_ns() - started) / 1e6, &result);
   return result;
 }
 static napi_value take(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
   (void)info; napi_value object; napi_create_object(env, &object);
-  pthread_mutex_lock(&lock);
-  field(env, object, "copyErrors", copy_errors);
-  field(env, object, "copyMeanMs", produced ? copy_ns / (double)produced / 1e6 : 0);
-  field(env, object, "copyMaxMs", max_copy_ns / 1e6);
-  field(env, object, "produced", produced); field(env, object, "dropped", dropped);
-  for (int i = 0; i < 3; i++) if (slots[i].state == 2) {
-    Slot *slot = &slots[i]; slot->state = 3;
+  pthread_mutex_lock(&s->lock);
+  field(env, object, "copyErrors", s->copy_errors);
+  field(env, object, "copyMeanMs", s->produced ? s->copy_ns / (double)s->produced / 1e6 : 0);
+  field(env, object, "copyMaxMs", s->max_copy_ns / 1e6);
+  field(env, object, "produced", s->produced); field(env, object, "dropped", s->dropped);
+  for (int i = 0; i < 3; i++) if (s->slots[i].state == 2) {
+    Slot *slot = &s->slots[i]; slot->state = 3;
     napi_value pointer; napi_create_buffer_copy(env, sizeof(slot->surface), &slot->surface, NULL, &pointer);
     napi_set_named_property(env, object, "ioSurface", pointer);
     field(env, object, "slot", i); field(env, object, "serial", slot->serial);
     field(env, object, "width", slot->width); field(env, object, "height", slot->height);
     break;
   }
-  pthread_mutex_unlock(&lock);
+  pthread_mutex_unlock(&s->lock);
   return object;
 }
 static napi_value release(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
   size_t count = 2; napi_value args[2]; double index, serial;
   napi_get_cb_info(env, info, &count, args, NULL, NULL);
   if (count != 2 || napi_get_value_double(env, args[0], &index) != napi_ok ||
     napi_get_value_double(env, args[1], &serial) != napi_ok || index < 0 || index >= 3 || index != (int)index)
     return fail(env, "release requires an exact slot and serial");
-  pthread_mutex_lock(&lock);
-  Slot *slot = &slots[(int)index];
+  pthread_mutex_lock(&s->lock);
+  Slot *slot = &s->slots[(int)index];
   if (slot->serial == serial && slot->state == 3) slot->state = 0;
-  pthread_mutex_unlock(&lock);
+  pthread_mutex_unlock(&s->lock);
   return undefined_value(env);
 }
 static napi_value stop(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
   (void)info;
-  pthread_mutex_lock(&lock); running = false; pthread_mutex_unlock(&lock);
-  if (terminal) { ghostty_surface_free(terminal); terminal = NULL; }
-  if (app) { ghostty_app_free(app); app = NULL; }
-  hvir_qualification_set_present(NULL);
-  hvir_qualification_set_write(NULL);
-  // Caller must first close the receiving window and wait for allReferencesReleased.
-  for (int i = 0; i < 3; i++) {
-    if (slots[i].state == 3) return fail(env, "Electron still owns a texture; release it before stop");
-    clear_slot(&slots[i]);
+  pthread_mutex_lock(&s->lock);
+  for (int i = 0; i < 3; i++) if (s->slots[i].state == 3) {
+    pthread_mutex_unlock(&s->lock);
+    return fail(env, "Electron still owns a texture; release it before stop");
   }
-  if (view) { MSG0(void, view, "release"); view = NULL; }
-  if (queue) { MSG0(void, queue, "release"); queue = NULL; }
-  if (device) { MSG0(void, device, "release"); device = NULL; }
+  pthread_mutex_unlock(&s->lock);
+  dispose_session(s);
   return undefined_value(env);
 }
 static napi_value input(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
   size_t count = 1, length; napi_value args[1]; void *bytes;
   napi_get_cb_info(env, info, &count, args, NULL, NULL);
-  if (!terminal || count != 1 || napi_get_buffer_info(env, args[0], &bytes, &length) != napi_ok)
+  if (!s->terminal || count != 1 || napi_get_buffer_info(env, args[0], &bytes, &length) != napi_ok)
     return fail(env, "input requires a Buffer and a live surface");
-  ghostty_surface_text(terminal, bytes, length);
+  ghostty_surface_text(s->terminal, bytes, length);
   return undefined_value(env);
 }
 static napi_value drain(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
   (void)info; napi_value bytes;
-  pthread_mutex_lock(&lock);
-  if (output_overflow) { pthread_mutex_unlock(&lock); return fail(env, "Output probe overflowed"); }
-  napi_create_buffer_copy(env, output_length, output, NULL, &bytes);
-  output_length = 0;
-  pthread_mutex_unlock(&lock);
+  pthread_mutex_lock(&s->lock);
+  if (s->output_overflow) { pthread_mutex_unlock(&s->lock); return fail(env, "Output probe overflowed"); }
+  napi_create_buffer_copy(env, s->output_length, s->output, NULL, &bytes);
+  s->output_length = 0;
+  pthread_mutex_unlock(&s->lock);
   return bytes;
 }
 static napi_value resize(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
   size_t count = 2; napi_value args[2]; uint32_t width, height;
   napi_get_cb_info(env, info, &count, args, NULL, NULL);
-  if (!terminal || count != 2 || napi_get_value_uint32(env, args[0], &width) != napi_ok ||
+  if (!s->terminal || count != 2 || napi_get_value_uint32(env, args[0], &width) != napi_ok ||
       napi_get_value_uint32(env, args[1], &height) != napi_ok ||
       width < 100 || height < 100 || width > 4096 || height > 4096)
     return fail(env, "resize requires bounded dimensions and a live surface");
-  MSG1(void, view, "setFrameSize:", CGSize, CGSizeMake(width / 2.0, height / 2.0));
-  ghostty_surface_set_size(terminal, width, height);
+  MSG1(void, s->view, "setFrameSize:", CGSize, CGSizeMake(width / 2.0, height / 2.0));
+  ghostty_surface_set_size(s->terminal, width, height);
   return undefined_value(env);
 }
 static napi_value size(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
   (void)info;
-  if (!terminal) return fail(env, "No surface");
-  ghostty_surface_size_s size = ghostty_surface_size(terminal);
+  if (!s->terminal) return fail(env, "No surface");
+  ghostty_surface_size_s size = ghostty_surface_size(s->terminal);
   napi_value result; napi_create_object(env, &result);
   field(env, result, "width", size.width_px); field(env, result, "height", size.height_px);
   field(env, result, "cellWidth", size.cell_width_px); field(env, result, "cellHeight", size.cell_height_px);
@@ -315,9 +356,10 @@ static napi_value size(napi_env env, napi_callback_info info) {
 }
 // Bounded exact text readback for the disposable correctness workload, not a production API.
 static napi_value snapshot(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
   size_t argc = 1; napi_value argv[1]; bool viewport = false;
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
-  if (!terminal) return fail(env, "No surface");
+  if (!s->terminal) return fail(env, "No surface");
   if (argc) napi_get_value_bool(env, argv[0], &viewport);
   ghostty_point_tag_e tag = viewport ? GHOSTTY_POINT_VIEWPORT : GHOSTTY_POINT_SCREEN;
   ghostty_selection_s selection = {
@@ -325,34 +367,105 @@ static napi_value snapshot(napi_env env, napi_callback_info info) {
     .bottom_right = { .tag = tag, .coord = GHOSTTY_POINT_COORD_BOTTOM_RIGHT },
   };
   ghostty_text_s text = {0};
-  if (!ghostty_surface_read_text(terminal, selection, &text)) return fail(env, "Text readback failed");
+  if (!ghostty_surface_read_text(s->terminal, selection, &text)) return fail(env, "Text readback failed");
   napi_value result;
   if (text.text_len > 2 * 1024 * 1024) {
-    ghostty_surface_free_text(terminal, &text); return fail(env, "Text readback exceeds probe bound");
+    ghostty_surface_free_text(s->terminal, &text); return fail(env, "Text readback exceeds probe bound");
   }
   napi_create_string_utf8(env, text.text ? text.text : "", text.text_len, &result);
-  ghostty_surface_free_text(terminal, &text);
+  ghostty_surface_free_text(s->terminal, &text);
   return result;
 }
 static napi_value scroll(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
   size_t argc = 2; napi_value argv[2]; double x, y;
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
-  if (!terminal || argc != 2 || napi_get_value_double(env, argv[0], &x) != napi_ok ||
+  if (!s->terminal || argc != 2 || napi_get_value_double(env, argv[0], &x) != napi_ok ||
       napi_get_value_double(env, argv[1], &y) != napi_ok || !isfinite(x) || !isfinite(y) ||
       fabs(x) > 100000 || fabs(y) > 100000) return fail(env, "Invalid pixel scroll");
-  ghostty_surface_mouse_scroll(terminal, x, y, 1); // precision offsets in physical pixels
+  ghostty_surface_mouse_scroll(s->terminal, x, y, 1); // precision offsets in physical pixels
   return undefined_value(env);
 }
 static napi_value binding(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
   size_t argc = 1, length; napi_value argv[1]; char name[64];
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
-  if (!terminal || argc != 1 || napi_get_value_string_utf8(env, argv[0], name, sizeof(name), &length) != napi_ok || length >= sizeof(name) - 1)
+  if (!s->terminal || argc != 1 || napi_get_value_string_utf8(env, argv[0], name, sizeof(name), &length) != napi_ok || length >= sizeof(name) - 1)
     return fail(env, "Invalid binding");
-  bool accepted = ghostty_surface_binding_action(terminal, name, length);
+  bool accepted = ghostty_surface_binding_action(s->terminal, name, length);
   napi_value result; napi_get_boolean(env, accepted, &result); return result;
 }
-NAPI_MODULE_INIT() {
+// macOS virtual keycodes are supplied by the explicitly bounded experiment UI.
+static napi_value key(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
+  size_t count = 3, length; napi_value args[3]; uint32_t code, mods;
+  char text[64] = {0};
+  napi_get_cb_info(env, info, &count, args, NULL, NULL);
+  if (!s->terminal || count != 3 ||
+      napi_get_value_uint32(env, args[0], &code) != napi_ok || code > 127 ||
+      napi_get_value_uint32(env, args[1], &mods) != napi_ok || mods > 15 ||
+      napi_get_value_string_utf8(env, args[2], text, sizeof(text), &length) != napi_ok ||
+      length >= sizeof(text) - 1) return fail(env, "Invalid experiment key");
+  ghostty_input_key_s event = { .action = GHOSTTY_ACTION_PRESS,
+    .mods = mods, .keycode = code, .text = text,
+    .unshifted_codepoint = length == 1 ? (unsigned char)text[0] : 0 };
+  ghostty_surface_key(s->terminal, event);
+  return undefined_value(env);
+}
+static napi_value mouse(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
+  size_t count = 3; napi_value args[3]; double x, y; bool pressed;
+  napi_get_cb_info(env, info, &count, args, NULL, NULL);
+  if (!s->terminal || count != 3 ||
+      napi_get_value_double(env, args[0], &x) != napi_ok ||
+      napi_get_value_double(env, args[1], &y) != napi_ok ||
+      napi_get_value_bool(env, args[2], &pressed) != napi_ok ||
+      !isfinite(x) || !isfinite(y) || x < 0 || y < 0 || x > 4096 || y > 4096)
+    return fail(env, "Invalid experiment mouse");
+  ghostty_surface_mouse_pos(s->terminal, x, y, GHOSTTY_MODS_NONE);
+  ghostty_surface_mouse_button(s->terminal, pressed ? GHOSTTY_MOUSE_PRESS : GHOSTTY_MOUSE_RELEASE,
+    GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE);
+  return undefined_value(env);
+}
+static napi_value visible(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
+  size_t count = 1; napi_value args[1]; bool value;
+  napi_get_cb_info(env, info, &count, args, NULL, NULL);
+  if (!s->terminal || count != 1 || napi_get_value_bool(env, args[0], &value) != napi_ok)
+    return fail(env, "Expected visibility and live surface");
+  ghostty_surface_set_occlusion(s->terminal, value);
+  if (value) ghostty_surface_refresh(s->terminal);
+  return undefined_value(env);
+}
+static napi_value stats(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
+  napi_value result; napi_create_object(env, &result);
+  pthread_mutex_lock(&s->lock);
+  int held = 0, pending = 0, copying = 0;
+  for (int i = 0; i < 3; i++) {
+    held += s->slots[i].state == 3; pending += s->slots[i].state == 2;
+    copying += s->slots[i].state == 1;
+  }
+  field(env, result, "idlePid", s->terminal ? ghostty_surface_foreground_pid(s->terminal) : 0);
+  field(env, result, "held", held); field(env, result, "pending", pending);
+  field(env, result, "copying", copying); field(env, result, "slots", 3);
+  field(env, result, "produced", s->produced); field(env, result, "dropped", s->dropped);
+  field(env, result, "copyErrors", s->copy_errors);
+  field(env, result, "outputBytes", s->output_length);
+  field(env, result, "outputOverflow", s->output_overflow);
+  pthread_mutex_unlock(&s->lock);
+  return result;
+}
+static napi_value make_session(napi_env env, napi_value object) {
+  if (session_count == 2) return fail(env, "Experiment supports exactly two session objects");
+  Session *s = &sessions[session_count++];
+  pthread_mutex_init(&s->lock, NULL);
+  napi_wrap(env, object, s, NULL, NULL, NULL);
   napi_property_descriptor methods[] = {
+    { "key", NULL, key, NULL, NULL, NULL, napi_default, NULL },
+    { "mouse", NULL, mouse, NULL, NULL, NULL, napi_default, NULL },
+    { "visible", NULL, visible, NULL, NULL, NULL, napi_default, NULL },
+    { "stats", NULL, stats, NULL, NULL, NULL, napi_default, NULL },
     { "start", NULL, start, NULL, NULL, NULL, napi_default, NULL },
     { "tick", NULL, tick, NULL, NULL, NULL, napi_default, NULL },
     { "feed", NULL, feed, NULL, NULL, NULL, napi_default, NULL },
@@ -367,6 +480,17 @@ NAPI_MODULE_INIT() {
     { "binding", NULL, binding, NULL, NULL, NULL, napi_default, NULL },
     { "stop", NULL, stop, NULL, NULL, NULL, napi_default, NULL }
   };
-  napi_define_properties(env, exports, sizeof(methods) / sizeof(methods[0]), methods);
+  napi_define_properties(env, object, sizeof(methods) / sizeof(methods[0]), methods);
+  return object;
+}
+
+static napi_value create(napi_env env, napi_callback_info info) {
+  (void)info; napi_value object; napi_create_object(env, &object);
+  return make_session(env, object);
+}
+NAPI_MODULE_INIT() {
+  make_session(env, exports);
+  napi_property_descriptor method = { "create", NULL, create, NULL, NULL, NULL, napi_default, NULL };
+  napi_define_properties(env, exports, 1, &method);
   return exports;
 }

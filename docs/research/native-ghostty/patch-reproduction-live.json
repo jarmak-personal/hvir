@@ -1,0 +1,67 @@
+{
+  "upstream": "83fb95624b0439ee660c2679b43b38c8b63769cd",
+  "patchSha256": "7e9b2b5b295c458d7a024cc774c0fe9aa261d773ff0a9471aa9ba7027d274b70",
+  "cleanApply": true,
+  "files": [
+    {
+      "path": "build.zig",
+      "builtSha256": "5d3268a27cb4faf94948f61048cb11d2b81bb5c031684d60fc6caff47bbc8f56",
+      "reproducedSha256": "5d3268a27cb4faf94948f61048cb11d2b81bb5c031684d60fc6caff47bbc8f56",
+      "matches": true
+    },
+    {
+      "path": "src/build/GhosttyLib.zig",
+      "builtSha256": "d4f78acc8d041a2ac32d9fb4bf9534110a9a83932daafb23406c575b60745091",
+      "reproducedSha256": "d4f78acc8d041a2ac32d9fb4bf9534110a9a83932daafb23406c575b60745091",
+      "matches": true
+    },
+    {
+      "path": "src/build/SharedDeps.zig",
+      "builtSha256": "46df8a20f950c838bd2cf27e9923d31288d2008b2cd8392574580a51a47a2dbe",
+      "reproducedSha256": "46df8a20f950c838bd2cf27e9923d31288d2008b2cd8392574580a51a47a2dbe",
+      "matches": true
+    },
+    {
+      "path": "src/renderer/metal/shaders.zig",
+      "builtSha256": "870c7f0c8cc75dd4a6e8b855d4e0bc8a90d2a6165167e133f1230208f44bec35",
+      "reproducedSha256": "870c7f0c8cc75dd4a6e8b855d4e0bc8a90d2a6165167e133f1230208f44bec35",
+      "matches": true
+    },
+    {
+      "path": "src/renderer/Metal.zig",
+      "builtSha256": "531d2d7f6c511de9deb6f009380695a51b13862d488d8377c8e950230d86fe46",
+      "reproducedSha256": "531d2d7f6c511de9deb6f009380695a51b13862d488d8377c8e950230d86fe46",
+      "matches": true
+    },
+    {
+      "path": "src/apprt/embedded.zig",
+      "builtSha256": "027c54fba9e2035cac97c438fe0d8f1cd32a894f16f537d812b0768b8dd1fc9f",
+      "reproducedSha256": "027c54fba9e2035cac97c438fe0d8f1cd32a894f16f537d812b0768b8dd1fc9f",
+      "matches": true
+    },
+    {
+      "path": "src/termio/Termio.zig",
+      "builtSha256": "25f5c679e1961f76b40585aa38121db32b9a5de8d5e4012e0c45e46a74611595",
+      "reproducedSha256": "25f5c679e1961f76b40585aa38121db32b9a5de8d5e4012e0c45e46a74611595",
+      "matches": true
+    },
+    {
+      "path": "src/termio/Exec.zig",
+      "builtSha256": "25e5e028b3f0504475e340992da439265b66fd1d71da49fffe9150e28aba3f7c",
+      "reproducedSha256": "25e5e028b3f0504475e340992da439265b66fd1d71da49fffe9150e28aba3f7c",
+      "matches": true
+    }
+  ],
+  "bridgeSourceSha256": "37b0b080c1c8b85c0791099717420d1e81ccff512f1386396913953f2a59785a",
+  "linuxPortableExtraction": {
+    "executedOn": "darwin-arm64",
+    "nativeLinuxBuildExecuted": false,
+    "patchSha256": "b5246d1a3c4a88b326495781c7073ab5579ddeb975c4a702af78a2675c0b6f41",
+    "files": [
+      "src/apprt/embedded.zig",
+      "src/termio/Termio.zig"
+    ],
+    "cleanApply": true,
+    "matchesBuiltPortableFiles": true
+  }
+}

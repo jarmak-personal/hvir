@@ -43,42 +43,52 @@
 +        .{ source, @as(?*anyopaque, null), &err });
 --- a/src/renderer/Metal.zig
 +++ b/src/renderer/Metal.zig
-@@ -238,5 +238,3 @@
+@@ -42,0 +43 @@
++qualification_userdata: ?*anyopaque = null,
+@@ -132,0 +134 @@
++        .qualification_userdata = opts.rt_surface.userdata,
+@@ -238,5 +240,2 @@
 -    if (sync) {
 -        self.layer.setSurfaceSync(target.surface);
 -    } else {
 -        try self.layer.setSurface(target.surface);
 -    }
-+    _ = self;
 +    _ = sync;
-+    if (qualification_present) |callback| callback(target.surface, @intCast(target.width), @intCast(target.height));
-@@ -387,0 +386,7 @@
++    if (qualification_present) |callback| callback(self.qualification_userdata, target.surface, @intCast(target.width), @intCast(target.height));
+@@ -387,0 +387,7 @@
 +
-+// Experimental single-surface hook. Called only after Ghostty's GPU work completes.
-+const QualificationPresent = *const fn (?*anyopaque, u32, u32) callconv(.c) void;
++// Experimental per-surface hook. Called only after Ghostty's GPU work completes.
++const QualificationPresent = *const fn (?*anyopaque, ?*anyopaque, u32, u32) callconv(.c) void;
 +var qualification_present: ?QualificationPresent = null;
 +export fn hvir_qualification_set_present(callback: ?QualificationPresent) void {
 +    qualification_present = callback;
 +}
 --- a/src/apprt/embedded.zig
 +++ b/src/apprt/embedded.zig
-@@ -1983,0 +1984,5 @@
-+    // Qualification-only manual input; the exec backend remains alive but idle.
+@@ -1983,0 +1984,10 @@
++    // Qualification-only manual input; each surface owns its external callbacks.
++    export fn hvir_qualification_set_context(surface: *Surface, userdata: ?*anyopaque) void {
++        surface.core_surface.io.qualification_userdata = userdata;
++    }
++
++    // The exec backend remains alive but idle.
 +    export fn hvir_qualification_feed(surface: *Surface, data: [*]const u8, len: usize) void {
 +        surface.core_surface.io.processOutput(data[0..len]);
 +    }
 +
---- a/src/termio/backend.zig
-+++ b/src/termio/backend.zig
-@@ -82,0 +83,4 @@
-+        if (qualification_write) |callback| {
-+            callback(data.ptr, data.len);
-+            return;
-+        }
-@@ -129,0 +134,7 @@
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -35,0 +36 @@
++qualification_userdata: ?*anyopaque = null,
+@@ -461,0 +463,4 @@
++    if (qualification_write) |callback| {
++        callback(self.qualification_userdata, data.ptr, data.len);
++        return;
++    }
+@@ -859,0 +865,7 @@
 +
-+// Qualification only: intercept writes before the idle exec backend.
-+const QualificationWrite = *const fn ([*]const u8, usize) callconv(.c) void;
++// Qualification only: the retained exec backend receives no application input.
++const QualificationWrite = *const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void;
 +var qualification_write: ?QualificationWrite = null;
 +export fn hvir_qualification_set_write(callback: ?QualificationWrite) void {
 +    qualification_write = callback;
