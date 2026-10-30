@@ -20,6 +20,8 @@ extern void objc_autoreleasePoolPop(void *);
 extern void hvir_qualification_set_present(void (*)(void *, void *, uint32_t, uint32_t));
 extern void hvir_qualification_set_write(void (*)(void *, const char *, size_t));
 extern void hvir_qualification_set_context(ghostty_surface_t, void *);
+extern void hvir_qualification_resize(ghostty_surface_t, uint32_t, uint32_t, uint64_t);
+extern void hvir_qualification_set_resize(void (*)(void *, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t));
 extern void hvir_qualification_feed(ghostty_surface_t, const char *, size_t);
 
 // A slot is writable only before publication or after Electron releases every reference.
@@ -41,6 +43,8 @@ typedef struct {
   char output[65536];
   size_t output_length;
   bool output_overflow;
+  uint64_t resize_requested, resize_applied;
+  uint32_t applied_cols, applied_rows, applied_width, applied_height;
 } Session;
 // Two fixed slots make the disposable ownership bound explicit. JS objects are never
 // rebound to another session; callbacks keep stable userdata until surface_free joins.
@@ -61,6 +65,14 @@ static void write_output(void *context, const char *data, size_t length) {
   pthread_mutex_lock(&s->lock);
   if (length > sizeof(s->output) - s->output_length) s->output_overflow = true;
   else { memcpy(s->output + s->output_length, data, length); s->output_length += length; }
+  pthread_mutex_unlock(&s->lock);
+}
+static void resize_applied(void *context, uint64_t serial, uint32_t cols,
+    uint32_t rows, uint32_t width, uint32_t height) {
+  Session *s = context; if (!s) return;
+  pthread_mutex_lock(&s->lock);
+  s->resize_applied = serial; s->applied_cols = cols; s->applied_rows = rows;
+  s->applied_width = width; s->applied_height = height;
   pthread_mutex_unlock(&s->lock);
 }
 static uint64_t now_ns(void) {
@@ -209,6 +221,7 @@ static napi_value start(napi_env env, napi_callback_info info) {
     ghostty_initialized = true;
     hvir_qualification_set_present(present);
     hvir_qualification_set_write(write_output);
+    hvir_qualification_set_resize(resize_applied);
   }
   ghostty_config_t config = ghostty_config_new();
   if (argc == 1) {
@@ -340,8 +353,19 @@ static napi_value resize(napi_env env, napi_callback_info info) {
       width < 100 || height < 100 || width > 4096 || height > 4096)
     return fail(env, "resize requires bounded dimensions and a live surface");
   MSG1(void, s->view, "setFrameSize:", CGSize, CGSizeMake(width / 2.0, height / 2.0));
-  ghostty_surface_set_size(s->terminal, width, height);
-  return undefined_value(env);
+  uint64_t serial = ++s->resize_requested;
+  hvir_qualification_resize(s->terminal, width, height, serial);
+  napi_value result; napi_create_double(env, (double)serial, &result); return result;
+}
+static napi_value applied_resize(napi_env env, napi_callback_info info) {
+  Session *s = session(env, info); if (!s) return NULL;
+  napi_value result; napi_create_object(env, &result);
+  pthread_mutex_lock(&s->lock);
+  field(env, result, "ticket", s->resize_applied);
+  field(env, result, "cols", s->applied_cols); field(env, result, "rows", s->applied_rows);
+  field(env, result, "width", s->applied_width); field(env, result, "height", s->applied_height);
+  field(env, result, "failed", s->resize_applied && (!s->applied_cols || !s->applied_rows));
+  pthread_mutex_unlock(&s->lock); return result;
 }
 static napi_value size(napi_env env, napi_callback_info info) {
   Session *s = session(env, info); if (!s) return NULL;
@@ -474,6 +498,7 @@ static napi_value make_session(napi_env env, napi_value object) {
     { "input", NULL, input, NULL, NULL, NULL, napi_default, NULL },
     { "drain", NULL, drain, NULL, NULL, NULL, napi_default, NULL },
     { "resize", NULL, resize, NULL, NULL, NULL, napi_default, NULL },
+    { "appliedResize", NULL, applied_resize, NULL, NULL, NULL, napi_default, NULL },
     { "size", NULL, size, NULL, NULL, NULL, napi_default, NULL },
     { "snapshot", NULL, snapshot, NULL, NULL, NULL, napi_default, NULL },
     { "scroll", NULL, scroll, NULL, NULL, NULL, napi_default, NULL },

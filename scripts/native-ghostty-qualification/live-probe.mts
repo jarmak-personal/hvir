@@ -165,7 +165,7 @@ export async function runLiveProbe(options: {
     resizeSamples.push({
       cols,
       requestedEpoch: a.geometryEpoch,
-      synchronousGridAndPtyResizeMs: performance.now() - before,
+      nativeResizeRequestMs: performance.now() - before,
       geometry,
     })
   }

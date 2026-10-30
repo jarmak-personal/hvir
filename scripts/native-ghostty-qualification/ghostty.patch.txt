@@ -65,13 +65,20 @@
 +}
 --- a/src/apprt/embedded.zig
 +++ b/src/apprt/embedded.zig
-@@ -1983,0 +1984,10 @@
+@@ -1983,0 +1984,17 @@
 +    // Qualification-only manual input; each surface owns its external callbacks.
 +    export fn hvir_qualification_set_context(surface: *Surface, userdata: ?*anyopaque) void {
 +        surface.core_surface.io.qualification_userdata = userdata;
 +    }
 +
 +    // The exec backend remains alive but idle.
++    export fn hvir_qualification_resize(surface: *Surface, w: u32, h: u32, serial: u64) void {
++        surface.updateSize(w, h);
++        surface.core_surface.io.queueMessage(.{ .qualification_resize = .{
++            .size = surface.core_surface.size, .serial = serial,
++        } }, .unlocked);
++    }
++
 +    export fn hvir_qualification_feed(surface: *Surface, data: [*]const u8, len: usize) void {
 +        surface.core_surface.io.processOutput(data[0..len]);
 +    }
@@ -85,13 +92,33 @@
 +        callback(self.qualification_userdata, data.ptr, data.len);
 +        return;
 +    }
-@@ -859,0 +865,7 @@
+@@ -859,0 +865,27 @@
 +
 +// Qualification only: the retained exec backend receives no application input.
 +const QualificationWrite = *const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void;
 +var qualification_write: ?QualificationWrite = null;
 +export fn hvir_qualification_set_write(callback: ?QualificationWrite) void {
 +    qualification_write = callback;
++}
++
++const QualificationResize = *const fn (?*anyopaque, u64, u32, u32, u32, u32) callconv(.c) void;
++var qualification_resize: ?QualificationResize = null;
++export fn hvir_qualification_set_resize(callback: ?QualificationResize) void {
++    qualification_resize = callback;
++}
++
++// Runs on the IO thread. Notify the external owner only after parser/grid state
++// is applied; public Surface.size alone precedes that state in the normal path.
++pub fn qualificationResize(self: *Termio, td: *ThreadData, size: renderer.Size, serial: u64) void {
++    self.resize(td, size) catch {
++        if (qualification_resize) |callback| callback(self.qualification_userdata, serial, 0, 0, 0, 0);
++        return;
++    };
++    if (qualification_resize) |callback| {
++        const pixels = size.terminal();
++        callback(self.qualification_userdata, serial, @intCast(self.terminal.cols),
++            @intCast(self.terminal.rows), pixels.width, pixels.height);
++    }
 +}
 --- a/src/termio/Exec.zig
 +++ b/src/termio/Exec.zig
@@ -105,3 +132,18 @@
 +        .direct => {},
 +    }
 +
+--- a/src/termio/message.zig
++++ b/src/termio/message.zig
+@@ -49,0 +50,3 @@
++
++    // Qualification-only external resize: preserve request identity through IO.
++    qualification_resize: struct { size: renderer.Size, serial: u64 },
+--- a/src/termio/Thread.zig
++++ b/src/termio/Thread.zig
+@@ -326,0 +327,6 @@
++            .qualification_resize => |v| {
++                // A preceding ordinary resize may be waiting on the 25ms timer.
++                // Supersede it, including when a rapid request returns to an old size.
++                self.coalesce_data.resize = null;
++                io.qualificationResize(data, v.size, v.serial);
++            },

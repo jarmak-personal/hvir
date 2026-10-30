@@ -33,7 +33,7 @@ async function run(engine, log) {
     throw new Error(`${engine} experiment failed; retain its output and log`)
 }
 async function mainRun() {
-  if (['live', 'live-probe', 'harness-probe'].includes(mode)) {
+  if (['live', 'live-probe', 'harness-probe', 'resize-probe'].includes(mode)) {
     process.env.HVIR_QUALIFICATION_BRIDGE = bridge(target)
     process.env.HVIR_QUALIFICATION_ROOT = root
     process.env.HVIR_QUALIFICATION_NODE = process.execPath
@@ -46,13 +46,14 @@ async function mainRun() {
       platform: 'node',
       format: 'esm',
     })
-    if (['live-probe', 'harness-probe'].includes(mode)) {
+    if (['live-probe', 'harness-probe', 'resize-probe'].includes(mode)) {
       if (!extra) throw new Error('Supply a new live-probe output directory')
       const directory = resolve(extra)
       if (existsSync(directory))
         throw new Error('Live probe output directory must be new')
       mkdirSync(directory, { recursive: true })
       process.env.HVIR_QUALIFICATION_LOG = join(directory, 'probe.json')
+      process.env.HVIR_QUALIFICATION_RESIZE_PROBE = mode === 'resize-probe' ? '1' : '0'
       process.env.HVIR_QUALIFICATION_LIVE_PROBE = mode === 'live-probe' ? '1' : '0'
       process.env.HVIR_QUALIFICATION_HARNESS_PROBE = mode === 'harness-probe' ? '1' : '0'
       if (mode === 'harness-probe')
@@ -63,6 +64,7 @@ async function mainRun() {
       process.env.HVIR_QUALIFICATION_PROVIDER = extra ?? 'plain-shell'
       delete process.env.HVIR_QUALIFICATION_LIVE_PROBE
       delete process.env.HVIR_QUALIFICATION_HARNESS_PROBE
+      delete process.env.HVIR_QUALIFICATION_RESIZE_PROBE
       delete process.env.HVIR_QUALIFICATION_LOG
     }
     const scratch = mkdtempSync(join(tmpdir(), 'hvir-live-qualification-'))
@@ -162,7 +164,7 @@ async function mainRun() {
     return
   }
   throw new Error(
-    'Usage: run.mjs live BRIDGE [plain-shell|claude-code] | live-probe BRIDGE NEW_OUTPUT | harness-probe BRIDGE NEW_OUTPUT | demo native BRIDGE | demo web | probe native BRIDGE NEW_OUTPUT | probe web NEW_OUTPUT | compare BRIDGE NEW_OUTPUT',
+    'Usage: run.mjs live BRIDGE [plain-shell|claude-code] | live-probe BRIDGE NEW_OUTPUT | resize-probe BRIDGE NEW_OUTPUT | harness-probe BRIDGE NEW_OUTPUT | demo native BRIDGE | demo web | probe native BRIDGE NEW_OUTPUT | probe web NEW_OUTPUT | compare BRIDGE NEW_OUTPUT',
   )
 }
 void mainRun().catch((error) => {

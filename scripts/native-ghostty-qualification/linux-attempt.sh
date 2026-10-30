@@ -62,7 +62,7 @@ git -C "$qualification_ghostty" archive "$qualification_upstream" |
   tar -x -C "$qualification_output/ghostty"
 # One authoritative pinned patch: select only portable transport/feed hunks.
 awk '
-  /^--- a\// { qualification_include = ($0 == "--- a/src/apprt/embedded.zig" || $0 == "--- a/src/termio/Termio.zig") }
+  /^--- a\// { qualification_include = ($0 == "--- a/src/apprt/embedded.zig" || $0 == "--- a/src/termio/Termio.zig" || $0 == "--- a/src/termio/Thread.zig" || $0 == "--- a/src/termio/message.zig") }
   qualification_include { print }
 ' "$qualification_root/scripts/native-ghostty-qualification/ghostty.patch.txt" > "$qualification_output/transport.patch"
 patch --batch -d "$qualification_output/ghostty" -p1 < "$qualification_output/transport.patch" \

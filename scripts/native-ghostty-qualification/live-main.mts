@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks'
 import { hostPath, LOCAL_HOST_ID } from '../../src/shared'
 import { LivePtys, processAlive } from './live-pty.mts'
 import { runLiveProbe } from './live-probe.mts'
+import { runResizeProbe } from './resize-probe.mts'
 
 export interface Geometry {
   width: number
@@ -36,7 +37,15 @@ export interface NativeSession {
   visible(value: boolean): void
   drain(): Buffer
   size(): Geometry
-  resize(width: number, height: number): void
+  resize(width: number, height: number): number
+  appliedResize(): {
+    ticket: number
+    cols: number
+    rows: number
+    width: number
+    height: number
+    failed: number
+  }
   snapshot(viewport?: boolean): string
   scroll(x: number, y: number): void
   binding(name: string): boolean
@@ -74,6 +83,15 @@ export interface LiveSurface {
   draws: number
   staleDraws: number
   geometryEpoch: number
+  pendingResize?: { ticket: number; geometry: Geometry; epoch: number }
+  appliedResizeTicket?: number
+  resizeNotifications: {
+    ticket: number
+    cols: number
+    rows: number
+    epoch: number
+    notified: boolean
+  }[]
   lastDraw?: {
     width: number
     height: number
@@ -89,6 +107,7 @@ const bridge: NativeSession = require(
 ) as NativeSession
 const root = process.env.HVIR_QUALIFICATION_ROOT!
 const probe = process.env.HVIR_QUALIFICATION_LIVE_PROBE === '1'
+const resizeProbe = process.env.HVIR_QUALIFICATION_RESIZE_PROBE === '1'
 const harnessProbe = process.env.HVIR_QUALIFICATION_HARNESS_PROBE === '1'
 const provider = process.env.HVIR_QUALIFICATION_PROVIDER ?? 'plain-shell'
 if (!['plain-shell', 'claude-code'].includes(provider))
@@ -106,7 +125,7 @@ let lastTick = performance.now()
 let watchdog: ReturnType<typeof setTimeout> | undefined
 const result: Record<string, unknown> = {
   schema: 1,
-  mode: probe ? 'live-probe' : 'live-demo',
+  mode: resizeProbe ? 'resize-probe' : probe ? 'live-probe' : 'live-demo',
   provider,
   timing:
     'Main/renderer scheduling and synchronous PTY-feed service; no physical presentation claim',
@@ -143,6 +162,7 @@ async function finish(): Promise<void> {
   for (const s of surfaces) {
     s.presenting = false
     s.closed = true
+    s.pendingResize = undefined
     s.generation++
     s.window?.destroy()
   }
@@ -179,6 +199,9 @@ async function finish(): Promise<void> {
     draws: s.draws,
     staleDraws: s.staleDraws,
     native: s.native.stats(),
+    resizeNotifications: s.resizeNotifications,
+    pendingResizeTicket: s.pendingResize?.ticket ?? null,
+    appliedResizeTicket: s.appliedResizeTicket ?? null,
     rendererRafIntervalsMs: s.heartbeat,
   }))
   for (const s of surfaces) {
@@ -224,6 +247,7 @@ async function finish(): Promise<void> {
 async function pump(s: LiveSurface): Promise<void> {
   if (s.closed) return
   s.native.tick()
+  applyResize(s)
   const reply = s.native.drain()
   if (reply.length && ptys.supervisor.get(s.id))
     ptys.write(s.id, s.owner, reply.toString('utf8'))
@@ -291,12 +315,40 @@ export function resize(s: LiveSurface, cols: number, rows: number): Geometry {
   )
     throw new Error('Grid outside live experiment bounds')
   const old = s.native.size()
-  s.native.resize(cols * old.cellWidth, rows * old.cellHeight)
+  const ticket = s.native.resize(cols * old.cellWidth, rows * old.cellHeight)
   const geometry = s.native.size()
   if (geometry.cols !== cols || geometry.rows !== rows) throw new Error('Grid mismatch')
   s.geometryEpoch++
-  if (ptys.supervisor.get(s.id)) ptys.resize(s.id, s.owner, cols, rows)
+  s.pendingResize = { ticket, geometry, epoch: s.geometryEpoch }
   return geometry
+}
+// One replaceable request per session; an equal-size old acknowledgement cannot
+// notify the PTY for a newer ticket. Output bytes are never queued or discarded here.
+function applyResize(s: LiveSurface): void {
+  const pending = s.pendingResize
+  if (!pending || s.closed || finishing) return
+  const applied = s.native.appliedResize()
+  if (applied.ticket !== pending.ticket) return
+  if (
+    applied.failed ||
+    applied.cols !== pending.geometry.cols ||
+    applied.rows !== pending.geometry.rows ||
+    applied.width !== pending.geometry.width ||
+    applied.height !== pending.geometry.height
+  )
+    throw new Error('Applied native resize differs from its request')
+  const notified = ptys.supervisor.get(s.id) !== undefined
+  if (notified) ptys.resize(s.id, s.owner, applied.cols, applied.rows)
+  s.appliedResizeTicket = applied.ticket
+  s.pendingResize = undefined
+  if (s.resizeNotifications.length < 512)
+    s.resizeNotifications.push({
+      ticket: applied.ticket,
+      cols: applied.cols,
+      rows: applied.rows,
+      epoch: pending.epoch,
+      notified,
+    })
 }
 export async function receiver(s: LiveSurface, delayMs = 0): Promise<void> {
   s.generation++
@@ -316,7 +368,7 @@ export async function receiver(s: LiveSurface, delayMs = 0): Promise<void> {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => event.preventDefault())
   window.on('closed', () => {
-    if (!probe && !finishing) void finish()
+    if (!probe && !resizeProbe && !finishing) void finish()
   })
   await window.loadFile(join(root, 'scripts/native-ghostty-qualification/live.html'), {
     query: { session: s.id, generation: String(s.generation), delay: String(delayMs) },
@@ -446,7 +498,7 @@ void app
       },
       gpu: await app.getGPUInfo('basic'),
     }
-    for (const id of probe ? ['A', 'B'] : [randomUUID()]) {
+    for (const id of probe ? ['A', 'B'] : resizeProbe ? ['A'] : [randomUUID()]) {
       const native = surfaces.length === 0 ? bridge : bridge.create()
       const s: LiveSurface = {
         id,
@@ -464,22 +516,32 @@ void app
         draws: 0,
         staleDraws: 0,
         geometryEpoch: 0,
+        resizeNotifications: [],
         heartbeat: [],
       }
+      if (typeof native.appliedResize !== 'function')
+        throw new Error('Rebuild the qualification bridge for ticketed resize support')
       native.start(config)
       surfaces.push(s)
       resize(s, 100, 30)
+      await until(() => {
+        applyResize(s)
+        return s.pendingResize === undefined
+      }, 'Initial native parser resize did not apply before PTY launch')
       await receiver(s, probe && id === 'A' ? 100 : 0)
       await ptys.launch({
         id,
         owner: s.owner,
         cwd,
         provider: provider as 'plain-shell' | 'claude-code',
-        ...(probe
+        ...(probe || resizeProbe
           ? {
               fixture: {
                 node: process.env.HVIR_QUALIFICATION_NODE!,
-                file: join(root, 'scripts/native-ghostty-qualification/pty-fixture.mjs'),
+                file: join(
+                  root,
+                  `scripts/native-ghostty-qualification/${resizeProbe ? 'resize-fixture' : 'pty-fixture'}.mjs`,
+                ),
               },
             }
           : {}),
@@ -496,7 +558,19 @@ void app
       lastTick = now
       for (const s of surfaces) void pump(s).catch(fail)
     }, 4)
-    if (harnessProbe) {
+    if (resizeProbe) {
+      watchdog = setTimeout(() => fail(new Error('Resize probe timed out')), 60000)
+      await runResizeProbe({
+        surfaces,
+        ptys,
+        result,
+        check,
+        until,
+        resize,
+        destroyReceiver,
+      })
+      await finish()
+    } else if (harnessProbe) {
       const s = surfaces[0]
       if (!s) throw new Error('Harness surface absent')
       await until(

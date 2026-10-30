@@ -34,8 +34,8 @@
   "observations": [
     {
       "event": "cleanup",
-      "sent": 8,
-      "released": 8,
+      "sent": 7,
+      "released": 7,
       "held": 0
     }
   ],

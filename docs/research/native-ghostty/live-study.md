@@ -43,7 +43,8 @@ Cmd+V text paste, mouse press/release, and width controls are connected. The Top
 Bottom buttons operate terminal scrollback; a harness's own transcript/TUI scrolling
 may instead consume mouse or key input. IME, text selection, search, image paste,
 links, titles/attention integration, full keyboard-layout mapping and complete mouse
-semantics are **not implemented**. This is an opt-in experiment outside hvir's normal
+semantics are **not implemented**. Dragging the host window does not auto-fit the
+terminal; the fixed canvas can clip. Use Toggle width for this prototype. This is an opt-in experiment outside hvir's normal
 UI.
 
 Closing the demo or Ctrl+C in its launcher terminates the supervisor-owned session,
@@ -56,6 +57,7 @@ For repeatable fixed-command checks, choose a new output directory for each comm
 
 ```sh
 node scripts/native-ghostty-qualification/run.mjs live-probe "$qualification_bridge" /tmp/hvir-live-run-1
+node scripts/native-ghostty-qualification/run.mjs resize-probe "$qualification_bridge" /tmp/hvir-resize-run-1
 node scripts/native-ghostty-qualification/run.mjs harness-probe "$qualification_bridge" /tmp/hvir-harness-startup
 node scripts/native-ghostty-qualification/run.mjs compare "$qualification_bridge" /tmp/hvir-matched-live-study
 node scripts/native-ghostty-qualification/run.mjs probe native "$qualification_bridge" /tmp/hvir-replay-native
@@ -111,19 +113,19 @@ check and resource count. Three of three runs passed all **37 checks**:
 
 Each surface owns three export slots and a 65,536-byte reply FIFO. A intentionally
 held receiver references for 100 ms. Its maximum outstanding leases was three;
-B's was one. A dropped 6, 5 and 8 obsolete frames while all workload bytes and
+B's was one. A dropped 7, 8 and 8 obsolete frames while all workload bytes and
 text remained intact. There were no GPU-copy errors or reply overflows.
 
 | Run | A imports / releases | B imports / releases | Held after teardown |
 | --- | --- | --- | --- |
-| 1 | 16 / 16 | 13 / 13 | 0 |
-| 2 | 13 / 13 | 9 / 9 | 0 |
-| 3 | 13 / 13 | 9 / 9 | 0 |
+| 1 | 12 / 12 | 8 / 8 | 0 |
+| 2 | 14 / 14 | 9 / 9 | 0 |
+| 3 | 14 / 14 | 11 / 11 | 0 |
 
 The raw `revealProof`, `resizeProof` and `survivorProof` retain each producer barrier,
 current receiver generation, observed serial/dimensions and delivery epoch. For
-example, final-resize barriers 11, 11 and 10 were followed by acknowledged serials
-12, 12 and 11 respectively, all at 1728×900 and epoch 7. These supersede the earlier
+example, final-resize barriers 9, 9 and 10 were followed by acknowledged serials
+10, 10 and 11 respectively, all at 1728×900 and epoch 7. These supersede the earlier
 loose reveal/resize predicates, which could accept historical acknowledgements.
 They prove later completed-frame delivery, not content-correlated physical display.
 
@@ -147,17 +149,66 @@ the scheduled three-run series, not retries relabeled as passing measurements.
 through the existing provider/supervisor/LocalHost path. Its retained startup text
 contained the title and workspace trust prompt; three explicit assertions passed,
 including a subsequent completed-frame acknowledgement in the current receiver.
-All 5 imports were released, the PTY and idle child exited, and no model
+All 9 imports were released, the PTY and idle child exited, and no model
 prompt or trust approval was automated. Input/reply checks above use the fixed PTY
 peer. They do **not** prove Claude's full composer, model-turn behavior, or transcript
 scrolling beyond the trust screen. Those remain maintainer hands-on checks using the
 live command. The earlier maintainer observation that native scrolling felt much
 smoother/faster remains positive qualitative macOS evidence, separate from timings.
 
+## Width-toggle correction
+
+The maintainer's live Claude use found scrolling, typing and general feel great, but
+Toggle width left the harness display wrong. Dragging the window was also tried;
+window auto-fit is an independent unimplemented prototype gap, not the toggle bug.
+This is qualitative live-harness feedback, separate from measured performance.
+
+The bug was in this experiment's external IO ordering. Ghostty's public Surface grid
+changes immediately, while its IO thread normally coalesces parser resize for 25 ms.
+The experiment notified the real PTY immediately. Its SIGWINCH redraw therefore
+arrived while Ghostty still parsed with the old dimensions. Upstream normally holds
+the parser's lock while resizing its own PTY and parser; the external path had skipped
+that ordering invariant. Production supervisor/LocalHost forwarding was correct and
+has not changed.
+
+[Pre-fix evidence](resize-before.json) retains 30/50 direct API ordering mismatches:
+9/10 in the first ten probes, 21/40 in the remaining probes (not a formal startup
+readiness boundary). The same real-PTY peer received all six changed-width SIGWINCH
+notifications. On all three narrow toggles, kernel `stty size` and Node stdout said
+80 columns, but Ghostty reported 100 / 1800 pixels, clamped at column 100 and wrapped
+at row 3/column 82 instead of row 4/column 2. Startup and the three wide cases passed.
+This detects incorrect parser state, not a missing resize call or a guessed Claude bug.
+
+The private patch now sends a ticketed resize through the IO thread, clears older
+pending coalesced work, applies parser state, then acknowledges that exact ticket and
+geometry. Main notifies the supervisor only for the latest matching applied ticket.
+The initial native ticket applies before PTY spawn. Repeated equal sizes cannot reuse
+an old acknowledgement; close revokes pending notification. No arbitrary production
+delay or cosmetic repaint was added. Both live and replay runners validate applied
+geometry/failure state. Fresh live samples name the immediate request boundary
+`nativeResizeRequestMs`; it does not time actual PTY notification.
+
+[Fixed real-PTY runs](resize-evidence.json) scheduled three fresh processes without
+retries: all **33 checks** and **27 peer records** passed, including **18 actual
+Electron Toggle width button clicks**. Kernel size, stdout resize/SIGWINCH, CSI 18t
+cells, CSI 14t pixels, cursor clamping and immediate redraw/wrap agree after every
+change. Rapid request tickets 8–11 notified only ticket 11 even after returning to
+100 columns. A delayed observation beyond the known 25 ms timer checked that older
+coalesced work did not restore stale state; the delay is a regression observation
+window, not resize readiness. Closing with ticket 12 pending allowed native completion
+but no late PTY notification. These are fixed-peer correctness results; they do not
+claim physical display latency or a completed maintainer retest of the full harness.
+
+To reproduce the pre-fix manual path, use the old `5aea3deb` live shell/bridge and run
+the current `resize-fixture.mjs` as a fixed command in that shell, then click Toggle
+width. It uses the same size-query/redraw peer; the raw before/after records preserve
+the comparison. Rebuild the native bridge for the corrected live command above; the
+old binary deliberately lacks the new applied-ticket API.
+
 ## Responsiveness comparison
 
 [New matched raw samples](live-comparison.json) rerun the established workloads
-against the refactored bridge and installed web artifact: all **60 exact-text checks**
+against the ticketed-resize bridge and installed web artifact: all **60 exact-text checks**
 passed, as did geometry and scrolling assertions. The supported 3,000-row replay
 probes also passed for [native](live-replay-native.json) and [web](live-replay-web.json).
 These are standalone engine comparisons using hvir's installed web artifact, not a
@@ -167,35 +218,39 @@ Median milliseconds, three processes per engine:
 
 | Observation | Native | Web |
 | --- | ---: | ---: |
-| Plain 82 kB API service | 0.248 | 1.9 |
-| ANSI 98 kB API service | 0.397 | 2.3 |
-| Synchronized 96,016 B API service | 0.272 | 1.6 |
-| Unicode 102,800 B API service | 1.029 | 6.5 |
-| Plain caller round trip | 0.5 | 1.9 |
-| ANSI caller round trip | 0.7 | 2.3 |
+| Plain 82 kB API service | 0.251 | 1.9 |
+| ANSI 98 kB API service | 0.409 | 2.4 |
+| Synchronized 96,016 B API service | 0.242 | 1.6 |
+| Unicode 102,800 B API service | 0.975 | 6.5 |
+| Plain caller round trip | 0.6 | 1.9 |
+| ANSI caller round trip | 0.7 | 2.4 |
 | Synchronized caller round trip | 0.6 | 1.6 |
-| Unicode caller round trip | 1.6 | 6.5 |
-| Resize through next draw scheduling acknowledgement (9 samples) | 31.7 | 24.4 |
-| Wheel through next draw scheduling acknowledgement (6 samples) | 11.75 | 17.95 |
+| Unicode caller round trip | 1.5 | 6.5 |
+| Resize through next draw scheduling acknowledgement (9 samples) | 31.5 | 24.8 |
+| Wheel through next draw scheduling acknowledgement (6 samples) | 9.7 | 18.8 |
 
 Native service times `Termio.processOutput`; web wraps `Terminal.write` and its
 JS/WASM maintenance. Native caller time adds IPC and encoding; web runs locally.
 Exact readback/hashing happens outside timers. The next scheduling acknowledgement
 can come from an already pending frame: it is not causal workload-to-visible latency.
+The private IO path differs from the historical eight-file/coalesced-resize build;
+these are refreshed samples, not the earlier measurements relabeled. A replay failure-
+metadata guard was added after collection without changing successful readiness or
+timing boundaries; the supported native replay probe passed with that guard.
 No hardware display fence, content-tagged frame, high-refresh reference, or physical
 input-to-pixel measurement was added. Native Ghostty GUI was not available as a new
 controlled reference run. The older GUI comparison is the maintainer's observation.
 
-Native paced-output per-run draw p50 was 15.4 ms, p95 20.5 ms and p99/max
-20.9–21.9 ms. Web p50 was 16.7 ms, p95 17.1–17.3 ms and p99/max 33.3–33.9 ms.
+Native paced-output per-run draw p50 was 15.4 ms, p95 20.4–20.5 ms and p99/max
+20.5–21.8 ms. Web p50 was 16.7 ms, p95 17.0–18.7 ms and p99/max 33.0–33.8 ms.
 Resize favoured web; wheel scheduling favoured native in this sample. These mixed
 observations support neither a blanket pacing win nor a physical latency claim.
 
 The two-live-surface runs also observed main and renderer scheduling under their
-short fixed workload. Main 4 ms timer p95 was 5.19–5.36 ms, p99 7.14–15.77 ms,
-max 23.77–24.43 ms. Renderer rAF p95 was 18.3–18.7 ms, max 18.7–24.7 ms.
+short fixed workload. Main 4 ms timer p95 was 5.21–5.24 ms, p99 7.30–9.49 ms,
+max 21.25–26.16 ms. Renderer rAF p95 was 18.6–18.7 ms, max 18.7–19.0 ms.
 Synchronous feed calls for the roughly 1 kB PTY chunks had per-run p95
-0.017–0.025 ms and maxima 0.069–0.786 ms. These samples include setup/interaction
+0.021–0.025 ms and maxima 0.059–0.609 ms. These samples include setup/interaction
 phases, deliberate receiver delay and window changes. They show bounded observed
 service on this small case; they do not qualify workbench responsiveness or sustained
 large-output/capacity behaviour. Parsing still runs in Electron main in the prototype.
@@ -210,8 +265,8 @@ byte-path result is claimed. Keep #1094 open until the desktop result is assesse
 
 The macOS bridge and `build.sh` remain Darwin/arm64-only. Use the separate Linux-native
 build/embed-boundary kit below. It deliberately does not present the macOS bridge as
-a Linux importer. It selects only the two portable feed/Termio hunks from the one
-authoritative pinned patch, leaving Darwin build, Metal and MSL changes unapplied.
+a Linux importer. It selects the four portable embedded/Termio/Thread/message file patches from the
+one authoritative pinned patch, leaving Darwin build, Metal and MSL changes unapplied.
 
 Fetch the published child branch and use the **exact pushed head SHA from its PR
 handoff**; the command records that SHA in `source-commit.txt` and `result.json`.
@@ -275,7 +330,7 @@ remain untested. No new SSH attachment or tmux persistence policy was introduced
 ## Demonstrated patches and remaining design risks
 
 [Patch reproduction](patch-reproduction-live.json) proves that the final upstream
-patch applies to a fresh pinned archive and all eight resulting files match the
+patch applies to a fresh pinned archive and all ten resulting files match the
 actually built source byte for byte. Bridge source has its own recorded digest.
 The prior single-surface replay commands remain supported.
 
@@ -286,6 +341,7 @@ The prior single-surface replay commands remain supported.
 | `renderer/Metal.zig` | Completed IOSurface callback carries the owning surface userdata. |
 | `apprt/embedded.zig` | Manual feed and per-Termio callback context. |
 | `termio/Termio.zig` | Intercept writes at the owning IO instance; replaces the old global backend-only hook. |
+| `termio/Thread.zig`, `termio/message.zig` | Ticketed external resize on the IO thread, superseding older coalesced work before acknowledging parser geometry. |
 | `termio/Exec.zig` | Retain the exact idle sleep fixture without login output/bookkeeping. |
 
 There are two fixed wrapped C session objects, each with its own Ghostty app/surface,
@@ -293,7 +349,7 @@ reply FIFO, Metal copy queue and export pool. This demonstrates independent rout
 and removes the callback's single-surface assumption. It **does not remove the idle
 exec backend**: two extra idle processes remain while two surfaces are live. A real
 external backend and an appropriate app/device-sharing model are still design work.
-Eight touched upstream files are a demonstrated patch footprint, not a forecast of
+Ten touched upstream files are a demonstrated patch footprint, not a forecast of
 the final patch size or maintenance schedule.
 
 Completed Ghostty textures are still copied by a GPU blit into independently leased
