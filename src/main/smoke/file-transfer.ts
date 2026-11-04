@@ -154,16 +154,18 @@ export async function verifySshDownloadSmoke(options: {
       `(() => {
       const row = document.querySelector('[data-file-path=' + ${JSON.stringify(JSON.stringify(joinHostPath(remoteRoot, sourceName).path))} + ']');
       if (!(row instanceof HTMLElement)) return undefined;
-      const button = [...document.querySelectorAll('.file-download-controls button')].find(node => node.textContent === 'Download…');
-      // A completed copy can still publish a watcher refresh, which intentionally
-      // clears download selection. Reacquire the exact visible source after that
-      // invalidation; never retry the download operation itself.
-      if (!window.__hvirDownloadSelected || (button instanceof HTMLButtonElement && button.disabled && button.title === 'Select a file or folder to download')) {
-        row.click(); window.__hvirDownloadSelected = true; return undefined;
-      }
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      return true;
+    })()`,
+      'the exact SSH download context-menu source',
+    )
+    await rendererValue(
+      win,
+      `(() => {
+      const button = [...document.querySelectorAll('[role="menuitem"]')].find(node => node.textContent === 'Download…');
       return button instanceof HTMLButtonElement && !button.disabled;
     })()`,
-      'the exact SSH download selection after filesystem refresh',
+      'the SSH Download context-menu action',
     )
     await win.webContents.executeJavaScript(`
       window.__hvirDownloadFinished = false;
@@ -172,7 +174,9 @@ export async function verifySshDownloadSmoke(options: {
           window.__hvirDownloadFinished = event.result?.items?.[0]?.status === 'completed' ? 'completed' : 'failed';
         }
       });
-      document.querySelector('.file-download-controls button').click();
+      const download = [...document.querySelectorAll('[role="menuitem"]')].find(node => node.textContent === 'Download…');
+      if (!(download instanceof HTMLButtonElement) || download.disabled) throw new Error('Download action unavailable');
+      download.click();
     `)
     await rendererValue(
       win,
@@ -199,7 +203,6 @@ export async function verifySshDownloadSmoke(options: {
       window.__hvirDownloadListener?.();
       delete window.__hvirDownloadListener;
       delete window.__hvirDownloadFinished;
-      delete window.__hvirDownloadSelected;
     `)
   }
 }
