@@ -1,0 +1,82 @@
+name: Native terminal dependency
+
+on:
+  pull_request:
+    branches: [main, 'epic/**']
+    paths:
+      - scripts/native-terminal/**
+      - packages/native-terminal/**
+      - .github/workflows/native-terminal.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-terminal-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Native dependency (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-22.04
+          - target: linux-arm64
+            os: ubuntu-22.04-arm
+          - target: macos-arm64
+            os: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Prepare Linux EGL development prerequisite
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes pkg-config libegl-dev
+          dpkg-query -W pkg-config libegl-dev libegl1
+      - name: Require macOS shader compiler
+        if: runner.os == 'macOS'
+        run: |
+          if ! xcrun metal --version; then xcodebuild -downloadComponent MetalToolchain; fi
+          xcrun metal --version
+          xcrun --find metallib
+      - name: Build exact full-renderer source and verify native loader
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          node scripts/native-terminal/build.mts "$TARGET" "$RUNNER_TEMP/hvir-native-build"
+          node scripts/native-terminal/check.mts "$TARGET" "$RUNNER_TEMP/hvir-native-build/artifact"
+      - name: Diagnose failed Linux library relocation
+        if: failure() && runner.os == 'Linux'
+        run: |
+          library="$RUNNER_TEMP/hvir-native-build/install/lib/ghostty-internal.so"
+          if test -f "$library"; then
+            readelf --wide --dyn-syms "$library" | awk '$7 == "UND" { print $8 }'
+            ldd -r "$library"
+          fi
+      - name: Preserve modes and prove archive round trip
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          tar -czf "$RUNNER_TEMP/native-terminal-${TARGET}.tar.gz" -C "$RUNNER_TEMP/hvir-native-build" artifact
+          mkdir "$RUNNER_TEMP/native-terminal-received"
+          tar -xf "$RUNNER_TEMP/native-terminal-${TARGET}.tar.gz" -C "$RUNNER_TEMP/native-terminal-received"
+          node scripts/native-terminal/check.mts "$TARGET" "$RUNNER_TEMP/native-terminal-received/artifact"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-terminal-${{ matrix.target }}
+          path: ${{ runner.temp }}/native-terminal-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7

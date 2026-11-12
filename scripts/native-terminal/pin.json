@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "source": {
+    "commit": "108cacb17ed8990840cd14abfce43d8ed8503ca1",
+    "tag": "vt-1.0.1",
+    "url": "https://codeload.github.com/ghostty-org/ghostty/tar.gz/108cacb17ed8990840cd14abfce43d8ed8503ca1",
+    "sha256": "2c276d3e62cb15fb38f0d7f621f199029d1d4df86538096c6bec2a107cad7159",
+    "applicationVersion": "1.4.1-dev",
+    "vtVersion": "1.0.1",
+    "embedAbi": 1
+  },
+  "zig": {
+    "version": "0.17.0",
+    "archives": {
+      "darwin-arm64": {
+        "url": "https://ziglang.org/download/0.17.0/zig-aarch64-macos-0.17.0.tar.xz",
+        "sha256": "b607e9b9234790a008116ae5bdb71c6243b84b9fb42a53a9e70fde41c06c536a"
+      },
+      "linux-x64": {
+        "url": "https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz",
+        "sha256": "1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026"
+      },
+      "linux-arm64": {
+        "url": "https://ziglang.org/download/0.17.0/zig-aarch64-linux-0.17.0.tar.xz",
+        "sha256": "9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8"
+      }
+    }
+  },
+  "dependencies": {
+    "packages.txt": "8879c702f6fbda0661711a94e4cf8d4afdd9088bb8319a9bfe8d7bad9c68d750",
+    "packages.json": "cdfe144f222164f5e9bcba36618fada011411a22c9da8aaaecc1f0b0e0d2b187"
+  },
+  "patches": [
+    {
+      "file": "patches/0001-embedding-build.patch.txt",
+      "sha256": "03c0a22f0569a1b2455a424eb1b47ea9cf4123ed3d9cb98192197c58664a1ecf",
+      "purpose": "Install the selected full shared libraries, skip the unused Linux static output, link Metal/EGL explicitly, and expose the upstream embedding-hook ABI. No terminal, process or product implementation."
+    }
+  ],
+  "targets": {
+    "macos-arm64": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "triple": "aarch64-macos",
+      "library": "libghostty.dylib"
+    },
+    "linux-x64": {
+      "platform": "linux",
+      "arch": "x64",
+      "triple": "x86_64-linux-gnu.2.35",
+      "library": "ghostty-internal.so"
+    },
+    "linux-arm64": {
+      "platform": "linux",
+      "arch": "arm64",
+      "triple": "aarch64-linux-gnu.2.35",
+      "library": "ghostty-internal.so"
+    }
+  }
+}

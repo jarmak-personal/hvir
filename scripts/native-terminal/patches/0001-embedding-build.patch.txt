@@ -1,0 +1,45 @@
+--- a/build.zig
++++ b/build.zig
+@@ -283,6 +283,8 @@
+         // the full Ghostty GUI core.
+         const lib_shared = try buildpkg.GhosttyLib.initShared(b, &deps);
+         const lib_static = try buildpkg.GhosttyLib.initStatic(b, &deps);
++        if (config.target.result.os.tag.isDarwin())
++            lib_shared.install("libghostty.dylib");
+ 
+         // We shouldn't have this guard but we don't currently
+         // build on macOS this way ironically so we need to fix that.
+@@ -293,7 +295,8 @@
+                 lib_static.install("ghostty-internal-static.lib");
+             } else {
+                 lib_shared.install("ghostty-internal.so");
+-                lib_static.install("ghostty-internal.a");
++                if (config.target.result.os.tag != .linux)
++                    lib_static.install("ghostty-internal.a");
+             }
+         }
+     }
+--- a/src/build/GhosttyLib.zig
++++ b/src/build/GhosttyLib.zig
+@@ -109,6 +109,10 @@
+         .use_llvm = true,
+     });
+     _ = try deps.add(lib);
++    if (deps.config.target.result.os.tag.isDarwin())
++        lib.root_module.linkFramework("Metal", .{});
++    if (deps.config.target.result.os.tag == .linux)
++        lib.root_module.linkSystemLibrary("egl", dynamic_link_opts);
+ 
+     // On Windows with MSVC, building a DLL requires the full CRT library
+     // chain. linkLibC() (called via deps.add) provides msvcrt.lib, but
+--- a/src/main_c.zig
++++ b/src/main_c.zig
+@@ -263,3 +263,8 @@
+     try testing.expect(zig_string.len == 5);
+     try testing.expect(zig_string.sentinel == false);
+ }
++
++// Version of the pinned upstream hooks consumed by hvir's maintained C facade.
++export fn hvir_ghostty_embed_abi() u32 {
++    return 1;
++}
