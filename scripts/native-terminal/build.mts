@@ -65,6 +65,14 @@ const args = [
   '-j2',
   '--system',
   packages,
+  // --system makes Linux prefer ambient libraries unless explicitly disabled.
+  // Use the pinned source dependencies, matching upstream's macOS defaults.
+  '-fno-sys=freetype',
+  '-fno-sys=harfbuzz',
+  '-fno-sys=fontconfig',
+  '-fno-sys=libpng',
+  '-fno-sys=zlib',
+  '-fno-sys=oniguruma',
   '--cache-dir',
   join(work, 'local-cache'),
   '-Dapp-runtime=none',

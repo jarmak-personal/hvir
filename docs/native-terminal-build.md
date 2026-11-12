@@ -46,6 +46,10 @@ Do not substitute `deps/libghostty-vt.txt`. Run that script with pinned Zig on P
 cache: upstream warns that an incomplete `--system` directory combined with old global cache
 entries can crash Zig 0.17. Reuse canonical cached package archives directly; reimporting an
 already normalized archive through `zig fetch` can introduce a second root directory.
+The builder explicitly disables system integration for FreeType, HarfBuzz, Fontconfig, libpng,
+zlib and Oniguruma: `--system` enables Linux's system-library defaults as well as offline
+dependency lookup. These libraries come from the pinned dependency cache, as on macOS;
+ambient distribution development packages are not build inputs.
 
 Each manifest binds the hvir source commit, complete pin digest, target, upstream source digest,
 ordered patches, compiler/SDK identities, build options and output hashes. Dirty maintained build
