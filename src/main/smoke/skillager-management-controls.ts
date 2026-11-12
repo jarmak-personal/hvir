@@ -1,5 +1,6 @@
 import type { WebContents } from 'electron'
 import type { HostPath } from '../../shared/host-path'
+import { smokeScriptValue } from './script-value'
 
 export interface SkillagerManagementControls {
   click(name: string): Promise<void>
@@ -59,19 +60,19 @@ export function skillagerManagementControls(
       await inspect("document.getElementById('result').textContent=''")
       await click('observe-copies')
       await ready(
-        `(() => { try { const result=JSON.parse(document.getElementById('result').textContent);return result.schema==='skillager.exposures.v1' && result.exposures.some(item=>item.agent===${JSON.stringify(agent)} && item.exposure_id===${JSON.stringify(exposureId)} && item.target===${JSON.stringify(target.path)}) && [...document.querySelectorAll('#managed-copies > div > p')].some(row=>row.textContent.startsWith(${JSON.stringify(agent)}) && row.textContent.includes(${JSON.stringify(target.path)})); } catch { return false } })()`,
+        `(() => { try { const result=JSON.parse(document.getElementById('result').textContent);return result.schema==='skillager.exposures.v1' && result.exposures.some(item=>item.agent===${smokeScriptValue(agent)} && item.exposure_id===${smokeScriptValue(exposureId)} && item.target===${smokeScriptValue(target.path)}) && [...document.querySelectorAll('#managed-copies > div > p')].some(row=>row.textContent.startsWith(${smokeScriptValue(agent)}) && row.textContent.includes(${smokeScriptValue(target.path)})); } catch { return false } })()`,
         `${agent} fresh complete managed-copy observation`,
       )
     },
     async set(id, value) {
       await inspect(
-        `(() => { const input=document.getElementById(${JSON.stringify(id)}); input.value=${JSON.stringify(value)}; input.dispatchEvent(new Event(input.tagName==='SELECT'?'change':'input',{bubbles:true})); })()`,
+        `(() => { const input=document.getElementById(${smokeScriptValue(id)}); input.value=${smokeScriptValue(value)}; input.dispatchEvent(new Event(input.tagName==='SELECT'?'change':'input',{bubbles:true})); })()`,
       )
     },
     async result(action) {
       try {
         await ready(
-          `(() => { try { const v=JSON.parse(document.getElementById('result').textContent); return v.action===${JSON.stringify(action)}; } catch { return false } })()`,
+          `(() => { try { const v=JSON.parse(document.getElementById('result').textContent); return v.action===${smokeScriptValue(action)}; } catch { return false } })()`,
           `${action} complete public result`,
         )
       } catch (error) {

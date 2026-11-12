@@ -1,6 +1,7 @@
 import { joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
 import type { skillagerManagementControls } from './skillager-management-controls'
+import { smokeScriptValue } from './script-value'
 
 /** Owned local edits and foreign bytes stay preserved through actual consumer refusal. */
 export async function verifyOwnedCopyProtections(
@@ -22,7 +23,7 @@ export async function verifyOwnedCopyProtections(
     await ui.observeCopies({ agent, exposureId, target })
     await ui.set('copy-mode', 'stub')
     await ui.inspect(
-      `(() => { document.getElementById('state').textContent=''; const row=[...document.querySelectorAll('#managed-copies > div')].find(e=>e.querySelector('p').textContent.startsWith(${JSON.stringify(agent)})); row.querySelector('button').click(); })()`,
+      `(() => { document.getElementById('state').textContent=''; const row=[...document.querySelectorAll('#managed-copies > div')].find(e=>e.querySelector('p').textContent.startsWith(${smokeScriptValue(agent)})); row.querySelector('button').click(); })()`,
     )
     await ui.ready(
       "document.getElementById('state').textContent.includes('preserve the existing target')",
@@ -33,7 +34,7 @@ export async function verifyOwnedCopyProtections(
     if (!(await host.readFile(supportPath)).equals(modified))
       throw new Error('Protected Update changed owned local edit before refusal')
     await ui.inspect(
-      `(() => { document.getElementById('state').textContent=''; const row=[...document.querySelectorAll('#managed-copies > div')].find(e=>e.querySelector('p').textContent.startsWith(${JSON.stringify(agent)})); row.querySelectorAll('button')[1].click(); })()`,
+      `(() => { document.getElementById('state').textContent=''; const row=[...document.querySelectorAll('#managed-copies > div')].find(e=>e.querySelector('p').textContent.startsWith(${smokeScriptValue(agent)})); row.querySelectorAll('button')[1].click(); })()`,
     )
     await ui.ready(
       "document.getElementById('state').textContent.includes('forced removal is unavailable')",

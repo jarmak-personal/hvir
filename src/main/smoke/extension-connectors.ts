@@ -7,6 +7,7 @@ import type { ProjectHost } from '../project-host/project-host'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
 import { focusSmokeWindow } from './window-focus'
+import { smokeScriptValue } from './script-value'
 
 const EXPECTED_OUTPUT = 'connector evidence\n'
 
@@ -425,7 +426,7 @@ export async function verifyExtensionConnectors(
       wait: (predicate, label) => controls.wait(predicate, label),
       within: (work) => work,
     }).select('Program access')
-    const selector = JSON.stringify(`[aria-label="${label}"]`)
+    const selector = smokeScriptValue(`[aria-label="${label}"]`)
     await controls.wait(
       () =>
         dom(

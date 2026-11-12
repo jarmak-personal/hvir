@@ -121,6 +121,17 @@ export function FileCreateOverlays({
           >
             Duplicate…
           </button>
+          {controller.canDownloadMenu ? (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={controller.pending}
+              onClick={() => controller.beginDownload()}
+              className="hvir-button"
+            >
+              Download…
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"
