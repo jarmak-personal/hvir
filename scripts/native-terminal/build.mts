@@ -116,15 +116,16 @@ await run(
   ],
   repository,
 )
-await run(
-  join(output, 'loader-probe'),
-  [join(output, selected.library), pin.source.applicationVersion],
-  work,
-)
 const dependencyReport = await inspectBinary(
   join(output, selected.library),
   selected.platform,
   selected.arch,
+)
+console.log(dependencyReport)
+await run(
+  join(output, 'loader-probe'),
+  [join(output, selected.library), pin.source.applicationVersion],
+  work,
 )
 for (const [library, version, code] of [
   [join(output, 'absent-library'), pin.source.applicationVersion, 70],

@@ -52,6 +52,14 @@ jobs:
         run: |
           node scripts/native-terminal/build.mts "$TARGET" "$RUNNER_TEMP/hvir-native-build"
           node scripts/native-terminal/check.mts "$TARGET" "$RUNNER_TEMP/hvir-native-build/artifact"
+      - name: Diagnose failed Linux library relocation
+        if: failure() && runner.os == 'Linux'
+        run: |
+          library="$RUNNER_TEMP/hvir-native-build/install/lib/ghostty-internal.so"
+          if test -f "$library"; then
+            readelf --wide --dyn-syms "$library" | awk '$7 == "UND" { print $8 }'
+            ldd -r "$library"
+          fi
       - name: Preserve modes and prove archive round trip
         env:
           TARGET: ${{ matrix.target }}

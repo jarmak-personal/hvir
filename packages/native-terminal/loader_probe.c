@@ -8,7 +8,11 @@
 int main(int argc, char **argv) {
   if (argc != 3) return 64;
   void *library = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
-  if (!library) { fputs("native-loader: open failed\n", stderr); return 70; }
+  if (!library) {
+    const char *error = dlerror();
+    fprintf(stderr, "native-loader: open failed: %s\n", error ? error : "unknown dynamic loader error");
+    return 70;
+  }
   int result = 0;
   hvir_ghostty_embed_abi_fn abi = (hvir_ghostty_embed_abi_fn)dlsym(library, "hvir_ghostty_embed_abi");
   ghostty_info_s (*info)(void) = (ghostty_info_s (*)(void))dlsym(library, "ghostty_info");
