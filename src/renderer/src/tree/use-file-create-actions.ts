@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } fr
 import {
   hostPath,
   hostPathEquals,
+  containsHostPath,
+  LOCAL_HOST_ID,
   unwrapOperation,
   type FileOpenContext,
   type FileType,
@@ -73,7 +75,8 @@ export interface FileCreateActionsController {
   beginOrganization(action: FileOrganizationAction): void
   beginDeletion(): void
   beginExternalMove(): void
-  download(source: HostPath): void
+  readonly canDownloadMenu: boolean
+  beginDownload(): void
   revealInFileManager(): void
   submitCreate(name: string): void
   copyPath(kind: PathCopyKind): void
@@ -211,6 +214,14 @@ export function useFileCreateActions(
     organization.pending ||
     deletion.pending ||
     download.pending
+
+  const canDownloadMenu = Boolean(
+    menu &&
+    root.hostId !== LOCAL_HOST_ID &&
+    containsHostPath(root, menu.target) &&
+    !hostPathEquals(root, menu.target) &&
+    (menu.targetType === 'file' || menu.targetType === 'dir'),
+  )
 
   const openMenu = useCallback(
     (
@@ -451,8 +462,9 @@ export function useFileCreateActions(
       if (!menu || operationPending) return
       externalFiles.beginMove(menu.target, menu.targetType)
     },
-    download(source) {
-      if (!operationPending) download.download(source)
+    canDownloadMenu,
+    beginDownload() {
+      if (menu && canDownloadMenu && !operationPending) download.download(menu.target)
     },
     revealInFileManager: fileManagerReveal.run,
     submitCreate,

@@ -6,6 +6,7 @@ import type { ProjectHost } from '../project-host/project-host'
 import type { ExtensionApplicationRuntime } from '../extensions/extension-application'
 import { extensionSettingsControls } from './extension-settings-controls'
 import { focusSmokeWindow } from './window-focus'
+import { smokeScriptValue } from './script-value'
 
 /** Authored public bridge fixture: registered local view, trusted consent and real finite command. */
 export async function verifyLocalWorkspaceConnection(
@@ -264,7 +265,7 @@ export async function verifyLocalWorkspaceConnection(
       'current visible project guest control',
     )
     const point = (await guest.executeJavaScript(
-      `(() => {const rect=document.getElementById(${JSON.stringify(id)}).getBoundingClientRect();return {x:Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2)}})()`,
+      `(() => {const rect=document.getElementById(${smokeScriptValue(id)}).getBoundingClientRect();return {x:Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2)}})()`,
     )) as { x: number; y: number }
     const before = (await guest.executeJavaScript(
       'Number(document.body.dataset.actions||0)',

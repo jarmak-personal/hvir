@@ -127,12 +127,27 @@ async function render(
 const row = (name: string) =>
   container.querySelector<HTMLElement>(`[data-file-path="/repo/${name}"]`)!
 const downloadButton = () =>
-  [...container.querySelectorAll('button')].find(
+  [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
     (button) => button.textContent === 'Download…',
   )!
 async function click(element: HTMLElement) {
   await act(async () => {
     element.click()
+    await Promise.resolve()
+  })
+}
+async function openMenu(element: HTMLElement, key?: string) {
+  await act(async () => {
+    element.dispatchEvent(
+      key
+        ? new KeyboardEvent('keydown', {
+            key,
+            shiftKey: key === 'F10',
+            bubbles: true,
+            cancelable: true,
+          })
+        : new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+    )
     await Promise.resolve()
   })
 }
@@ -153,16 +168,13 @@ async function emit(event: Partial<ProjectFileOperationProgress>) {
 }
 
 describe('Files downloads', () => {
-  it('shows a visible control for SSH, selects real files/folders, and starts without another confirmation', async () => {
+  it('downloads the context-menu file and preserves progress, cancellation, and results', async () => {
     await render()
-    expect(downloadButton().disabled).toBe(true)
-    await click(row('link'))
-    expect(downloadButton().disabled).toBe(true)
-    await click(row('folder'))
-    expect(downloadButton().title).toBe('Download folder')
-    expect(downloadButton().disabled).toBe(false)
-    await click(row('output.txt'))
+    expect(container.textContent).not.toContain('Download')
+    expect(container.textContent).not.toContain('Select a file or folder')
+    await openMenu(row('output.txt'))
     await click(downloadButton())
+    expect(document.querySelector('[role="menu"]')).toBeNull()
     expect(invoke).toHaveBeenCalledWith('fs:download-entry', {
       workspaceRoot: root,
       source: hostPath(root.hostId, '/repo/output.txt'),
@@ -208,101 +220,72 @@ describe('Files downloads', () => {
     expect(document.body.textContent).toContain('1 entry downloaded.')
     expect(document.body.textContent).toContain('/chosen/output.txt')
   })
-  it('keeps the viewer highlight independent of the download target and follows tab changes', async () => {
+  it('downloads the context-menu directory independently of selection and tab changes', async () => {
     await render(root, { selected: hostPath(root.hostId, '/repo/output.txt') })
-    await click(row('folder'))
-    expect(row('output.txt').getAttribute('aria-selected')).toBe('true')
-    expect(row('folder').getAttribute('aria-selected')).toBe('false')
-    expect(downloadButton().title).toBe('Download folder')
-
-    await render(root, { selected: hostPath(root.hostId, '/repo/output.txt') })
-    expect(downloadButton().disabled).toBe(false)
+    await click(row('other.txt'))
+    await openMenu(row('folder'))
     await render(root, { selected: hostPath(root.hostId, '/repo/other.txt') })
     expect(row('other.txt').getAttribute('aria-selected')).toBe('true')
-    expect(row('output.txt').getAttribute('aria-selected')).toBe('false')
-    expect(downloadButton().disabled).toBe(true)
-    expect(container.textContent).toContain('Select a file or folder')
-  })
-
-  it('preserves a clicked file target when opening it updates the active viewer selection', async () => {
-    await render(root, { selected: hostPath(root.hostId, '/repo/other.txt') })
-    await click(row('output.txt'))
-    await render(root, { selected: hostPath(root.hostId, '/repo/output.txt') })
-    expect(row('output.txt').getAttribute('aria-selected')).toBe('true')
-    expect(downloadButton().disabled).toBe(false)
     await click(downloadButton())
     expect(invoke).toHaveBeenCalledWith('fs:download-entry', {
       workspaceRoot: root,
-      source: hostPath(root.hostId, '/repo/output.txt'),
+      source: hostPath(root.hostId, '/repo/folder'),
     })
   })
 
-  it.each(['rename', 'delete'] as const)(
-    'invalidates a target after external %s and tree refresh',
-    async (action) => {
-      const selected = hostPath(root.hostId, '/repo/output.txt')
-      await render(root, { selected })
-      await click(row('output.txt'))
-      entries = entries.filter((entry) => entry.name !== 'output.txt')
-      if (action === 'rename')
-        entries = [...entries, { name: 'renamed.txt', type: 'file' }]
-      await render(root, { selected, refreshVersion: 1 })
-      expect(row('output.txt')).toBeNull()
-      expect(downloadButton().disabled).toBe(true)
-      expect(downloadButton().title).toBe('Select a file or folder to download')
-      expect(
-        container.querySelector('.file-download-controls')?.textContent,
-      ).not.toContain('output.txt')
-      if (action === 'rename') expect(row('renamed.txt')).not.toBeNull()
+  it.each(['ContextMenu', 'F10'])(
+    'downloads the focused entry through the %s keyboard menu',
+    async (key) => {
+      await render(root, { selected: hostPath(root.hostId, '/repo/other.txt') })
+      const target = row('output.txt')
+      target.focus()
+      await openMenu(target, key)
+      const menu = document.querySelector('[role="menu"]')!
+      for (
+        let index = 0;
+        index < menu.querySelectorAll('[role="menuitem"]').length &&
+        document.activeElement !== downloadButton();
+        index += 1
+      ) {
+        act(() => {
+          menu.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+          )
+        })
+      }
+      expect(document.activeElement).toBe(downloadButton())
+      await click(document.activeElement as HTMLElement)
+      expect(invoke).toHaveBeenCalledWith('fs:download-entry', {
+        workspaceRoot: root,
+        source: hostPath(root.hostId, '/repo/output.txt'),
+      })
     },
   )
 
-  it('invalidates a target after a Files operation refresh without a parent refresh', async () => {
+  it.each(['link', 'root'])('omits Download from the %s context menu', async (name) => {
     await render()
-    await click(row('output.txt'))
-    await act(async () => {
-      row('folder').dispatchEvent(
-        new KeyboardEvent('keydown', {
-          key: 'v',
-          ctrlKey: true,
-          bubbles: true,
-          cancelable: true,
-        }),
-      )
-      await Promise.resolve()
-    })
-    await emit({
-      operationId: 'upload-1',
-      phase: 'completed',
-      completedItems: 1,
-      result: {
-        outcome: 'completed',
-        operationId: 'upload-1',
-        generation: 1,
-        items: [
-          {
-            itemId: 'external:0',
-            destination: hostPath(root.hostId, '/repo/folder/input.txt'),
-            status: 'completed',
-            effect: 'copied-file',
-          },
-        ],
-      },
-    })
-    expect(downloadButton().disabled).toBe(true)
-    expect(downloadButton().title).toBe('Select a file or folder to download')
+    await openMenu(
+      name === 'root'
+        ? container.querySelector<HTMLElement>('[data-file-path="/repo"]')!
+        : row(name),
+    )
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+    expect(downloadButton()).toBeUndefined()
   })
 
   it('silently handles native picker cancellation and releases the pending control', async () => {
     downloadResult = { outcome: 'cancelled' }
     await render()
-    await click(row('output.txt'))
+    await openMenu(row('output.txt'))
     await click(downloadButton())
+    await openMenu(row('folder'))
     expect(downloadButton().disabled).toBe(false)
     expect(document.querySelector('[role="alert"]')).toBeNull()
   })
   it('hides Download for local workspaces', async () => {
     await render(localPath('/repo'))
+    await openMenu(row('output.txt'))
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
     expect(downloadButton()).toBeUndefined()
   })
   it('keeps keyboard paste pointed at the visible SSH folder with copy semantics', async () => {

@@ -12,6 +12,7 @@ import {
   skillagerManagementControls,
   withinExtensionInspection,
 } from './skillager-management-controls'
+import { smokeScriptValue } from './script-value'
 
 /** Actual installed-CLI journey through the selected library skill and trusted destination. */
 export async function verifySelectedSkillTasks(
@@ -393,7 +394,7 @@ export async function verifySelectedSkillTasks(
       `visible reachable ${selector}`,
     )
     const point = (await ui.inspect(
-      `(() => {const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`,
+      `(() => {const r=document.querySelector(${smokeScriptValue(selector)}).getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`,
     )) as { x: number; y: number }
     win.focus()
     guest.focus()
@@ -457,7 +458,7 @@ export async function verifySelectedSkillTasks(
   async function result(action: string): Promise<Record<string, unknown>> {
     try {
       await ui.ready(
-        `(() => {try{return JSON.parse(document.getElementById('task-result').textContent).action===${JSON.stringify(action)}}catch{return false}})()`,
+        `(() => {try{return JSON.parse(document.getElementById('task-result').textContent).action===${smokeScriptValue(action)}}catch{return false}})()`,
         `${action} selected task result`,
       )
     } catch (error) {
