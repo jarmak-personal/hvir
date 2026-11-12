@@ -9,14 +9,26 @@
  
          // We shouldn't have this guard but we don't currently
          // build on macOS this way ironically so we need to fix that.
+@@ -293,7 +295,8 @@
+                 lib_static.install("ghostty-internal-static.lib");
+             } else {
+                 lib_shared.install("ghostty-internal.so");
+-                lib_static.install("ghostty-internal.a");
++                if (config.target.result.os.tag != .linux)
++                    lib_static.install("ghostty-internal.a");
+             }
+         }
+     }
 --- a/src/build/GhosttyLib.zig
 +++ b/src/build/GhosttyLib.zig
-@@ -109,6 +109,8 @@
+@@ -109,6 +109,10 @@
          .use_llvm = true,
      });
      _ = try deps.add(lib);
 +    if (deps.config.target.result.os.tag.isDarwin())
 +        lib.root_module.linkFramework("Metal", .{});
++    if (deps.config.target.result.os.tag == .linux)
++        lib.root_module.linkSystemLibrary("egl", dynamic_link_opts);
  
      // On Windows with MSVC, building a DLL requires the full CRT library
      // chain. linkLibC() (called via deps.add) provides msvcrt.lib, but

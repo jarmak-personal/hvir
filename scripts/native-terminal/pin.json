@@ -33,8 +33,8 @@
   "patches": [
     {
       "file": "patches/0001-embedding-build.patch.txt",
-      "sha256": "43b167683055cece3305d13ff23335c9945e94ff86ab4e4478ef47b2c53b313e",
-      "purpose": "Install the existing full macOS library, link Metal explicitly, and expose the upstream embedding-hook ABI. No terminal, process or product implementation."
+      "sha256": "03c0a22f0569a1b2455a424eb1b47ea9cf4123ed3d9cb98192197c58664a1ecf",
+      "purpose": "Install the selected full shared libraries, skip the unused Linux static output, link Metal/EGL explicitly, and expose the upstream embedding-hook ABI. No terminal, process or product implementation."
     }
   ],
   "targets": {

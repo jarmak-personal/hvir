@@ -14,6 +14,12 @@ and provenance. It creates no terminal, PTY, provider, renderer attachment or ap
 Use Node 24+, a native C compiler, tar, patch, and a matching native host. Supported targets are
 `macos-arm64`, `linux-x64`, and `linux-arm64`. Linux release builds use the existing Ubuntu 22.04
 native runner baseline; package and hardware acceptance remain separate.
+Linux builds require `pkg-config` and EGL development files (`sudo apt-get install pkg-config
+libegl-dev` on Ubuntu 22.04). The native library uses the system EGL dispatch runtime
+(`libEGL.so.1`, Ubuntu package `libegl1`); a usable GPU driver remains separate acceptance.
+The builder checks this prerequisite before downloading inputs, preserves pkg-config's system
+library search flags for the explicit target, and records the pkg-config/EGL identities and
+link flags. No GTK application or replacement EGL manager is built.
 
 On macOS use full Xcode with its Metal component. A task-specific `DEVELOPER_DIR` selects Xcode
 without changing the machine's global developer directory. If the component is absent, Apple's
@@ -73,7 +79,9 @@ enable or replace the application terminal path.
 `scripts/native-terminal/pin.json` is the complete input pin. Its one current upstream patch:
 
 - installs the existing macOS shared-library output;
-- links the Metal framework explicitly for that output; and
+- skips the unused Linux static-library install and its separate full-core compile;
+- links the Metal framework explicitly for that output;
+- links system EGL into the Linux shared library; and
 - exports the version of the upstream hooks consumed by the maintained C facade.
 
 The patch changes upstream build/core exports only. hvir's own facade, loader, Node-API and OS

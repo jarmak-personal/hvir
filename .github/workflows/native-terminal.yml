@@ -40,6 +40,12 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+      - name: Prepare Linux EGL development prerequisite
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes pkg-config libegl-dev
+          dpkg-query -W pkg-config libegl-dev libegl1
       - name: Require macOS shader compiler
         if: runner.os == 'macOS'
         run: |

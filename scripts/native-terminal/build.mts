@@ -31,12 +31,36 @@ if (process.platform !== selected.platform || process.arch !== selected.arch)
     'native-build: use a matching native host; cross-build is not loader evidence',
   )
 const work = resolve(requestedWork)
+const environment = {
+  ...process.env,
+  ZIG_GLOBAL_CACHE_DIR: join(work, 'build-cache'),
+  ...(selected.platform === 'linux' ? { PKG_CONFIG_ALLOW_SYSTEM_LIBS: '1' } : {}),
+}
+let egl: Record<string, string> | undefined
+if (selected.platform === 'linux') {
+  try {
+    egl = {
+      pkgConfig: (await execute('pkg-config', ['--version'])).stdout.trim(),
+      moduleVersion: (
+        await execute('pkg-config', ['--modversion', 'egl'])
+      ).stdout.trim(),
+      linkFlags: (
+        await execute('pkg-config', ['--libs', 'egl'], { env: environment })
+      ).stdout.trim(),
+      allowSystemLibs: '1',
+    }
+  } catch (cause) {
+    throw new Error(
+      'native-toolchain: Linux requires pkg-config and EGL development files (Ubuntu 22.04: pkg-config libegl-dev)',
+      { cause },
+    )
+  }
+}
 await mkdir(work) // Each attempt retains its own evidence; never overwrite a previous build.
 const zig = options.get('--zig') ?? (await prepareZig(work))
 if ((await execute(zig, ['version'])).stdout.trim() !== pin.zig.version)
   throw new Error('native-toolchain: version mismatch')
 const source = await prepareSource(work, options.get('--source-archive'))
-const environment = { ...process.env, ZIG_GLOBAL_CACHE_DIR: join(work, 'build-cache') }
 const packages = options.get('--packages') ?? join(work, 'dependency-cache/p')
 if (!options.has('--packages')) {
   await run(
@@ -205,6 +229,7 @@ const versions = {
   zig: pin.zig.version,
   zigBinarySha256: await digest(zig),
   cc: (await execute('cc', ['--version'])).stdout.split('\n')[0],
+  ...(egl ? { egl } : {}),
   ...(process.platform === 'darwin'
     ? {
         xcode: (await execute('xcodebuild', ['-version'])).stdout.trim(),
