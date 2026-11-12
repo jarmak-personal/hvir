@@ -1,12 +1,14 @@
 # Live native Ghostty qualification (#1094)
 
-**Provisional macOS recommendation: proceed to migration scoping with explicit gaps.** The macOS
+**Conditional recommendation: proceed with the production migration, retaining the Linux
+GPU gate and explicit compatibility gaps.** The macOS
 experiment now has a real hvir-owned PTY path, independent native surfaces, bounded
 GPU leases, and repeatable lifecycle evidence. This is enough to justify designing
 the migration. It does not qualify Linux or establish complete harness compatibility.
 No production engine, dependency direction, or ADR replacement is selected here.
-The maintainer separately decides whether to authorize that next scope. #1094 remains
-open pending the maintainer-run Linux desktop attempt described below.
+The maintainer has now authorized the full #1090 migration. This study can complete
+conditionally; the [refreshed Linux boundary](linux-boundary.md) remains a required
+production proof obligation, not a successful Linux qualification.
 
 ## Try it
 
@@ -197,7 +199,12 @@ change. Rapid request tickets 8–11 notified only ticket 11 even after returnin
 coalesced work did not restore stale state; the delay is a regression observation
 window, not resize readiness. Closing with ticket 12 pending allowed native completion
 but no late PTY notification. These are fixed-peer correctness results; they do not
-claim physical display latency or a completed maintainer retest of the full harness.
+claim physical display latency or replace the separate maintainer retest.
+
+The maintainer subsequently confirmed that Toggle width redrew correctly in live
+Claude use, with resizing feeling much faster than main. Earlier hands-on feedback
+also found scrolling, typing, and general feel great. These are qualitative user
+observations, not additional timing samples or complete harness compatibility proof.
 
 To reproduce the pre-fix manual path, use the old `5aea3deb` live shell/bridge and run
 the current `resize-fixture.mjs` as a fixed command in that shell, then click Toggle
@@ -257,11 +264,15 @@ large-output/capacity behaviour. Parsing still runs in Electron main in the prot
 
 ## Linux and SSH
 
-**Linux GPU readiness is unresolved; desktop result pending.** The maintainer will
-run the pushed branch on a Linux desktop. No Linux environment was available to this
-Mac agent; discovered SSH aliases were not assumed disposable, and no local Docker
-daemon was available. No Linux build, descriptor-transfer, GPU import, driver or SSH
-byte-path result is claimed. Keep #1094 open until the desktop result is assessed.
+**Linux GPU readiness is unresolved.** No Linux environment was available to this
+Mac agent; discovered SSH aliases were not assumed disposable, and a fresh Docker
+check could not reach the local daemon. No Linux build, descriptor-transfer, GPU
+import, driver or SSH byte-path result is claimed. The current command below is a
+build/platform-boundary diagnostic, not the interactive terminal needed for desktop
+acceptance. The [1.0.1 source reassessment](linux-boundary.md) records the exact
+remaining integration boundary. A conditional #1094 result permits implementation
+to address that boundary; #1111/#1113/#1122 must establish the missing GPU evidence
+before Linux adoption.
 
 The macOS bridge and `build.sh` remain Darwin/arm64-only. Use the separate Linux-native
 build/embed-boundary kit below. It deliberately does not present the macOS bridge as
@@ -372,6 +383,8 @@ Clipboard reads from the terminal engine remain unavailable, and native terminal
 clipboard writes are ignored; no OSC 52 authority is added. Explicit Cmd+V reads text
 only for the current verified demo sender/session/generation, with a 65,536-byte bound.
 Links are not activated. The production clipboard/link/replay policies remain later
-integration work; this study makes no complete parity claim. The minimum useful next
-decision is whether this macOS evidence plus the explicit Linux and harness gaps
-justifies full migration scoping. It does not authorize more migration children.
+integration work; this study makes no complete parity claim. The full migration is
+now separately authorized in #1090. This study contributes
+its measured macOS evidence and named Linux/harness gaps; it does not establish
+production architecture, Linux readiness, complete behavior parity, or cutover
+acceptance. The later children own those outcomes.

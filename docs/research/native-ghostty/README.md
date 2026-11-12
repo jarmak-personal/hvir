@@ -1,6 +1,6 @@
 # Native Ghostty: matched probes and interactive scrolling
 
-The follow-up [live PTY and lifecycle study (#1094)](live-study.md) adds a maintainer-runnable live demo, three two-surface probes, refreshed comparisons and explicit Linux/harness gaps.
+The follow-up [live PTY and lifecycle study (#1094)](live-study.md) adds a maintainer-runnable live demo, three two-surface probes, refreshed comparisons and explicit Linux/harness gaps. Its [1.0.1 Linux boundary reassessment](linux-boundary.md) supports a conditional study result; actual Linux GPU acceptance remains with the production migration.
 
 Continuation of [#1091](https://github.com/jarmak-personal/hvir/issues/1091), under
 [#1090](https://github.com/jarmak-personal/hvir/issues/1090). The [initial study](initial-study.md)
