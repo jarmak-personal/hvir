@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'unsafe-inline'"
+    />
+    <title>Disposable native live terminal</title>
+    <style>
+      body {
+        margin: 12px;
+        background: #222;
+        color: #ddd;
+        font: 13px system-ui;
+      }
+      canvas {
+        display: block;
+        outline: 1px solid #666;
+        margin-top: 10px;
+      }
+      button {
+        margin-right: 8px;
+      }
+    </style>
+    <script type="module" src="./live-view.mjs"></script>
+  </head>
+  <body>
+    <p>
+      Experimental live PTY in a disposable workspace. Closing terminates this session.
+    </p>
+    <p>
+      Click terminal to type · wheel to scroll · Cmd+V to paste text · IME and selection
+      unavailable
+    </p>
+    <button id="resize">Toggle width</button><button id="top">Scrollback top</button
+    ><button id="bottom">Scrollback bottom</button>
+    <canvas tabindex="0"></canvas>
+  </body>
+</html>

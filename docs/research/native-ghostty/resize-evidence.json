@@ -1,0 +1,2195 @@
+{
+  "schema": 1,
+  "scheduledRuns": 3,
+  "automaticRetries": 0,
+  "buttonClicks": 18,
+  "upstreamCoalescerMs": 25,
+  "runs": [
+    {
+      "schema": 1,
+      "mode": "resize-probe",
+      "provider": "plain-shell",
+      "timing": "Main/renderer scheduling and synchronous PTY-feed service; no physical presentation claim",
+      "checks": [
+        "Native parser applies initial resize before the real PTY starts",
+        "Peer receives real SIGWINCH for 80 columns",
+        "Peer receives real SIGWINCH for 100 columns",
+        "Peer receives real SIGWINCH for 80 columns",
+        "Peer receives real SIGWINCH for 100 columns",
+        "Peer receives real SIGWINCH for 80 columns",
+        "Peer receives real SIGWINCH for 100 columns",
+        "Only the latest rapid repeated-size ticket notifies the external PTY",
+        "Older coalesced resize cannot replace the latest applied ticket",
+        "Closing session revokes a pending resize before late completion can notify its PTY",
+        "Kernel winsize, child dimensions, terminal size replies, cursor clamp and wrap agree for startup and each redraw"
+      ],
+      "environment": {
+        "platform": "darwin",
+        "arch": "arm64",
+        "versions": {
+          "node": "24.22.0",
+          "acorn": "8.18.0",
+          "ada": "4.0.0",
+          "amaro": "1.1.11",
+          "ares": "1.34.8",
+          "brotli": "1.2.0",
+          "cldr": "48.0",
+          "icu": "78.2",
+          "llhttp": "9.4.3",
+          "merve": "1.2.2",
+          "modules": "148",
+          "napi": "10",
+          "nbytes": "0.1.4",
+          "ncrypto": "0.0.1",
+          "nghttp2": "1.70.0",
+          "nghttp3": "",
+          "ngtcp2": "",
+          "openssl": "0.0.0",
+          "simdjson": "4.6.11",
+          "simdutf": "7.7.0",
+          "sqlite": "3.53.4",
+          "tz": "2026d",
+          "undici": "7.29.1",
+          "unicode": "17.0",
+          "uv": "1.52.1",
+          "uvwasi": "0.0.23",
+          "v8": "15.0.245.31-electron.0",
+          "zlib": "1.3.2.1-motley",
+          "zstd": "1.6.0",
+          "electron": "43.8.1",
+          "chrome": "150.0.7871.250"
+        },
+        "display": {
+          "scale": 2,
+          "frequency": 60.00239944458008
+        },
+        "gpu": {
+          "auxAttributes": {
+            "amdSwitchable": false,
+            "canSupportThreadedTextureMailbox": false,
+            "glImplementationParts": "(gl=none,angle=none)",
+            "glResetNotificationStrategy": 0,
+            "inProcessGpu": true,
+            "initializationTime": 0,
+            "isAsan": false,
+            "isClangCoverage": false,
+            "jpegDecodeAcceleratorSupported": false,
+            "optimus": false,
+            "passthroughCmdDecoder": false,
+            "sandboxed": false,
+            "skiaBackendType": "None",
+            "subpixelFontRendering": true,
+            "targetCpuBits": 64,
+            "visibilityCallbackCallCount": 0
+          },
+          "gpuDevice": [
+            {
+              "active": true,
+              "deviceId": 0,
+              "gpuPreference": 0,
+              "vendorId": 4203
+            }
+          ],
+          "machineModelName": "Mac",
+          "machineModelVersion": "14.2"
+        }
+      },
+      "resizePeerSamples": [
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 0,
+            "cause": "startup",
+            "signals": 0,
+            "stdoutResizes": 0,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "kind": "startup",
+            "appliedTicket": 1,
+            "native": {
+              "ticket": 1,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 80,
+            "rows": 30,
+            "width": 1440,
+            "height": 900
+          },
+          "record": {
+            "sequence": 1,
+            "cause": "SIGWINCH",
+            "signals": 1,
+            "stdoutResizes": 1,
+            "cols": 80,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 80
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 80
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 80
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1440
+            }
+          },
+          "before": {
+            "signals": 0,
+            "stdoutResizes": 0,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 2,
+            "native": {
+              "ticket": 2,
+              "cols": 80,
+              "rows": 30,
+              "width": 1440,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 2,
+            "cause": "SIGWINCH",
+            "signals": 2,
+            "stdoutResizes": 2,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "signals": 1,
+            "stdoutResizes": 1,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 3,
+            "native": {
+              "ticket": 3,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 80,
+            "rows": 30,
+            "width": 1440,
+            "height": 900
+          },
+          "record": {
+            "sequence": 3,
+            "cause": "SIGWINCH",
+            "signals": 3,
+            "stdoutResizes": 3,
+            "cols": 80,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 80
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 80
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 80
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1440
+            }
+          },
+          "before": {
+            "signals": 2,
+            "stdoutResizes": 2,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 4,
+            "native": {
+              "ticket": 4,
+              "cols": 80,
+              "rows": 30,
+              "width": 1440,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 4,
+            "cause": "SIGWINCH",
+            "signals": 4,
+            "stdoutResizes": 4,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "signals": 3,
+            "stdoutResizes": 3,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 5,
+            "native": {
+              "ticket": 5,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 80,
+            "rows": 30,
+            "width": 1440,
+            "height": 900
+          },
+          "record": {
+            "sequence": 5,
+            "cause": "SIGWINCH",
+            "signals": 5,
+            "stdoutResizes": 5,
+            "cols": 80,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 80
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 80
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 80
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1440
+            }
+          },
+          "before": {
+            "signals": 4,
+            "stdoutResizes": 4,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 6,
+            "native": {
+              "ticket": 6,
+              "cols": 80,
+              "rows": 30,
+              "width": 1440,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 6,
+            "cause": "SIGWINCH",
+            "signals": 6,
+            "stdoutResizes": 6,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "signals": 5,
+            "stdoutResizes": 5,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 7,
+            "native": {
+              "ticket": 7,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 7,
+            "cause": "request",
+            "signals": 6,
+            "stdoutResizes": 6,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "kind": "rapid-repeated-size",
+            "requested": [8, 9, 10, 11],
+            "applied": {
+              "ticket": 11,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 8,
+            "cause": "request",
+            "signals": 6,
+            "stdoutResizes": 6,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "kind": "after-coalescer-window",
+            "observationWindowMs": 60,
+            "requestedTicket": 11,
+            "applied": {
+              "ticket": 11,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        }
+      ],
+      "resizeTicketProof": {
+        "requested": [8, 9, 10, 11],
+        "applied": {
+          "ticket": 11,
+          "cols": 100,
+          "rows": 30,
+          "width": 1800,
+          "height": 900,
+          "failed": 0
+        },
+        "notifications": [
+          {
+            "ticket": 11,
+            "cols": 100,
+            "rows": 30,
+            "epoch": 11,
+            "notified": true
+          }
+        ]
+      },
+      "resizeCloseProof": {
+        "closingTicket": 12,
+        "applied": {
+          "ticket": 12,
+          "cols": 96,
+          "rows": 30,
+          "width": 1728,
+          "height": 900,
+          "failed": 0
+        },
+        "notificationsBefore": 8,
+        "notificationsAfter": 8,
+        "ptyPresent": false
+      },
+      "resizePeerMismatches": [],
+      "resources": [
+        {
+          "id": "A",
+          "imported": 8,
+          "sent": 8,
+          "released": 8,
+          "held": 0,
+          "maxLeases": 1,
+          "draws": 7,
+          "staleDraws": 0,
+          "native": {
+            "idlePid": 32585,
+            "held": 0,
+            "pending": 1,
+            "copying": 0,
+            "slots": 3,
+            "produced": 10,
+            "dropped": 0,
+            "copyErrors": 0,
+            "outputBytes": 0,
+            "outputOverflow": 0
+          },
+          "resizeNotifications": [
+            {
+              "ticket": 1,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 1,
+              "notified": false
+            },
+            {
+              "ticket": 2,
+              "cols": 80,
+              "rows": 30,
+              "epoch": 2,
+              "notified": true
+            },
+            {
+              "ticket": 3,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 3,
+              "notified": true
+            },
+            {
+              "ticket": 4,
+              "cols": 80,
+              "rows": 30,
+              "epoch": 4,
+              "notified": true
+            },
+            {
+              "ticket": 5,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 5,
+              "notified": true
+            },
+            {
+              "ticket": 6,
+              "cols": 80,
+              "rows": 30,
+              "epoch": 6,
+              "notified": true
+            },
+            {
+              "ticket": 7,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 7,
+              "notified": true
+            },
+            {
+              "ticket": 11,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 11,
+              "notified": true
+            }
+          ],
+          "pendingResizeTicket": null,
+          "appliedResizeTicket": 11,
+          "rendererRafIntervalsMs": [
+            1.4000000953674316, 6.299999952316284, 14.700000047683716, 18.5,
+            16.799999952316284, 16.600000023841858, 14.699999928474426,
+            18.600000023841858, 16.899999976158142, 16.100000023841858, 16,
+            17.600000023841858, 18.399999976158142, 13.100000023841858
+          ]
+        }
+      ],
+      "idleChildrenAliveAfterStop": [
+        {
+          "id": "A",
+          "alive": false
+        }
+      ],
+      "ptyStreams": [
+        {
+          "id": "A",
+          "bytes": 4632,
+          "chunks": 18,
+          "maxChunkBytes": 276,
+          "sha256": "01f12a8fd301a8dc0a3409eb60b3fc8c85980fc78214b84138a521a0b1e17f42",
+          "exit": null,
+          "processAliveAfterCleanup": false
+        }
+      ],
+      "livePtysAfterCleanup": 0,
+      "mainTimerIntervalsMs": [
+        4.4422910000000115, 3.3832500000000323, 5.197499999999991, 5.112874999999974,
+        5.145417000000009, 5.1191670000000045, 3.8881250000000023, 3.829541000000006,
+        5.124167, 4.133582999999987, 3.75908400000003, 5.109874999999988,
+        4.045832999999959, 4.154333000000008, 5.400584000000038, 4.493499999999983,
+        3.9900410000000193, 4.017999999999972, 4.531042000000014, 4.1937919999999735,
+        5.301625000000001, 3.994000000000028, 4.140749999999969, 4.242791000000011,
+        5.049874999999986, 5.22829200000001, 4.258458000000019, 4.135541999999987,
+        4.1844580000000065, 5.053917000000013, 5.2129170000000045, 5.063874999999996,
+        5.121332999999993, 5.116167000000019, 4.684957999999995, 5.048999999999978,
+        5.045292000000018, 5.046041000000002, 5.053541999999993, 5.123957999999959,
+        3.9855420000000095, 5.255499999999984, 4.201583000000028
+      ],
+      "ptyFeedServiceMs": [
+        0.05762500000003001, 0.016208000000005995, 0.01495900000003303,
+        0.02245799999997189, 0.01362499999999045, 0.004542000000014923,
+        0.012165999999979249, 0.0044999999999504325, 0.015290999999990618,
+        0.0061249999999972715, 0.014625000000023647, 0.004833000000019183,
+        0.011374999999986812, 0.0034579999999664324, 0.01695799999998826,
+        0.005083000000013271, 0.021666000000095664, 0.006917000000044027
+      ],
+      "exitCode": 0
+    },
+    {
+      "schema": 1,
+      "mode": "resize-probe",
+      "provider": "plain-shell",
+      "timing": "Main/renderer scheduling and synchronous PTY-feed service; no physical presentation claim",
+      "checks": [
+        "Native parser applies initial resize before the real PTY starts",
+        "Peer receives real SIGWINCH for 80 columns",
+        "Peer receives real SIGWINCH for 100 columns",
+        "Peer receives real SIGWINCH for 80 columns",
+        "Peer receives real SIGWINCH for 100 columns",
+        "Peer receives real SIGWINCH for 80 columns",
+        "Peer receives real SIGWINCH for 100 columns",
+        "Only the latest rapid repeated-size ticket notifies the external PTY",
+        "Older coalesced resize cannot replace the latest applied ticket",
+        "Closing session revokes a pending resize before late completion can notify its PTY",
+        "Kernel winsize, child dimensions, terminal size replies, cursor clamp and wrap agree for startup and each redraw"
+      ],
+      "environment": {
+        "platform": "darwin",
+        "arch": "arm64",
+        "versions": {
+          "node": "24.22.0",
+          "acorn": "8.18.0",
+          "ada": "4.0.0",
+          "amaro": "1.1.11",
+          "ares": "1.34.8",
+          "brotli": "1.2.0",
+          "cldr": "48.0",
+          "icu": "78.2",
+          "llhttp": "9.4.3",
+          "merve": "1.2.2",
+          "modules": "148",
+          "napi": "10",
+          "nbytes": "0.1.4",
+          "ncrypto": "0.0.1",
+          "nghttp2": "1.70.0",
+          "nghttp3": "",
+          "ngtcp2": "",
+          "openssl": "0.0.0",
+          "simdjson": "4.6.11",
+          "simdutf": "7.7.0",
+          "sqlite": "3.53.4",
+          "tz": "2026d",
+          "undici": "7.29.1",
+          "unicode": "17.0",
+          "uv": "1.52.1",
+          "uvwasi": "0.0.23",
+          "v8": "15.0.245.31-electron.0",
+          "zlib": "1.3.2.1-motley",
+          "zstd": "1.6.0",
+          "electron": "43.8.1",
+          "chrome": "150.0.7871.250"
+        },
+        "display": {
+          "scale": 2,
+          "frequency": 60.00239944458008
+        },
+        "gpu": {
+          "auxAttributes": {
+            "amdSwitchable": false,
+            "canSupportThreadedTextureMailbox": false,
+            "glImplementationParts": "(gl=none,angle=none)",
+            "glResetNotificationStrategy": 0,
+            "inProcessGpu": true,
+            "initializationTime": 0,
+            "isAsan": false,
+            "isClangCoverage": false,
+            "jpegDecodeAcceleratorSupported": false,
+            "optimus": false,
+            "passthroughCmdDecoder": false,
+            "sandboxed": false,
+            "skiaBackendType": "None",
+            "subpixelFontRendering": true,
+            "targetCpuBits": 64,
+            "visibilityCallbackCallCount": 0
+          },
+          "gpuDevice": [
+            {
+              "active": true,
+              "deviceId": 0,
+              "gpuPreference": 0,
+              "vendorId": 4203
+            }
+          ],
+          "machineModelName": "Mac",
+          "machineModelVersion": "14.2"
+        }
+      },
+      "resizePeerSamples": [
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 0,
+            "cause": "startup",
+            "signals": 0,
+            "stdoutResizes": 0,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "kind": "startup",
+            "appliedTicket": 1,
+            "native": {
+              "ticket": 1,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 80,
+            "rows": 30,
+            "width": 1440,
+            "height": 900
+          },
+          "record": {
+            "sequence": 1,
+            "cause": "SIGWINCH",
+            "signals": 1,
+            "stdoutResizes": 1,
+            "cols": 80,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 80
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 80
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 80
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1440
+            }
+          },
+          "before": {
+            "signals": 0,
+            "stdoutResizes": 0,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 2,
+            "native": {
+              "ticket": 2,
+              "cols": 80,
+              "rows": 30,
+              "width": 1440,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 2,
+            "cause": "SIGWINCH",
+            "signals": 2,
+            "stdoutResizes": 2,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "signals": 1,
+            "stdoutResizes": 1,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 3,
+            "native": {
+              "ticket": 3,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 80,
+            "rows": 30,
+            "width": 1440,
+            "height": 900
+          },
+          "record": {
+            "sequence": 3,
+            "cause": "SIGWINCH",
+            "signals": 3,
+            "stdoutResizes": 3,
+            "cols": 80,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 80
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 80
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 80
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1440
+            }
+          },
+          "before": {
+            "signals": 2,
+            "stdoutResizes": 2,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 4,
+            "native": {
+              "ticket": 4,
+              "cols": 80,
+              "rows": 30,
+              "width": 1440,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 4,
+            "cause": "SIGWINCH",
+            "signals": 4,
+            "stdoutResizes": 4,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "signals": 3,
+            "stdoutResizes": 3,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 5,
+            "native": {
+              "ticket": 5,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 80,
+            "rows": 30,
+            "width": 1440,
+            "height": 900
+          },
+          "record": {
+            "sequence": 5,
+            "cause": "SIGWINCH",
+            "signals": 5,
+            "stdoutResizes": 5,
+            "cols": 80,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 80
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 80
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 80
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1440
+            }
+          },
+          "before": {
+            "signals": 4,
+            "stdoutResizes": 4,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 6,
+            "native": {
+              "ticket": 6,
+              "cols": 80,
+              "rows": 30,
+              "width": 1440,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 6,
+            "cause": "SIGWINCH",
+            "signals": 6,
+            "stdoutResizes": 6,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "signals": 5,
+            "stdoutResizes": 5,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 7,
+            "native": {
+              "ticket": 7,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 7,
+            "cause": "request",
+            "signals": 6,
+            "stdoutResizes": 6,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "kind": "rapid-repeated-size",
+            "requested": [8, 9, 10, 11],
+            "applied": {
+              "ticket": 11,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 8,
+            "cause": "request",
+            "signals": 6,
+            "stdoutResizes": 6,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "kind": "after-coalescer-window",
+            "observationWindowMs": 60,
+            "requestedTicket": 11,
+            "applied": {
+              "ticket": 11,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        }
+      ],
+      "resizeTicketProof": {
+        "requested": [8, 9, 10, 11],
+        "applied": {
+          "ticket": 11,
+          "cols": 100,
+          "rows": 30,
+          "width": 1800,
+          "height": 900,
+          "failed": 0
+        },
+        "notifications": [
+          {
+            "ticket": 11,
+            "cols": 100,
+            "rows": 30,
+            "epoch": 11,
+            "notified": true
+          }
+        ]
+      },
+      "resizeCloseProof": {
+        "closingTicket": 12,
+        "applied": {
+          "ticket": 12,
+          "cols": 96,
+          "rows": 30,
+          "width": 1728,
+          "height": 900,
+          "failed": 0
+        },
+        "notificationsBefore": 8,
+        "notificationsAfter": 8,
+        "ptyPresent": false
+      },
+      "resizePeerMismatches": [],
+      "resources": [
+        {
+          "id": "A",
+          "imported": 7,
+          "sent": 7,
+          "released": 7,
+          "held": 0,
+          "maxLeases": 1,
+          "draws": 6,
+          "staleDraws": 0,
+          "native": {
+            "idlePid": 32616,
+            "held": 0,
+            "pending": 1,
+            "copying": 0,
+            "slots": 3,
+            "produced": 10,
+            "dropped": 0,
+            "copyErrors": 0,
+            "outputBytes": 0,
+            "outputOverflow": 0
+          },
+          "resizeNotifications": [
+            {
+              "ticket": 1,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 1,
+              "notified": false
+            },
+            {
+              "ticket": 2,
+              "cols": 80,
+              "rows": 30,
+              "epoch": 2,
+              "notified": true
+            },
+            {
+              "ticket": 3,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 3,
+              "notified": true
+            },
+            {
+              "ticket": 4,
+              "cols": 80,
+              "rows": 30,
+              "epoch": 4,
+              "notified": true
+            },
+            {
+              "ticket": 5,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 5,
+              "notified": true
+            },
+            {
+              "ticket": 6,
+              "cols": 80,
+              "rows": 30,
+              "epoch": 6,
+              "notified": true
+            },
+            {
+              "ticket": 7,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 7,
+              "notified": true
+            },
+            {
+              "ticket": 11,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 11,
+              "notified": true
+            }
+          ],
+          "pendingResizeTicket": null,
+          "appliedResizeTicket": 11,
+          "rendererRafIntervalsMs": [
+            3.100000023841858, 5, 10.199999928474426, 14.800000071525574,
+            18.59999990463257, 16.700000047683716, 16.5, 16.799999952316284,
+            16.700000047683716, 16.700000047683716, 14.799999952316284,
+            16.600000023841858, 18.5, 16.699999928474426
+          ]
+        }
+      ],
+      "idleChildrenAliveAfterStop": [
+        {
+          "id": "A",
+          "alive": false
+        }
+      ],
+      "ptyStreams": [
+        {
+          "id": "A",
+          "bytes": 4632,
+          "chunks": 18,
+          "maxChunkBytes": 276,
+          "sha256": "01f12a8fd301a8dc0a3409eb60b3fc8c85980fc78214b84138a521a0b1e17f42",
+          "exit": null,
+          "processAliveAfterCleanup": false
+        }
+      ],
+      "livePtysAfterCleanup": 0,
+      "mainTimerIntervalsMs": [
+        5.618416999999965, 4.604791000000034, 5.234041999999988, 3.961999999999989,
+        3.947249999999997, 5.114916999999991, 5.082290999999998, 5.093166999999994,
+        3.2017920000000117, 4.407958000000008, 4.698667, 4.207249999999988,
+        5.449125000000038, 4.227915999999993, 5.241791999999975, 4.345833000000027,
+        3.9655839999999785, 5.087666000000013, 5.375166999999976, 5.5932920000000195,
+        5.166457999999977, 4.066833000000031, 4.1059999999999945, 3.055499999999995,
+        5.073624999999993, 5.139084000000025, 4.87745799999999, 5.523416999999995,
+        4.9953330000000165, 5.198791999999969, 4.031875000000014, 5.23641600000002,
+        5.086208999999997, 5.04974999999996, 5.149208000000044, 5.061624999999992,
+        5.111917000000005, 5.114582999999982, 5.060541999999998, 5.050291000000016,
+        5.04849999999999, 4.145459000000017
+      ],
+      "ptyFeedServiceMs": [
+        0.08383399999996755, 0.0072499999999990905, 0.015208999999970274,
+        0.012916000000018357, 0.012708000000031916, 0.023666999999989002,
+        0.011333000000036009, 0.004624999999975898, 0.0202499999999759,
+        0.006832999999971889, 0.017333000000007814, 0.0035839999999893735,
+        0.010167000000024018, 0.003249999999979991, 0.012875000000008185,
+        0.007374999999967713, 0.02287499999999909, 0.006042000000036296
+      ],
+      "exitCode": 0
+    },
+    {
+      "schema": 1,
+      "mode": "resize-probe",
+      "provider": "plain-shell",
+      "timing": "Main/renderer scheduling and synchronous PTY-feed service; no physical presentation claim",
+      "checks": [
+        "Native parser applies initial resize before the real PTY starts",
+        "Peer receives real SIGWINCH for 80 columns",
+        "Peer receives real SIGWINCH for 100 columns",
+        "Peer receives real SIGWINCH for 80 columns",
+        "Peer receives real SIGWINCH for 100 columns",
+        "Peer receives real SIGWINCH for 80 columns",
+        "Peer receives real SIGWINCH for 100 columns",
+        "Only the latest rapid repeated-size ticket notifies the external PTY",
+        "Older coalesced resize cannot replace the latest applied ticket",
+        "Closing session revokes a pending resize before late completion can notify its PTY",
+        "Kernel winsize, child dimensions, terminal size replies, cursor clamp and wrap agree for startup and each redraw"
+      ],
+      "environment": {
+        "platform": "darwin",
+        "arch": "arm64",
+        "versions": {
+          "node": "24.22.0",
+          "acorn": "8.18.0",
+          "ada": "4.0.0",
+          "amaro": "1.1.11",
+          "ares": "1.34.8",
+          "brotli": "1.2.0",
+          "cldr": "48.0",
+          "icu": "78.2",
+          "llhttp": "9.4.3",
+          "merve": "1.2.2",
+          "modules": "148",
+          "napi": "10",
+          "nbytes": "0.1.4",
+          "ncrypto": "0.0.1",
+          "nghttp2": "1.70.0",
+          "nghttp3": "",
+          "ngtcp2": "",
+          "openssl": "0.0.0",
+          "simdjson": "4.6.11",
+          "simdutf": "7.7.0",
+          "sqlite": "3.53.4",
+          "tz": "2026d",
+          "undici": "7.29.1",
+          "unicode": "17.0",
+          "uv": "1.52.1",
+          "uvwasi": "0.0.23",
+          "v8": "15.0.245.31-electron.0",
+          "zlib": "1.3.2.1-motley",
+          "zstd": "1.6.0",
+          "electron": "43.8.1",
+          "chrome": "150.0.7871.250"
+        },
+        "display": {
+          "scale": 2,
+          "frequency": 60.00239944458008
+        },
+        "gpu": {
+          "auxAttributes": {
+            "amdSwitchable": false,
+            "canSupportThreadedTextureMailbox": false,
+            "glImplementationParts": "(gl=none,angle=none)",
+            "glResetNotificationStrategy": 0,
+            "inProcessGpu": true,
+            "initializationTime": 0,
+            "isAsan": false,
+            "isClangCoverage": false,
+            "jpegDecodeAcceleratorSupported": false,
+            "optimus": false,
+            "passthroughCmdDecoder": false,
+            "sandboxed": false,
+            "skiaBackendType": "None",
+            "subpixelFontRendering": true,
+            "targetCpuBits": 64,
+            "visibilityCallbackCallCount": 0
+          },
+          "gpuDevice": [
+            {
+              "active": true,
+              "deviceId": 0,
+              "gpuPreference": 0,
+              "vendorId": 4203
+            }
+          ],
+          "machineModelName": "Mac",
+          "machineModelVersion": "14.2"
+        }
+      },
+      "resizePeerSamples": [
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 0,
+            "cause": "startup",
+            "signals": 0,
+            "stdoutResizes": 0,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "kind": "startup",
+            "appliedTicket": 1,
+            "native": {
+              "ticket": 1,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 80,
+            "rows": 30,
+            "width": 1440,
+            "height": 900
+          },
+          "record": {
+            "sequence": 1,
+            "cause": "SIGWINCH",
+            "signals": 1,
+            "stdoutResizes": 1,
+            "cols": 80,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 80
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 80
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 80
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1440
+            }
+          },
+          "before": {
+            "signals": 0,
+            "stdoutResizes": 0,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 2,
+            "native": {
+              "ticket": 2,
+              "cols": 80,
+              "rows": 30,
+              "width": 1440,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 2,
+            "cause": "SIGWINCH",
+            "signals": 2,
+            "stdoutResizes": 2,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "signals": 1,
+            "stdoutResizes": 1,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 3,
+            "native": {
+              "ticket": 3,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 80,
+            "rows": 30,
+            "width": 1440,
+            "height": 900
+          },
+          "record": {
+            "sequence": 3,
+            "cause": "SIGWINCH",
+            "signals": 3,
+            "stdoutResizes": 3,
+            "cols": 80,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 80
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 80
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 80
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1440
+            }
+          },
+          "before": {
+            "signals": 2,
+            "stdoutResizes": 2,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 4,
+            "native": {
+              "ticket": 4,
+              "cols": 80,
+              "rows": 30,
+              "width": 1440,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 4,
+            "cause": "SIGWINCH",
+            "signals": 4,
+            "stdoutResizes": 4,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "signals": 3,
+            "stdoutResizes": 3,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 5,
+            "native": {
+              "ticket": 5,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 80,
+            "rows": 30,
+            "width": 1440,
+            "height": 900
+          },
+          "record": {
+            "sequence": 5,
+            "cause": "SIGWINCH",
+            "signals": 5,
+            "stdoutResizes": 5,
+            "cols": 80,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 80
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 80
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 80
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1440
+            }
+          },
+          "before": {
+            "signals": 4,
+            "stdoutResizes": 4,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 6,
+            "native": {
+              "ticket": 6,
+              "cols": 80,
+              "rows": 30,
+              "width": 1440,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 6,
+            "cause": "SIGWINCH",
+            "signals": 6,
+            "stdoutResizes": 6,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "signals": 5,
+            "stdoutResizes": 5,
+            "driver": "actual-toggle-button",
+            "requestedTicket": 7,
+            "native": {
+              "ticket": 7,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 7,
+            "cause": "request",
+            "signals": 6,
+            "stdoutResizes": 6,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "kind": "rapid-repeated-size",
+            "requested": [8, 9, 10, 11],
+            "applied": {
+              "ticket": 11,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        },
+        {
+          "expected": {
+            "cols": 100,
+            "rows": 30,
+            "width": 1800,
+            "height": 900
+          },
+          "record": {
+            "sequence": 8,
+            "cause": "request",
+            "signals": 6,
+            "stdoutResizes": 6,
+            "cols": 100,
+            "rows": 30,
+            "cursors": [
+              {
+                "row": 1,
+                "col": 100
+              },
+              {
+                "row": 4,
+                "col": 2
+              }
+            ],
+            "kernel": {
+              "rows": 30,
+              "cols": 100
+            },
+            "cells": {
+              "rows": 30,
+              "cols": 100
+            },
+            "pixels": {
+              "height": 900,
+              "width": 1800
+            }
+          },
+          "before": {
+            "kind": "after-coalescer-window",
+            "observationWindowMs": 60,
+            "requestedTicket": 11,
+            "applied": {
+              "ticket": 11,
+              "cols": 100,
+              "rows": 30,
+              "width": 1800,
+              "height": 900,
+              "failed": 0
+            }
+          },
+          "passed": true
+        }
+      ],
+      "resizeTicketProof": {
+        "requested": [8, 9, 10, 11],
+        "applied": {
+          "ticket": 11,
+          "cols": 100,
+          "rows": 30,
+          "width": 1800,
+          "height": 900,
+          "failed": 0
+        },
+        "notifications": [
+          {
+            "ticket": 11,
+            "cols": 100,
+            "rows": 30,
+            "epoch": 11,
+            "notified": true
+          }
+        ]
+      },
+      "resizeCloseProof": {
+        "closingTicket": 12,
+        "applied": {
+          "ticket": 12,
+          "cols": 96,
+          "rows": 30,
+          "width": 1728,
+          "height": 900,
+          "failed": 0
+        },
+        "notificationsBefore": 8,
+        "notificationsAfter": 8,
+        "ptyPresent": false
+      },
+      "resizePeerMismatches": [],
+      "resources": [
+        {
+          "id": "A",
+          "imported": 7,
+          "sent": 7,
+          "released": 7,
+          "held": 0,
+          "maxLeases": 1,
+          "draws": 6,
+          "staleDraws": 0,
+          "native": {
+            "idlePid": 32652,
+            "held": 0,
+            "pending": 0,
+            "copying": 1,
+            "slots": 3,
+            "produced": 9,
+            "dropped": 0,
+            "copyErrors": 0,
+            "outputBytes": 0,
+            "outputOverflow": 0
+          },
+          "resizeNotifications": [
+            {
+              "ticket": 1,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 1,
+              "notified": false
+            },
+            {
+              "ticket": 2,
+              "cols": 80,
+              "rows": 30,
+              "epoch": 2,
+              "notified": true
+            },
+            {
+              "ticket": 3,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 3,
+              "notified": true
+            },
+            {
+              "ticket": 4,
+              "cols": 80,
+              "rows": 30,
+              "epoch": 4,
+              "notified": true
+            },
+            {
+              "ticket": 5,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 5,
+              "notified": true
+            },
+            {
+              "ticket": 6,
+              "cols": 80,
+              "rows": 30,
+              "epoch": 6,
+              "notified": true
+            },
+            {
+              "ticket": 7,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 7,
+              "notified": true
+            },
+            {
+              "ticket": 11,
+              "cols": 100,
+              "rows": 30,
+              "epoch": 11,
+              "notified": true
+            }
+          ],
+          "pendingResizeTicket": null,
+          "appliedResizeTicket": 11,
+          "rendererRafIntervalsMs": [
+            8, 2.200000047683716, 16.700000047683716, 15.399999976158142,
+            17.399999976158142, 17.100000023841858, 14.899999976158142, 16.5, 17, 17,
+            16.399999976158142, 18.100000023841858, 18.600000023841858
+          ]
+        }
+      ],
+      "idleChildrenAliveAfterStop": [
+        {
+          "id": "A",
+          "alive": false
+        }
+      ],
+      "ptyStreams": [
+        {
+          "id": "A",
+          "bytes": 4632,
+          "chunks": 18,
+          "maxChunkBytes": 276,
+          "sha256": "01f12a8fd301a8dc0a3409eb60b3fc8c85980fc78214b84138a521a0b1e17f42",
+          "exit": null,
+          "processAliveAfterCleanup": false
+        }
+      ],
+      "livePtysAfterCleanup": 0,
+      "mainTimerIntervalsMs": [
+        5.675875000000019, 4.4616249999999695, 5.110166000000049, 5.222999999999956,
+        4.914625000000001, 5.191500000000019, 3.9125419999999735, 3.888417000000004,
+        4.07854100000003, 4.135917000000006, 4.6364169999999945, 4.199040999999966,
+        5.300875000000019, 4.038000000000011, 4.266999999999996, 4.25791700000002,
+        4.241999999999962, 5.326750000000004, 3.8405420000000277, 4.102207999999962,
+        4.363042000000007, 3.8592910000000415, 5.2460419999999885, 5.3471250000000055,
+        4.152083000000005, 4.444458999999995, 4.041291000000001, 4.371166999999957,
+        5.117125000000044, 4.048707999999976, 5.119542000000024, 5.058249999999987,
+        5.039874999999995, 5.048958000000027, 5.0860419999999635, 5.116958000000011,
+        5.119500000000016, 5.133417000000009, 5.050416999999982, 5.044749999999965,
+        4.172083000000043
+      ],
+      "ptyFeedServiceMs": [
+        0.06150000000002365, 0.006916999999987183, 0.015582999999992353,
+        0.004333999999971638, 0.01391599999999471, 0.0058339999999930114,
+        0.013916999999992186, 0.0038749999999936335, 0.013750000000015916,
+        0.004874999999969987, 0.029125000000021828, 0.004917000000034477,
+        0.010415999999963788, 0.004166999999995369, 0.012334000000009837,
+        0.006792000000018561, 0.020291999999983545, 0.0049579999999878055
+      ],
+      "exitCode": 0
+    }
+  ]
+}

@@ -1,0 +1,942 @@
+{
+  "schema": 1,
+  "preFixCandidate": "5aea3deba040a8bfeaf6e32cb8559571290384f9",
+  "directProbe": {
+    "requests": 50,
+    "mismatches": 30,
+    "firstTenMismatches": 9,
+    "remainingFortyMismatches": 21,
+    "results": [
+      {
+        "index": 0,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3434521b5b383b32303b3434741b5b343b3630303b37393274",
+        "reply": "\u001b[1;44R\u001b[8;20;44t\u001b[4;600;792t"
+      },
+      {
+        "index": 1,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3434521b5b383b32303b3434741b5b343b3630303b37393274",
+        "reply": "\u001b[1;44R\u001b[8;20;44t\u001b[4;600;792t"
+      },
+      {
+        "index": 2,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3434521b5b383b32303b3434741b5b343b3630303b37393274",
+        "reply": "\u001b[1;44R\u001b[8;20;44t\u001b[4;600;792t"
+      },
+      {
+        "index": 3,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3434521b5b383b32303b3434741b5b343b3630303b37393274",
+        "reply": "\u001b[1;44R\u001b[8;20;44t\u001b[4;600;792t"
+      },
+      {
+        "index": 4,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3434521b5b383b32303b3434741b5b343b3630303b37393274",
+        "reply": "\u001b[1;44R\u001b[8;20;44t\u001b[4;600;792t"
+      },
+      {
+        "index": 5,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3434521b5b383b32303b3434741b5b343b3630303b37393274",
+        "reply": "\u001b[1;44R\u001b[8;20;44t\u001b[4;600;792t"
+      },
+      {
+        "index": 6,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3434521b5b383b32303b3434741b5b343b3630303b37393274",
+        "reply": "\u001b[1;44R\u001b[8;20;44t\u001b[4;600;792t"
+      },
+      {
+        "index": 7,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3434521b5b383b32303b3434741b5b343b3630303b37393274",
+        "reply": "\u001b[1;44R\u001b[8;20;44t\u001b[4;600;792t"
+      },
+      {
+        "index": 8,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b313030521b5b383b33303b313030741b5b343b3930303b3138303074",
+        "reply": "\u001b[1;100R\u001b[8;30;100t\u001b[4;900;1800t"
+      },
+      {
+        "index": 9,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b313030521b5b383b33303b313030741b5b343b3930303b3138303074",
+        "reply": "\u001b[1;100R\u001b[8;30;100t\u001b[4;900;1800t"
+      },
+      {
+        "index": 10,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b313030521b5b383b33303b313030741b5b343b3930303b3138303074",
+        "reply": "\u001b[1;100R\u001b[8;30;100t\u001b[4;900;1800t"
+      },
+      {
+        "index": 11,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b313030521b5b383b33303b313030741b5b343b3930303b3138303074",
+        "reply": "\u001b[1;100R\u001b[8;30;100t\u001b[4;900;1800t"
+      },
+      {
+        "index": 12,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b313030521b5b383b33303b313030741b5b343b3930303b3138303074",
+        "reply": "\u001b[1;100R\u001b[8;30;100t\u001b[4;900;1800t"
+      },
+      {
+        "index": 13,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b313030521b5b383b33303b313030741b5b343b3930303b3138303074",
+        "reply": "\u001b[1;100R\u001b[8;30;100t\u001b[4;900;1800t"
+      },
+      {
+        "index": 14,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b313030521b5b383b33303b313030741b5b343b3930303b3138303074",
+        "reply": "\u001b[1;100R\u001b[8;30;100t\u001b[4;900;1800t"
+      },
+      {
+        "index": 15,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b313030521b5b383b33303b313030741b5b343b3930303b3138303074",
+        "reply": "\u001b[1;100R\u001b[8;30;100t\u001b[4;900;1800t"
+      },
+      {
+        "index": 16,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b313030521b5b383b33303b313030741b5b343b3930303b3138303074",
+        "reply": "\u001b[1;100R\u001b[8;30;100t\u001b[4;900;1800t"
+      },
+      {
+        "index": 17,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b313030521b5b383b33303b313030741b5b343b3930303b3138303074",
+        "reply": "\u001b[1;100R\u001b[8;30;100t\u001b[4;900;1800t"
+      },
+      {
+        "index": 18,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b313030521b5b383b33303b313030741b5b343b3930303b3138303074",
+        "reply": "\u001b[1;100R\u001b[8;30;100t\u001b[4;900;1800t"
+      },
+      {
+        "index": 19,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 20,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 21,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 22,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 23,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 24,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 25,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 26,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 27,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 28,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 29,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 30,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 31,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 32,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 33,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 34,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 35,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 36,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 37,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 38,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 39,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 40,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 41,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 42,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 43,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 44,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 45,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 46,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 47,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 48,
+        "requested": 80,
+        "public": 80,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      },
+      {
+        "index": 49,
+        "requested": 100,
+        "public": 100,
+        "replyHex": "1b5b313b3830521b5b383b33303b3830741b5b343b3930303b3134343074",
+        "reply": "\u001b[1;80R\u001b[8;30;80t\u001b[4;900;1440t"
+      }
+    ]
+  },
+  "realPeer": {
+    "schema": 1,
+    "mode": "resize-probe",
+    "provider": "plain-shell",
+    "timing": "Main/renderer scheduling and synchronous PTY-feed service; no physical presentation claim",
+    "checks": [
+      "Peer receives real SIGWINCH for 80 columns",
+      "Peer receives real SIGWINCH for 100 columns",
+      "Peer receives real SIGWINCH for 80 columns",
+      "Peer receives real SIGWINCH for 100 columns",
+      "Peer receives real SIGWINCH for 80 columns",
+      "Peer receives real SIGWINCH for 100 columns"
+    ],
+    "environment": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "versions": {
+        "node": "24.22.0",
+        "acorn": "8.18.0",
+        "ada": "4.0.0",
+        "amaro": "1.1.11",
+        "ares": "1.34.8",
+        "brotli": "1.2.0",
+        "cldr": "48.0",
+        "icu": "78.2",
+        "llhttp": "9.4.3",
+        "merve": "1.2.2",
+        "modules": "148",
+        "napi": "10",
+        "nbytes": "0.1.4",
+        "ncrypto": "0.0.1",
+        "nghttp2": "1.70.0",
+        "nghttp3": "",
+        "ngtcp2": "",
+        "openssl": "0.0.0",
+        "simdjson": "4.6.11",
+        "simdutf": "7.7.0",
+        "sqlite": "3.53.4",
+        "tz": "2026d",
+        "undici": "7.29.1",
+        "unicode": "17.0",
+        "uv": "1.52.1",
+        "uvwasi": "0.0.23",
+        "v8": "15.0.245.31-electron.0",
+        "zlib": "1.3.2.1-motley",
+        "zstd": "1.6.0",
+        "electron": "43.8.1",
+        "chrome": "150.0.7871.250"
+      },
+      "display": {
+        "scale": 2,
+        "frequency": 60.00239944458008
+      },
+      "gpu": {
+        "auxAttributes": {
+          "amdSwitchable": false,
+          "canSupportThreadedTextureMailbox": false,
+          "glImplementationParts": "(gl=none,angle=none)",
+          "glResetNotificationStrategy": 0,
+          "inProcessGpu": true,
+          "initializationTime": 0,
+          "isAsan": false,
+          "isClangCoverage": false,
+          "jpegDecodeAcceleratorSupported": false,
+          "optimus": false,
+          "passthroughCmdDecoder": false,
+          "sandboxed": false,
+          "skiaBackendType": "None",
+          "subpixelFontRendering": true,
+          "targetCpuBits": 64,
+          "visibilityCallbackCallCount": 0
+        },
+        "gpuDevice": [
+          {
+            "active": true,
+            "deviceId": 0,
+            "gpuPreference": 0,
+            "vendorId": 4203
+          }
+        ],
+        "machineModelName": "Mac",
+        "machineModelVersion": "14.2"
+      }
+    },
+    "resizePeerSamples": [
+      {
+        "expected": {
+          "cols": 100,
+          "rows": 30,
+          "width": 1800,
+          "height": 900
+        },
+        "record": {
+          "sequence": 0,
+          "cause": "startup",
+          "signals": 0,
+          "stdoutResizes": 0,
+          "cols": 100,
+          "rows": 30,
+          "cursors": [
+            {
+              "row": 1,
+              "col": 100
+            },
+            {
+              "row": 4,
+              "col": 2
+            }
+          ],
+          "kernel": {
+            "rows": 30,
+            "cols": 100
+          },
+          "cells": {
+            "rows": 30,
+            "cols": 100
+          },
+          "pixels": {
+            "height": 900,
+            "width": 1800
+          }
+        },
+        "before": {
+          "kind": "startup"
+        },
+        "passed": true
+      },
+      {
+        "expected": {
+          "cols": 80,
+          "rows": 30,
+          "width": 1440,
+          "height": 900
+        },
+        "record": {
+          "sequence": 1,
+          "cause": "SIGWINCH",
+          "signals": 1,
+          "stdoutResizes": 1,
+          "cols": 80,
+          "rows": 30,
+          "cursors": [
+            {
+              "row": 1,
+              "col": 100
+            },
+            {
+              "row": 3,
+              "col": 82
+            }
+          ],
+          "kernel": {
+            "rows": 30,
+            "cols": 80
+          },
+          "cells": {
+            "rows": 30,
+            "cols": 100
+          },
+          "pixels": {
+            "height": 900,
+            "width": 1800
+          }
+        },
+        "before": {
+          "signals": 0,
+          "stdoutResizes": 0
+        },
+        "passed": false
+      },
+      {
+        "expected": {
+          "cols": 100,
+          "rows": 30,
+          "width": 1800,
+          "height": 900
+        },
+        "record": {
+          "sequence": 2,
+          "cause": "SIGWINCH",
+          "signals": 2,
+          "stdoutResizes": 2,
+          "cols": 100,
+          "rows": 30,
+          "cursors": [
+            {
+              "row": 1,
+              "col": 100
+            },
+            {
+              "row": 4,
+              "col": 2
+            }
+          ],
+          "kernel": {
+            "rows": 30,
+            "cols": 100
+          },
+          "cells": {
+            "rows": 30,
+            "cols": 100
+          },
+          "pixels": {
+            "height": 900,
+            "width": 1800
+          }
+        },
+        "before": {
+          "signals": 1,
+          "stdoutResizes": 1
+        },
+        "passed": true
+      },
+      {
+        "expected": {
+          "cols": 80,
+          "rows": 30,
+          "width": 1440,
+          "height": 900
+        },
+        "record": {
+          "sequence": 3,
+          "cause": "SIGWINCH",
+          "signals": 3,
+          "stdoutResizes": 3,
+          "cols": 80,
+          "rows": 30,
+          "cursors": [
+            {
+              "row": 1,
+              "col": 100
+            },
+            {
+              "row": 3,
+              "col": 82
+            }
+          ],
+          "kernel": {
+            "rows": 30,
+            "cols": 80
+          },
+          "cells": {
+            "rows": 30,
+            "cols": 100
+          },
+          "pixels": {
+            "height": 900,
+            "width": 1800
+          }
+        },
+        "before": {
+          "signals": 2,
+          "stdoutResizes": 2
+        },
+        "passed": false
+      },
+      {
+        "expected": {
+          "cols": 100,
+          "rows": 30,
+          "width": 1800,
+          "height": 900
+        },
+        "record": {
+          "sequence": 4,
+          "cause": "SIGWINCH",
+          "signals": 4,
+          "stdoutResizes": 4,
+          "cols": 100,
+          "rows": 30,
+          "cursors": [
+            {
+              "row": 1,
+              "col": 100
+            },
+            {
+              "row": 4,
+              "col": 2
+            }
+          ],
+          "kernel": {
+            "rows": 30,
+            "cols": 100
+          },
+          "cells": {
+            "rows": 30,
+            "cols": 100
+          },
+          "pixels": {
+            "height": 900,
+            "width": 1800
+          }
+        },
+        "before": {
+          "signals": 3,
+          "stdoutResizes": 3
+        },
+        "passed": true
+      },
+      {
+        "expected": {
+          "cols": 80,
+          "rows": 30,
+          "width": 1440,
+          "height": 900
+        },
+        "record": {
+          "sequence": 5,
+          "cause": "SIGWINCH",
+          "signals": 5,
+          "stdoutResizes": 5,
+          "cols": 80,
+          "rows": 30,
+          "cursors": [
+            {
+              "row": 1,
+              "col": 100
+            },
+            {
+              "row": 3,
+              "col": 82
+            }
+          ],
+          "kernel": {
+            "rows": 30,
+            "cols": 80
+          },
+          "cells": {
+            "rows": 30,
+            "cols": 100
+          },
+          "pixels": {
+            "height": 900,
+            "width": 1800
+          }
+        },
+        "before": {
+          "signals": 4,
+          "stdoutResizes": 4
+        },
+        "passed": false
+      },
+      {
+        "expected": {
+          "cols": 100,
+          "rows": 30,
+          "width": 1800,
+          "height": 900
+        },
+        "record": {
+          "sequence": 6,
+          "cause": "SIGWINCH",
+          "signals": 6,
+          "stdoutResizes": 6,
+          "cols": 100,
+          "rows": 30,
+          "cursors": [
+            {
+              "row": 1,
+              "col": 100
+            },
+            {
+              "row": 4,
+              "col": 2
+            }
+          ],
+          "kernel": {
+            "rows": 30,
+            "cols": 100
+          },
+          "cells": {
+            "rows": 30,
+            "cols": 100
+          },
+          "pixels": {
+            "height": 900,
+            "width": 1800
+          }
+        },
+        "before": {
+          "signals": 5,
+          "stdoutResizes": 5
+        },
+        "passed": true
+      }
+    ],
+    "resizePeerMismatches": [
+      {
+        "expected": {
+          "cols": 80,
+          "rows": 30,
+          "width": 1440,
+          "height": 900
+        },
+        "record": {
+          "sequence": 1,
+          "cause": "SIGWINCH",
+          "signals": 1,
+          "stdoutResizes": 1,
+          "cols": 80,
+          "rows": 30,
+          "cursors": [
+            {
+              "row": 1,
+              "col": 100
+            },
+            {
+              "row": 3,
+              "col": 82
+            }
+          ],
+          "kernel": {
+            "rows": 30,
+            "cols": 80
+          },
+          "cells": {
+            "rows": 30,
+            "cols": 100
+          },
+          "pixels": {
+            "height": 900,
+            "width": 1800
+          }
+        },
+        "before": {
+          "signals": 0,
+          "stdoutResizes": 0
+        },
+        "passed": false
+      },
+      {
+        "expected": {
+          "cols": 80,
+          "rows": 30,
+          "width": 1440,
+          "height": 900
+        },
+        "record": {
+          "sequence": 3,
+          "cause": "SIGWINCH",
+          "signals": 3,
+          "stdoutResizes": 3,
+          "cols": 80,
+          "rows": 30,
+          "cursors": [
+            {
+              "row": 1,
+              "col": 100
+            },
+            {
+              "row": 3,
+              "col": 82
+            }
+          ],
+          "kernel": {
+            "rows": 30,
+            "cols": 80
+          },
+          "cells": {
+            "rows": 30,
+            "cols": 100
+          },
+          "pixels": {
+            "height": 900,
+            "width": 1800
+          }
+        },
+        "before": {
+          "signals": 2,
+          "stdoutResizes": 2
+        },
+        "passed": false
+      },
+      {
+        "expected": {
+          "cols": 80,
+          "rows": 30,
+          "width": 1440,
+          "height": 900
+        },
+        "record": {
+          "sequence": 5,
+          "cause": "SIGWINCH",
+          "signals": 5,
+          "stdoutResizes": 5,
+          "cols": 80,
+          "rows": 30,
+          "cursors": [
+            {
+              "row": 1,
+              "col": 100
+            },
+            {
+              "row": 3,
+              "col": 82
+            }
+          ],
+          "kernel": {
+            "rows": 30,
+            "cols": 80
+          },
+          "cells": {
+            "rows": 30,
+            "cols": 100
+          },
+          "pixels": {
+            "height": 900,
+            "width": 1800
+          }
+        },
+        "before": {
+          "signals": 4,
+          "stdoutResizes": 4
+        },
+        "passed": false
+      }
+    ],
+    "error": "Error: Kernel winsize, child dimensions, terminal size replies, cursor clamp and wrap agree for startup and each redraw",
+    "resources": [
+      {
+        "id": "A",
+        "imported": 3,
+        "sent": 3,
+        "released": 3,
+        "held": 0,
+        "maxLeases": 1,
+        "draws": 3,
+        "staleDraws": 0,
+        "native": {
+          "idlePid": 30980,
+          "held": 0,
+          "pending": 1,
+          "copying": 0,
+          "slots": 3,
+          "produced": 6,
+          "dropped": 0,
+          "copyErrors": 0,
+          "outputBytes": 0,
+          "outputOverflow": 0
+        },
+        "rendererRafIntervalsMs": [
+          12.300000071525574, 10.799999952316284, 16, 17.700000047683716,
+          16.699999928474426, 18.600000023841858, 14.600000023841858, 17.100000023841858
+        ]
+      }
+    ],
+    "idleChildrenAliveAfterStop": [
+      {
+        "id": "A",
+        "alive": null
+      }
+    ],
+    "ptyStreams": [
+      {
+        "id": "A",
+        "bytes": 3583,
+        "chunks": 14,
+        "maxChunkBytes": 276,
+        "sha256": "06d8f10b1db794bc355ae317f774669f5e67c255957d77a67760bb8180b3369e",
+        "exit": null,
+        "processAliveAfterCleanup": false
+      }
+    ],
+    "livePtysAfterCleanup": 0,
+    "mainTimerIntervalsMs": [
+      4.936500000000024, 4.932791999999949, 5.1991669999999885, 4.035582999999974,
+      3.5951250000000528, 5.091749999999934, 5.1277919999999995, 5.087582999999995,
+      5.087833000000046, 3.3883749999999964, 4.76883399999997, 4.498583000000053,
+      4.470291999999972, 4.350083000000041, 5.212332999999944, 5.170292000000018,
+      4.256541999999968, 4.148541000000023, 4.074542000000065
+    ],
+    "ptyFeedServiceMs": [
+      1.347750000000019, 0.0061249999999972715, 0.01424999999994725, 0.005374999999958163,
+      0.01462499999990996, 0.00437499999998181, 0.011999999999943611,
+      0.003499999999917236, 0.012790999999992891, 0.004291999999963991,
+      0.011875000000031832, 0.0034160000000156288, 0.008832999999981439,
+      0.004000000000019099
+    ],
+    "exitCode": 1
+  }
+}

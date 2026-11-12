@@ -1,0 +1,1890 @@
+{
+  "schema": 1,
+  "repetitions": 3,
+  "order": "native/web, web/native, native/web",
+  "timing": "API service and renderer draw-scheduling observations; not physical presentation latency",
+  "records": [
+    {
+      "engine": "native",
+      "repeat": 1,
+      "artifact": "native-1.json",
+      "interactive": false,
+      "phases": [
+        {
+          "kind": "correctness",
+          "name": "plain",
+          "passed": true,
+          "expectedHash": "796edeee8df1cfa6fc8e3c40b330905dca6d905b592ba98a21251e363f616343",
+          "actualHash": "796edeee8df1cfa6fc8e3c40b330905dca6d905b592ba98a21251e363f616343",
+          "expectedCharacters": 79999,
+          "actualCharacters": 79999
+        },
+        {
+          "kind": "burst",
+          "name": "plain",
+          "bytes": 82000,
+          "bytesHash": "759f1820db15762b14e664a22c6fb3418e463939f90e38aec64928f1be5bdd80",
+          "apiServiceMs": 0.229,
+          "apiRoundTripMs": 0.5,
+          "nextDrawSchedulingAckMs": 14
+        },
+        {
+          "kind": "correctness",
+          "name": "ansi",
+          "passed": true,
+          "expectedHash": "1aaf9c343d820ea204c1097f0b90933e4b838b4a49c58a6098a0a2e43dcd3a30",
+          "actualHash": "1aaf9c343d820ea204c1097f0b90933e4b838b4a49c58a6098a0a2e43dcd3a30",
+          "expectedCharacters": 77999,
+          "actualCharacters": 77999
+        },
+        {
+          "kind": "burst",
+          "name": "ansi",
+          "bytes": 98000,
+          "bytesHash": "f4c2d9f512b95e029db6c118a4ca9f43f30d4da8d5d0b0807be3cb075636aecc",
+          "apiServiceMs": 1.244,
+          "apiRoundTripMs": 1.5,
+          "nextDrawSchedulingAckMs": 12.300000071525574
+        },
+        {
+          "kind": "correctness",
+          "name": "synchronized",
+          "passed": true,
+          "expectedHash": "3cbb83832b8501b34a1d212d8d09049a4860168a3af9918f9586c4a4b0a599ce",
+          "actualHash": "3cbb83832b8501b34a1d212d8d09049a4860168a3af9918f9586c4a4b0a599ce",
+          "expectedCharacters": 93999,
+          "actualCharacters": 93999
+        },
+        {
+          "kind": "burst",
+          "name": "synchronized",
+          "bytes": 96016,
+          "bytesHash": "ed3907b0207af703d0d2c35efcfbb0b1eb99e73492ea720b4a9b7b3def036ae7",
+          "apiServiceMs": 0.242,
+          "apiRoundTripMs": 0.6000000238418579,
+          "nextDrawSchedulingAckMs": 14
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-retained",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "burst",
+          "name": "unicode-retained",
+          "bytes": 102800,
+          "bytesHash": "dc2c83a3518027c582d9fab7fba2453e3c2b360e04b826de47f924f44b4cc100",
+          "apiServiceMs": 1.913,
+          "apiRoundTripMs": 2.6999999284744263,
+          "nextDrawSchedulingAckMs": 79.89999997615814
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-72",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 72,
+          "resizeThroughDrawSchedulingAckMs": 31.200000047683716,
+          "frameDimensions": {
+            "width": 1296,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-110",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 110,
+          "resizeThroughDrawSchedulingAckMs": 31.600000023841858,
+          "frameDimensions": {
+            "width": 1980,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-100",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 100,
+          "resizeThroughDrawSchedulingAckMs": 31.5,
+          "frameDimensions": {
+            "width": 1800,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "scroll-retained",
+          "passed": true,
+          "expectedHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "actualHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "expectedCharacters": 29205,
+          "actualCharacters": 29205
+        },
+        {
+          "kind": "correctness",
+          "name": "scroll-preserves-retained",
+          "passed": true,
+          "expectedHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "actualHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "expectedCharacters": 29205,
+          "actualCharacters": 29205
+        },
+        {
+          "kind": "scroll",
+          "passed": true,
+          "wheelSamples": [
+            {
+              "deltaY": 300,
+              "dispatchThroughDrawSchedulingAckMs": 4.600000023841858,
+              "untimedSettleMs": 200
+            },
+            {
+              "deltaY": -300,
+              "dispatchThroughDrawSchedulingAckMs": 16.399999976158142,
+              "untimedSettleMs": 200
+            }
+          ],
+          "topHash": "ea7fa645ecf21c50692d78119a6ccacfda44f511f7c1dc95619c4da8e08212d0",
+          "downHash": "50cdb9eadb91b0bd404f0e87a0787b959e160c4b89c82104b6e7e5d608ab1fcd",
+          "restoredHash": "ea7fa645ecf21c50692d78119a6ccacfda44f511f7c1dc95619c4da8e08212d0",
+          "bottomHash": "d2fe54ed49fb54ec0e417a87d944e67f4386d39d7008f74f682bbd15a969bee6"
+        },
+        {
+          "kind": "correctness",
+          "name": "paced-stream",
+          "passed": true,
+          "expectedHash": "baa75b458aef355bc4bfe5e68b5064f3ea02f2e0134fe8a45734e8fe5f8c99aa",
+          "actualHash": "baa75b458aef355bc4bfe5e68b5064f3ea02f2e0134fe8a45734e8fe5f8c99aa",
+          "expectedCharacters": 39999,
+          "actualCharacters": 39999
+        },
+        {
+          "kind": "paced-output",
+          "batches": 100,
+          "lines": 1000,
+          "targetBatchPeriodMs": 16,
+          "elapsedMs": 1768.7999999523163,
+          "apiServiceTotalMs": 0.8240000000000005,
+          "drawIntervalSamplesMs": [
+            14.399999976158142, 15.400000095367432, 15.299999952316284,
+            19.600000023841858, 14.100000023841858, 15.399999976158142,
+            20.199999928474426, 15.400000095367432, 15.299999952316284,
+            20.399999976158142, 15.5, 14.5, 20.399999976158142, 15.100000023841858, 14.5,
+            19.899999976158142, 15.400000095367432, 15.399999976158142,
+            15.399999976158142, 18.700000047683716, 14.399999976158142, 20.5,
+            15.399999976158142, 15.299999952316284, 15.400000095367432,
+            19.699999928474426, 15.399999976158142, 15.400000095367432,
+            19.299999952316284, 15.399999976158142, 15.399999976158142,
+            20.200000047683716, 15.5, 18.899999976158142, 14.700000047683716,
+            15.299999952316284, 15.300000071525574, 15.399999976158142, 20.5,
+            15.399999976158142, 15.399999976158142, 20.5, 15.399999976158142,
+            15.400000095367432, 19, 15.299999952316284, 15.299999952316284,
+            15.300000071525574, 19.699999928474426, 14.400000095367432,
+            20.399999976158142, 15.199999928474426, 15.300000071525574,
+            18.899999976158142, 14.299999952316284, 15.300000071525574, 20,
+            15.299999952316284, 19.300000071525574, 14.899999976158142,
+            14.600000023841858, 19.699999928474426, 15.399999976158142,
+            14.600000023841858, 20.399999976158142, 15.300000071525574,
+            14.100000023841858, 19.199999928474426, 15.5, 15.399999976158142, 19.5,
+            15.300000071525574, 15.399999976158142, 20.5, 14.299999952316284,
+            15.700000047683716, 20.5, 14.5, 14.100000023841858, 19, 15.100000023841858,
+            20.299999952316284, 15.200000047683716, 15.5, 15.299999952316284, 20.5,
+            15.100000023841858, 14.399999976158142, 20, 15.399999976158142,
+            14.700000047683716, 18.899999976158142, 15.299999952316284,
+            19.300000071525574, 13.699999928474426, 15.300000071525574,
+            19.199999928474426, 15, 19.800000071525574
+          ],
+          "drawIntervalsMs": {
+            "count": 99,
+            "p50": 15.399999976158142,
+            "p95": 20.5,
+            "p99": 20.5,
+            "max": 20.5
+          }
+        },
+        {
+          "kind": "presentation",
+          "gpu": {
+            "2d_canvas": "enabled",
+            "direct_rendering_display_compositor": "disabled_off_ok",
+            "gpu_compositing": "enabled",
+            "multiple_raster_threads": "enabled_on",
+            "opengl": "enabled_on",
+            "rasterization": "enabled",
+            "raw_draw": "disabled_off_ok",
+            "skia_graphite": "enabled_on",
+            "trees_in_viz": "disabled_off",
+            "video_decode": "enabled",
+            "video_encode": "enabled",
+            "webgl": "enabled",
+            "webgpu": "enabled",
+            "webnn": "disabled_off"
+          },
+          "lastFrame": {
+            "serial": 136,
+            "width": 1800,
+            "height": 900,
+            "copyMeanMs": 0.4757941176470588,
+            "copyMaxMs": 2.001,
+            "dropped": 0
+          }
+        }
+      ],
+      "observations": [
+        {
+          "event": "cleanup",
+          "sent": 136,
+          "released": 136,
+          "held": 0
+        }
+      ],
+      "environment": {
+        "electron": "43.8.1",
+        "chromium": "150.0.7871.250",
+        "display": {
+          "accelerometerSupport": "unknown",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 1470,
+            "height": 956
+          },
+          "colorDepth": 30,
+          "colorSpace": "{primaries:P3, transfer:{0.0777*x + 0.0000 if abs(x) < 0.0450 else sign(x)*((0.9495*abs(x) + 0.0495)**2.3955 + 0.0003)}, matrix:RGB, range:FULL}",
+          "depthPerComponent": 10,
+          "detected": true,
+          "displayFrequency": 60.00239944458008,
+          "id": 1,
+          "internal": true,
+          "label": "Built-in Retina Display",
+          "maximumCursorSize": {
+            "width": 0,
+            "height": 0
+          },
+          "monochrome": false,
+          "nativeOrigin": {
+            "x": 0,
+            "y": 0
+          },
+          "rotation": 0,
+          "scaleFactor": 2,
+          "size": {
+            "width": 1470,
+            "height": 956
+          },
+          "workArea": {
+            "x": 0,
+            "y": 37,
+            "width": 1470,
+            "height": 837
+          },
+          "workAreaSize": {
+            "width": 1470,
+            "height": 837
+          },
+          "touchSupport": "unknown"
+        },
+        "platform": "darwin",
+        "architecture": "arm64"
+      },
+      "geometry": {
+        "width": 1800,
+        "height": 900,
+        "cellWidth": 18,
+        "cellHeight": 30,
+        "cols": 100,
+        "rows": 30
+      },
+      "exitCode": 0
+    },
+    {
+      "engine": "web",
+      "repeat": 1,
+      "artifact": "web-1.json",
+      "interactive": false,
+      "phases": [
+        {
+          "kind": "correctness",
+          "name": "plain",
+          "passed": true,
+          "expectedHash": "796edeee8df1cfa6fc8e3c40b330905dca6d905b592ba98a21251e363f616343",
+          "actualHash": "796edeee8df1cfa6fc8e3c40b330905dca6d905b592ba98a21251e363f616343",
+          "expectedCharacters": 79999,
+          "actualCharacters": 79999
+        },
+        {
+          "kind": "burst",
+          "name": "plain",
+          "bytes": 82000,
+          "bytesHash": "759f1820db15762b14e664a22c6fb3418e463939f90e38aec64928f1be5bdd80",
+          "apiServiceMs": 1.899999976158142,
+          "apiRoundTripMs": 1.899999976158142,
+          "nextDrawSchedulingAckMs": 12.5
+        },
+        {
+          "kind": "correctness",
+          "name": "ansi",
+          "passed": true,
+          "expectedHash": "1aaf9c343d820ea204c1097f0b90933e4b838b4a49c58a6098a0a2e43dcd3a30",
+          "actualHash": "1aaf9c343d820ea204c1097f0b90933e4b838b4a49c58a6098a0a2e43dcd3a30",
+          "expectedCharacters": 77999,
+          "actualCharacters": 77999
+        },
+        {
+          "kind": "burst",
+          "name": "ansi",
+          "bytes": 98000,
+          "bytesHash": "f4c2d9f512b95e029db6c118a4ca9f43f30d4da8d5d0b0807be3cb075636aecc",
+          "apiServiceMs": 2.399999976158142,
+          "apiRoundTripMs": 2.399999976158142,
+          "nextDrawSchedulingAckMs": 11.399999976158142
+        },
+        {
+          "kind": "correctness",
+          "name": "synchronized",
+          "passed": true,
+          "expectedHash": "3cbb83832b8501b34a1d212d8d09049a4860168a3af9918f9586c4a4b0a599ce",
+          "actualHash": "3cbb83832b8501b34a1d212d8d09049a4860168a3af9918f9586c4a4b0a599ce",
+          "expectedCharacters": 93999,
+          "actualCharacters": 93999
+        },
+        {
+          "kind": "burst",
+          "name": "synchronized",
+          "bytes": 96016,
+          "bytesHash": "ed3907b0207af703d0d2c35efcfbb0b1eb99e73492ea720b4a9b7b3def036ae7",
+          "apiServiceMs": 1.7000000476837158,
+          "apiRoundTripMs": 1.7000000476837158,
+          "nextDrawSchedulingAckMs": 11
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-retained",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "burst",
+          "name": "unicode-retained",
+          "bytes": 102800,
+          "bytesHash": "dc2c83a3518027c582d9fab7fba2453e3c2b360e04b826de47f924f44b4cc100",
+          "apiServiceMs": 6.399999976158142,
+          "apiRoundTripMs": 6.399999976158142,
+          "nextDrawSchedulingAckMs": 41.299999952316284
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-72",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 72,
+          "resizeThroughDrawSchedulingAckMs": 23.5,
+          "frameDimensions": {
+            "width": 1296,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-110",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 110,
+          "resizeThroughDrawSchedulingAckMs": 24.899999976158142,
+          "frameDimensions": {
+            "width": 1980,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-100",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 100,
+          "resizeThroughDrawSchedulingAckMs": 26.799999952316284,
+          "frameDimensions": {
+            "width": 1800,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "scroll-retained",
+          "passed": true,
+          "expectedHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "actualHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "expectedCharacters": 29205,
+          "actualCharacters": 29205
+        },
+        {
+          "kind": "correctness",
+          "name": "scroll-preserves-retained",
+          "passed": true,
+          "expectedHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "actualHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "expectedCharacters": 29205,
+          "actualCharacters": 29205
+        },
+        {
+          "kind": "scroll",
+          "passed": true,
+          "wheelSamples": [
+            {
+              "deltaY": 300,
+              "dispatchThroughDrawSchedulingAckMs": 19.100000023841858,
+              "untimedSettleMs": 200
+            },
+            {
+              "deltaY": -300,
+              "dispatchThroughDrawSchedulingAckMs": 13.699999928474426,
+              "untimedSettleMs": 200
+            }
+          ],
+          "topHash": "ea7fa645ecf21c50692d78119a6ccacfda44f511f7c1dc95619c4da8e08212d0",
+          "downHash": "50cdb9eadb91b0bd404f0e87a0787b959e160c4b89c82104b6e7e5d608ab1fcd",
+          "restoredHash": "ea7fa645ecf21c50692d78119a6ccacfda44f511f7c1dc95619c4da8e08212d0",
+          "bottomHash": "d2fe54ed49fb54ec0e417a87d944e67f4386d39d7008f74f682bbd15a969bee6"
+        },
+        {
+          "kind": "correctness",
+          "name": "paced-stream",
+          "passed": true,
+          "expectedHash": "baa75b458aef355bc4bfe5e68b5064f3ea02f2e0134fe8a45734e8fe5f8c99aa",
+          "actualHash": "baa75b458aef355bc4bfe5e68b5064f3ea02f2e0134fe8a45734e8fe5f8c99aa",
+          "expectedCharacters": 39999,
+          "actualCharacters": 39999
+        },
+        {
+          "kind": "paced-output",
+          "batches": 100,
+          "lines": 1000,
+          "targetBatchPeriodMs": 16,
+          "elapsedMs": 1772.2000000476837,
+          "apiServiceTotalMs": 4.999999642372131,
+          "drawIntervalSamplesMs": [
+            15.700000047683716, 18.700000047683716, 16.699999928474426,
+            15.200000047683716, 16.799999952316284, 16.5, 16.700000047683716,
+            16.600000023841858, 16.5, 16.899999976158142, 16.600000023841858,
+            16.799999952316284, 16.399999976158142, 16.899999976158142, 16.40000009536743,
+            16.899999976158142, 16.399999976158142, 16.899999976158142,
+            16.399999976158142, 17, 16.40000009536743, 16.799999952316284,
+            16.899999976158142, 16.600000023841858, 16.5, 16.899999976158142,
+            16.300000071525574, 16.799999952316284, 16.399999976158142,
+            16.899999976158142, 16.700000047683716, 16.600000023841858,
+            16.799999952316284, 16.5, 16.700000047683716, 16.600000023841858,
+            16.899999976158142, 16.600000023841858, 16.799999952316284, 17,
+            16.600000023841858, 16.299999952316284, 16.600000023841858, 16.5,
+            16.700000047683716, 16.59999990463257, 16.90000009536743, 16.59999990463257,
+            16.700000047683716, 16.600000023841858, 16.799999952316284,
+            16.600000023841858, 16.700000047683716, 16.699999928474426,
+            16.399999976158142, 17, 16.40000009536743, 16.899999976158142, 16.5,
+            16.600000023841858, 16.799999952316284, 16.600000023841858,
+            16.699999928474426, 16.700000047683716, 16.600000023841858, 16.5,
+            16.699999928474426, 16.90000009536743, 16.699999928474426, 16.5,
+            16.700000047683716, 16.600000023841858, 17, 33, 16.59999990463257, 17,
+            16.300000071525574, 16.899999976158142, 16.399999976158142,
+            16.899999976158142, 16.800000071525574, 15.199999928474426, 18.5,
+            16.200000047683716, 16.600000023841858, 16.5, 16.899999976158142,
+            16.600000023841858, 16.600000023841858, 16.699999928474426,
+            16.600000023841858, 16.600000023841858, 16.799999952316284,
+            16.700000047683716, 16.799999952316284, 16.5, 16.800000071525574,
+            16.799999952316284, 16.600000023841858
+          ],
+          "drawIntervalsMs": {
+            "count": 99,
+            "p50": 16.699999928474426,
+            "p95": 17,
+            "p99": 33,
+            "max": 33
+          }
+        },
+        {
+          "kind": "presentation",
+          "gpu": {
+            "2d_canvas": "enabled",
+            "direct_rendering_display_compositor": "disabled_off_ok",
+            "gpu_compositing": "enabled",
+            "multiple_raster_threads": "enabled_on",
+            "opengl": "enabled_on",
+            "rasterization": "enabled",
+            "raw_draw": "disabled_off_ok",
+            "skia_graphite": "enabled_on",
+            "trees_in_viz": "disabled_off",
+            "video_decode": "enabled",
+            "video_encode": "enabled",
+            "webgl": "enabled",
+            "webgpu": "enabled",
+            "webnn": "disabled_off"
+          }
+        }
+      ],
+      "observations": [
+        {
+          "event": "cleanup",
+          "sent": 0,
+          "released": 0,
+          "held": 0
+        }
+      ],
+      "environment": {
+        "electron": "43.8.1",
+        "chromium": "150.0.7871.250",
+        "display": {
+          "accelerometerSupport": "unknown",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 1470,
+            "height": 956
+          },
+          "colorDepth": 30,
+          "colorSpace": "{primaries:P3, transfer:{0.0777*x + 0.0000 if abs(x) < 0.0450 else sign(x)*((0.9495*abs(x) + 0.0495)**2.3955 + 0.0003)}, matrix:RGB, range:FULL}",
+          "depthPerComponent": 10,
+          "detected": true,
+          "displayFrequency": 60.00239944458008,
+          "id": 1,
+          "internal": true,
+          "label": "Built-in Retina Display",
+          "maximumCursorSize": {
+            "width": 0,
+            "height": 0
+          },
+          "monochrome": false,
+          "nativeOrigin": {
+            "x": 0,
+            "y": 0
+          },
+          "rotation": 0,
+          "scaleFactor": 2,
+          "size": {
+            "width": 1470,
+            "height": 956
+          },
+          "workArea": {
+            "x": 0,
+            "y": 37,
+            "width": 1470,
+            "height": 839
+          },
+          "workAreaSize": {
+            "width": 1470,
+            "height": 839
+          },
+          "touchSupport": "unknown"
+        },
+        "platform": "darwin",
+        "architecture": "arm64"
+      },
+      "geometry": {
+        "cols": 100,
+        "rows": 30,
+        "width": 1800,
+        "height": 900,
+        "scale": 2,
+        "font": "Menlo",
+        "fontSize": 14
+      },
+      "exitCode": 0
+    },
+    {
+      "engine": "web",
+      "repeat": 2,
+      "artifact": "web-2.json",
+      "interactive": false,
+      "phases": [
+        {
+          "kind": "correctness",
+          "name": "plain",
+          "passed": true,
+          "expectedHash": "796edeee8df1cfa6fc8e3c40b330905dca6d905b592ba98a21251e363f616343",
+          "actualHash": "796edeee8df1cfa6fc8e3c40b330905dca6d905b592ba98a21251e363f616343",
+          "expectedCharacters": 79999,
+          "actualCharacters": 79999
+        },
+        {
+          "kind": "burst",
+          "name": "plain",
+          "bytes": 82000,
+          "bytesHash": "759f1820db15762b14e664a22c6fb3418e463939f90e38aec64928f1be5bdd80",
+          "apiServiceMs": 2,
+          "apiRoundTripMs": 2,
+          "nextDrawSchedulingAckMs": 12.399999976158142
+        },
+        {
+          "kind": "correctness",
+          "name": "ansi",
+          "passed": true,
+          "expectedHash": "1aaf9c343d820ea204c1097f0b90933e4b838b4a49c58a6098a0a2e43dcd3a30",
+          "actualHash": "1aaf9c343d820ea204c1097f0b90933e4b838b4a49c58a6098a0a2e43dcd3a30",
+          "expectedCharacters": 77999,
+          "actualCharacters": 77999
+        },
+        {
+          "kind": "burst",
+          "name": "ansi",
+          "bytes": 98000,
+          "bytesHash": "f4c2d9f512b95e029db6c118a4ca9f43f30d4da8d5d0b0807be3cb075636aecc",
+          "apiServiceMs": 2.399999976158142,
+          "apiRoundTripMs": 2.399999976158142,
+          "nextDrawSchedulingAckMs": 12
+        },
+        {
+          "kind": "correctness",
+          "name": "synchronized",
+          "passed": true,
+          "expectedHash": "3cbb83832b8501b34a1d212d8d09049a4860168a3af9918f9586c4a4b0a599ce",
+          "actualHash": "3cbb83832b8501b34a1d212d8d09049a4860168a3af9918f9586c4a4b0a599ce",
+          "expectedCharacters": 93999,
+          "actualCharacters": 93999
+        },
+        {
+          "kind": "burst",
+          "name": "synchronized",
+          "bytes": 96016,
+          "bytesHash": "ed3907b0207af703d0d2c35efcfbb0b1eb99e73492ea720b4a9b7b3def036ae7",
+          "apiServiceMs": 1.5999999046325684,
+          "apiRoundTripMs": 1.5999999046325684,
+          "nextDrawSchedulingAckMs": 12.5
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-retained",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "burst",
+          "name": "unicode-retained",
+          "bytes": 102800,
+          "bytesHash": "dc2c83a3518027c582d9fab7fba2453e3c2b360e04b826de47f924f44b4cc100",
+          "apiServiceMs": 6.5,
+          "apiRoundTripMs": 6.5,
+          "nextDrawSchedulingAckMs": 41.40000009536743
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-72",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 72,
+          "resizeThroughDrawSchedulingAckMs": 23.399999976158142,
+          "frameDimensions": {
+            "width": 1296,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-110",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 110,
+          "resizeThroughDrawSchedulingAckMs": 25,
+          "frameDimensions": {
+            "width": 1980,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-100",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 100,
+          "resizeThroughDrawSchedulingAckMs": 26.5,
+          "frameDimensions": {
+            "width": 1800,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "scroll-retained",
+          "passed": true,
+          "expectedHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "actualHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "expectedCharacters": 29205,
+          "actualCharacters": 29205
+        },
+        {
+          "kind": "correctness",
+          "name": "scroll-preserves-retained",
+          "passed": true,
+          "expectedHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "actualHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "expectedCharacters": 29205,
+          "actualCharacters": 29205
+        },
+        {
+          "kind": "scroll",
+          "passed": true,
+          "wheelSamples": [
+            {
+              "deltaY": 300,
+              "dispatchThroughDrawSchedulingAckMs": 18.5,
+              "untimedSettleMs": 200
+            },
+            {
+              "deltaY": -300,
+              "dispatchThroughDrawSchedulingAckMs": 13.399999976158142,
+              "untimedSettleMs": 200
+            }
+          ],
+          "topHash": "ea7fa645ecf21c50692d78119a6ccacfda44f511f7c1dc95619c4da8e08212d0",
+          "downHash": "50cdb9eadb91b0bd404f0e87a0787b959e160c4b89c82104b6e7e5d608ab1fcd",
+          "restoredHash": "ea7fa645ecf21c50692d78119a6ccacfda44f511f7c1dc95619c4da8e08212d0",
+          "bottomHash": "d2fe54ed49fb54ec0e417a87d944e67f4386d39d7008f74f682bbd15a969bee6"
+        },
+        {
+          "kind": "correctness",
+          "name": "paced-stream",
+          "passed": true,
+          "expectedHash": "baa75b458aef355bc4bfe5e68b5064f3ea02f2e0134fe8a45734e8fe5f8c99aa",
+          "actualHash": "baa75b458aef355bc4bfe5e68b5064f3ea02f2e0134fe8a45734e8fe5f8c99aa",
+          "expectedCharacters": 39999,
+          "actualCharacters": 39999
+        },
+        {
+          "kind": "paced-output",
+          "batches": 100,
+          "lines": 1000,
+          "targetBatchPeriodMs": 16,
+          "elapsedMs": 1772.7999999523163,
+          "apiServiceTotalMs": 4,
+          "drawIntervalSamplesMs": [
+            16.5, 19.399999976158142, 15.600000023841858, 16.600000023841858,
+            16.59999990463257, 15.800000071525574, 16.799999952316284, 16.800000071525574,
+            16.09999990463257, 16.40000009536743, 16.699999928474426, 16.600000023841858,
+            17, 16.700000047683716, 16.5, 16.799999952316284, 16.399999976158142,
+            16.700000047683716, 16.5, 16.899999976158142, 16.600000023841858,
+            16.699999928474426, 17.200000047683716, 16.200000047683716, 16.59999990463257,
+            16.800000071525574, 16.5, 16.600000023841858, 16.699999928474426,
+            33.60000002384186, 16.5, 16.700000047683716, 16.5, 16.699999928474426,
+            16.600000023841858, 16.700000047683716, 16.699999928474426,
+            16.700000047683716, 16.899999976158142, 16.299999952316284, 17,
+            16.40000009536743, 16.699999928474426, 16.899999976158142, 16.5,
+            16.600000023841858, 16.800000071525574, 16.59999990463257, 16.5,
+            17.200000047683716, 16.799999952316284, 16.600000023841858,
+            16.399999976158142, 16.40000009536743, 16.799999952316284, 16.600000023841858,
+            16.699999928474426, 16.700000047683716, 16.5, 16.700000047683716,
+            16.699999928474426, 16.700000047683716, 16.600000023841858,
+            16.699999928474426, 16.100000023841858, 17.299999952316284,
+            16.700000047683716, 16.600000023841858, 16.699999928474426,
+            16.600000023841858, 16.700000047683716, 16.5, 33.5, 16.699999928474426, 16.5,
+            15.400000095367432, 18.09999990463257, 16.600000023841858, 16.5, 17, 16.5,
+            16.600000023841858, 16.799999952316284, 16.5, 16.800000071525574,
+            16.600000023841858, 17.09999990463257, 16.300000071525574, 16.600000023841858,
+            16.799999952316284, 16.799999952316284, 16.40000009536743, 17,
+            16.899999976158142, 16.799999952316284, 16.200000047683716,
+            16.600000023841858, 16.799999952316284
+          ],
+          "drawIntervalsMs": {
+            "count": 98,
+            "p50": 16.699999928474426,
+            "p95": 17.299999952316284,
+            "p99": 33.60000002384186,
+            "max": 33.60000002384186
+          }
+        },
+        {
+          "kind": "presentation",
+          "gpu": {
+            "2d_canvas": "enabled",
+            "direct_rendering_display_compositor": "disabled_off_ok",
+            "gpu_compositing": "enabled",
+            "multiple_raster_threads": "enabled_on",
+            "opengl": "enabled_on",
+            "rasterization": "enabled",
+            "raw_draw": "disabled_off_ok",
+            "skia_graphite": "enabled_on",
+            "trees_in_viz": "disabled_off",
+            "video_decode": "enabled",
+            "video_encode": "enabled",
+            "webgl": "enabled",
+            "webgpu": "enabled",
+            "webnn": "disabled_off"
+          }
+        }
+      ],
+      "observations": [
+        {
+          "event": "cleanup",
+          "sent": 0,
+          "released": 0,
+          "held": 0
+        }
+      ],
+      "environment": {
+        "electron": "43.8.1",
+        "chromium": "150.0.7871.250",
+        "display": {
+          "accelerometerSupport": "unknown",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 1470,
+            "height": 956
+          },
+          "colorDepth": 30,
+          "colorSpace": "{primaries:P3, transfer:{0.0777*x + 0.0000 if abs(x) < 0.0450 else sign(x)*((0.9495*abs(x) + 0.0495)**2.3955 + 0.0003)}, matrix:RGB, range:FULL}",
+          "depthPerComponent": 10,
+          "detected": true,
+          "displayFrequency": 60.00239944458008,
+          "id": 1,
+          "internal": true,
+          "label": "Built-in Retina Display",
+          "maximumCursorSize": {
+            "width": 0,
+            "height": 0
+          },
+          "monochrome": false,
+          "nativeOrigin": {
+            "x": 0,
+            "y": 0
+          },
+          "rotation": 0,
+          "scaleFactor": 2,
+          "size": {
+            "width": 1470,
+            "height": 956
+          },
+          "workArea": {
+            "x": 0,
+            "y": 37,
+            "width": 1470,
+            "height": 839
+          },
+          "workAreaSize": {
+            "width": 1470,
+            "height": 839
+          },
+          "touchSupport": "unknown"
+        },
+        "platform": "darwin",
+        "architecture": "arm64"
+      },
+      "geometry": {
+        "cols": 100,
+        "rows": 30,
+        "width": 1800,
+        "height": 900,
+        "scale": 2,
+        "font": "Menlo",
+        "fontSize": 14
+      },
+      "exitCode": 0
+    },
+    {
+      "engine": "native",
+      "repeat": 2,
+      "artifact": "native-2.json",
+      "interactive": false,
+      "phases": [
+        {
+          "kind": "correctness",
+          "name": "plain",
+          "passed": true,
+          "expectedHash": "796edeee8df1cfa6fc8e3c40b330905dca6d905b592ba98a21251e363f616343",
+          "actualHash": "796edeee8df1cfa6fc8e3c40b330905dca6d905b592ba98a21251e363f616343",
+          "expectedCharacters": 79999,
+          "actualCharacters": 79999
+        },
+        {
+          "kind": "burst",
+          "name": "plain",
+          "bytes": 82000,
+          "bytesHash": "759f1820db15762b14e664a22c6fb3418e463939f90e38aec64928f1be5bdd80",
+          "apiServiceMs": 0.282,
+          "apiRoundTripMs": 0.6999999284744263,
+          "nextDrawSchedulingAckMs": 15
+        },
+        {
+          "kind": "correctness",
+          "name": "ansi",
+          "passed": true,
+          "expectedHash": "1aaf9c343d820ea204c1097f0b90933e4b838b4a49c58a6098a0a2e43dcd3a30",
+          "actualHash": "1aaf9c343d820ea204c1097f0b90933e4b838b4a49c58a6098a0a2e43dcd3a30",
+          "expectedCharacters": 77999,
+          "actualCharacters": 77999
+        },
+        {
+          "kind": "burst",
+          "name": "ansi",
+          "bytes": 98000,
+          "bytesHash": "f4c2d9f512b95e029db6c118a4ca9f43f30d4da8d5d0b0807be3cb075636aecc",
+          "apiServiceMs": 0.409,
+          "apiRoundTripMs": 0.7000000476837158,
+          "nextDrawSchedulingAckMs": 13.5
+        },
+        {
+          "kind": "correctness",
+          "name": "synchronized",
+          "passed": true,
+          "expectedHash": "3cbb83832b8501b34a1d212d8d09049a4860168a3af9918f9586c4a4b0a599ce",
+          "actualHash": "3cbb83832b8501b34a1d212d8d09049a4860168a3af9918f9586c4a4b0a599ce",
+          "expectedCharacters": 93999,
+          "actualCharacters": 93999
+        },
+        {
+          "kind": "burst",
+          "name": "synchronized",
+          "bytes": 96016,
+          "bytesHash": "ed3907b0207af703d0d2c35efcfbb0b1eb99e73492ea720b4a9b7b3def036ae7",
+          "apiServiceMs": 0.237,
+          "apiRoundTripMs": 0.6000000238418579,
+          "nextDrawSchedulingAckMs": 13.100000023841858
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-retained",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "burst",
+          "name": "unicode-retained",
+          "bytes": 102800,
+          "bytesHash": "dc2c83a3518027c582d9fab7fba2453e3c2b360e04b826de47f924f44b4cc100",
+          "apiServiceMs": 0.975,
+          "apiRoundTripMs": 1.5,
+          "nextDrawSchedulingAckMs": 27.800000071525574
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-72",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 72,
+          "resizeThroughDrawSchedulingAckMs": 32.299999952316284,
+          "frameDimensions": {
+            "width": 1296,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-110",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 110,
+          "resizeThroughDrawSchedulingAckMs": 31.700000047683716,
+          "frameDimensions": {
+            "width": 1980,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-100",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 100,
+          "resizeThroughDrawSchedulingAckMs": 31.399999976158142,
+          "frameDimensions": {
+            "width": 1800,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "scroll-retained",
+          "passed": true,
+          "expectedHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "actualHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "expectedCharacters": 29205,
+          "actualCharacters": 29205
+        },
+        {
+          "kind": "correctness",
+          "name": "scroll-preserves-retained",
+          "passed": true,
+          "expectedHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "actualHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "expectedCharacters": 29205,
+          "actualCharacters": 29205
+        },
+        {
+          "kind": "scroll",
+          "passed": true,
+          "wheelSamples": [
+            {
+              "deltaY": 300,
+              "dispatchThroughDrawSchedulingAckMs": 6.799999952316284,
+              "untimedSettleMs": 200
+            },
+            {
+              "deltaY": -300,
+              "dispatchThroughDrawSchedulingAckMs": 14.299999952316284,
+              "untimedSettleMs": 200
+            }
+          ],
+          "topHash": "ea7fa645ecf21c50692d78119a6ccacfda44f511f7c1dc95619c4da8e08212d0",
+          "downHash": "50cdb9eadb91b0bd404f0e87a0787b959e160c4b89c82104b6e7e5d608ab1fcd",
+          "restoredHash": "ea7fa645ecf21c50692d78119a6ccacfda44f511f7c1dc95619c4da8e08212d0",
+          "bottomHash": "d2fe54ed49fb54ec0e417a87d944e67f4386d39d7008f74f682bbd15a969bee6"
+        },
+        {
+          "kind": "correctness",
+          "name": "paced-stream",
+          "passed": true,
+          "expectedHash": "baa75b458aef355bc4bfe5e68b5064f3ea02f2e0134fe8a45734e8fe5f8c99aa",
+          "actualHash": "baa75b458aef355bc4bfe5e68b5064f3ea02f2e0134fe8a45734e8fe5f8c99aa",
+          "expectedCharacters": 39999,
+          "actualCharacters": 39999
+        },
+        {
+          "kind": "paced-output",
+          "batches": 100,
+          "lines": 1000,
+          "targetBatchPeriodMs": 16,
+          "elapsedMs": 1765.5999999046326,
+          "apiServiceTotalMs": 0.7780000000000006,
+          "drawIntervalSamplesMs": [
+            15.200000047683716, 14.699999928474426, 15, 19.300000071525574, 13,
+            20.59999990463257, 15, 15.5, 15.400000095367432, 20.399999976158142,
+            15.399999976158142, 15.399999976158142, 15.300000071525574,
+            20.399999976158142, 15.5, 14.100000023841858, 19.59999990463257,
+            15.400000095367432, 15.399999976158142, 19.899999976158142,
+            16.100000023841858, 15.5, 19.199999928474426, 14.900000095367432,
+            15.199999928474426, 15, 19.899999976158142, 15.400000095367432,
+            15.399999976158142, 19.5, 15.299999952316284, 15.399999976158142,
+            19.90000009536743, 14.5, 15.399999976158142, 18.799999952316284,
+            14.200000047683716, 15.399999976158142, 20.299999952316284, 15.5,
+            15.300000071525574, 19.699999928474426, 15.400000095367432,
+            15.399999976158142, 19, 14.5, 20.5, 14, 15.399999976158142,
+            20.399999976158142, 15.300000071525574, 14.399999976158142, 20.5,
+            14.199999928474426, 15.300000071525574, 20, 15.399999976158142,
+            14.100000023841858, 19.5, 14.399999976158142, 19.200000047683716,
+            14.599999904632568, 15.700000047683716, 19.600000023841858,
+            14.199999928474426, 20.200000047683716, 15.5, 14.200000047683716,
+            19.899999976158142, 15.5, 14.699999928474426, 19, 14.300000071525574, 20,
+            15.5, 13.799999952316284, 19.899999976158142, 15.400000095367432,
+            15.399999976158142, 19.699999928474426, 15.200000047683716,
+            15.100000023841858, 20.399999976158142, 14.100000023841858, 15.5,
+            19.299999952316284, 14.100000023841858, 18.600000023841858, 15,
+            20.299999952316284, 12.800000071525574, 20.299999952316284,
+            14.200000047683716, 15.299999952316284, 19.899999976158142, 15.5,
+            14.100000023841858, 19.399999976158142, 15.300000071525574
+          ],
+          "drawIntervalsMs": {
+            "count": 99,
+            "p50": 15.400000095367432,
+            "p95": 20.399999976158142,
+            "p99": 20.59999990463257,
+            "max": 20.59999990463257
+          }
+        },
+        {
+          "kind": "presentation",
+          "gpu": {
+            "2d_canvas": "enabled",
+            "direct_rendering_display_compositor": "disabled_off_ok",
+            "gpu_compositing": "enabled",
+            "multiple_raster_threads": "enabled_on",
+            "opengl": "enabled_on",
+            "rasterization": "enabled",
+            "raw_draw": "disabled_off_ok",
+            "skia_graphite": "enabled_on",
+            "trees_in_viz": "disabled_off",
+            "video_decode": "enabled",
+            "video_encode": "enabled",
+            "webgl": "enabled",
+            "webgpu": "enabled",
+            "webnn": "disabled_off"
+          },
+          "lastFrame": {
+            "serial": 136,
+            "width": 1800,
+            "height": 900,
+            "copyMeanMs": 0.46094117647058824,
+            "copyMaxMs": 0.933,
+            "dropped": 0
+          }
+        }
+      ],
+      "observations": [
+        {
+          "event": "cleanup",
+          "sent": 136,
+          "released": 136,
+          "held": 0
+        }
+      ],
+      "environment": {
+        "electron": "43.8.1",
+        "chromium": "150.0.7871.250",
+        "display": {
+          "accelerometerSupport": "unknown",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 1470,
+            "height": 956
+          },
+          "colorDepth": 30,
+          "colorSpace": "{primaries:P3, transfer:{0.0777*x + 0.0000 if abs(x) < 0.0450 else sign(x)*((0.9495*abs(x) + 0.0495)**2.3955 + 0.0003)}, matrix:RGB, range:FULL}",
+          "depthPerComponent": 10,
+          "detected": true,
+          "displayFrequency": 60.00239944458008,
+          "id": 1,
+          "internal": true,
+          "label": "Built-in Retina Display",
+          "maximumCursorSize": {
+            "width": 0,
+            "height": 0
+          },
+          "monochrome": false,
+          "nativeOrigin": {
+            "x": 0,
+            "y": 0
+          },
+          "rotation": 0,
+          "scaleFactor": 2,
+          "size": {
+            "width": 1470,
+            "height": 956
+          },
+          "workArea": {
+            "x": 0,
+            "y": 37,
+            "width": 1470,
+            "height": 839
+          },
+          "workAreaSize": {
+            "width": 1470,
+            "height": 839
+          },
+          "touchSupport": "unknown"
+        },
+        "platform": "darwin",
+        "architecture": "arm64"
+      },
+      "geometry": {
+        "width": 1800,
+        "height": 900,
+        "cellWidth": 18,
+        "cellHeight": 30,
+        "cols": 100,
+        "rows": 30
+      },
+      "exitCode": 0
+    },
+    {
+      "engine": "native",
+      "repeat": 3,
+      "artifact": "native-3.json",
+      "interactive": false,
+      "phases": [
+        {
+          "kind": "correctness",
+          "name": "plain",
+          "passed": true,
+          "expectedHash": "796edeee8df1cfa6fc8e3c40b330905dca6d905b592ba98a21251e363f616343",
+          "actualHash": "796edeee8df1cfa6fc8e3c40b330905dca6d905b592ba98a21251e363f616343",
+          "expectedCharacters": 79999,
+          "actualCharacters": 79999
+        },
+        {
+          "kind": "burst",
+          "name": "plain",
+          "bytes": 82000,
+          "bytesHash": "759f1820db15762b14e664a22c6fb3418e463939f90e38aec64928f1be5bdd80",
+          "apiServiceMs": 0.251,
+          "apiRoundTripMs": 0.6000000238418579,
+          "nextDrawSchedulingAckMs": 13.699999928474426
+        },
+        {
+          "kind": "correctness",
+          "name": "ansi",
+          "passed": true,
+          "expectedHash": "1aaf9c343d820ea204c1097f0b90933e4b838b4a49c58a6098a0a2e43dcd3a30",
+          "actualHash": "1aaf9c343d820ea204c1097f0b90933e4b838b4a49c58a6098a0a2e43dcd3a30",
+          "expectedCharacters": 77999,
+          "actualCharacters": 77999
+        },
+        {
+          "kind": "burst",
+          "name": "ansi",
+          "bytes": 98000,
+          "bytesHash": "f4c2d9f512b95e029db6c118a4ca9f43f30d4da8d5d0b0807be3cb075636aecc",
+          "apiServiceMs": 0.401,
+          "apiRoundTripMs": 0.6000000238418579,
+          "nextDrawSchedulingAckMs": 14.299999952316284
+        },
+        {
+          "kind": "correctness",
+          "name": "synchronized",
+          "passed": true,
+          "expectedHash": "3cbb83832b8501b34a1d212d8d09049a4860168a3af9918f9586c4a4b0a599ce",
+          "actualHash": "3cbb83832b8501b34a1d212d8d09049a4860168a3af9918f9586c4a4b0a599ce",
+          "expectedCharacters": 93999,
+          "actualCharacters": 93999
+        },
+        {
+          "kind": "burst",
+          "name": "synchronized",
+          "bytes": 96016,
+          "bytesHash": "ed3907b0207af703d0d2c35efcfbb0b1eb99e73492ea720b4a9b7b3def036ae7",
+          "apiServiceMs": 0.244,
+          "apiRoundTripMs": 0.5,
+          "nextDrawSchedulingAckMs": 13.399999976158142
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-retained",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "burst",
+          "name": "unicode-retained",
+          "bytes": 102800,
+          "bytesHash": "dc2c83a3518027c582d9fab7fba2453e3c2b360e04b826de47f924f44b4cc100",
+          "apiServiceMs": 0.933,
+          "apiRoundTripMs": 1.399999976158142,
+          "nextDrawSchedulingAckMs": 29.200000047683716
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-72",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 72,
+          "resizeThroughDrawSchedulingAckMs": 31.100000023841858,
+          "frameDimensions": {
+            "width": 1296,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-110",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 110,
+          "resizeThroughDrawSchedulingAckMs": 31.399999976158142,
+          "frameDimensions": {
+            "width": 1980,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-100",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 100,
+          "resizeThroughDrawSchedulingAckMs": 31.600000023841858,
+          "frameDimensions": {
+            "width": 1800,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "scroll-retained",
+          "passed": true,
+          "expectedHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "actualHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "expectedCharacters": 29205,
+          "actualCharacters": 29205
+        },
+        {
+          "kind": "correctness",
+          "name": "scroll-preserves-retained",
+          "passed": true,
+          "expectedHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "actualHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "expectedCharacters": 29205,
+          "actualCharacters": 29205
+        },
+        {
+          "kind": "scroll",
+          "passed": true,
+          "wheelSamples": [
+            {
+              "deltaY": 300,
+              "dispatchThroughDrawSchedulingAckMs": 6,
+              "untimedSettleMs": 200
+            },
+            {
+              "deltaY": -300,
+              "dispatchThroughDrawSchedulingAckMs": 12.600000023841858,
+              "untimedSettleMs": 200
+            }
+          ],
+          "topHash": "ea7fa645ecf21c50692d78119a6ccacfda44f511f7c1dc95619c4da8e08212d0",
+          "downHash": "50cdb9eadb91b0bd404f0e87a0787b959e160c4b89c82104b6e7e5d608ab1fcd",
+          "restoredHash": "ea7fa645ecf21c50692d78119a6ccacfda44f511f7c1dc95619c4da8e08212d0",
+          "bottomHash": "d2fe54ed49fb54ec0e417a87d944e67f4386d39d7008f74f682bbd15a969bee6"
+        },
+        {
+          "kind": "correctness",
+          "name": "paced-stream",
+          "passed": true,
+          "expectedHash": "baa75b458aef355bc4bfe5e68b5064f3ea02f2e0134fe8a45734e8fe5f8c99aa",
+          "actualHash": "baa75b458aef355bc4bfe5e68b5064f3ea02f2e0134fe8a45734e8fe5f8c99aa",
+          "expectedCharacters": 39999,
+          "actualCharacters": 39999
+        },
+        {
+          "kind": "paced-output",
+          "batches": 100,
+          "lines": 1000,
+          "targetBatchPeriodMs": 16,
+          "elapsedMs": 1766.2000000476837,
+          "apiServiceTotalMs": 0.7710000000000006,
+          "drawIntervalSamplesMs": [
+            14.100000023841858, 15.399999976158142, 20.399999976158142,
+            15.200000047683716, 14.600000023841858, 15.399999976158142,
+            15.399999976158142, 18.799999952316284, 14.800000071525574,
+            20.600000023841858, 14, 15.399999976158142, 19.899999976158142,
+            15.399999976158142, 18.100000023841858, 14.100000023841858,
+            15.299999952316284, 20.399999976158142, 15.5, 15.400000095367432, 15.5,
+            19.299999952316284, 14.600000023841858, 18.699999928474426,
+            15.400000095367432, 15.399999976158142, 20.5, 14.100000023841858,
+            15.399999976158142, 20.299999952316284, 14.300000071525574, 19.09999990463257,
+            15.300000071525574, 14.699999928474426, 15.300000071525574,
+            21.799999952316284, 15.300000071525574, 15.5, 18.09999990463257,
+            15.300000071525574, 15.399999976158142, 14, 20.399999976158142,
+            15.600000023841858, 19.100000023841858, 15.699999928474426,
+            15.400000095367432, 15.399999976158142, 19.699999928474426,
+            15.400000095367432, 15.299999952316284, 19.200000047683716,
+            14.699999928474426, 20, 15.399999976158142, 14.600000023841858,
+            18.800000071525574, 15.299999952316284, 19.200000047683716,
+            15.299999952316284, 15.5, 19.100000023841858, 14, 15.399999976158142,
+            19.100000023841858, 15.399999976158142, 18.5, 15.299999952316284,
+            15.400000095367432, 20.5, 15.599999904632568, 15.400000095367432,
+            15.399999976158142, 20.5, 15.199999928474426, 15.600000023841858,
+            15.399999976158142, 20.40000009536743, 13.5, 15.899999976158142,
+            18.899999976158142, 14.799999952316284, 20.5, 15.100000023841858, 15.5,
+            15.200000047683716, 20.5, 13.199999928474426, 20.5, 14.300000071525574,
+            18.600000023841858, 15.399999976158142, 14.600000023841858,
+            20.299999952316284, 15.200000047683716, 15.399999976158142, 15.5,
+            19.100000023841858, 15.399999976158142
+          ],
+          "drawIntervalsMs": {
+            "count": 99,
+            "p50": 15.400000095367432,
+            "p95": 20.5,
+            "p99": 21.799999952316284,
+            "max": 21.799999952316284
+          }
+        },
+        {
+          "kind": "presentation",
+          "gpu": {
+            "2d_canvas": "enabled",
+            "direct_rendering_display_compositor": "disabled_off_ok",
+            "gpu_compositing": "enabled",
+            "multiple_raster_threads": "enabled_on",
+            "opengl": "enabled_on",
+            "rasterization": "enabled",
+            "raw_draw": "disabled_off_ok",
+            "skia_graphite": "enabled_on",
+            "trees_in_viz": "disabled_off",
+            "video_decode": "enabled",
+            "video_encode": "enabled",
+            "webgl": "enabled",
+            "webgpu": "enabled",
+            "webnn": "disabled_off"
+          },
+          "lastFrame": {
+            "serial": 136,
+            "width": 1800,
+            "height": 900,
+            "copyMeanMs": 0.4802647058823529,
+            "copyMaxMs": 1.286,
+            "dropped": 0
+          }
+        }
+      ],
+      "observations": [
+        {
+          "event": "cleanup",
+          "sent": 136,
+          "released": 136,
+          "held": 0
+        }
+      ],
+      "environment": {
+        "electron": "43.8.1",
+        "chromium": "150.0.7871.250",
+        "display": {
+          "accelerometerSupport": "unknown",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 1470,
+            "height": 956
+          },
+          "colorDepth": 30,
+          "colorSpace": "{primaries:P3, transfer:{0.0777*x + 0.0000 if abs(x) < 0.0450 else sign(x)*((0.9495*abs(x) + 0.0495)**2.3955 + 0.0003)}, matrix:RGB, range:FULL}",
+          "depthPerComponent": 10,
+          "detected": true,
+          "displayFrequency": 60.00239944458008,
+          "id": 1,
+          "internal": true,
+          "label": "Built-in Retina Display",
+          "maximumCursorSize": {
+            "width": 0,
+            "height": 0
+          },
+          "monochrome": false,
+          "nativeOrigin": {
+            "x": 0,
+            "y": 0
+          },
+          "rotation": 0,
+          "scaleFactor": 2,
+          "size": {
+            "width": 1470,
+            "height": 956
+          },
+          "workArea": {
+            "x": 0,
+            "y": 37,
+            "width": 1470,
+            "height": 839
+          },
+          "workAreaSize": {
+            "width": 1470,
+            "height": 839
+          },
+          "touchSupport": "unknown"
+        },
+        "platform": "darwin",
+        "architecture": "arm64"
+      },
+      "geometry": {
+        "width": 1800,
+        "height": 900,
+        "cellWidth": 18,
+        "cellHeight": 30,
+        "cols": 100,
+        "rows": 30
+      },
+      "exitCode": 0
+    },
+    {
+      "engine": "web",
+      "repeat": 3,
+      "artifact": "web-3.json",
+      "interactive": false,
+      "phases": [
+        {
+          "kind": "correctness",
+          "name": "plain",
+          "passed": true,
+          "expectedHash": "796edeee8df1cfa6fc8e3c40b330905dca6d905b592ba98a21251e363f616343",
+          "actualHash": "796edeee8df1cfa6fc8e3c40b330905dca6d905b592ba98a21251e363f616343",
+          "expectedCharacters": 79999,
+          "actualCharacters": 79999
+        },
+        {
+          "kind": "burst",
+          "name": "plain",
+          "bytes": 82000,
+          "bytesHash": "759f1820db15762b14e664a22c6fb3418e463939f90e38aec64928f1be5bdd80",
+          "apiServiceMs": 1.7999999523162842,
+          "apiRoundTripMs": 1.7999999523162842,
+          "nextDrawSchedulingAckMs": 12.900000095367432
+        },
+        {
+          "kind": "correctness",
+          "name": "ansi",
+          "passed": true,
+          "expectedHash": "1aaf9c343d820ea204c1097f0b90933e4b838b4a49c58a6098a0a2e43dcd3a30",
+          "actualHash": "1aaf9c343d820ea204c1097f0b90933e4b838b4a49c58a6098a0a2e43dcd3a30",
+          "expectedCharacters": 77999,
+          "actualCharacters": 77999
+        },
+        {
+          "kind": "burst",
+          "name": "ansi",
+          "bytes": 98000,
+          "bytesHash": "f4c2d9f512b95e029db6c118a4ca9f43f30d4da8d5d0b0807be3cb075636aecc",
+          "apiServiceMs": 2.200000047683716,
+          "apiRoundTripMs": 2.299999952316284,
+          "nextDrawSchedulingAckMs": 11.299999952316284
+        },
+        {
+          "kind": "correctness",
+          "name": "synchronized",
+          "passed": true,
+          "expectedHash": "3cbb83832b8501b34a1d212d8d09049a4860168a3af9918f9586c4a4b0a599ce",
+          "actualHash": "3cbb83832b8501b34a1d212d8d09049a4860168a3af9918f9586c4a4b0a599ce",
+          "expectedCharacters": 93999,
+          "actualCharacters": 93999
+        },
+        {
+          "kind": "burst",
+          "name": "synchronized",
+          "bytes": 96016,
+          "bytesHash": "ed3907b0207af703d0d2c35efcfbb0b1eb99e73492ea720b4a9b7b3def036ae7",
+          "apiServiceMs": 1.5,
+          "apiRoundTripMs": 1.5,
+          "nextDrawSchedulingAckMs": 12.699999928474426
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-retained",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "burst",
+          "name": "unicode-retained",
+          "bytes": 102800,
+          "bytesHash": "dc2c83a3518027c582d9fab7fba2453e3c2b360e04b826de47f924f44b4cc100",
+          "apiServiceMs": 6.600000023841858,
+          "apiRoundTripMs": 6.600000023841858,
+          "nextDrawSchedulingAckMs": 26.700000047683716
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-72",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 72,
+          "resizeThroughDrawSchedulingAckMs": 22.199999928474426,
+          "frameDimensions": {
+            "width": 1296,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-110",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 110,
+          "resizeThroughDrawSchedulingAckMs": 24.200000047683716,
+          "frameDimensions": {
+            "width": 1980,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "unicode-reflow-100",
+          "passed": true,
+          "expectedHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "actualHash": "2dbe44ccc1957b8b41e183ce705bbb6e0bcd994eec4eddd0a8a8a1728775a96e",
+          "expectedCharacters": 54399,
+          "actualCharacters": 54399
+        },
+        {
+          "kind": "reflow",
+          "cols": 100,
+          "resizeThroughDrawSchedulingAckMs": 24.799999952316284,
+          "frameDimensions": {
+            "width": 1800,
+            "height": 900
+          }
+        },
+        {
+          "kind": "correctness",
+          "name": "scroll-retained",
+          "passed": true,
+          "expectedHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "actualHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "expectedCharacters": 29205,
+          "actualCharacters": 29205
+        },
+        {
+          "kind": "correctness",
+          "name": "scroll-preserves-retained",
+          "passed": true,
+          "expectedHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "actualHash": "87f80f5c8bbc3cd1ecedbfdc7eedb4e3cc04d142c6c595d1a25a2581e438f040",
+          "expectedCharacters": 29205,
+          "actualCharacters": 29205
+        },
+        {
+          "kind": "scroll",
+          "passed": true,
+          "wheelSamples": [
+            {
+              "deltaY": 300,
+              "dispatchThroughDrawSchedulingAckMs": 31,
+              "untimedSettleMs": 200
+            },
+            {
+              "deltaY": -300,
+              "dispatchThroughDrawSchedulingAckMs": 29.90000009536743,
+              "untimedSettleMs": 200
+            }
+          ],
+          "topHash": "ea7fa645ecf21c50692d78119a6ccacfda44f511f7c1dc95619c4da8e08212d0",
+          "downHash": "50cdb9eadb91b0bd404f0e87a0787b959e160c4b89c82104b6e7e5d608ab1fcd",
+          "restoredHash": "ea7fa645ecf21c50692d78119a6ccacfda44f511f7c1dc95619c4da8e08212d0",
+          "bottomHash": "d2fe54ed49fb54ec0e417a87d944e67f4386d39d7008f74f682bbd15a969bee6"
+        },
+        {
+          "kind": "correctness",
+          "name": "paced-stream",
+          "passed": true,
+          "expectedHash": "baa75b458aef355bc4bfe5e68b5064f3ea02f2e0134fe8a45734e8fe5f8c99aa",
+          "actualHash": "baa75b458aef355bc4bfe5e68b5064f3ea02f2e0134fe8a45734e8fe5f8c99aa",
+          "expectedCharacters": 39999,
+          "actualCharacters": 39999
+        },
+        {
+          "kind": "paced-output",
+          "batches": 100,
+          "lines": 1000,
+          "targetBatchPeriodMs": 16,
+          "elapsedMs": 1772.6999999284744,
+          "apiServiceTotalMs": 3.999999761581421,
+          "drawIntervalSamplesMs": [
+            15.199999928474426, 20.899999976158142, 16.5, 15.600000023841858,
+            14.700000047683716, 16.299999952316284, 16.600000023841858,
+            16.700000047683716, 16.09999990463257, 15.300000071525574, 16.699999928474426,
+            18.700000047683716, 16, 17.399999976158142, 16.600000023841858,
+            16.700000047683716, 16.199999928474426, 16, 16.200000047683716,
+            17.600000023841858, 16.799999952316284, 16.899999976158142,
+            16.899999976158142, 17.100000023841858, 15.899999976158142,
+            16.600000023841858, 16.700000047683716, 33.39999997615814, 16.5,
+            16.899999976158142, 16.700000047683716, 16.600000023841858,
+            16.299999952316284, 16.899999976158142, 17.100000023841858,
+            16.700000047683716, 16.899999976158142, 15.699999928474426,
+            16.700000047683716, 16, 16.799999952316284, 15.400000095367432, 18.5,
+            16.899999976158142, 16.5, 16.5, 16.899999976158142, 16.700000047683716,
+            16.59999990463257, 16.800000071525574, 16.699999928474426, 16.90000009536743,
+            16.699999928474426, 16.5, 16.700000047683716, 16.399999976158142,
+            16.600000023841858, 16.5, 17.199999928474426, 16, 16.800000071525574,
+            16.799999952316284, 16.600000023841858, 17, 16.5, 16.700000047683716,
+            17.299999952316284, 16.299999952316284, 16.600000023841858,
+            16.399999976158142, 16.800000071525574, 16.799999952316284,
+            33.800000071525574, 16.5, 16.5, 14.299999952316284, 16.799999952316284,
+            18.40000009536743, 14.799999952316284, 18.5, 14.700000047683716,
+            18.699999928474426, 16.700000047683716, 16.699999928474426, 16.5,
+            16.800000071525574, 16.799999952316284, 16.5, 16.5, 15.200000047683716,
+            16.299999952316284, 16.800000071525574, 18.299999952316284,
+            16.799999952316284, 16.600000023841858, 16.700000047683716,
+            16.799999952316284, 14.800000071525574
+          ],
+          "drawIntervalsMs": {
+            "count": 98,
+            "p50": 16.699999928474426,
+            "p95": 18.699999928474426,
+            "p99": 33.800000071525574,
+            "max": 33.800000071525574
+          }
+        },
+        {
+          "kind": "presentation",
+          "gpu": {
+            "2d_canvas": "enabled",
+            "direct_rendering_display_compositor": "disabled_off_ok",
+            "gpu_compositing": "enabled",
+            "multiple_raster_threads": "enabled_on",
+            "opengl": "enabled_on",
+            "rasterization": "enabled",
+            "raw_draw": "disabled_off_ok",
+            "skia_graphite": "enabled_on",
+            "trees_in_viz": "disabled_off",
+            "video_decode": "enabled",
+            "video_encode": "enabled",
+            "webgl": "enabled",
+            "webgpu": "enabled",
+            "webnn": "disabled_off"
+          }
+        }
+      ],
+      "observations": [
+        {
+          "event": "cleanup",
+          "sent": 0,
+          "released": 0,
+          "held": 0
+        }
+      ],
+      "environment": {
+        "electron": "43.8.1",
+        "chromium": "150.0.7871.250",
+        "display": {
+          "accelerometerSupport": "unknown",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 1470,
+            "height": 956
+          },
+          "colorDepth": 30,
+          "colorSpace": "{primaries:P3, transfer:{0.0777*x + 0.0000 if abs(x) < 0.0450 else sign(x)*((0.9495*abs(x) + 0.0495)**2.3955 + 0.0003)}, matrix:RGB, range:FULL}",
+          "depthPerComponent": 10,
+          "detected": true,
+          "displayFrequency": 60.00239944458008,
+          "id": 1,
+          "internal": true,
+          "label": "Built-in Retina Display",
+          "maximumCursorSize": {
+            "width": 0,
+            "height": 0
+          },
+          "monochrome": false,
+          "nativeOrigin": {
+            "x": 0,
+            "y": 0
+          },
+          "rotation": 0,
+          "scaleFactor": 2,
+          "size": {
+            "width": 1470,
+            "height": 956
+          },
+          "workArea": {
+            "x": 0,
+            "y": 37,
+            "width": 1470,
+            "height": 839
+          },
+          "workAreaSize": {
+            "width": 1470,
+            "height": 839
+          },
+          "touchSupport": "unknown"
+        },
+        "platform": "darwin",
+        "architecture": "arm64"
+      },
+      "geometry": {
+        "cols": 100,
+        "rows": 30,
+        "width": 1800,
+        "height": 900,
+        "scale": 2,
+        "font": "Menlo",
+        "fontSize": 14
+      },
+      "exitCode": 0
+    }
+  ]
+}

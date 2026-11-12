@@ -98,7 +98,7 @@ async function pump() {
     transferring = false
   }
 }
-function resize(cols, rows) {
+async function resize(cols, rows) {
   if (
     !Number.isInteger(cols) ||
     !Number.isInteger(rows) ||
@@ -109,7 +109,24 @@ function resize(cols, rows) {
   )
     throw new Error('Grid outside experiment bounds')
   const metrics = bridge.size()
-  bridge.resize(cols * metrics.cellWidth, rows * metrics.cellHeight)
+  const ticket = bridge.resize(cols * metrics.cellWidth, rows * metrics.cellHeight)
+  const deadline = performance.now() + 5000
+  while (bridge.appliedResize().ticket !== ticket) {
+    if (bridge.appliedResize().ticket > ticket)
+      throw new Error('Replay resize superseded')
+    if (performance.now() > deadline)
+      throw new Error('Replay native resize did not apply')
+    await new Promise((resolve) => setTimeout(resolve, 1))
+  }
+  const applied = bridge.appliedResize()
+  if (
+    applied.failed ||
+    applied.cols !== cols ||
+    applied.rows !== rows ||
+    applied.width !== cols * metrics.cellWidth ||
+    applied.height !== rows * metrics.cellHeight
+  )
+    throw new Error('Replay applied resize differs from its request')
   const actual = bridge.size()
   if (actual.cols !== cols || actual.rows !== rows)
     throw new Error('Native grid did not match request')
@@ -131,7 +148,7 @@ ipcMain.handle('qualification:call', async (_event, op, args = []) => {
       if (bridge) {
         bridge.start(configPath)
         initialized = true
-        const geometry = resize(100, 30)
+        const geometry = await resize(100, 30)
         requireMatchedGeometry(geometry)
         result.geometry = geometry
         timer = setInterval(() => void pump().catch(fail), 4)
