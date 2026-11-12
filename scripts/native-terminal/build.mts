@@ -73,7 +73,7 @@ const args = [
   '-fno-sys=libpng',
   '-fno-sys=zlib',
   '-fno-sys=oniguruma',
-  '-fno-sys=libxml2',
+  ...(selected.platform === 'linux' ? ['-fno-sys=libxml2'] : []),
   '--cache-dir',
   join(work, 'local-cache'),
   '-Dapp-runtime=none',
