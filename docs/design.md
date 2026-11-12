@@ -201,6 +201,7 @@ Apple-silicon macOS targets.
 > Superseded by: [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
 > Superseded by: [ADR-053](adr/ADR-053-local-agent-workbench-access.md) | partial | Protected terminal environment vocabulary only: add instance endpoint and exact workspace/session targeting.
 > Superseded by: [ADR-058](adr/ADR-058-explicit-command-once-terminal-handoff.md) | partial | Explicit fresh ordinary-shell command handoff only; persistent profiles, trusted providers, protected environment, and exact harness recovery remain unchanged.
+> Superseded by: [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) | partial | TerminalPane as the named provider-blind terminal boundary.
 
 Trusted main-owned providers supply exact harness semantics; data-only profiles customize
 launches without opaque shell commands or third-party harness providers. General extension
@@ -208,7 +209,8 @@ packages use ADR-054's separate isolated capability boundary.
 
 ### [ADR-013 — User-activated loopback web panes over `ProjectHost` routes](adr/ADR-013-user-activated-loopback-web-panes.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) | partial | TerminalPane ownership of loopback recognition and typed terminal-link provenance.
 
 Explicit terminal-link activation creates a bounded, authenticated, workspace-owned route to
 a hostile isolated web pane while preserving remote loopback origins.
@@ -330,8 +332,9 @@ remain at their owning seams, while ADR-046 replaces hvir's development measure 
 
 ### [ADR-026 — Explicit SSH image paste through private remote materialization](adr/ADR-026-explicit-ssh-image-paste.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-017](adr/ADR-017-defer-direct-diagnostic-report-delivery.md) | partial | Remote image staging and PTY injection prohibition only for explicit image paste in an exact supported focused terminal.
+> Superseded by: [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) | partial | TerminalPane ownership of clipboard-paste gesture recognition and exact fallback-byte emission.
 
 An explicit paste gesture may privately stage a bounded local clipboard PNG on an SSH host and
 insert its path into an exact supported native harness composer, with no daemon, submission,
@@ -390,6 +393,7 @@ renderer remains provider-neutral and reported windows retain precedence.
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-043](adr/ADR-043-source-review-for-text-files.md) | partial | Markdown-only document, source-anchor, and batch scope; rendered capture remains Markdown-only.
 > Supersedes: [ADR-017](adr/ADR-017-defer-direct-diagnostic-report-delivery.md) | partial | PTY text delivery prohibition only for explicit prepared document-review payloads through revisioned atomic bracketed paste and exact PTY authority.
+> Superseded by: [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) | partial | TerminalPane as the named provider- and review-blind terminal boundary.
 
 Host-qualified Markdown review uses exact on-disk anchors, bounded local persistence, explicit
 payload bytes and destinations, and revisioned provider composer contracts through PTY authority.
@@ -588,6 +592,7 @@ agent access, exact finite destructive confirmation and workspace-owned inert re
 > Supersedes: [ADR-007](adr/ADR-007-explicit-view-modes.md) | partial | Requiring rendered, source, or diff modes for every viewer tab; extension UI uses only its declared meaningful representations.
 > Supersedes: [ADR-012](adr/ADR-012-harness-providers-launch-profiles.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
 > Supersedes: [ADR-014](adr/ADR-014-modular-monolith-ownership.md) | partial | Excluding a plugin platform or additional isolation boundary; capability ownership, inward dependencies, lifecycle, styles, and test discipline remain unchanged.
+> Superseded by: [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) | partial | TerminalPane as the named terminal capability owner at the extension boundary.
 
 Validated immutable packages run in isolated guests through a scoped public capability contract.
 Explicit revision and permission decisions retain separate authority; application-level viewing
@@ -871,6 +876,11 @@ with operation-scoped authority and no additional confirmation.
 > Supersedes: [ADR-014](adr/ADR-014-modular-monolith-ownership.md) | partial | TerminalPane facade stability and process placement for native terminal state and presentation.
 > Supersedes: [ADR-024](adr/ADR-024-demand-driven-terminal-workspace-lifecycle.md) | partial | Renderer-side ownership of materialized terminal runtime and presentation behind TerminalPane.
 > Supersedes: [ADR-035](adr/ADR-035-bounded-osc52-clipboard-write.md) | partial | Renderer-only OSC 52 parsing, decoding, and forwarding through TerminalRuntime.
+> Supersedes: [ADR-012](adr/ADR-012-harness-providers-launch-profiles.md) | partial | TerminalPane as the named provider-blind terminal boundary.
+> Supersedes: [ADR-013](adr/ADR-013-user-activated-loopback-web-panes.md) | partial | TerminalPane ownership of loopback recognition and typed terminal-link provenance.
+> Supersedes: [ADR-026](adr/ADR-026-explicit-ssh-image-paste.md) | partial | TerminalPane ownership of clipboard-paste gesture recognition and exact fallback-byte emission.
+> Supersedes: [ADR-032](adr/ADR-032-explicit-document-review-handoff.md) | partial | TerminalPane as the named provider- and review-blind terminal boundary.
+> Supersedes: [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | TerminalPane as the named terminal capability owner at the extension boundary.
 
 Use one shared native terminal host with one authoritative state per terminal, separate
 presentation/input attachments, real OS resource transfer, explicit failure and compatibility

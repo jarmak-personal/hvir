@@ -24,17 +24,36 @@ neither process implementation, Electron, Ghostty, nor resource adapter. Rendere
 cannot import main/native implementation, including erased type imports. IPC registrars and
 entry points validate/translate/wire; they do not become terminal coordinators.
 
+The selected source ownership is concrete:
+
+| Maintained source / artifact location | Responsibility and language |
+| --- | --- |
+| `packages/native-terminal/` | Independently hvir-owned private facade, Node-API binding and OS-resource edge: `.c` / `.h`, package binding metadata and the small TS/JS loading edge. The facade calls minimal versioned Ghostty exports; it does not embed a standalone hvir Zig implementation. |
+| `src/main/terminal/native/` | Main session/native-host coordination and Electron resource adapter, in TypeScript. Main's native resource binding does not load Ghostty. |
+| `src/native-terminal-host/` | Utility entry and host adapter, in TypeScript; loads the maintained C facade and pinned Ghostty library. |
+| `src/shared/terminal-engine/` | Domain-named engine-neutral ports/protocol contracts, in TypeScript, importing no concrete process/engine/resource edge. |
+| `scripts/native-terminal/` | Build/provenance/upgrade tooling and manifest, in the existing TS/JS/shell languages and data formats. |
+| `scripts/native-terminal/patches/*.patch.txt` | Genuine reproduced modifications to pinned Ghostty-owned embedding/backend/renderer/core exports, using the accepted external reproduction-patch text convention. Not a maintained hvir Zig host/facade/transport hidden as text. |
+| `out/native-terminal/<target>/` | Disposable build products/manifests, never maintained implementation source. External source/dependency caches stay outside the maintained tree. |
+
 Existing seam checks and runtime/type direction checks remain applicable. Each new native
-output gets an exact build-artifact loading disposition with its source, binding, and
-generator inputs in the existing graph owner, as for the existing native packages. This is
-not a generic `.node` exemption. C/header source under an existing maintained root uses the
-ordinary physical-line budgets. Native compilation, link inputs, exported-symbol inspection,
-and focused resource tests prove the boundary that the TypeScript graph cannot inspect.
-Any actual policy relaxation or new maintained language/root needs separate prior acceptance.
-M2 must also prove its actual shader toolchain and artifacts; the prototype's runtime MSL
-compilation workaround is not production Metal compiler or package evidence.
-Changes to pinned upstream Zig remain documented source patches; independent hvir-owned
-implementation cannot be stored in patch/text files to avoid source coverage.
+output gets an exact build-artifact loading disposition with its C source, binding, export
+header and generator inputs in the existing graph owner, as for the existing native packages.
+This is not a generic `.node` exemption. Existing `packages`, `src` and `scripts` roots and
+C/header/TS/JS budgets cover all independently owned source selected here. Native compilation,
+link inputs, exported-symbol inspection and focused resource tests prove the boundary the
+TypeScript graph cannot inspect. M2 must also prove actual shader toolchain/artifacts; the
+prototype runtime MSL workaround is not production compiler or package evidence.
+
+An upstream patch may expose external feed/reply/geometry/frame callbacks, adjust a generic
+search option, or retain protocol provenance inside the core that already owns that operation.
+M2 records its upstream-owned files, purpose, clean-source application and resulting digests.
+New hvir application, process transport, resource protocol or facade implementation belongs
+in the maintained C/TypeScript locations above, never a standalone Zig module serialized into
+`.patch.txt`. No new language policy is required by this selected design. If implementation
+actually requires independently maintained Zig, C++ or Objective-C, the consuming child names
+that requirement as an unaccepted policy-only blocker before adding or consuming the source.
+A focused separately accepted proposal is then required; the presence of a patch cannot waive it.
 
 ## Session-state port
 
@@ -72,6 +91,10 @@ Ordinary PTY output currently arrives as decoded JavaScript strings through `Pty
 Preserve that contract initially: encode its Unicode text to UTF-8 once at the native edge,
 test split source sequences at the actual adapters, and do not claim arbitrary binary fidelity.
 The native facade itself accepts byte chunks and retains incomplete UTF-8/control sequences.
+Before its first external feed, disable file/shared-memory image media and ambient input-file,
+open/config/window/split actions on the actual full Termio/Surface configuration. Do not
+assume the public VT constructor's safe media defaults govern private full-engine creation;
+M3 proves this pre-feed fence, while M11 later proves routed effects and protocol behavior.
 Future byte-transport changes require their own exact local/SSH evidence.
 
 Maintain one ordered PTY write owner. User bytes, provider-framed paste, and native replies
@@ -83,8 +106,8 @@ parser or perform Electron, SSH, file, clipboard, or provider work.
 The public `ghostty_terminal_t` wraps owned state, a stream, effects, searches, and tracked
 references. It is not an ABI view of an internal `Terminal`. Reuse standalone public encoders
 with authoritative mode values where possible. For stateful operations, reuse upstream
-algorithms on the existing state or introduce a narrowly owned borrowed-state facade patch
-with explicit close semantics. Never independently parse the same stream twice or cast the
+algorithms on the existing state or introduce a narrowly owned minimal borrowed-state export hook with explicit close semantics, called by the maintained
+C facade. Never independently parse the same stream twice or cast the
 Surface terminal to the public wrapper. M3 (#1110) proves this; M10 (#1118) extends the same owner.
 
 ## Scheduling, bounds and geometry

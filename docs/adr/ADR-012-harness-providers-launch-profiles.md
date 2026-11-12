@@ -7,6 +7,7 @@
 > Superseded by: [ADR-054](ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | General extension-platform prohibition only; trusted bundled harness providers and their separate SDK decision remain unchanged.
 > Superseded by: [ADR-053](ADR-053-local-agent-workbench-access.md) | partial | Protected terminal environment vocabulary only: add instance endpoint and exact workspace/session targeting.
 > Superseded by: [ADR-058](ADR-058-explicit-command-once-terminal-handoff.md) | partial | Explicit fresh ordinary-shell command handoff only; persistent profiles, trusted providers, protected environment, and exact harness recovery remain unchanged.
+> Superseded by: [ADR-086](ADR-086-native-terminal-state-and-presentation.md) | partial | TerminalPane as the named provider-blind terminal boundary.
 
 ## Context
 

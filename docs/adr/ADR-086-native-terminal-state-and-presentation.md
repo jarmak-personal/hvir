@@ -5,6 +5,11 @@
 > Supersedes: [ADR-014](ADR-014-modular-monolith-ownership.md) | partial | TerminalPane facade stability and process placement for native terminal state and presentation.
 > Supersedes: [ADR-024](ADR-024-demand-driven-terminal-workspace-lifecycle.md) | partial | Renderer-side ownership of materialized terminal runtime and presentation behind TerminalPane.
 > Supersedes: [ADR-035](ADR-035-bounded-osc52-clipboard-write.md) | partial | Renderer-only OSC 52 parsing, decoding, and forwarding through TerminalRuntime.
+> Supersedes: [ADR-012](ADR-012-harness-providers-launch-profiles.md) | partial | TerminalPane as the named provider-blind terminal boundary.
+> Supersedes: [ADR-013](ADR-013-user-activated-loopback-web-panes.md) | partial | TerminalPane ownership of loopback recognition and typed terminal-link provenance.
+> Supersedes: [ADR-026](ADR-026-explicit-ssh-image-paste.md) | partial | TerminalPane ownership of clipboard-paste gesture recognition and exact fallback-byte emission.
+> Supersedes: [ADR-032](ADR-032-explicit-document-review-handoff.md) | partial | TerminalPane as the named provider- and review-blind terminal boundary.
+> Supersedes: [ADR-054](ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | TerminalPane as the named terminal capability owner at the extension boundary.
 
 ## Context
 
@@ -61,8 +66,10 @@ reference's release. Retaining an allocation does not permit the producer to ove
 Obsolete unconsumed frames may be replaced; accepted PTY output may never be discarded or
 reordered. Hidden sessions keep parsing without rendering continuously.
 
-Select the presentation path before starting a session. A bounded native pixel-export
-path may cover failed shared-texture import while native rendering remains available.
+Select the engine before starting a session. Within the same native state and PTY,
+a presenter may revoke an old attachment and select another native presentation path,
+with fresh geometry/lease validation. A bounded native pixel-export path may cover
+failed shared-texture import while native rendering remains available.
 It has explicit compatibility status and cannot qualify as the GPU path. Pixel export
 does not cover the absence of a usable native renderer. Retain the necessary web path
 until native compatibility covers previously supported configurations or an explicit
@@ -78,7 +85,13 @@ current live authority again before side effects. Preserve bounded OSC 52 text w
 refuse all terminal-initiated clipboard reads. Parsing and decoding may occur in the native
 host; they do not confer clipboard authority. File/web activation remains explicit and
 host-correct. Providers retain harness-specific input/composer behavior. The native engine
-does not read arbitrary user Ghostty configuration or execute its application actions.
+does not read arbitrary user Ghostty configuration or execute its application actions. Before
+accepting any external output, initialize with file/shared-memory image media and ambient
+input-file/application actions disabled; public VT defaults do not establish safe defaults
+for the full private Termio/Surface path. Native state/attachment adapters own parser events,
+clipboard-paste gesture/fallback emission and typed link activation in place of the named
+TerminalPane owner. They remain provider- and review-blind, and extension guests gain no
+native terminal capability.
 
 Host loss immediately revokes input, effects, queries, and presentation. It does not
 silently terminate or relaunch an otherwise live PTY, reconstruct parser state from the
@@ -89,12 +102,25 @@ behavior. A retained native state may accept a new attachment; a lost state may 
 No durable snapshot format or transparent crash reconstruction is selected.
 
 Shared contracts point inward and import no process or engine implementation. Main and
-renderer adapters depend on those contracts; composition roots only wire owners. The
-existing source inventory and budgets cover C/header and TS/JS source. Native build output
-requires an exact loading disposition and named maintained inputs; native compile/link,
-dependency, and lifetime proofs supplement the TypeScript graph. New languages or relaxed
-policy require separate prior acceptance. Pinned upstream patches are external source
-changes with provenance, not a hiding place for hvir-owned native implementation.
+renderer adapters depend on those contracts; composition roots only wire owners. hvir-owned
+native facade, Node-API host and OS-resource implementation is maintained C/header source
+under `packages/native-terminal/`. The application coordinator, utility-host entry/adapters
+and engine-neutral contracts are maintained TypeScript under `src/`; build tooling and
+manifests live under `scripts/native-terminal/`. All use existing source roots and policy.
+Native build outputs need exact loading dispositions and named maintained inputs, with
+compile/link, dependency and lifetime evidence supplementing the TypeScript graph.
+
+Genuine upstream changes to pinned Ghostty-owned embedding, backend, renderer and core
+exports use reproduced `scripts/native-terminal/patches/*.patch.txt` artifacts, the existing
+external-patch text convention. They expose or adjust upstream engine mechanisms, such as
+external stream hooks, applied geometry, frame export, search options and effect provenance.
+They do not implement an independent hvir host, transport, product policy or facade in
+standalone Zig hidden inside a patch. The independently owned facade remains C over those
+minimal versioned upstream exports. Every patch has exact source/hash ownership and applies
+to clean source outside the maintained tree. If an independent maintained Zig/C++/Objective-C
+implementation or another policy relaxation becomes necessary, its consuming child stops
+for a separately accepted policy-only proposal before adding that source. This design
+requires no such additional language and grants no exception.
 
 ## Consequences
 

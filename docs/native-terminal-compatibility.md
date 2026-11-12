@@ -34,7 +34,7 @@ adjustments. Electron/Chromium match the versions above. Those prototype adjustm
 confounders to remove through real font metrics, not production defaults. Mac scrolling,
 typing and corrected width changes received positive hands-on feedback; its isolated
 timers do not establish full-app or physical display latency. Preserve the reports under
-[`research/native-ghostty/`](research/native-ghostty/README.md), including pending #1094.
+[`research/native-ghostty/`](research/native-ghostty/README.md), including the available #1094 evidence.
 
 Linux GPU presentation remains unresolved. The old Linux script's unsupported-platform
 diagnostic does not render a terminal. The selected full source's embedded platform union
@@ -112,20 +112,20 @@ because they are ADRs. Existing supersession chains remain historical truth.
 | 009, 019, 034 | Retain focus clearing, actionable aggregation, provider-neutral Working/Ready and accessible/reduced-motion presentation: native effects and user-input attribution replace the event source. |
 | 010 | Retain host qualification and ProjectHost transport/PTY authority: native app-host rendering must not read or spawn directly on a project/SSH host. Reuse the current accepted remote-client exception. |
 | 011, 018 | Keep superseded: historical npm delivery and script-free payload decisions are not revived by adding a native library. |
-| 012, 015, 020, 031, 036, 039 | Retain reviewed current provider/profile revisions, exact resume/fork, missing-artifact refusal, skip retention, truthful telemetry and retired risk rules: these are harness/data decisions independent of GPU presentation. Do not preserve superseded rules. |
-| 013, 045 | Retain explicit loopback/file navigation and outside-project viewing boundaries: copied native link metadata cannot itself grant network/file access or retarget a host. |
+| 012, 015, 020, 031, 036, 039 | Replace ADR-012's named TerminalPane boundary through ADR-086; retain reviewed current provider/profile revisions, exact resume/fork, missing-artifact refusal, skip retention, truthful telemetry and retired risk rules: these are harness/data decisions independent of GPU presentation. Do not preserve superseded rules. |
+| 013, 045 | Replace ADR-013's TerminalPane recognition/provenance ownership through ADR-086; retain explicit loopback/file navigation and outside-project viewing boundaries: copied native link metadata cannot itself grant network/file access or retarget a host. |
 | 014 | Partially replace terminal facade stability/process placement with ADR-086. Retain capability ownership, inward runtime/type dependencies, composition-only roots, revocation and test altitude because the native boundary needs stronger, explicit lifetime proofs. |
 | 016, 025, 046 | Retain content-free bounded diagnostics and retirement of speculative responsiveness recording: measure terminal improvement in existing test/capacity owners, without adding a production observer framework. |
-| 017, 032, 043 | Retain current explicit review-delivery exception and exact payload/destination/provider framing; terminal rendering provides no authority for ambient report/prompt injection. |
+| 017, 032, 043 | Replace ADR-032's named TerminalPane boundary through ADR-086; retain current explicit review-delivery exception and exact payload/destination/provider framing; terminal rendering provides no authority for ambient report/prompt injection. |
 | 021, 023, 027, 033 | Retain current Git safety, explicit close, demand-driven workspace work and authoritative missing-workspace cleanup: catalog changes must revoke the actual native owner without allocating terminals from discovery. |
 | 022, 028, 029, 044 | Retain native package lifecycle, Linux ABI/sandbox baseline, and distinct macOS acceptance channel: adding terminal artifacts cannot inherit developer loader paths or alter installed support silently. |
 | 024 | Partially replace renderer-owned live parser/presentation coupling with ADR-086. Retain demand-driven allocation and distinct registered/materialized/session/live/visible/focused states because they bound idle work and preserve user sessions. |
-| 026 | Retain explicit image gesture, original fallback bytes, exact provider/PTY/host authority and bounded private SSH staging: native rendering supplies input events, not attachment acknowledgement or image-storage policy. |
+| 026 | Replace TerminalPane gesture/fallback ownership through ADR-086; retain explicit image gesture, original fallback bytes, exact provider/PTY/host authority and bounded private SSH staging: native rendering supplies input events, not attachment acknowledgement or image-storage policy. |
 | 030 | Retain clipboard/file-transfer targeting, bounded ProjectHost operations and distinct copy/move authority: native path recognition is not a new file operation. |
 | 035 | Partially replace renderer-only parser/decode/forward placement with ADR-086. Retain bounded text writes, no reads, strict content/selection/liveness and independent main validation. The existing runtime source cap is unchanged by this design decision. |
 | 037–038, 040–042, 048, 069 | Retain exact candidate/CI evidence, accepted source policy and native-language registration, and contributor attribution: private facade pins do not waive verification, authorize a new language or fabricate platform evidence. |
 | 047 | Retain SSH target/trust/configuration authority: terminal-host launch cannot infer or replace a project connection. |
-| 049–052, 054 | Retain isolated guests, bounded terminal/header contributions, public capability boundaries and presentation tokens: extensions cannot load an engine/native host or acquire raw PTY authority. |
+| 049–052, 054 | Replace ADR-054's named TerminalPane owner through ADR-086; retain isolated guests, bounded terminal/header contributions, public capability boundaries and presentation tokens: extensions cannot load an engine/native host or acquire raw PTY authority. |
 | 053, 055 | Retain protected agent environment and connection-scoped remote client/forward identity: native app-host parser state does not replace endpoint, host or caller authorization. |
 | 056, 058–061 | Retain explicit authoring/setup/managed-delivery semantics and one-use ordinary-shell handoff: native integration cannot replay transient setup on recovery or take terminal ownership back after handoff. |
 | 063, 065, 068, 070, 072, 075–078 | Retain bounded passive contributions, explicit native-program/host/session-trust decisions, action limits and setup/source grants where terminal handoff consumes them: presentation is not execution approval. |
