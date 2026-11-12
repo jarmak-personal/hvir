@@ -1,7 +1,8 @@
 # ADR-026: Explicit SSH image paste through private remote materialization
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-017](ADR-017-defer-direct-diagnostic-report-delivery.md) | partial | Remote image staging and PTY injection prohibition only for explicit image paste in an exact supported focused terminal.
+> Superseded by: [ADR-086](ADR-086-native-terminal-state-and-presentation.md) | partial | TerminalPane ownership of clipboard-paste gesture recognition and exact fallback-byte emission.
 
 ## Context
 
