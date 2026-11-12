@@ -2,6 +2,7 @@
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-045](ADR-045-explicit-outside-project-viewing.md) | partial | Terminal file-link location restriction to the active workspace.
+> Superseded by: [ADR-086](ADR-086-native-terminal-state-and-presentation.md) | partial | ghostty-web and xterm.js engine selection, stable Linux embedding prerequisite, and the single TerminalPane interface as the required native boundary.
 
 ## Context
 

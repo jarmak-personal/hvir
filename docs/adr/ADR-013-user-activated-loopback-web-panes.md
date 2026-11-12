@@ -1,6 +1,7 @@
 # ADR-013: User-activated loopback web panes over ProjectHost routes
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-086](ADR-086-native-terminal-state-and-presentation.md) | partial | TerminalPane ownership of loopback recognition and typed terminal-link provenance.
 
 ## Context
 
