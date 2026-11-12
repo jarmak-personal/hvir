@@ -1,8 +1,9 @@
 # ADR-024: Demand-driven terminal workspace lifecycle
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-012](ADR-012-harness-providers-launch-profiles.md) | partial | Bare Shell defaults implicitly launching a session in an empty workspace.
 > Supersedes: [ADR-008](ADR-008-project-worktree-workspaces.md) | partial | Registration or discovery implying renderer terminal runtime materialization.
+> Superseded by: [ADR-086](ADR-086-native-terminal-state-and-presentation.md) | partial | Renderer-side ownership of materialized terminal runtime and presentation behind TerminalPane.
 
 ## Context
 

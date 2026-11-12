@@ -1,7 +1,8 @@
 # ADR-035: Bounded OSC 52 clipboard write
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-014](ADR-014-modular-monolith-ownership.md) | partial | Expiry and removal metadata requirement for the named terminal-runtime.ts 600-line non-growth cap.
+> Superseded by: [ADR-086](ADR-086-native-terminal-state-and-presentation.md) | partial | Renderer-only OSC 52 parsing, decoding, and forwarding through TerminalRuntime.
 
 ## Context
 

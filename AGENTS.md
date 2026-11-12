@@ -74,15 +74,17 @@ report an environment blocker instead of spending CI minutes on a known-bad bran
   large reads — runs off the render thread (utility processes / workers). The UI is always
   instantly responsive. This is how we earn "lighter than VSCode" (a *feel*, not a byte
   count — Electron's RAM cost is accepted deliberately).
-- **The terminal is a swappable pane, not the foundation.** Keep it behind the
-  `TerminalPane` interface. Never bet the project on an unstable libghostty API.
+- **Keep native terminal details behind engine-neutral ports.** ADR-086 separates
+  terminal state from presentation/input attachments. Pin the private libghostty facade
+  and its patches explicitly; stable VT ABI does not imply a stable renderer API.
+  All terminal-related ADR mechanisms are open to revision when the native design warrants it.
 - **Respect the seams.** All PTY spawning goes through the **PTY supervisor**; all
   harness-specific behavior (launch flags, resume commands, title conventions) stays
   behind the main-owned **harness provider registry/providers** (the evolved
-  `HarnessAdapter` seam); the terminal stays behind **`TerminalPane`**; every
-  filesystem/git/PTY/watch operation goes through **`ProjectHost`**
+  `HarnessAdapter` seam); the terminal stays behind **engine-neutral state/presentation ports**;
+  every filesystem/git/PTY/watch operation goes through **`ProjectHost`**
   (`LocalHost`/`SshHost`). Harness quirks never leak past their adapter.
-  (ADR-003, ADR-006, ADR-010)
+  (ADR-006, ADR-010, ADR-086)
 - **Every path is host-qualified.** Paths are `(host, path)` pairs everywhere — no bare
   string paths, even in local-only code. Projects live on hosts; local is just the
   default host. (ADR-010)

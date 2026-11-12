@@ -117,6 +117,7 @@ work stay outside the renderer root.
 
 > Lifecycle: Partially superseded
 > Superseded by: [ADR-045](adr/ADR-045-explicit-outside-project-viewing.md) | partial | Terminal file-link location restriction to the active workspace.
+> Superseded by: [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) | partial | ghostty-web and xterm.js engine selection, stable Linux embedding prerequisite, and the single TerminalPane interface as the required native boundary.
 
 `TerminalPane` isolates engine choice, terminal-focused layout, and typed file-link
 activation from the rest of the workbench.
@@ -218,6 +219,7 @@ a hostile isolated web pane while preserving remote loopback origins.
 > Superseded by: [ADR-035](adr/ADR-035-bounded-osc52-clipboard-write.md) | partial | Expiry and removal metadata requirement for the named terminal-runtime.ts 600-line non-growth cap.
 > Superseded by: [ADR-040](adr/ADR-040-complete-source-budgets-and-dependency-policy.md) | partial | Architecture hotspot budgets paragraph: complete source budgets and extended dependency enforcement; authority/seam checks stay blocking.
 > Superseded by: [ADR-054](adr/ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | Excluding a plugin platform or additional isolation boundary; capability ownership, inward dependencies, lifecycle, styles, and test discipline remain unchanged.
+> Superseded by: [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) | partial | TerminalPane facade stability and process placement for native terminal state and presentation.
 
 Feature ownership, inward dependency direction, typed resource lifetimes, explicit style
 order, seam checks, and blocking hotspot ratchets govern the existing process boundaries.
@@ -308,9 +310,10 @@ return without activation after comparable bounded Git activity or successful re
 
 ### [ADR-024 — Demand-driven terminal workspace lifecycle](adr/ADR-024-demand-driven-terminal-workspace-lifecycle.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-012](adr/ADR-012-harness-providers-launch-profiles.md) | partial | Bare Shell defaults implicitly launching a session in an empty workspace.
 > Supersedes: [ADR-008](adr/ADR-008-project-worktree-workspaces.md) | partial | Registration or discovery implying renderer terminal runtime materialization.
+> Superseded by: [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) | partial | Renderer-side ownership of materialized terminal runtime and presentation behind TerminalPane.
 
 Registered worktrees allocate no terminal runtime by registration alone; explicit materialization,
 session, PTY, presentation, and focus lifecycles remain independently owned.
@@ -409,8 +412,9 @@ changing navigation width, or overriding reduced-motion preferences.
 
 ### [ADR-035 — Bounded OSC 52 clipboard write](adr/ADR-035-bounded-osc52-clipboard-write.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-014](adr/ADR-014-modular-monolith-ownership.md) | partial | Expiry and removal metadata requirement for the named terminal-runtime.ts 600-line non-growth cap.
+> Superseded by: [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) | partial | Renderer-only OSC 52 parsing, decoding, and forwarding through TerminalRuntime.
 
 A live terminal may place bounded, decoded OSC 52 text on the application-host clipboard without
 receiving any read access; valid text remains exact and main independently validates IPC authority
@@ -860,6 +864,20 @@ filesystem or application IPC authority.
 A native folder selection authorizes one verified SSH download to that exact local directory,
 with operation-scoped authority and no additional confirmation.
 
+### [ADR-086 — Native terminal state and independent presentation](adr/ADR-086-native-terminal-state-and-presentation.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-003](adr/ADR-003-swappable-terminal-pane.md) | partial | ghostty-web and xterm.js engine selection, stable Linux embedding prerequisite, and the single TerminalPane interface as the required native boundary.
+> Supersedes: [ADR-014](adr/ADR-014-modular-monolith-ownership.md) | partial | TerminalPane facade stability and process placement for native terminal state and presentation.
+> Supersedes: [ADR-024](adr/ADR-024-demand-driven-terminal-workspace-lifecycle.md) | partial | Renderer-side ownership of materialized terminal runtime and presentation behind TerminalPane.
+> Supersedes: [ADR-035](adr/ADR-035-bounded-osc52-clipboard-write.md) | partial | Renderer-only OSC 52 parsing, decoding, and forwarding through TerminalRuntime.
+
+Use one shared native terminal host with one authoritative state per terminal, separate
+presentation/input attachments, real OS resource transfer, explicit failure and compatibility
+paths, and pinned private Ghostty patches. Existing terminal ADR mechanisms are revisable;
+retain user and trust outcomes on their merits. See the [native contract](native-terminal.md)
+and [compatibility inventory](native-terminal-compatibility.md).
+
 ---
 
 ## 5. Architecture
@@ -926,29 +944,31 @@ through typed IPC and never access the filesystem directly.
 
 ---
 
-## 6. The terminal risk (resolved for v1)
+## 6. Native terminal migration
 
-Embedding *Ghostty specifically* was the founding design's one load-bearing unknown.
-Phase 2 resolved the v1 delivery path; native embedding remains a future upgrade:
+The shipped terminal currently uses the maintained `ghostty-web` fork. Its native GPU
+replacement is selected by [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md),
+with separate state and presentation ports, one shared utility host, external PTY transport,
+and platform resource adapters. The existing synchronous `TerminalPane` interface and every
+other terminal-related ADR mechanism may change where the native design benefits.
 
-- **Native libghostty** is usable but remains unversioned, with API signatures and the
-  embedding surface still moving; taking it directly would add native renderer and
-  packaging work on both primary platforms.
-- **`electron-libghostty`** is not a viable package today: its `0.0.0` tarball contains
-  only package metadata and no implementation.
-- **`ghostty-web`** is maintained, carries Ghostty's VT engine as WASM, and provides the
-  xterm-shaped browser surface the Electron renderer needs. Phase 2 verified it on
-  Linux and macOS.
+Stable libghostty-vt 1.x covers the C terminal API. The full native renderer and private
+embedding facade remain pinned patch-maintenance responsibilities. Use one authoritative
+terminal state, not a second public-VT parser beside the renderer. Metal/IOSurface and
+EGL/DMA-BUF need actual cross-process lifetime and platform proof. Linux GPU readiness is
+unresolved; a build or a CPU fallback is not that proof.
 
-**Mitigation (ADR-003):** the terminal is behind a `TerminalPane` interface. Because
-`ghostty-web` is xterm.js-API-compatible, we inherit the entire mature xterm.js ecosystem
-*and* Ghostty's engine, and can fall back to plain xterm.js if needed — then upgrade to
-the full native libghostty widget when Linux embedding matures. The project never bets on
-an unstable API.
+The [native contract](native-terminal.md) assigns ownership, disposal, handle-transfer and
+lost-state behavior. The [compatibility inventory](native-terminal-compatibility.md) reviews
+terminal-applicable ADRs and fixes behavior and measurement requirements. Preserve familiar
+workflows, exact host/session authority, responsiveness and resource safety because they
+serve users. Historical interfaces do not make an implementation mandatory.
 
-**Current decision:** `ghostty-web` is the v1 engine behind `TerminalPane`; ADR-003 owns
-the durable choice and its fallback/revisit conditions. Historical spike execution is
-preserved in Git and the frozen implementation plan, not in the decision record.
+Native work remains development opt-in until full-workbench and installed-package acceptance.
+Keep necessary web compatibility until the native paths cover supported configurations or
+an explicit support decision resolves retirement. No live engine switch or bounded-replay
+reconstruction is selected. Implementation and acceptance remain in the epic, child issues
+and PRs; these documents state decisions, not delivery status.
 
 ---
 
