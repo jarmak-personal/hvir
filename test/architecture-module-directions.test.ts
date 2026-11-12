@@ -66,6 +66,28 @@ async function originalMessages(owner: string, source: string) {
 
 describe('resolved adapter for existing dependency direction policy', () => {
   it.each([
+    "import { verifyArtifact } from '../../../scripts/native-terminal/artifacts.mts'",
+    "import type { NativeArtifact } from '../../../scripts/native-terminal/artifacts.mts'",
+    "type Build = import('../../../scripts/native-terminal/artifacts.mts').NativeArtifact",
+    "void import('../../../scripts/native-terminal/artifacts.mts')",
+  ])('keeps native build tooling out of application imports: %s', async (source) => {
+    const violations = await checkModuleDirections(
+      graph(
+        'src/main/terminal/runtime.ts',
+        'scripts/native-terminal/artifacts.mts',
+        source,
+      ),
+      root,
+    )
+    expect(violations).toContainEqual(
+      expect.objectContaining({
+        rule: 'no-restricted-syntax',
+        to: 'scripts/native-terminal/artifacts.mts',
+      }),
+    )
+  })
+
+  it.each([
     [
       'src/main/viewer/mermaid-render-owner.ts',
       'src/main/viewer/electron-mermaid-computation.ts',

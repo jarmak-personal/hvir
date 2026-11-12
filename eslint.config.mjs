@@ -51,6 +51,13 @@ const EXTENSION_PACKAGE_IMPORT_BAN = {
     'Core and public contracts never import extension example or Skillager package implementations; consume the public extension contract.',
 }
 
+const NATIVE_BUILD_TOOL_IMPORT_BAN = {
+  selector:
+    "ImportDeclaration[source.value=/scripts\\/native-terminal(\\/|$)/], ExportNamedDeclaration[source.value=/scripts\\/native-terminal(\\/|$)/], ExportAllDeclaration[source.value=/scripts\\/native-terminal(\\/|$)/], ImportExpression[source.value=/scripts\\/native-terminal(\\/|$)/], TSImportType[source.value=/scripts\\/native-terminal(\\/|$)/], CallExpression[callee.name='require'] > Literal.arguments[value=/scripts\\/native-terminal(\\/|$)/]",
+  message:
+    'Native terminal build tools are contributor-only; application source depends on runtime contracts and artifacts.',
+}
+
 const NATIVE_EXTENSION_IMPORT_BAN = {
   selector:
     "ImportDeclaration[source.value=/(^@hvir\\/extension-storage$|packages\\/extension-storage(\\/|$))/], ExportNamedDeclaration[source.value=/(^@hvir\\/extension-storage$|packages\\/extension-storage(\\/|$))/], ExportAllDeclaration[source.value=/(^@hvir\\/extension-storage$|packages\\/extension-storage(\\/|$))/], ImportExpression[source.value=/(^@hvir\\/extension-storage$|packages\\/extension-storage(\\/|$))/], TSImportType[source.value=/(^@hvir\\/extension-storage$|packages\\/extension-storage(\\/|$))/], CallExpression[callee.name='require'] > Literal.arguments[value=/(^@hvir\\/extension-storage$|packages\\/extension-storage(\\/|$))/]",
@@ -116,6 +123,7 @@ function dependencyDirectionRules(
       'error',
       SPAWN_PTY_BAN,
       EXTENSION_PACKAGE_IMPORT_BAN,
+      NATIVE_BUILD_TOOL_IMPORT_BAN,
       NATIVE_EXTENSION_IMPORT_BAN,
       ...DYNAMIC_HOST_IMPORT_BANS,
       {
@@ -165,6 +173,7 @@ export default tseslint.config(
         'error',
         SPAWN_PTY_BAN,
         EXTENSION_PACKAGE_IMPORT_BAN,
+        NATIVE_BUILD_TOOL_IMPORT_BAN,
         NATIVE_EXTENSION_IMPORT_BAN,
         ...DYNAMIC_HOST_IMPORT_BANS,
       ],
@@ -193,6 +202,7 @@ export default tseslint.config(
         'error',
         SPAWN_PTY_BAN,
         EXTENSION_PACKAGE_IMPORT_BAN,
+        NATIVE_BUILD_TOOL_IMPORT_BAN,
         NATIVE_EXTENSION_IMPORT_BAN,
         ...DYNAMIC_HOST_IMPORT_BANS,
         {
@@ -573,6 +583,7 @@ export default tseslint.config(
         'error',
         SPAWN_PTY_BAN,
         EXTENSION_PACKAGE_IMPORT_BAN,
+        NATIVE_BUILD_TOOL_IMPORT_BAN,
         ...DYNAMIC_HOST_IMPORT_BANS.filter(
           (entry) => !entry.selector.includes('@hvir/extension-storage'),
         ),
@@ -604,6 +615,7 @@ export default tseslint.config(
         'error',
         SPAWN_PTY_BAN,
         EXTENSION_PACKAGE_IMPORT_BAN,
+        NATIVE_BUILD_TOOL_IMPORT_BAN,
         ...DYNAMIC_HOST_IMPORT_BANS,
       ],
     },
@@ -616,6 +628,7 @@ export default tseslint.config(
         'error',
         SPAWN_PTY_BAN,
         EXTENSION_PACKAGE_IMPORT_BAN,
+        NATIVE_BUILD_TOOL_IMPORT_BAN,
         NATIVE_EXTENSION_IMPORT_BAN,
       ],
       'no-restricted-imports': [
@@ -649,6 +662,7 @@ export default tseslint.config(
       'no-restricted-syntax': [
         'error',
         EXTENSION_PACKAGE_IMPORT_BAN,
+        NATIVE_BUILD_TOOL_IMPORT_BAN,
         NATIVE_EXTENSION_IMPORT_BAN,
         ...DYNAMIC_HOST_IMPORT_BANS,
       ],
@@ -690,6 +704,10 @@ export default tseslint.config(
       'scripts/installed-startup-probe.mts',
       'scripts/agent-installed-reference-probe.mts',
       'scripts/build-agent-client.mts',
+      'scripts/native-terminal/artifacts.mts',
+      'scripts/native-terminal/build.mts',
+      'scripts/native-terminal/source.mts',
+      'scripts/native-terminal/upgrade.mts',
       'scripts/assemble-agent-clients.mts',
       'scripts/probe-agent-client.mts',
       'scripts/probe-agent-ssh-client.mts',
