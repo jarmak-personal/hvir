@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
+  buildInputFlags,
   digest,
   pin,
   pinPath,
@@ -36,7 +37,7 @@ beforeEach(async () => {
     applicationVersion: pin.source.applicationVersion,
     vtVersion: pin.source.vtVersion,
     embedAbi: pin.source.embedAbi,
-    build: { development: false },
+    build: buildInputFlags({ zig: false, sourceArchive: false, packages: false }, false),
     files,
   }
   await save(manifest)
@@ -59,7 +60,7 @@ describe('native artifact admission before loader execution', () => {
     'embedAbi',
     'pinSha256',
   ] as const)('rejects mismatched %s', async (field) => {
-    await save({ ...manifest, [field]: 'wrong' })
+    await save({ ...manifest, [field]: field === 'embedAbi' ? 999 : 'wrong' })
     await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow('identity mismatch')
   })
   it('rejects changed artifact bytes', async () => {
@@ -71,7 +72,9 @@ describe('native artifact admission before loader execution', () => {
       ...manifest,
       files: manifest.files.filter((f) => f.path !== 'loader-probe'),
     })
-    await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow()
+    await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow(
+      'native-artifact: missing loader',
+    )
   })
   it.each(['../library', '/library', 'notices/../library', 'notices\\..\\library'])(
     'rejects escaped record %s',
@@ -100,11 +103,80 @@ describe('native artifact admission before loader execution', () => {
     await symlink(join(root, 'other-library'), join(root, 'libghostty.dylib'))
     await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow('escaped file')
   })
+
+  it('stages a missing artifact directory', async () => {
+    await rm(root, { recursive: true })
+    await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow(
+      'native-artifact: missing directory',
+    )
+  })
+  it('stages a missing manifest', async () => {
+    await rm(join(root, 'manifest.json'))
+    await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow(
+      'native-artifact: missing manifest',
+    )
+  })
+  it('stages a recorded library missing on disk', async () => {
+    await rm(join(root, 'libghostty.dylib'))
+    await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow(
+      'native-artifact: missing file',
+    )
+  })
+  it('names a recorded loader missing on disk', async () => {
+    await rm(join(root, 'loader-probe'))
+    await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow(
+      'native-artifact: missing loader',
+    )
+  })
+  it('stages corrupt JSON', async () => {
+    await writeFile(join(root, 'manifest.json'), '{')
+    await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow(
+      'native-artifact: invalid manifest',
+    )
+  })
+  it.each([null, [], {}, { schema: 1 }])(
+    'stages malformed manifest shape %j',
+    async (value) => {
+      await save(value)
+      await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow(
+        'native-artifact: invalid manifest',
+      )
+    },
+  )
+  it('rejects prepared compiler/cache inputs despite a false development claim', async () => {
+    await save({
+      ...manifest,
+      build: {
+        development: false,
+        preparedInputs: { zig: true, sourceArchive: false, packages: false },
+      },
+    })
+    await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow(
+      'native-artifact: identity mismatch',
+    )
+  })
   it('requires explicit development admission for uncommitted build inputs', async () => {
-    await save({ ...manifest, build: { development: true } })
+    await save({ ...manifest, build: { ...manifest.build, development: true } })
     await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow('identity mismatch')
     await expect(verifyArtifact(root, 'macos-arm64', true)).resolves.toMatchObject({
-      build: { development: true },
+      build: { ...manifest.build, development: true },
     })
   })
+})
+
+describe('native prepared-input provenance', () => {
+  it.each([
+    [{ zig: true, sourceArchive: false, packages: false }, false, true],
+    [{ zig: false, sourceArchive: false, packages: true }, false, true],
+    [{ zig: false, sourceArchive: true, packages: false }, false, false],
+    [{ zig: false, sourceArchive: false, packages: false }, true, true],
+  ] as const)(
+    'records supplied inputs and development status',
+    (inputs, dirty, development) => {
+      expect(buildInputFlags(inputs, dirty)).toEqual({
+        preparedInputs: inputs,
+        development,
+      })
+    },
+  )
 })

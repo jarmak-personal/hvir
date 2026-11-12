@@ -1,7 +1,14 @@
 import { spawn } from 'node:child_process'
 import { cp, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
-import { digest, pin, pinPath, repository, verifyArtifact } from './artifacts.mts'
+import {
+  buildInputFlags,
+  digest,
+  pin,
+  pinPath,
+  repository,
+  verifyArtifact,
+} from './artifacts.mts'
 import { execute, prepareSource, prepareZig } from './source.mts'
 import { inspectBinary } from './binary.mts'
 
@@ -214,20 +221,27 @@ await writeFile(
         sourceArchiveSha256: pin.source.sha256,
         patches: pin.patches,
         versions,
-        development: Boolean(
-          (
-            await execute(
-              'git',
-              [
-                'status',
-                '--porcelain',
-                '--',
-                'scripts/native-terminal',
-                'packages/native-terminal',
-              ],
-              { cwd: repository },
-            )
-          ).stdout.trim(),
+        ...buildInputFlags(
+          {
+            zig: options.has('--zig'),
+            sourceArchive: options.has('--source-archive'),
+            packages: options.has('--packages'),
+          },
+          Boolean(
+            (
+              await execute(
+                'git',
+                [
+                  'status',
+                  '--porcelain',
+                  '--',
+                  'scripts/native-terminal',
+                  'packages/native-terminal',
+                ],
+                { cwd: repository },
+              )
+            ).stdout.trim(),
+          ),
         ),
         options: args.map((a) =>
           a.startsWith(work) || a === packages ? '<build-path>' : a,

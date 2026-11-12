@@ -1,17 +1,23 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { access, mkdir, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { digest, pin, repository } from './artifacts.mts'
 
 export const execute = promisify(execFile)
-/** Content-addressed inputs fail closed on corruption; an existing bad file is never replaced. */
-export async function archive(url: string, sha256: string, path: string): Promise<void> {
-  try {
-    await access(path)
-  } catch {
+/** One bounded, write-once download policy; inspection returns an observed digest only. */
+export async function downloadArchive(url: string, path: string): Promise<string> {
+  if (new URL(url).protocol !== 'https:')
+    throw new Error('native-download: HTTPS required')
+  const existing = await lstat(path).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  })
+  if (!existing) {
     const response = await fetch(url, { signal: AbortSignal.timeout(120_000) })
     if (!response.ok) throw new Error(`native-download: HTTP ${response.status}`)
+    if (response.url && new URL(response.url).protocol !== 'https:')
+      throw new Error('native-download: HTTPS required')
     const declared = Number(response.headers.get('content-length'))
     if (declared > 256 * 1024 * 1024)
       throw new Error('native-download: oversized archive')
@@ -20,19 +26,22 @@ export async function archive(url: string, sha256: string, path: string): Promis
     if (!response.body) throw new Error('native-download: missing body')
     for await (const part of response.body) {
       bytes += part.length
-      if (bytes > 256 * 1024 * 1024) {
-        await response.body.cancel()
-        throw new Error('native-download: oversized archive')
-      }
+      if (bytes > 256 * 1024 * 1024) throw new Error('native-download: oversized archive')
       parts.push(part)
     }
     await writeFile(path, Buffer.concat(parts), { flag: 'wx' })
-  }
-  if ((await digest(path)) !== sha256)
+  } else if (!existing.isFile() || existing.size > 256 * 1024 * 1024)
+    throw new Error('native-download: invalid cached archive')
+  return digest(path)
+}
+/** Normal compiler/source preparation always requires the accepted expected digest. */
+export async function archive(url: string, sha256: string, path: string): Promise<void> {
+  if ((await downloadArchive(url, path)) !== sha256)
     throw new Error('native-download: checksum mismatch')
 }
 export async function extract(path: string, directory: string): Promise<void> {
-  // Only digest-authenticated official archives reach tar. Reject escaping names as well.
+  // Builds authenticate official inputs first; upgrade inspection records its observed digest.
+  // Both reject escaping archive member names.
   const listing = (await execute('tar', ['-tf', path], { maxBuffer: 8 * 1024 * 1024 }))
     .stdout
   if (
@@ -58,16 +67,47 @@ export async function prepareSource(
   for (const [name, expected] of Object.entries(pin.dependencies))
     if ((await digest(join(source, 'deps', name))) !== expected)
       throw new Error('native-source: dependency inventory mismatch')
+  await patchSource(source)
+  return source
+}
+export interface NativePatchResult {
+  readonly file: string
+  readonly result: 'applied' | 'failed' | 'blocked'
+}
+/** Inspect ordered patches on an owned trial copy; builds fail on the first refusal. */
+export async function patchSource(
+  source: string,
+  inspect = false,
+): Promise<NativePatchResult[]> {
+  const results: NativePatchResult[] = []
+  let failed = false
   for (const patch of pin.patches) {
+    if (failed) {
+      results.push({ file: patch.file, result: 'blocked' })
+      continue
+    }
     const file = join(repository, 'scripts/native-terminal', patch.file)
     if ((await digest(file)) !== patch.sha256)
       throw new Error('native-source: patch checksum mismatch')
-    await execute('patch', ['--batch', '--fuzz=0', '-p1', '--dry-run', '-i', file], {
-      cwd: source,
-    })
-    await execute('patch', ['--batch', '--fuzz=0', '-p1', '-i', file], { cwd: source })
+    try {
+      await execute(
+        'patch',
+        ['--batch', '--forward', '--fuzz=0', '-p1', '--dry-run', '-i', file],
+        {
+          cwd: source,
+        },
+      )
+      await execute('patch', ['--batch', '--forward', '--fuzz=0', '-p1', '-i', file], {
+        cwd: source,
+      })
+      results.push({ file: patch.file, result: 'applied' })
+    } catch (error) {
+      if (!inspect) throw error
+      failed = true
+      results.push({ file: patch.file, result: 'failed' })
+    }
   }
-  return source
+  return results
 }
 export async function prepareZig(work: string): Promise<string> {
   const host = `${process.platform}-${process.arch}`,

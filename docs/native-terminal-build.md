@@ -35,8 +35,10 @@ The output is `WORK/artifact`; sources and caches remain outside the maintained 
 For prepared inputs, the build also accepts `--zig PATH`, `--source-archive PATH`, and
 `--packages PATH`. The compiler must report the exact selected version, the source archive must
 match its pin, and `--packages` names the **unpacked** full dependency cache's `p` directory.
-Builds record the compiler binary digest. Explicit compiler paths are contributor inputs; use the
-verified official archive preparation for release builds.
+Builds record the compiler binary digest and all three prepared-input flags. Explicit compiler
+paths and supplied package caches are contributor inputs and always mark the artifact
+`development`; use the verified official compiler/dependency preparation for release builds.
+A supplied source archive remains digest-verified against the accepted source pin.
 
 The upstream `nix/build-support/fetch-zig-cache.sh` and `deps/packages.txt` cover the full source.
 Do not substitute `deps/libghostty-vt.txt`. Run that script with pinned Zig on PATH and a dedicated
@@ -81,7 +83,10 @@ npm run native:upgrade -- FULL_40_CHARACTER_COMMIT /tmp/hvir-native-upgrade-1
 ```
 
 Review the resulting source/archive identity, application and VT versions independently, minimum
-Zig version, dependency inventory, renderer changes and every patch. Update the explicit pin and
+Zig version, both dependency inventories, renderer changes and every ordered patch result. The
+command preserves the clean candidate and trial-applies zero-fuzz forward patches on an owned
+scratch copy. It reports VT identity from an accepted matching source pin or `LIB_VERSION`,
+and otherwise requires explicit VT release selection; application version is never a substitute. Update the explicit pin and
 patch digests in a focused reviewed change, rebuild all three targets, and re-run loader checks.
 The command never selects an ambient latest release or publishes anything.
 
