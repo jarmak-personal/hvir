@@ -158,7 +158,18 @@ export async function verifyArtifact(
       throw new Error('native-artifact: corrupt file')
   }
   if (!names.has('loader-probe')) throw new Error('native-artifact: missing loader')
-  if (![selected.library, 'hvir_ghostty_embed.h', 'ghostty.h'].every((n) => names.has(n)))
+  if (
+    ![
+      selected.library,
+      'hvir_ghostty_embed.h',
+      'ghostty.h',
+      'terminal.h',
+      'facade-probe',
+      'facade-proof.json',
+      'frame-metadata-probe',
+      'frame-metadata-proof.json',
+    ].every((n) => names.has(n))
+  )
     throw new Error('native-artifact: missing required file')
   return m
 }

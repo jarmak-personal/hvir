@@ -7,7 +7,7 @@
     "sha256": "2c276d3e62cb15fb38f0d7f621f199029d1d4df86538096c6bec2a107cad7159",
     "applicationVersion": "1.4.1-dev",
     "vtVersion": "1.0.1",
-    "embedAbi": 1
+    "embedAbi": 3
   },
   "zig": {
     "version": "0.17.0",
@@ -35,6 +35,11 @@
       "file": "patches/0001-embedding-build.patch.txt",
       "sha256": "03c0a22f0569a1b2455a424eb1b47ea9cf4123ed3d9cb98192197c58664a1ecf",
       "purpose": "Install the selected full shared libraries, skip the unused Linux static output, link Metal/EGL explicitly, and expose the upstream embedding-hook ABI. No terminal, process or product implementation."
+    },
+    {
+      "file": "patches/0002-external-engine.patch.txt",
+      "sha256": "6b15720fda2658add5fcaab8fe2a71e5c58abd7ff85e19f1ff74ff8065d39070",
+      "purpose": "Generic external transport without Exec/PTY; same-state feed/encoding/geometry/metadata hooks, windowless Metal/EGL surfaces and immutable completed-resource quiescence. Hvir admission, identities, queues and resource ownership remain maintained C."
     }
   ],
   "targets": {

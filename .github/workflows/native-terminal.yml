@@ -44,15 +44,15 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes pkg-config libegl-dev
-          dpkg-query -W pkg-config libegl-dev libegl1
+          sudo apt-get install --yes pkg-config libegl-dev libgl1-mesa-dri gdb
+          dpkg-query -W pkg-config libegl-dev libegl1 libgl1-mesa-dri gdb
       - name: Require macOS shader compiler
         if: runner.os == 'macOS'
         run: |
           if ! xcrun metal --version; then xcodebuild -downloadComponent MetalToolchain; fi
           xcrun metal --version
           xcrun --find metallib
-      - name: Build exact full-renderer source and verify native loader
+      - name: Build exact source and verify native loader, facade and completed frames
         env:
           TARGET: ${{ matrix.target }}
         run: |
@@ -66,6 +66,22 @@ jobs:
             readelf --wide --dyn-syms "$library" | awk '$7 == "UND" { print $8 }'
             ldd -r "$library"
           fi
+      - name: Diagnose failed Linux facade invocation
+        if: failure() && runner.os == 'Linux'
+        run: |
+          probe="$RUNNER_TEMP/hvir-native-build/artifact/facade-probe"
+          library="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so"
+          if test -x "$probe" && test -f "$library"; then
+            timeout 130s gdb --batch --return-child-result -ex 'set pagination off' -ex run -ex 'thread apply all bt' --args "$probe" "$library" --frames > "$RUNNER_TEMP/hvir-native-build/facade-backtrace.log" 2>&1 || true
+          fi
+      - name: Retain native probe failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-terminal-diagnostics-${{ matrix.target }}
+          path: ${{ runner.temp }}/hvir-native-build/facade-*.log
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Preserve modes and prove archive round trip
         env:
           TARGET: ${{ matrix.target }}

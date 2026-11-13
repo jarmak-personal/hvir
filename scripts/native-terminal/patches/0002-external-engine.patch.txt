@@ -1,0 +1,1118 @@
+--- a/pkg/opengl/egl.zig
++++ b/pkg/opengl/egl.zig
+@@ -22,6 +22,7 @@
+ }
+ 
+ pub const Error = error{
++    UnsupportedExtension,
+     NotInitialized,
+     BadAccess,
+     BadAlloc,
+@@ -90,6 +91,26 @@
+     return false;
+ }
+ 
++/// A resolved EGL procedure can exist even when a display's driver does not
++/// implement it. Both the per-display advertisement and procedures are required.
++pub fn dmabufExportSupported(extensions: ?[]const u8, query: bool, image: bool) bool {
++    return query and image and hasExtension(extensions orelse return false, "EGL_MESA_image_dma_buf_export");
++}
++
++test "DMA-BUF export requires display advertisement and both procedures" {
++    const expect = std.testing.expect;
++    const extension = "EGL_MESA_image_dma_buf_export";
++    try expect(dmabufExportSupported(extension, true, true));
++    try expect(dmabufExportSupported("EGL_EXT_other EGL_MESA_image_dma_buf_export EGL_EXT_next", true, true));
++    try expect(!dmabufExportSupported(null, true, true));
++    try expect(!dmabufExportSupported("", true, true));
++    try expect(!dmabufExportSupported("EGL_MESA_image_dma_buf_export_suffix", true, true));
++    try expect(!dmabufExportSupported("prefix_EGL_MESA_image_dma_buf_export", true, true));
++    try expect(!dmabufExportSupported(extension, false, true));
++    try expect(!dmabufExportSupported(extension, true, false));
++    try expect(!dmabufExportSupported(extension, false, false));
++}
++
+ pub const Display = opaque {
+     pub fn initPlatform(
+         platform: c.EGLenum,
+@@ -119,7 +140,16 @@
+         extensions = c.EGL_EXTENSIONS,
+     };
+     pub fn queryString(self: *Display, name: StringQuery) ?[:0]const u8 {
+-        return std.mem.span(c.eglQueryString(self, @backingInt(name)));
++        const value = c.eglQueryString(self, @backingInt(name)) orelse return null;
++        return std.mem.span(value);
++    }
++
++    pub fn supportsDmabufExport(self: *Display) bool {
++        return dmabufExportSupported(
++            self.queryString(.extensions),
++            c.glad_eglExportDMABUFImageQueryMESA != null,
++            c.glad_eglExportDMABUFImageMESA != null,
++        );
+     }
+ 
+     /// Make the EGL context current on the calling thread and (re)load
+@@ -235,6 +265,7 @@
+     }
+ 
+     pub fn exportDmabufQuery(self: *Image, display: *Display) Error!DmabufQuery {
++        if (!display.supportsDmabufExport()) return error.UnsupportedExtension;
+         var query: DmabufQuery = undefined;
+         if (c.eglExportDMABUFImageQueryMESA(
+             display,
+@@ -254,6 +285,7 @@
+         strides: []c_int,
+         offsets: []c_int,
+     ) Error!void {
++        if (!display.supportsDmabufExport()) return error.UnsupportedExtension;
+         if (c.eglExportDMABUFImageMESA(
+             display,
+             self,
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -662,43 +662,50 @@
+     // This separate block ({}) is important because our errdefers must
+     // be scoped here to be valid.
+     {
+-        // Exec.init takes ownership of the env even if it fails, so the
+-        // errdefer for it must not reach past the call.
+-        const env = termio_env: {
+-            var env = rt_surface.defaultTermioEnv() catch |err| env: {
+-                // If an error occurs, we don't want to block surface startup.
+-                log.warn("error getting env map for surface err={}", .{err});
+-                break :env global.environMap() catch std.process.Environ.Map.init(alloc);
++        const io_backend: termio.Backend = backend: {
++            if (comptime @hasDecl(apprt.Surface, "externalBackend")) {
++                if (rt_surface.externalBackend()) |external| break :backend .{ .external = .{ .config = external } };
++            }
++            // Exec.init takes ownership of the env even if it fails, so the
++            // errdefer for it must not reach past the call.
++            const env = termio_env: {
++                var env = rt_surface.defaultTermioEnv() catch |err| env: {
++                    // If an error occurs, we don't want to block surface startup.
++                    log.warn("error getting env map for surface err={}", .{err});
++                    break :env global.environMap() catch std.process.Environ.Map.init(alloc);
++                };
++                errdefer env.deinit();
++
++                // don't leak GHOSTTY_LOG to any subprocesses
++                _ = env.orderedRemove("GHOSTTY_LOG");
++
++                var buf: [18]u8 = undefined;
++                try env.put(
++                    "GHOSTTY_SURFACE_ID",
++                    std.mem.print(&buf, "0x{x:0>16}", .{self.id}) catch unreachable,
++                );
++
++                break :termio_env env;
+             };
+-            errdefer env.deinit();
+-
+-            // don't leak GHOSTTY_LOG to any subprocesses
+-            _ = env.orderedRemove("GHOSTTY_LOG");
+-
+-            var buf: [18]u8 = undefined;
+-            try env.put(
+-                "GHOSTTY_SURFACE_ID",
+-                std.mem.print(&buf, "0x{x:0>16}", .{self.id}) catch unreachable,
+-            );
+-
+-            break :termio_env env;
++
++            // Initialize our IO backend
++            const io_exec = try termio.Exec.init(alloc, .{
++                .command = command,
++                .env = env,
++                .env_override = config.env,
++                .shell_integration = config.@"shell-integration",
++                .shell_integration_features = config.@"shell-integration-features",
++                .cursor_blink = config.@"cursor-style-blink",
++                .working_directory = if (config.@"working-directory") |wd| wd.value() else null,
++                .resources_dir = global.resourcesDir().host(),
++                .term = config.term,
++                .rt_pre_exec_info = .init(config),
++                .rt_post_fork_info = .init(config),
++            });
++            break :backend .{ .exec = io_exec };
+         };
+-
+-        // Initialize our IO backend
+-        var io_exec = try termio.Exec.init(alloc, .{
+-            .command = command,
+-            .env = env,
+-            .env_override = config.env,
+-            .shell_integration = config.@"shell-integration",
+-            .shell_integration_features = config.@"shell-integration-features",
+-            .cursor_blink = config.@"cursor-style-blink",
+-            .working_directory = if (config.@"working-directory") |wd| wd.value() else null,
+-            .resources_dir = global.resourcesDir().host(),
+-            .term = config.term,
+-            .rt_pre_exec_info = .init(config),
+-            .rt_post_fork_info = .init(config),
+-        });
+-        errdefer io_exec.deinit();
++        var owned_backend = io_backend;
++        errdefer owned_backend.deinit();
+ 
+         // Initialize our IO mailbox
+         var io_mailbox = try termio.Mailbox.initSPSC(alloc);
+@@ -712,7 +719,7 @@
+             .size = size,
+             .full_config = config,
+             .config = io_config,
+-            .backend = .{ .exec = io_exec },
++            .backend = io_backend,
+             .mailbox = io_mailbox,
+             .renderer_state = &self.renderer_state,
+             .renderer_wakeup = render_thread.wakeup,
+@@ -1386,6 +1393,7 @@
+     // Build up our command for the error message
+     const command = try std.mem.join(alloc, " ", switch (self.io.backend) {
+         .exec => |*exec| exec.subprocess.args,
++        .external => &.{"external transport"},
+     });
+     const runtime_str = try alloc.print("{d} ms", .{info.runtime_ms});
+ 
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -16,6 +16,7 @@
+ const internal_os = @import("../os/main.zig");
+ const renderer = @import("../renderer.zig");
+ const terminal = @import("../terminal/main.zig");
++const termio = @import("../termio.zig");
+ const CoreApp = @import("../App.zig");
+ const CoreInspector = @import("../inspector/main.zig").Inspector;
+ const CoreSurface = @import("../Surface.zig");
+@@ -137,6 +138,7 @@
+     };
+ 
+     core_app: *CoreApp,
++    external_display: ?*anyopaque = null,
+     opts: Options,
+ 
+     /// The keyboard layout keymap. This is lazily initialized on first
+@@ -276,12 +278,16 @@
+ 
+     /// Create a new surface for the app.
+     fn newSurface(self: *App, opts: Surface.Options) !*Surface {
++        return self.newSurfaceExternal(opts, null);
++    }
++
++    fn newSurfaceExternal(self: *App, opts: Surface.Options, external: ?termio.External.Config) !*Surface {
+         // Grab a surface allocation because we're going to need it.
+         var surface = try self.core_app.alloc.create(Surface);
+         errdefer self.core_app.alloc.destroy(surface);
+ 
+         // Create the surface
+-        try surface.init(self, opts);
++        try surface.initExternal(self, opts, external);
+         errdefer surface.deinit();
+ 
+         return surface;
+@@ -382,6 +388,7 @@
+ pub const Platform = union(PlatformTag) {
+     macos: MacOS,
+     ios: IOS,
++    external: ?*anyopaque,
+ 
+     // If our build target for libghostty is not darwin then we do
+     // not include macos support at all.
+@@ -411,6 +418,7 @@
+     pub fn init(tag_int: c_int, c_platform: C) !Platform {
+         const tag = std.enums.fromInt(PlatformTag, tag_int) orelse return error.InvalidEnumTag;
+         return switch (tag) {
++            .external => .{ .external = c_platform.macos.nsview },
+             .macos => if (MacOS != void) macos: {
+                 const config = c_platform.macos;
+                 const nsview = objc.Object.fromId(config.nsview orelse
+@@ -434,6 +442,7 @@
+ 
+     macos = 1,
+     ios = 2,
++    external = 3,
+ };
+ 
+ pub const EnvVar = extern struct {
+@@ -447,6 +456,7 @@
+ pub const Surface = struct {
+     app: *App,
+     platform: Platform,
++    external_transport: ?termio.External.Config = null,
+     userdata: ?*anyopaque = null,
+     core_surface: CoreSurface,
+     content_scale: apprt.ContentScale,
+@@ -502,8 +512,13 @@
+     };
+ 
+     pub fn init(self: *Surface, app: *App, opts: Options) !void {
++        return self.initExternal(app, opts, null);
++    }
++
++    fn initExternal(self: *Surface, app: *App, opts: Options, external: ?termio.External.Config) !void {
+         self.* = .{
+             .app = app,
++            .external_transport = external,
+             .platform = try .init(opts.platform_tag, opts.platform),
+             .userdata = opts.userdata,
+             .core_surface = undefined,
+@@ -1250,9 +1265,14 @@
+         return .{ .x = pos.x * scale.x, .y = pos.y * scale.y };
+     }
+ 
++    pub fn externalBackend(self: *const Surface) ?termio.External.Config {
++        return self.external_transport;
++    }
++
+     pub fn renderDeviceOptions(self: *const Surface) !renderer.Device.Options {
+-        // The Metal renderer currently does not have any options
+-        _ = self;
++        if (comptime builtin.target.os.tag == .linux) {
++            return .{ .display = if (self.platform == .external) if (self.platform.external) |p| @ptrCast(@alignCast(p)) else null else null };
++        }
+         return .{};
+     }
+ };
+@@ -1510,6 +1530,59 @@
+ 
+ // C API
+ pub const CAPI = struct {
++    export fn ghostty_external_surface_new(app: *App, display: ?*anyopaque, external: *const termio.External.Config, width: u32, height: u32) ?*Surface {
++        if (app.core_app.device != null and display != null and display != app.external_display) return null;
++        if (app.core_app.device == null) app.external_display = display;
++        var opts: Surface.Options = .{};
++        opts.platform_tag = 3;
++        opts.platform.macos.nsview = app.external_display;
++        const surface = app.newSurfaceExternal(opts, external.*) catch return null;
++        surface.updateSize(width, height);
++        return surface;
++    }
++
++    export fn ghostty_external_feed(surface: *Surface, data: [*]const u8, len: usize, sequence: u64) bool {
++        const io = &surface.core_surface.io;
++        if (io.backend != .external or io.backend.external.failed.load(.acquire)) return false;
++        io.externalFeed(data[0..len], sequence);
++        return !io.backend.external.failed.load(.acquire);
++    }
++
++    export fn ghostty_external_resize(surface: *Surface, width: u32, height: u32, serial: u64) void {
++        surface.updateSize(width, height);
++        surface.core_surface.io.queueMessage(.{ .external_resize = .{ .size = surface.core_surface.size, .serial = serial } }, .unlocked);
++    }
++
++    export fn ghostty_external_frame_release(surface: *Surface) bool {
++        const core = &surface.core_surface;
++        if (core.io.backend == .external) core.io.backend.external.frame_held.store(false, .release);
++        core.renderer_thread.wakeup.notify() catch return false;
++        return true;
++    }
++
++    export fn ghostty_external_read(surface: *Surface, out: [*]u8, capacity: usize, written: *usize) bool {
++        const core = &surface.core_surface;
++        core.renderer_state.mutex.lockUncancelable(global.io());
++        defer core.renderer_state.mutex.unlock(global.io());
++        var writer: std.Io.Writer = .fixed(out[0..capacity]);
++        const formatter = terminal.formatter.TerminalFormatter.init(&core.io.terminal, .{ .emit = .plain, .unwrap = true });
++        formatter.format(&writer) catch return false;
++        written.* = writer.buffered().len;
++        return true;
++    }
++
++    export fn ghostty_external_key(surface: *Surface, key: c_int, mods: u32, action: c_int, text: [*]const u8, text_len: usize, out: [*]u8, capacity: usize, written: *usize) bool {
++        const core = &surface.core_surface;
++        const k = std.enums.fromInt(input.Key, key) orelse return false;
++        const a = std.enums.fromInt(input.Action, action) orelse return false;
++        core.renderer_state.mutex.lockUncancelable(global.io());
++        defer core.renderer_state.mutex.unlock(global.io());
++        var writer: std.Io.Writer = .fixed(out[0..capacity]);
++        input.key_encode.encode(&writer, .{ .key = k, .action = a, .mods = @bitCast(@as(input.Mods.Backing, @truncate(mods))), .utf8 = text[0..text_len] }, .fromTerminal(&core.io.terminal)) catch return false;
++        written.* = writer.buffered().len;
++        return true;
++    }
++
+     /// This is the same as Surface.KeyEvent but this is the raw C API version.
+     const KeyEvent = extern struct {
+         action: input.Action,
+--- a/src/build/GhosttyLib.zig
++++ b/src/build/GhosttyLib.zig
+@@ -111,8 +111,11 @@
+     _ = try deps.add(lib);
+     if (deps.config.target.result.os.tag.isDarwin())
+         lib.root_module.linkFramework("Metal", .{});
+-    if (deps.config.target.result.os.tag == .linux)
++    if (deps.config.target.result.os.tag == .linux) {
+         lib.root_module.linkSystemLibrary("egl", dynamic_link_opts);
++        lib.root_module.addIncludePath(b.path("vendor/glad/include"));
++        lib.root_module.addCSourceFiles(.{ .files = &.{ "vendor/glad/src/gl.c", "vendor/glad/src/glad_egl.c" }, .flags = &.{} });
++    }
+ 
+     // On Windows with MSVC, building a DLL requires the full CRT library
+     // chain. linkLibC() (called via deps.add) provides msvcrt.lib, but
+--- a/src/main_c.zig
++++ b/src/main_c.zig
+@@ -266,5 +266,5 @@
+ 
+ // Version of the pinned upstream hooks consumed by hvir's maintained C facade.
+ export fn hvir_ghostty_embed_abi() u32 {
+-    return 1;
+-}
++    return 3;
++}
+--- a/src/renderer/Metal.zig
++++ b/src/renderer/Metal.zig
+@@ -40,6 +40,7 @@
+ const log = std.log.scoped(.metal);
+ 
+ layer: IOSurfaceLayer,
++windowless: bool = false,
+ 
+ /// The shared render device.
+ device: *const Device,
+@@ -71,7 +72,7 @@
+     errdefer queue.release();
+ 
+     const ViewInfo = struct {
+-        view: objc.Object,
++        view: ?objc.Object,
+         scaleFactor: f64,
+     };
+ 
+@@ -82,6 +83,7 @@
+             .view = switch (opts.rt_surface.platform) {
+                 .macos => |v| v.nsview,
+                 .ios => |v| v.uiview,
++                .external => null,
+             },
+         },
+ 
+@@ -102,23 +104,25 @@
+     //
+     // On iOS, views are always layer-backed, and `layer`
+     // is readonly, so instead we add it as a sublayer.
+-    switch (comptime builtin.target.os.tag) {
+-        .macos => {
+-            info.view.setProperty("layer", layer.layer.value);
+-            info.view.setProperty("wantsLayer", true);
+-        },
+-
+-        .ios => {
+-            const view_layer = objc.Object.fromId(info.view.getProperty(?*anyopaque, "layer"));
+-            view_layer.msgSend(void, objc.sel("addSublayer:"), .{layer.layer.value});
+-        },
+-
+-        else => @compileError("unsupported target for Metal"),
++    if (info.view) |view| {
++        switch (comptime builtin.target.os.tag) {
++            .macos => {
++                view.setProperty("layer", layer.layer.value);
++                view.setProperty("wantsLayer", true);
++            },
++
++            .ios => {
++                const view_layer = objc.Object.fromId(view.getProperty(?*anyopaque, "layer"));
++                view_layer.msgSend(void, objc.sel("addSublayer:"), .{layer.layer.value});
++            },
++
++            else => @compileError("unsupported target for Metal"),
++        }
++
++        // Ensure that if our layer is oversized it
++        // does not overflow the bounds of the view.
++        view.setProperty("clipsToBounds", true);
+     }
+-
+-    // Ensure that if our layer is oversized it
+-    // does not overflow the bounds of the view.
+-    info.view.setProperty("clipsToBounds", true);
+ 
+     // Ensure that our layer has a content scale set to
+     // match the scale factor of the window. This avoids
+@@ -130,6 +134,7 @@
+ 
+     return .{
+         .layer = layer,
++        .windowless = opts.rt_surface.external_transport != null,
+         .device = device,
+         .queue = queue,
+         .blending = opts.config.blending,
+@@ -198,6 +203,10 @@
+ 
+ /// Get the current size of the runtime surface.
+ pub fn surfaceSize(self: *const Metal) !struct { width: u32, height: u32 } {
++    if (self.windowless) {
++        const r: *align(1) const Renderer = @fieldParentPtr("api", self);
++        return .{ .width = @min(r.size.screen.width, self.device.max_texture_size), .height = @min(r.size.screen.height, self.device.max_texture_size) };
++    }
+     const bounds = self.layer.layer.getProperty(graphics.Rect, "bounds");
+     const scale = self.layer.layer.getProperty(f64, "contentsScale");
+ 
+--- a/src/renderer/State.zig
++++ b/src/renderer/State.zig
+@@ -18,6 +18,10 @@
+ 
+ /// The terminal data.
+ terminal: *terminalpkg.Terminal,
++
++/// External mutation observations, sampled under the same parser-state mutex.
++external_stream: u64 = 0,
++external_geometry: u64 = 0,
+ 
+ /// The terminal inspector, if any. This will be null while the inspector
+ /// is not active and will be set when it is active.
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -120,6 +120,9 @@
+ 
+         /// The mailbox for communicating with the window.
+         surface_mailbox: apprt.surface.Mailbox,
++        external_stream: u64 = 0,
++        external_geometry: u64 = 0,
++        external_snapshot_valid: bool = false,
+ 
+         /// The latest exported frame ready to be consumed by an apprt
+         /// who needs to manually composite the frame with UI elements.
+@@ -1067,6 +1070,25 @@
+         ///
+         /// Has no effect for renderers that do not export frames
+         /// (i.e. `ExportedFrame == void`).
++        pub fn externalTransport(self: *Self) ?*@import("../termio.zig").External {
++            const core = self.surface_mailbox.surface;
++            return if (core.io.backend == .external) &core.io.backend.external else null;
++        }
++
++        /// A single immutable export observation. Holding it suppresses drawing,
++        /// not mailbox processing, parsing or geometry. External owners retain OS
++        /// references before returning and explicitly release the producer hold.
++        pub fn publishExternal(self: *Self, value: @import("../termio.zig").External.Frame) bool {
++            const external = self.externalTransport() orelse return false;
++            if (external.failed.load(.acquire)) return true;
++            external.frame_held.store(true, .release);
++            var frame = value;
++            frame.stream = self.external_stream;
++            frame.geometry = self.external_geometry;
++            if (!external.config.frame(external.config.userdata, &frame)) external.frame_held.store(false, .release);
++            return true;
++        }
++
+         pub fn takeFrame(self: *Self) ?ExportedFrame {
+             return self.latest_frame.take(global.io());
+         }
+@@ -1373,6 +1395,15 @@
+             state: *renderer.State,
+             cursor_blink_visible: bool,
+         ) Allocator.Error!void {
++            // An external export is valid only after a complete rebuild. A
++            // synchronized-output skip must not relabel a cached image.
++            if (self.externalTransport() != null) {
++                self.draw_mutex.lockUncancelable(global.io());
++                self.external_snapshot_valid = false;
++                self.draw_mutex.unlock(global.io());
++            }
++            errdefer if (self.externalTransport() != null) self.notifyHealth(.unhealthy);
++
+             // CoreText shaping accumulates objects for deferred release over
+             // the course of a frame. Always flush those objects, including
+             // when rebuilding the frame fails due to memory pressure.
+@@ -1403,6 +1434,8 @@
+                 preedit: ?renderer.State.Preedit,
+                 scrollbar: terminal.Scrollbar,
+                 overlay_features: []const Overlay.Feature,
++                external_stream: u64,
++                external_geometry: u64,
+             };
+ 
+             // Update all our data as tightly as possible within the mutex.
+@@ -1558,6 +1591,8 @@
+                     .preedit = preedit,
+                     .scrollbar = scrollbar,
+                     .overlay_features = overlay_features,
++                    .external_stream = state.external_stream,
++                    .external_geometry = state.external_geometry,
+                 };
+             };
+ 
+@@ -1660,6 +1695,10 @@
+                     // This means we weren't able to allocate our buffer
+                     // to update the cells. In this case, we continue with
+                     // our old buffer (frozen contents) and log it.
++                    if (self.externalTransport() != null) {
++                        self.notifyHealth(.unhealthy);
++                        return;
++                    }
+                     comptime assert(@TypeOf(err) == error{OutOfMemory});
+                     log.warn("error rebuilding GPU cells err={}", .{err});
+                 };
+@@ -1703,6 +1742,9 @@
+ 
+                 // Update custom shader uniforms that depend on terminal state.
+                 self.updateCustomShaderUniformsFromState();
++                self.external_stream = critical.external_stream;
++                self.external_geometry = critical.external_geometry;
++                self.external_snapshot_valid = true;
+             }
+ 
+             // Start the display link now that the rebuilt frame is ready.
+@@ -1741,6 +1783,7 @@
+             self: *Self,
+             sync: bool,
+         ) !bool {
++            if (self.externalTransport()) |e| if (!self.external_snapshot_valid or e.failed.load(.acquire) or e.frame_held.load(.acquire)) return false;
+             // After the graphics API is complete (so we defer) we want to
+             // update our scrollbar state.
+             defer if (self.scrollbar_dirty) {
+@@ -1906,7 +1949,7 @@
+ 
+             // Get a frame context from the graphics API.
+             var frame_ctx = try self.api.beginFrame(self, &frame.target);
+-            defer frame_ctx.complete(sync);
++            defer frame_ctx.complete(sync or self.externalTransport() != null);
+ 
+             {
+                 var pass = frame_ctx.renderPass(&.{.{
+@@ -2042,11 +2085,9 @@
+             return false;
+         }
+ 
+-        // Callback from the graphics API when a frame is completed.
+-        pub fn frameCompleted(
+-            self: *Self,
+-            health: Health,
+-        ) void {
++        /// Coalesced renderer health; presentation errors never invalidate the
++        /// authoritative external parser. Recovery belongs to the presenter.
++        fn notifyHealth(self: *Self, health: Health) void {
+             // If our health value hasn't changed, then we do nothing. We don't
+             // do a cmpxchg here because strict atomicity isn't important.
+             if (self.health.load(.seq_cst) != health) {
+@@ -2054,10 +2095,22 @@
+ 
+                 // Our health value changed, so we notify the surface so that it
+                 // can do something about it.
+-                _ = self.surface_mailbox.push(.{
+-                    .renderer_health = health,
+-                }, .{ .forever = {} });
+-            }
++                if (self.externalTransport()) |external| {
++                    // Presentation health is metadata, not parser failure. Never
++                    // block a completed GPU frame on the caller's App mailbox.
++                    external.config.health(external.config.userdata, @intCast(@intFromEnum(health)));
++                } else {
++                    _ = self.surface_mailbox.push(.{
++                        .renderer_health = health,
++                    }, .{ .forever = {} });
++                }
++            }
++
++        }
++
++        // Callback from the graphics API when a frame is completed.
++        pub fn frameCompleted(self: *Self, health: Health) void {
++            self.notifyHealth(health);
+ 
+             // Always release our semaphore. The swap chain is
+             // guaranteed to exist here: it is only torn down after
+--- a/src/renderer/metal/Frame.zig
++++ b/src/renderer/metal/Frame.zig
+@@ -77,6 +77,21 @@
+         else => .healthy,
+     };
+ 
++    if (health == .healthy and block.renderer.publishExternal(.{
++        .kind = 1,
++        .width = @intCast(block.target.width),
++        .height = @intCast(block.target.height),
++        .fourcc = 0x42475241,
++        .plane_count = 0,
++        .premultiplied = 1,
++        .color_space = 2,
++        .origin = 1,
++        .surface = @ptrCast(block.target.surface),
++    })) {
++        block.renderer.frameCompleted(health);
++        return;
++    }
++
+     // If the frame is healthy, present it.
+     if (health == .healthy) {
+         block.renderer.api.present(
+--- a/src/renderer/opengl/Frame.zig
++++ b/src/renderer/opengl/Frame.zig
+@@ -79,6 +79,39 @@
+ 
+     // At this point the ExportedFrame is finished and can be shared
+     if (presented_frame) |frame| {
++        const handled = switch (frame) {
++            .dmabuf => |d| self.renderer.publishExternal(.{
++                .kind = 2,
++                .width = d.width,
++                .height = d.height,
++                .fourcc = d.fourcc,
++                .plane_count = d.planes.count,
++                .premultiplied = @intFromBool(d.premultiplied),
++                .color_space = 1,
++                .origin = 2,
++                .modifier = d.modifier,
++                .fds = d.planes.fds,
++                .strides = @bitCast(d.planes.strides),
++                .offsets = @bitCast(d.planes.offsets),
++            }),
++            .memory => |m| self.renderer.publishExternal(.{
++                .kind = 3,
++                .width = m.width,
++                .height = m.height,
++                .fourcc = 0,
++                .plane_count = 0,
++                .premultiplied = 1,
++                .color_space = 1,
++                .origin = 2,
++                .pixels = m.pixels.ptr,
++                .pixel_bytes = m.pixels.len,
++            }),
++        };
++        if (handled) {
++            frame.deinit();
++            self.renderer.frameCompleted(health);
++            return;
++        }
+         self.renderer.pushFrame(frame);
+ 
+         // Notify the surface that it should redraw
+--- a/src/renderer/opengl/Target.zig
++++ b/src/renderer/opengl/Target.zig
+@@ -150,6 +150,10 @@
+     display: *egl.Display,
+     context: *egl.Context,
+ ) !Dmabuf {
++    // EGL procedure lookup alone does not establish driver support. Avoid all
++    // export preparation on displays that do not advertise the extension.
++    if (!display.supportsDmabufExport()) return error.UnsupportedExtension;
++
+     // We disable GL_FRAMEBUFFER_SRGB while doing this blit, otherwise
+     // the values may be linearized as they're copied, but even though
+     // the draw framebuffer has a linear internal format, the values in
+--- a/src/termio.zig
++++ b/src/termio.zig
+@@ -23,6 +23,7 @@
+ pub const backend = @import("termio/backend.zig");
+ pub const mailbox = @import("termio/mailbox.zig");
+ pub const Exec = @import("termio/Exec.zig");
++pub const External = @import("termio/External.zig");
+ pub const Options = @import("termio/Options.zig");
+ pub const Termio = @import("termio/Termio.zig");
+ pub const Thread = @import("termio/Thread.zig");
+--- /dev/null
++++ b/src/termio/External.zig
+@@ -0,0 +1,116 @@
++//! Externally owned terminal transport; never allocates a PTY or child.
++const External = @This();
++const std = @import("std");
++const termio = @import("../termio.zig");
++const renderer = @import("../renderer.zig");
++const terminal = @import("../terminal/main.zig");
++pub const Frame = extern struct {
++    kind: u32,
++    width: u32,
++    height: u32,
++    fourcc: u32,
++    plane_count: u32,
++    premultiplied: u32,
++    color_space: u32,
++    origin: u32,
++    modifier: u64 = 0,
++    stream: u64 = 0,
++    geometry: u64 = 0,
++    surface: ?*anyopaque = null,
++    fds: [4]i32 = @splat(-1),
++    strides: [4]u32 = @splat(0),
++    offsets: [4]u32 = @splat(0),
++    pixels: ?[*]const u8 = null,
++    pixel_bytes: usize = 0,
++};
++pub const Config = extern struct {
++    userdata: ?*anyopaque,
++    write: *const fn (?*anyopaque, [*]const u8, usize) callconv(.c) bool,
++    applied: *const fn (?*anyopaque, u64, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) callconv(.c) void,
++    failed: *const fn (?*anyopaque, u32) callconv(.c) void,
++    scrollback_limit: usize,
++    effect: *const fn (?*anyopaque, u32, [*]const u8, usize) callconv(.c) bool,
++    health: *const fn (?*anyopaque, u32) callconv(.c) void,
++    frame: *const fn (?*anyopaque, *const Frame) callconv(.c) bool,
++};
++config: Config,
++failed: std.atomic.Value(bool) = .init(false),
++frame_held: std.atomic.Value(bool) = .init(false),
++pub const ThreadData = struct {
++    pub fn deinit(_: *ThreadData, _: std.mem.Allocator) void {}
++};
++pub fn deinit(_: *External) void {}
++pub fn initTerminal(_: *External, _: *terminal.Terminal) void {}
++pub fn threadEnter(_: *External, _: std.mem.Allocator, _: *termio.Termio, td: *termio.Termio.ThreadData) !void {
++    td.backend = .{ .external = .{} };
++}
++pub fn threadExit(_: *External, _: *termio.Termio.ThreadData) void {}
++pub fn focusGained(_: *External, _: *termio.Termio.ThreadData, _: bool) !void {}
++pub fn resize(_: *External, _: renderer.GridSize, _: renderer.ScreenSize) !void {}
++pub fn queueWrite(self: *External, _: std.mem.Allocator, _: *termio.Termio.ThreadData, data: []const u8, linefeed: bool) !void {
++    if (self.failed.load(.acquire)) return error.ExternalTransportFailed;
++    if (!linefeed) {
++        if (!self.config.write(self.config.userdata, data.ptr, data.len)) {
++            self.fail(1);
++            return error.ExternalOutputFull;
++        }
++        return;
++    }
++    var buffer: [512]u8 = undefined;
++    var used: usize = 0;
++    for (data) |byte| {
++        if (used + 2 > buffer.len) {
++            if (!self.config.write(self.config.userdata, &buffer, used)) {
++                self.fail(1);
++                return error.ExternalOutputFull;
++            }
++            used = 0;
++        }
++        buffer[used] = byte;
++        used += 1;
++        if (byte == '\r') {
++            buffer[used] = '\n';
++            used += 1;
++        }
++    }
++    if (used > 0 and !self.config.write(self.config.userdata, &buffer, used)) {
++        self.fail(1);
++        return error.ExternalOutputFull;
++    }
++}
++pub fn fail(self: *External, reason: u32) void {
++    if (!self.failed.swap(true, .acq_rel)) self.config.failed(self.config.userdata, reason);
++}
++
++/// Surface metadata is delivered without blocking the caller's own app mailbox.
++/// Clipboard/application actions are refused by external stream configuration.
++pub fn surfaceMessage(self: *External, _: std.mem.Allocator, msg: @import("../apprt.zig").surface.Message) void {
++    if (self.failed.load(.acquire)) {
++        if (msg == .pwd_change) {
++            if (msg.pwd_change == .alloc) msg.pwd_change.alloc.alloc.free(msg.pwd_change.alloc.data);
++        }
++        return;
++    }
++    var kind: u32 = 9; // Unsupported action, never executed by the engine.
++    var data: []const u8 = "";
++    switch (msg) {
++        .set_title => |*v| {
++            kind = 1;
++            data = std.mem.sliceTo(v, 0);
++        },
++        .pwd_change => |v| {
++            kind = 2;
++            data = v.slice();
++        },
++        .ring_bell => kind = 3,
++        else => {},
++    }
++    defer if (msg == .pwd_change) {
++        if (msg.pwd_change == .alloc) msg.pwd_change.alloc.alloc.free(msg.pwd_change.alloc.data);
++    };
++    if (!self.config.effect(self.config.userdata, kind, data.ptr, data.len)) self.fail(3);
++}
++pub fn mailboxFailed(userdata: ?*anyopaque) callconv(.c) void {
++    const self: *External = @ptrCast(@alignCast(userdata.?));
++    self.fail(4);
++}
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -33,6 +33,7 @@
+ 
+ /// This is the implementation responsible for io.
+ backend: termio.Backend,
++external_resize_serial: u64 = 0,
+ 
+ /// The derived configuration for this termio implementation.
+ config: DerivedConfig,
+@@ -275,7 +276,7 @@
+         break :opts .{
+             .cols = grid_size.columns,
+             .rows = grid_size.rows,
+-            .max_scrollback_bytes = opts.full_config.@"scrollback-limit-bytes".optional(),
++            .max_scrollback_bytes = if (opts.backend == .external) opts.backend.external.config.scrollback_limit else opts.full_config.@"scrollback-limit-bytes".optional(),
+             .max_scrollback_lines = opts.full_config.@"scrollback-limit-lines".optional(),
+             .default_modes = default_modes,
+             .default_cursor_style = opts.config.cursor_style,
+@@ -291,8 +292,8 @@
+                 },
+                 .palette = .default,
+             },
+-            .kitty_image_storage_limit = opts.config.image_storage_limit,
+-            .kitty_image_loading_limits = .allWithTempDir(global.tmpDirPath()),
++            .kitty_image_storage_limit = if (opts.backend == .external) 0 else opts.config.image_storage_limit,
++            .kitty_image_loading_limits = if (opts.backend == .external) .direct else .allWithTempDir(global.tmpDirPath()),
+         };
+     });
+     errdefer term.deinit(alloc);
+@@ -313,6 +314,7 @@
+     // isn't safe to use until self.* is set.
+     const handler: StreamHandler = .{
+         .alloc = alloc,
++        .external = if (opts.backend == .external) &self.backend.external else null,
+         .termio_mailbox = &self.mailbox,
+         .surface_mailbox = opts.surface_mailbox,
+         .renderer_state = opts.renderer_state,
+@@ -327,7 +329,7 @@
+         .xt_checksum_report = opts.config.xt_checksum_report,
+     };
+ 
+-    const thread_enter_state = try ThreadEnterState.create(
++    const thread_enter_state = if (opts.backend == .external) null else try ThreadEnterState.create(
+         alloc,
+         opts.full_config,
+     );
+@@ -349,6 +351,7 @@
+         }),
+         .thread_enter_state = thread_enter_state,
+     };
++    if (self.backend == .external) self.mailbox.spsc.on_error = .{ .userdata = &self.backend.external, .callback = termio.External.mailboxFailed };
+ }
+ 
+ pub fn deinit(self: *Termio) void {
+@@ -552,6 +555,8 @@
+             },
+         );
+ 
++        if (self.backend == .external) self.renderer_state.external_geometry = self.external_resize_serial;
++
+         // If we have size reporting enabled we need to send a report.
+         if (self.terminal.modes.get(.in_band_size_reports)) {
+             try self.sizeReportLocked(td, .mode_2048);
+@@ -857,3 +862,11 @@
+ pub fn getProcessInfo(self: *Termio, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+     return self.backend.getProcessInfo(info);
+ }
++
++pub fn externalFeed(self: *Termio, buf: []const u8, sequence: u64) void {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    self.processOutputLocked(buf);
++    self.renderer_state.external_stream = sequence;
++    self.renderer_wakeup.notify() catch self.backend.external.fail(4);
++}
+--- a/src/termio/Thread.zig
++++ b/src/termio/Thread.zig
+@@ -324,6 +324,20 @@
+             },
+             .inspector => |v| self.flags.has_inspector = v,
+             .resize => |v| self.handleResize(cb, v),
++            .external_resize => |v| {
++                self.coalesce_data.resize = null;
++                io.external_resize_serial = v.serial;
++                io.resize(data, v.size) catch |err| {
++                    if (io.backend == .external) io.backend.external.fail(2);
++                    return err;
++                };
++                if (io.backend == .external) {
++                    const e = &io.backend.external;
++                    const grid = v.size.grid();
++                    const pixels = v.size.terminal();
++                    e.config.applied(e.config.userdata, v.serial, grid.columns, grid.rows, v.size.screen.width, v.size.screen.height, v.size.cell.width, v.size.cell.height, pixels.width, pixels.height, v.size.padding.left, v.size.padding.top);
++                }
++            },
+             .size_report => |v| try io.sizeReport(data, v),
+             .clear_screen => |v| try io.clearScreen(data, v.history),
+             .scroll_viewport => |v| io.scrollViewport(v),
+--- a/src/termio/backend.zig
++++ b/src/termio/backend.zig
+@@ -11,28 +11,32 @@
+ const WRITE_REQ_PREALLOC = std.math.pow(usize, 2, 5);
+ 
+ /// The kinds of backends.
+-pub const Kind = enum { exec };
++pub const Kind = enum { exec, external };
+ 
+ /// Configuration for the various backend types.
+ pub const Config = union(Kind) {
+     /// Exec uses posix exec to run a command with a pty.
+     exec: termio.Exec.Config,
++    external: termio.External.Config,
+ };
+ 
+ /// Backend implementations. A backend is responsible for owning the pty
+ /// behavior and providing read/write capabilities.
+ pub const Backend = union(Kind) {
+     exec: termio.Exec,
++    external: termio.External,
+ 
+     pub fn deinit(self: *Backend) void {
+         switch (self.*) {
+             .exec => |*exec| exec.deinit(),
++            .external => |*v| v.deinit(),
+         }
+     }
+ 
+     pub fn initTerminal(self: *Backend, t: *terminal.Terminal) void {
+         switch (self.*) {
+             .exec => |*exec| exec.initTerminal(t),
++            .external => |*v| v.initTerminal(t),
+         }
+     }
+ 
+@@ -44,12 +48,14 @@
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.threadEnter(alloc, io, td),
++            .external => |*v| try v.threadEnter(alloc, io, td),
+         }
+     }
+ 
+     pub fn threadExit(self: *Backend, td: *termio.Termio.ThreadData) void {
+         switch (self.*) {
+             .exec => |*exec| exec.threadExit(td),
++            .external => |*v| v.threadExit(td),
+         }
+     }
+ 
+@@ -60,6 +66,7 @@
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.focusGained(td, focused),
++            .external => |*v| try v.focusGained(td, focused),
+         }
+     }
+ 
+@@ -70,6 +77,7 @@
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.resize(grid_size, screen_size),
++            .external => |*v| try v.resize(grid_size, screen_size),
+         }
+     }
+ 
+@@ -82,6 +90,7 @@
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.queueWrite(alloc, td, data, linefeed),
++            .external => |*v| try v.queueWrite(alloc, td, data, linefeed),
+         }
+     }
+ 
+@@ -93,6 +102,7 @@
+         runtime_ms: u64,
+     ) !void {
+         switch (self.*) {
++            .external => {},
+             .exec => |*exec| try exec.childExitedAbnormally(
+                 gpa,
+                 t,
+@@ -108,6 +118,7 @@
+     pub fn getProcessInfo(self: *Backend, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+         return switch (self.*) {
+             .exec => |*exec| exec.getProcessInfo(info),
++            .external => null,
+         };
+     }
+ };
+@@ -115,10 +126,12 @@
+ /// Termio thread data. See termio.ThreadData for docs.
+ pub const ThreadData = union(Kind) {
+     exec: termio.Exec.ThreadData,
++    external: termio.External.ThreadData,
+ 
+     pub fn deinit(self: *ThreadData, alloc: Allocator) void {
+         switch (self.*) {
+             .exec => |*exec| exec.deinit(alloc),
++            .external => |*v| v.deinit(alloc),
+         }
+     }
+ 
+--- a/src/termio/mailbox.zig
++++ b/src/termio/mailbox.zig
+@@ -31,6 +31,7 @@
+     spsc: struct {
+         queue: *Queue,
+         wakeup: xev.Async,
++        on_error: ?struct { userdata: ?*anyopaque, callback: *const fn (?*anyopaque) callconv(.c) void } = null,
+     },
+ 
+     /// Init the SPSC writer.
+@@ -77,6 +78,7 @@
+                 // lock so we need to unlock.
+                 mb.wakeup.notify() catch |err| {
+                     log.warn("failed to wake up writer, data will be dropped err={}", .{err});
++                    if (mb.on_error) |cb| cb.callback(cb.userdata);
+                     msg.deinit();
+                     return;
+                 };
+@@ -92,7 +94,10 @@
+                 // here.
+                 if (mutex) |m| m.unlock(global.io());
+                 defer if (mutex) |m| m.lockUncancelable(global.io());
+-                if (mb.queue.push(global.io(), msg, .{ .forever = {} }) == 0) msg.deinit();
++                if (mb.queue.push(global.io(), msg, .{ .forever = {} }) == 0) {
++                    if (mb.on_error) |cb| cb.callback(cb.userdata);
++                    msg.deinit();
++                }
+             },
+         }
+     }
+@@ -102,6 +107,7 @@
+     pub fn notify(self: *Mailbox) void {
+         switch (self.*) {
+             .spsc => |*v| v.wakeup.notify() catch |err| {
++                if (v.on_error) |cb| cb.callback(cb.userdata);
+                 log.warn("failed to notify writer, data will be dropped err={}", .{err});
+             },
+         }
+--- a/src/termio/message.zig
++++ b/src/termio/message.zig
+@@ -47,6 +47,9 @@
+ 
+     /// Resize the window.
+     resize: renderer.Size,
++
++    /// External parser geometry fence; never coalesced with ordinary requests.
++    external_resize: struct { size: renderer.Size, serial: u64 },
+ 
+     /// Request a size report is sent to the PTY ([in-band
+     /// size report, mode 2048](https://gist.github.com/rockorager/e695fb2924d36b2bcf1fff4a3704bd83) and
+@@ -142,5 +145,5 @@
+ test {
+     // Ensure we don't grow our IO message size without explicitly wanting to.
+     const testing = std.testing;
+-    try testing.expectEqual(@as(usize, 40), @sizeOf(Message));
++    try testing.expectEqual(@as(usize, 48), @sizeOf(Message));
+ }
+--- a/src/termio/stream_handler.zig
++++ b/src/termio/stream_handler.zig
+@@ -92,6 +92,7 @@
+     /// This is set to true when we've seen a title escape sequence. We use
+     /// this to determine if we need to default the window title.
+     seen_title: bool = false,
++    external: ?*termio.External = null,
+ 
+     pub const Stream = terminal.Stream(StreamHandler);
+ 
+@@ -139,6 +140,10 @@
+         self: *StreamHandler,
+         msg: apprt.surface.Message,
+     ) void {
++        if (self.external) |external| {
++            external.surfaceMessage(self.alloc, msg);
++            return;
++        }
+         // See messageWriter which has similar logic and explains why
+         // we may have to do this.
+         if (self.surface_mailbox.push(msg, .{ .instant = {} }) == 0) {
+@@ -1047,6 +1052,7 @@
+     }
+ 
+     fn clipboardContents(self: *StreamHandler, kind: u8, data: []const u8) !void {
++        if (self.external != null) return;
+         // Note: we ignore the "kind" field and always use the standard clipboard.
+         // iTerm also appears to do this but other terminals seem to only allow
+         // certain. Let's investigate more.
+@@ -1081,6 +1087,7 @@
+         self: *StreamHandler,
+         v: terminal.osc.Command.KittyClipboardProtocol,
+     ) error{ OutOfMemory, WriteFailed }!void {
++        if (self.external != null) return;
+         const kitty_clipboard = terminal.kitty.clipboard;
+ 
+         // Decode and validate the metadata. Malformed structure drops

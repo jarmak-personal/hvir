@@ -41,9 +41,7 @@ if (selected.platform === 'linux') {
   try {
     egl = {
       pkgConfig: (await execute('pkg-config', ['--version'])).stdout.trim(),
-      moduleVersion: (
-        await execute('pkg-config', ['--modversion', 'egl'])
-      ).stdout.trim(),
+      moduleVersion: (await execute('pkg-config', ['--modversion', 'egl'])).stdout.trim(),
       linkFlags: (
         await execute('pkg-config', ['--libs', 'egl'], { env: environment })
       ).stdout.trim(),
@@ -174,6 +172,100 @@ await run(
   [join(relocated, selected.library), pin.source.applicationVersion],
   work,
 )
+// Real facade proof runs in a separate native process; it initializes Ghostty and
+// deliberately keeps the library mapped until process exit. The info-only loader
+// probe above has a different lifecycle and may unload before initialization.
+await cp(
+  join(repository, 'packages/native-terminal/terminal.h'),
+  join(output, 'terminal.h'),
+)
+const nativeIncludes = [
+  '-I',
+  join(source, 'include'),
+  '-I',
+  join(repository, 'packages/native-terminal'),
+]
+const nativeLibraries =
+  process.platform === 'darwin'
+    ? ['-framework', 'CoreFoundation', '-framework', 'IOSurface']
+    : ['-ldl']
+await run(
+  'cc',
+  [
+    '-std=c11',
+    '-Wall',
+    '-Wextra',
+    '-Werror',
+    ...nativeIncludes,
+    '-g',
+    '-fno-omit-frame-pointer',
+    join(repository, 'packages/native-terminal/terminal.c'),
+    join(repository, 'packages/native-terminal/facade_probe.c'),
+    '-pthread',
+    ...nativeLibraries,
+    '-o',
+    join(output, 'facade-probe'),
+  ],
+  repository,
+)
+const diagnostics = join(work, 'facade-diagnostics.log')
+let facade: { stdout: string; stderr: string }
+try {
+  facade = await execute(
+    join(output, 'facade-probe'),
+    [join(output, selected.library), '--frames'],
+    { timeout: 120_000 },
+  )
+} catch (error) {
+  const failure = error as { stdout?: unknown; stderr?: unknown }
+  await writeFile(
+    diagnostics,
+    [failure.stdout, failure.stderr].filter((v) => typeof v === 'string').join('\n'),
+  )
+  throw error
+}
+const facadeResult = JSON.parse(facade.stdout) as {
+  nativeFacade?: unknown
+  frameRequested?: unknown
+  frameKind?: unknown
+  heldPixelsChecked?: unknown
+} | null
+if (
+  !facadeResult ||
+  facadeResult.nativeFacade !== 'passed' ||
+  facadeResult.frameRequested !== true ||
+  typeof facadeResult.frameKind !== 'number' ||
+  ![1, 2, 3].includes(facadeResult.frameKind) ||
+  ([1, 3].includes(facadeResult.frameKind) && facadeResult.heldPixelsChecked !== true)
+)
+  throw new Error('native-facade: incomplete proof')
+await writeFile(
+  join(output, 'facade-proof.json'),
+  JSON.stringify(facadeResult, null, 2) + '\n',
+)
+console.log(facade.stdout.trim())
+await run(
+  'cc',
+  [
+    '-std=c11',
+    '-Wall',
+    '-Wextra',
+    '-Werror',
+    ...nativeIncludes,
+    join(repository, 'packages/native-terminal/frame_metadata_probe.c'),
+    '-pthread',
+    ...nativeLibraries,
+    '-o',
+    join(output, 'frame-metadata-probe'),
+  ],
+  repository,
+)
+const metadata = await execute(join(output, 'frame-metadata-probe'), [], {
+  timeout: 30_000,
+})
+await writeFile(join(output, 'frame-metadata-proof.json'), metadata.stdout)
+console.log(metadata.stdout.trim())
+
 // Keep upstream and dependency notices with the artifact. This is the full renderer input set,
 // not the smaller libghostty-vt-only license inventory.
 const notices = join(output, 'notices')
@@ -196,6 +288,18 @@ for (const file of [
   'pkg/simdutf/vendor/LICENSE-APACHE',
 ])
   await cp(join(source, file), join(notices, file.replaceAll('/', '-')))
+
+if (process.platform === 'linux') {
+  // Existing upstream GLAD objects become reachable through windowless rendering.
+  // Preserve their generated SPDX/Khronos notices, not a guessed renderer license.
+  for (const file of [
+    'vendor/glad/include/glad/gl.h',
+    'vendor/glad/include/glad/glad_egl.h',
+    'vendor/glad/include/EGL/eglplatform.h',
+    'vendor/glad/include/KHR/khrplatform.h',
+  ])
+    await cp(join(source, file), join(notices, file.replaceAll('/', '-')))
+}
 
 for (const name of Object.keys(inventory)) {
   const directory = join(packages, name)
