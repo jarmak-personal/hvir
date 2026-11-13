@@ -55,6 +55,8 @@ function fixture() {
   const signal = new AbortController()
   const writer = {
     live: true,
+    parsed: vi.fn<(bytes: number) => void>(),
+    repliesDispatched: vi.fn<(bytes: number) => void>(),
     writeReply: vi.fn((_bytes: Uint8Array) => Promise.resolve()),
   }
   const prepare = () =>
@@ -68,6 +70,47 @@ function fixture() {
 afterEach(() => vi.useRealTimers())
 
 describe('native supervisor session state', () => {
+  it('waits for definitive feed IO completion before draining a final silent query', async () => {
+    const f = fixture()
+    const prepared = await f.prepare()
+    prepared.connect(f.writer)
+    const parsed = { ...nativeTerminalStatus(), appliedSequence: 1, ioAppliedSequence: 0 }
+    f.host.inspectProducer.mockResolvedValue(parsed)
+    f.host.drainReplies.mockResolvedValueOnce(new Uint8Array([27, 91, 48, 110]))
+    const output = prepared.output('\x1b[5n')
+    await vi.waitFor(() => expect(f.writer.parsed).toHaveBeenCalledExactlyOnceWith(4))
+    expect(f.host.drainReplies).not.toHaveBeenCalled()
+    expect(f.writer.writeReply).not.toHaveBeenCalled()
+    f.host.inspectProducer.mockResolvedValue({ ...parsed, ioAppliedSequence: 1 })
+    await output
+    expect(f.host.inspectProducer).toHaveBeenCalledWith('handle', 'instance', true)
+    expect(f.writer.writeReply).toHaveBeenCalledExactlyOnceWith(
+      new Uint8Array([27, 91, 48, 110]),
+    )
+    expect(f.writer.repliesDispatched).toHaveBeenCalledExactlyOnceWith(4)
+  })
+  it('appends parser replies before waiting for effects, retaining one physical producer slot', async () => {
+    const f = fixture(),
+      effects = deferred<number>(),
+      written = deferred<void>()
+    const prepared = await f.prepare()
+    prepared.connect(f.writer)
+    f.host.drainReplies.mockResolvedValueOnce(new Uint8Array([27, 91, 48, 110]))
+    f.host.discardEffectsProducer.mockReturnValueOnce(effects.promise)
+    f.writer.writeReply.mockReturnValueOnce(written.promise)
+    const output = prepared.output('x'.repeat(17000))
+    await vi.waitFor(() => expect(f.host.discardEffectsProducer).toHaveBeenCalledOnce())
+    expect(f.writer.writeReply).toHaveBeenCalledExactlyOnceWith(
+      new Uint8Array([27, 91, 48, 110]),
+    )
+    expect(f.writer.parsed).toHaveBeenCalledExactlyOnceWith(16384)
+    effects.resolve(0)
+    await Promise.resolve()
+    expect(f.host.feed).toHaveBeenCalledOnce()
+    written.resolve()
+    await output
+    expect(f.host.feed).toHaveBeenCalledTimes(2)
+  })
   it('reports a producer failure once without deleting the retained PTY instance', async () => {
     const f = fixture()
     const unavailable = vi.fn()
@@ -320,5 +363,120 @@ describe('native supervisor session state', () => {
     })
     await prepared.output('same parser')
     expect(f.host.end).not.toHaveBeenCalled()
+  })
+  it('keeps an indeterminate input block on the immutable instance through output and owner transfer', async () => {
+    const f = fixture(),
+      prepared = await f.prepare()
+    prepared.connect(f.writer)
+    f.sessions.blockInput('session', 'other-instance')
+    expect(f.sessions.get('session')?.inputUnavailable).toBe(false)
+    f.sessions.blockInput('session', 'instance')
+    f.host.drainReplies.mockResolvedValue(new Uint8Array([27, 91, 48, 110]))
+    await prepared.output('first')
+    await f.sessions.writeControl('session', 'instance', new Uint8Array([1]))
+    f.sessions.transferOwner('session', 'instance', 1, 2, f.reservation.workspaceRoot)
+    await prepared.output('second')
+    expect(f.sessions.get('session')).toMatchObject({
+      inputUnavailable: true,
+      readonly: false,
+      unavailable: false,
+      session: { instanceId: 'instance', ownerGeneration: 2 },
+    })
+    expect(f.host.feed).toHaveBeenCalledTimes(2)
+    expect(f.host.drainReplies).toHaveBeenCalledTimes(2)
+    expect(f.writer.parsed).toHaveBeenCalledTimes(2)
+    expect(f.writer.repliesDispatched).toHaveBeenCalledTimes(2)
+    expect(f.writer.writeReply).not.toHaveBeenCalled()
+    expect(f.host.end).not.toHaveBeenCalled()
+  })
+
+  it('discards control and reply bytes after known physical input close while parsing the tail', async () => {
+    const f = fixture(),
+      prepared = await f.prepare()
+    prepared.connect(f.writer)
+    f.writer.live = false
+    f.host.drainReplies.mockResolvedValue(new Uint8Array([1]))
+    await prepared.output('admitted-tail')
+    await f.sessions.writeControl('session', 'instance', new Uint8Array([2]))
+    expect(f.sessions.get('session')).toMatchObject({
+      inputClosed: true,
+      inputUnavailable: false,
+    })
+    expect(f.host.feed).toHaveBeenCalledOnce()
+    expect(f.host.drainReplies).toHaveBeenCalledOnce()
+    expect(f.writer.writeReply).not.toHaveBeenCalled()
+  })
+  it('joins active input and captured cleanup across owner transfer without an old ACK clearing newer work', async () => {
+    const f = fixture()
+    const prepared = await f.prepare()
+    prepared.connect(f.writer)
+    const write = deferred<void>(),
+      cleanup = deferred<void>()
+    expect(f.sessions.inputSettled('session', 'instance')).toBeUndefined()
+    f.sessions.retainInput('session', 'instance', write.promise)
+    const oldFence = f.sessions.inputSettled('session', 'instance')!
+    f.sessions.retainInput('session', 'instance', cleanup.promise)
+    const joinedFence = f.sessions.inputSettled('session', 'instance')!
+    expect(joinedFence).not.toBe(oldFence)
+    f.sessions.transferOwner('session', 'instance', 1, 2, f.reservation.workspaceRoot)
+    expect(f.sessions.inputSettled('session', 'instance')).toBe(joinedFence)
+    f.sessions.blockInput('session', 'instance')
+    write.resolve()
+    await oldFence
+    expect(f.sessions.inputSettled('session', 'instance')).toBe(joinedFence)
+    cleanup.resolve()
+    await joinedFence
+    expect(f.sessions.inputSettled('session', 'instance')).toBeUndefined()
+    expect(f.sessions.get('session')).toMatchObject({
+      inputUnavailable: true,
+      session: { instanceId: 'instance', ownerGeneration: 2 },
+    })
+  })
+
+  it('isolates foreign, removed and reused session instances from late input settlement', async () => {
+    const f = fixture()
+    const prepared = await f.prepare()
+    prepared.connect(f.writer)
+    const oldWrite = deferred<void>(),
+      freshCleanup = deferred<void>()
+    f.sessions.retainInput('session', 'instance', oldWrite.promise)
+    const oldFence = f.sessions.inputSettled('session', 'instance')!
+    expect(() => f.sessions.inputSettled('session', 'foreign')).toThrow(
+      'native-session-instance-stale',
+    )
+    expect(() => f.sessions.retainInput('session', 'foreign', Promise.resolve())).toThrow(
+      'native-session-instance-stale',
+    )
+    await f.sessions.remove('session', 'instance')
+    expect(() => f.sessions.inputSettled('session', 'instance')).toThrow(
+      'native-session-instance-stale',
+    )
+    expect(() =>
+      f.sessions.retainInput('session', 'instance', Promise.resolve()),
+    ).toThrow('native-session-instance-stale')
+    const fresh = await f.sessions.prepare(
+      { ...f.reservation, instanceId: 'fresh-instance' },
+      new AbortController().signal,
+      { width: 640, height: 400, backingScale: 1 },
+    )
+    fresh.connect(f.writer)
+    expect(f.sessions.inputSettled('session', 'fresh-instance')).toBeUndefined()
+    f.sessions.retainInput('session', 'fresh-instance', freshCleanup.promise)
+    const freshFence = f.sessions.inputSettled('session', 'fresh-instance')!
+    oldWrite.resolve()
+    await oldFence
+    f.sessions.blockInput('session', 'instance')
+    expect(f.sessions.inputSettled('session', 'fresh-instance')).toBe(freshFence)
+    expect(f.sessions.get('session')).toMatchObject({
+      inputUnavailable: false,
+      session: { instanceId: 'fresh-instance' },
+    })
+    expect(() =>
+      f.sessions.retainInput('session', 'instance', Promise.resolve()),
+    ).toThrow('native-session-instance-stale')
+    freshCleanup.reject(new Error('captured-cleanup-failed'))
+    await expect(freshCleanup.promise).rejects.toThrow('captured-cleanup-failed')
+    await freshFence
+    expect(f.sessions.inputSettled('session', 'fresh-instance')).toBeUndefined()
   })
 })

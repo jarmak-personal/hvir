@@ -1,3 +1,4 @@
+import { providerComposerKeySequence } from '../../../shared/composer-submit'
 import type { ComposerSubmitMode, HarnessModifiedKeyProtocol } from '../../../shared'
 
 export interface GhosttyKeyboardEvent {
@@ -45,27 +46,6 @@ const SHIFTED_SPECIAL_SEQUENCES: Readonly<Record<string, string>> = {
   F12: '\x1b[24;2~',
 }
 
-const CSI_U_KEY_CODES: Readonly<Record<string, number>> = {
-  Enter: 13,
-  Escape: 27,
-}
-
-function csiUModifier(event: GhosttyKeyboardEvent): number {
-  return (
-    1 +
-    (event.shiftKey ? 1 : 0) +
-    (event.altKey ? 2 : 0) +
-    (event.ctrlKey ? 4 : 0) +
-    (event.metaKey ? 8 : 0)
-  )
-}
-
-function controlEnterSequence(protocol: HarnessModifiedKeyProtocol): string | undefined {
-  if (protocol === 'csi-u') return '\x1b[13;5u'
-  if (protocol === 'modify-other-keys') return '\x1b[27;5;13~'
-  return undefined
-}
-
 /**
  * Restore terminal sequences that ghostty-web 0.4 drops or collapses before
  * its key encoder runs. Keep this adapter-specific until upstream handles the
@@ -75,25 +55,8 @@ export function ghosttyKeyboardOverride(
   event: GhosttyKeyboardEvent,
   options: GhosttyKeyboardOptions = DEFAULT_KEYBOARD_OPTIONS,
 ): string | undefined {
-  if (
-    options.composerSubmitMode === 'ctrl-enter' &&
-    event.code === 'Enter' &&
-    !event.altKey &&
-    !event.shiftKey &&
-    ((event.ctrlKey && !event.metaKey) ||
-      (options.metaEnterAliasesControl && event.metaKey && !event.ctrlKey))
-  ) {
-    return controlEnterSequence(options.modifiedKeyProtocol)
-  }
-
-  const csiUCode = CSI_U_KEY_CODES[event.code]
-  if (
-    options.modifiedKeyProtocol === 'csi-u' &&
-    csiUCode !== undefined &&
-    (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey)
-  ) {
-    return `\x1b[${csiUCode};${csiUModifier(event)}u`
-  }
+  const composer = providerComposerKeySequence(event, options)
+  if (composer !== undefined) return composer
 
   if (event.ctrlKey || event.altKey || event.metaKey || !event.shiftKey) {
     return undefined

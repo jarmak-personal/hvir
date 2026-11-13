@@ -15,7 +15,9 @@ export function registerNativeTerminalRuntimeIpc(
   })
   ipc.handle('native-terminal:attach', async ({ id }, context) => {
     const owner = context.owner()
-    return { viewId: await requireRuntime().attach(id, owner, context.sender.mainFrame) }
+    const native = requireRuntime()
+    const viewId = await native.attach(id, owner, context.sender.mainFrame)
+    return { viewId, inputUnavailable: native.inputUnavailable(viewId, owner) }
   })
   ipc.handle('native-terminal:update', async (req, context) => {
     await requireRuntime().update(req.viewId, context.owner(), req)
@@ -28,5 +30,8 @@ export function registerNativeTerminalRuntimeIpc(
   )
   ipc.handle('native-terminal:key', (req, context) =>
     requireRuntime().key(req.viewId, context.owner(), req),
+  )
+  ipc.handle('native-terminal:input', (req, context) =>
+    requireRuntime().input(req.viewId, context.owner(), req.input),
   )
 }

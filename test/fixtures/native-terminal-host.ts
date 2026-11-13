@@ -11,6 +11,9 @@ import { NativeTerminalHost } from '../../src/main/terminal/native-terminal-host
  * This fixture makes no Ghostty/GPU or cross-process execution claim. */
 export function nativeTerminalStatus(serial = 1): NativeTerminalStatus {
   return {
+    ioAppliedSequence: 0,
+    ioAppliedMutation: 0,
+    inputFailure: 0,
     appliedSequence: 0,
     replySequence: 0,
     queuedReplyBytes: 0,
@@ -65,6 +68,7 @@ export function nativeTerminalHostFixture(exitEvidence?: (epoch: string) => bool
           return Promise.resolve({
             lease: String(++nextLease),
             streamSequence: 0,
+            snapshotMutation: 0,
             geometrySerial: 1,
             kind: 1,
             width: 32,

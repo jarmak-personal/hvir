@@ -1,3 +1,8 @@
+import {
+  NativeTerminalInputPhysicalFailure,
+  NativeTerminalInputResourceRefused,
+} from '../src/shared/native-terminal-input'
+import { NativeTerminalInputResultCredits } from '../src/shared/native-terminal-input-admission'
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NativeTerminalProcess } from '../src/main/terminal/native-terminal-process'
@@ -732,4 +737,177 @@ it('admits hide through reserved cleanup credit while show remains ordinary cont
   ).rejects.toThrow('bound')
   for (const request of child.requests()) reply(child, request, { result: 0 })
   await Promise.all([...controls, ...feeds, hidden])
+})
+
+it('keeps a cancelled sent oversized paste physically pending until its actual result while normal input progresses', async () => {
+  const process = owner(),
+    cancel = new AbortController()
+  const paste: NativeTerminalCommand = {
+    kind: 'input',
+    state: 'a',
+    readOnly: false,
+    input: { kind: 'paste', text: 'p'.repeat(33 * 1024 * 1024) },
+  }
+  const pending = process.request(paste, cancel.signal, undefined, true)
+  void pending.catch(() => undefined)
+  const child = await ready(process),
+    original = last(child)
+  expect(
+    original.command.kind === 'input' &&
+      original.command.input.kind === 'paste' &&
+      original.command.input.text.length,
+  ).toBe(33 * 1024 * 1024)
+  let settled = false
+  void pending
+    .finally(() => {
+      settled = true
+    })
+    .catch(() => undefined)
+  cancel.abort()
+  await flush()
+  expect(settled).toBe(false)
+  await expect(
+    call(process, {
+      kind: 'input',
+      state: 'b',
+      readOnly: false,
+      input: { kind: 'paste', text: 'other' },
+    }),
+  ).rejects.toBeInstanceOf(NativeTerminalAdmissionError)
+  const key = call(process, {
+    kind: 'input',
+    state: 'b',
+    readOnly: false,
+    input: { kind: 'focus', focused: true },
+  })
+  await flush()
+  reply(child, last(child), { result: 0 })
+  await key
+  const cleanup = call(process, {
+    kind: 'input',
+    state: 'b',
+    readOnly: false,
+    input: { kind: 'focus', focused: false },
+  })
+  await flush()
+  reply(child, last(child), { result: 0 })
+  await cleanup
+  reply(child, original, {
+    bytes: Uint8Array.of(1),
+    capacity: 2 * 33 * 1024 * 1024 + 12,
+    source: 'user',
+    requestedMutation: 1,
+  })
+  await expect(pending).rejects.toThrow('cancelled')
+  const fresh = call(process, {
+    kind: 'input',
+    state: 'b',
+    readOnly: false,
+    input: { kind: 'paste', text: 'fresh' },
+  })
+  await flush()
+  reply(child, last(child), { result: 0 })
+  await fresh
+})
+
+it('retains a lost sent-input resource until observed epoch exit rather than a kill request', async () => {
+  const reserve = vi.spyOn(NativeTerminalInputResultCredits.prototype, 'reserve')
+  const process = owner()
+  const pending = process.request(
+    {
+      kind: 'input',
+      state: 'a',
+      readOnly: false,
+      input: { kind: 'paste', text: 'p'.repeat(33 * 1024 * 1024) },
+    },
+    undefined,
+    undefined,
+    true,
+  )
+  void pending.catch(() => undefined)
+  const child = await ready(process)
+  const credit = reserve.mock.results.find((r) => r.type === 'return')?.value as {
+    release(): void
+  }
+  const release = vi.spyOn(credit, 'release')
+  try {
+    child.kill.mockImplementation(() => true)
+    child.emit('error', new Error('transport-lost'))
+    await expect(pending).rejects.toBeInstanceOf(NativeTerminalInputPhysicalFailure)
+    expect(release).not.toHaveBeenCalled()
+    expect(process.hasExited(process.epoch)).toBe(false)
+    child.emit('exit', 1)
+    expect(release).toHaveBeenCalledOnce()
+    expect(process.hasExited(process.epoch)).toBe(true)
+  } finally {
+    release.mockRestore()
+    reserve.mockRestore()
+  }
+})
+
+it('immediately releases an oversized input cancelled before send and never posts its stale payload', async () => {
+  const process = owner(),
+    cancel = new AbortController()
+  const pending = process.request(
+    {
+      kind: 'input',
+      state: 'a',
+      readOnly: false,
+      input: { kind: 'paste', text: 'p'.repeat(33 * 1024 * 1024) },
+    },
+    cancel.signal,
+    undefined,
+    true,
+  )
+  void pending.catch(() => undefined)
+  cancel.abort()
+  await expect(pending).rejects.toThrow('cancelled')
+  const fresh = call(process, {
+    kind: 'input',
+    state: 'b',
+    readOnly: false,
+    input: { kind: 'paste', text: 'fresh' },
+  })
+  const child = await ready(process)
+  expect(child.requests()).toHaveLength(1)
+  expect(last(child).command).toMatchObject({ state: 'b' })
+  reply(child, last(child), { result: 0 })
+  await fresh
+})
+
+it('classifies a proven-unsent resource refusal without physical uncertainty and frees the paste credit', async () => {
+  const process = owner()
+  const pending = process.request(
+    {
+      kind: 'input',
+      state: 'a',
+      readOnly: false,
+      input: { kind: 'paste', text: 'p'.repeat(33 * 1024 * 1024) },
+    },
+    undefined,
+    undefined,
+    true,
+  )
+  void pending.catch(() => undefined)
+  const child = await ready(process),
+    request = last(child)
+  child.emit('message', {
+    kind: 'result',
+    epoch: request.epoch,
+    id: request.id,
+    ok: false,
+    error: 'native-input-resource-refused',
+  })
+  await expect(pending).rejects.toBeInstanceOf(NativeTerminalInputResourceRefused)
+  expect(process.available).toBe(true)
+  expect(child.kill).not.toHaveBeenCalled()
+  const fresh = call(process, {
+    kind: 'input',
+    state: 'b',
+    readOnly: false,
+    input: { kind: 'paste', text: 'fresh' },
+  })
+  await flush()
+  reply(child, last(child), { result: 0 })
+  await fresh
 })

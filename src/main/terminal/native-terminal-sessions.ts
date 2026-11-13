@@ -16,7 +16,11 @@ interface SessionHost {
     height: number,
     signal?: AbortSignal,
   ): Promise<string>
-  inspectProducer(handle: string, instanceId: string): Promise<NativeTerminalStatus>
+  inspectProducer(
+    handle: string,
+    instanceId: string,
+    producerProgress?: boolean,
+  ): Promise<NativeTerminalStatus>
   resizeProducer(
     handle: string,
     instanceId: string,
@@ -37,8 +41,10 @@ interface NativeSession {
   readonly parentSignal: AbortSignal
   readonly cancel: () => void
   phase: 'preparing' | 'live' | 'readonly' | 'failed' | 'removed'
-  writer?: { readonly live: boolean; writeReply(bytes: Uint8Array): Promise<void> }
+  writer?: Parameters<PtyPreparedTerminal['connect']>[0]
   feeding: boolean
+  inputUnavailable: boolean
+  inputSettlement?: Promise<void>
   disposing?: Promise<void>
 }
 export interface NativeTerminalViewport {
@@ -68,6 +74,8 @@ export class NativeTerminalSessions {
         handle: string
         session: NativeTerminalSession
         readonly: boolean
+        inputClosed: boolean
+        inputUnavailable: boolean
         unavailable: boolean
       }
     | undefined {
@@ -78,6 +86,8 @@ export class NativeTerminalSessions {
       handle: record.handle,
       session: record.session,
       readonly: record.phase !== 'live',
+      inputClosed: record.phase !== 'live' || record.writer?.live === false,
+      inputUnavailable: record.inputUnavailable,
       unavailable: record.phase === 'failed',
     }
   }
@@ -108,6 +118,7 @@ export class NativeTerminalSessions {
       cancel: () => abort.abort(),
       phase: 'preparing',
       feeding: false,
+      inputUnavailable: false,
     }
     signal.addEventListener('abort', record.cancel, { once: true })
     this.sessions.set(reservation.sessionId, record)
@@ -199,6 +210,49 @@ export class NativeTerminalSessions {
       throw new Error('native-session-instance-stale')
     await this.dispose(record)
   }
+  /** An indeterminate write belongs to the immutable PTY, not its current view. */
+  blockInput(sessionId: string, instanceId: string): void {
+    const record = this.sessions.get(sessionId)
+    if (!record || record.session.instanceId !== instanceId || record.phase === 'removed')
+      return
+    record.inputUnavailable = true
+  }
+
+  /** Physical input lifetime survives view disposal and renderer ownership changes. */
+  inputSettled(sessionId: string, instanceId: string): Promise<void> | undefined {
+    const record = this.sessions.get(sessionId)
+    if (!record || record.session.instanceId !== instanceId || record.phase === 'removed')
+      throw new Error('native-session-instance-stale')
+    return record.inputSettlement
+  }
+  retainInput(sessionId: string, instanceId: string, pending: Promise<unknown>): void {
+    const record = this.sessions.get(sessionId)
+    if (!record || record.session.instanceId !== instanceId || record.phase === 'removed')
+      throw new Error('native-session-instance-stale')
+    // Captured cleanup may run alongside an active transport write. Their settlement
+    // is one lifetime fence, not a queue dispatching work or swallowing caller errors.
+    const settlement = Promise.allSettled([record.inputSettlement, pending]).then(
+      () => undefined,
+    )
+    record.inputSettlement = settlement
+    void settlement.then(() => {
+      if (record.inputSettlement === settlement) record.inputSettlement = undefined
+    })
+  }
+
+  /** Focus cleanup shares the captured response writer, never user observation. */
+  async writeControl(
+    sessionId: string,
+    instanceId: string,
+    bytes: Uint8Array,
+  ): Promise<void> {
+    const record = this.sessions.get(sessionId)
+    if (!record || record.session.instanceId !== instanceId)
+      throw new Error('native-session-instance-stale')
+    this.assertCurrent(record)
+    if (!record.inputUnavailable && record.writer?.live && bytes.byteLength)
+      await record.writer.writeReply(bytes)
+  }
 
   private async output(record: NativeSession, decoded: string): Promise<void> {
     this.assertCurrent(record)
@@ -222,15 +276,30 @@ export class NativeTerminalSessions {
             encoded.subarray(offset, offset + NATIVE_TERMINAL_LIMITS.feedChunkBytes),
           ),
         )
+        record.writer?.parsed(
+          Math.min(NATIVE_TERMINAL_LIMITS.feedChunkBytes, encoded.byteLength - offset),
+        )
+        await this.awaitFeedReplies(record)
         const replies = await this.retryUnsent(record, () =>
           this.host.drainReplies(record.handle!, record.session.instanceId),
         )
-        await this.retryUnsent(record, () =>
+        this.assertCurrent(record)
+        // Append an already-generated reply before another input result can write.
+        // The transport call owns zero native credit; this remains ONE producer
+        // C job per state, and neither outcome starts the next feed early.
+        const writing =
+          !record.inputUnavailable && replies.byteLength && record.writer?.live
+            ? record.writer.writeReply(replies)
+            : Promise.resolve()
+        const effects = this.retryUnsent(record, () =>
           this.host.discardEffectsProducer(record.handle!, record.session.instanceId),
         )
-        this.assertCurrent(record)
-        if (replies.byteLength && record.writer?.live)
-          await record.writer.writeReply(replies)
+        record.writer?.repliesDispatched(
+          Math.min(NATIVE_TERMINAL_LIMITS.feedChunkBytes, encoded.byteLength - offset),
+        )
+        const outcomes = await Promise.allSettled([writing, effects])
+        const failure = outcomes.find((outcome) => outcome.status === 'rejected')
+        if (failure?.status === 'rejected') throw failure.reason
       }
     } catch (error) {
       this.failed(record)
@@ -245,6 +314,18 @@ export class NativeTerminalSessions {
     record.phase = 'failed'
     record.writer = undefined
     this.onUnavailable?.(record.session.sessionId, record.session.instanceId)
+  }
+  private async awaitFeedReplies(record: NativeSession): Promise<void> {
+    const deadline = performance.now() + NATIVE_TERMINAL_LIMITS.requestMs
+    for (;;) {
+      const status = await this.retryUnsent(record, () =>
+        this.host.inspectProducer(record.handle!, record.session.instanceId, true),
+      )
+      if (status.failure) throw new Error('native-reply-state-failed')
+      if (status.ioAppliedSequence >= status.appliedSequence) return
+      if (performance.now() >= deadline) throw new Error('native-reply-apply-timeout')
+      await new Promise<void>((resolve) => setTimeout(resolve, 1))
+    }
   }
 
   private async retryUnsent<T>(

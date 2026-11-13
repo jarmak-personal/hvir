@@ -41,6 +41,9 @@ export function nativeTerminalPresenterFixture(linuxMode?: 'auto' | 'pixels') {
     workspaceRoot: localPath('/project'),
   }
   const status = (): NativeTerminalStatus => ({
+    ioAppliedSequence: 0,
+    ioAppliedMutation: 0,
+    inputFailure: 0,
     appliedSequence: 1,
     replySequence: 0,
     queuedReplyBytes: 0,
@@ -70,6 +73,7 @@ export function nativeTerminalPresenterFixture(linuxMode?: 'auto' | 'pixels') {
     return {
       metadata: {
         lease: '1',
+        snapshotMutation: 0,
         streamSequence: 1,
         geometrySerial: serial,
         kind: 1,

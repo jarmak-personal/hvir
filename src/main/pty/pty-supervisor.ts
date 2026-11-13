@@ -8,17 +8,21 @@ import {
   hostPathEquals,
   LOCAL_HOST_ID,
   type HarnessProviderCapabilities,
+  type HarnessTerminalInputCapabilities,
   type HarnessLaunchMode,
   type HostPath,
 } from '../../shared'
 import {
-  PtyWriteIndeterminateError,
+  PtyWriteConfirmedRevokedError,
   type Disposer,
   type PtyExit,
   type PtyProcess,
   type PtyWriteData,
 } from '../project-host/project-host'
-import { harnessProviderCapabilities } from '../harness/harness-provider-capabilities'
+import {
+  harnessProviderCapabilities,
+  harnessTerminalInputCapabilities,
+} from '../harness/harness-provider-capabilities'
 import { harnessShellCommandArgs } from '../harness/harness-shell-environment'
 import { AGENT_TERMINAL_ENVIRONMENT } from '../harness/protected-terminal-environment'
 import {
@@ -47,6 +51,7 @@ interface Entry {
   readonly stream: PtyStreamAttachment
   readonly observation: PtySessionObservation
   readonly terminal?: PtyTerminalOutput
+  readonly terminalInput: HarnessTerminalInputCapabilities
   rendererReattachPending: boolean
 }
 
@@ -377,6 +382,7 @@ export class PtySupervisor {
       stream,
       observation,
       terminal,
+      terminalInput: harnessTerminalInputCapabilities(req.provider),
       rendererReattachPending: false,
     }
 
@@ -390,6 +396,8 @@ export class PtySupervisor {
         get live() {
           return canReply()
         },
+        parsed: (bytes) => terminal!.parsed(bytes),
+        repliesDispatched: (bytes) => terminal!.repliesDispatched(bytes),
         writeReply: async (bytes) => {
           if (!canReply()) return
           try {
@@ -524,6 +532,26 @@ export class PtySupervisor {
     if (source === 'user') entry.observation.retryAfterInput()
   }
 
+  /** Captures source admission, not an unbounded future stream drain. */
+  inputPrefix(id: string, instanceId: string) {
+    const entry = this.entries.get(id)
+    if (
+      !entry?.lifetime.current ||
+      entry.info.instanceId !== instanceId ||
+      !entry.terminal
+    )
+      throw new Error('pty-native-prefix-stale')
+    return entry.terminal.capturePrefix()
+  }
+
+  inputPolicy(id: string, ownerId: number, generation: number) {
+    const entry = this.requireOwned(id, ownerId, generation)
+    return {
+      ...entry.terminalInput,
+      composerSubmitMode: entry.info.composerSubmitMode ?? ('enter' as const),
+    }
+  }
+
   /** Confirm one complete write at the immediate PTY transport boundary. */
   async writeConfirmed(
     id: string,
@@ -540,7 +568,7 @@ export class PtySupervisor {
       entry.info.ownerId !== ownerId ||
       (ownerGeneration !== undefined && entry.info.ownerGeneration !== ownerGeneration)
     ) {
-      throw new PtyWriteIndeterminateError(
+      throw new PtyWriteConfirmedRevokedError(
         `PTY session '${id}' exited before write completion`,
       )
     }

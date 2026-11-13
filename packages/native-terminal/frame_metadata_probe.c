@@ -27,6 +27,7 @@ static void probe_free(void *value) {
  * producer descriptors or leak partially acquired consumer references. Including
  * the owner keeps its static callback private; no Ghostty initialization occurs. */
 #include "terminal.c"
+#include "terminal_input.c"
 #undef malloc
 #undef calloc
 #undef free
@@ -79,6 +80,104 @@ static bool return_text(ghostty_surface_t surface, uint8_t *out, size_t capacity
   return true;
 }
 static void idle_tick(ghostty_app_t app) { (void)app; }
+static size_t input_capacity = 8;
+static unsigned input_calls;
+static uint32_t input_mode;
+static bool input_size(ghostty_surface_t surface, const hvir_ghostty_input_event *event,
+    bool read_only, size_t *capacity) {
+  (void)surface; (void)read_only;
+  *capacity = event->kind == HVIR_INPUT_PREEDIT ? 0 : input_capacity;
+  return true;
+}
+static uint32_t input_call(ghostty_surface_t surface, const hvir_ghostty_input_event *event,
+    uint64_t serial, bool read_only, size_t capacity, hvir_ghostty_input_result *result) {
+  (void)read_only;
+  terminal_state *state = (terminal_state *)surface;
+  input_calls++;
+  if (input_mode == 1) { result->required_capacity = capacity + 1; return 2; }
+  if (input_mode == 2) return 1;
+  if (event->kind == HVIR_INPUT_KEY) {
+    const uint8_t bytes[2] = {1, 2};
+    if (!hvir_internal_input(state, input_mode == 3 ? 3 : 1, bytes,
+        input_mode == 4 ? sizeof(bytes) : 1)) return 1;
+  }
+  if (serial) hvir_internal_mutation_applied(state, serial);
+  return 0;
+}
+static bool input_faults(void) {
+  hvir_terminal_host host = {.caller=pthread_self(), .app_tick=idle_tick,
+    .external_input_capacity=input_size, .external_input=input_call,
+    .external_feed=accept_feed, .external_read=return_text};
+  terminal_state state = {.host=&host, .id=1, .requested_geometry=1,
+    .geometry={.serial=1}};
+  state.surface = (ghostty_surface_t)&state; host.states = &state;
+  if (pthread_mutex_init(&host.events, NULL)) return false;
+  if (pthread_cond_init(&host.changed, NULL)) { pthread_mutex_destroy(&host.events); return false; }
+  bool ok = false; hvir_terminal_input_result result = {0};
+  hvir_terminal_input_event key = {.kind=HVIR_INPUT_KEY, .key=GHOSTTY_KEY_ENTER, .action=1};
+#define INPUT_REQUIRE(value, name) do { if (!verify((value), (name))) goto finish; } while (0)
+  input_mode=0; input_calls=0; input_capacity=8; fail_allocation=true;
+  INPUT_REQUIRE(hvir_terminal_input(&host, 1, &key, false, &result) == HVIR_NOMEM &&
+    input_calls == 0 && !state.requested_mutation && !state.input_failure && !live_allocations &&
+    !result.data && !result.requested_mutation,
+    "input-result-allocation-failure-is-premutation-and-unpublished");
+  input_capacity=HVIR_TERMINAL_INPUT_SMALL_MAX+1;
+  INPUT_REQUIRE(hvir_terminal_input(&host, 1, &key, false, &result) == HVIR_BOUND &&
+    !input_calls && !state.requested_mutation && !state.input_failure && !live_allocations,
+    "input-admission-bound-precedes-native-mutation");
+  input_capacity=8; input_mode=1;
+  INPUT_REQUIRE(hvir_terminal_input(&host, 1, &key, false, &result) == HVIR_BUSY &&
+    result.capacity == 9 && !result.data && !result.requested_mutation &&
+    !state.requested_mutation && !state.input_failure && !live_allocations,
+    "native-capacity-recheck-refusal-is-proven-unsent-with-no-sticky-failure");
+  input_mode=0;
+  INPUT_REQUIRE(hvir_terminal_input(&host, 1, &key, false, &result) == HVIR_OK &&
+    result.length == 1 && result.capacity == 8 && result.source == 1 &&
+    result.requested_mutation == 1 && state.io_applied_mutation == 1 && live_allocations == 1,
+    "fresh-key-after-premutation-capacity-refusal-works");
+  hvir_terminal_input_result_free(&result);
+  INPUT_REQUIRE(!live_allocations && !result.data && !result.capacity,
+    "owned-input-result-release-clears-pointer-and-capacity");
+  hvir_internal_mutation_applied(&state, 1); hvir_internal_mutation_applied(&state, 100);
+  INPUT_REQUIRE(state.io_applied_mutation == 1, "late-or-unrequested-input-ack-cannot-advance");
+  state.closing=true; state.requested_mutation=2; hvir_internal_mutation_applied(&state, 2);
+  feed_applied(&state, 2);
+  INPUT_REQUIRE(state.io_applied_mutation == 1 && !state.io_applied_sequence,
+    "closing-state-ignores-late-input-and-feed-completion");
+  state.closing=false; state.requested_mutation=1;
+  feed_applied(&state, 2); feed_applied(&state, 1);
+  INPUT_REQUIRE(state.io_applied_sequence == 2, "feed-io-fence-is-monotonic-and-independent");
+  input_mode=3;
+  INPUT_REQUIRE(hvir_terminal_input(&host, 1, &key, false, &result) == HVIR_FAILED &&
+    state.input_failure && !state.failure && !result.data && !live_allocations,
+    "invalid-input-source-revokes-input-without-poisoning-parser-or-leaking-result");
+  state.input_failure=0; input_mode=4; input_capacity=1;
+  INPUT_REQUIRE(hvir_terminal_input(&host, 1, &key, false, &result) == HVIR_FAILED &&
+    state.input_failure && !state.failure && !result.data && !live_allocations,
+    "capture-overflow-never-publishes-partial-owned-input");
+  state.input_failure=0; input_mode=2; input_capacity=8;
+  INPUT_REQUIRE(hvir_terminal_input(&host, 1, &key, false, &result) == HVIR_FAILED &&
+    state.input_failure && result.requested_mutation && !state.failure && !live_allocations,
+    "postmutation-native-error-has-token-but-no-replayable-body");
+  input_mode=0; fail_allocation=true;
+  INPUT_REQUIRE(hvir_terminal_input(&host, 1,
+    &(hvir_terminal_input_event){.kind=HVIR_INPUT_PREEDIT}, false, &result) == HVIR_OK &&
+    !result.data && !result.capacity && fail_allocation && !live_allocations,
+    "zero-byte-cleanup-remains-available-without-allocation-after-input-failure");
+  fail_allocation=false;
+  uint8_t text[4]; size_t length=0;
+  INPUT_REQUIRE(hvir_terminal_feed(&host, 1, 1, (const uint8_t *)"ok", 2) == HVIR_OK &&
+    hvir_terminal_read(&host, 1, text, sizeof(text), &length) == HVIR_OK && length == 2 &&
+    !memcmp(text, "ok", 2) && !state.failure && state.input_failure,
+    "input-failure-preserves-authoritative-parser-feed-and-read");
+  ok=true;
+finish:
+  fail_allocation=false;
+  hvir_terminal_input_result_free(&result);
+  pthread_cond_destroy(&host.changed); pthread_mutex_destroy(&host.events);
+  return ok;
+#undef INPUT_REQUIRE
+}
 static bool reject_rearm(ghostty_surface_t surface) { (void)surface; return false; }
 
 static uint64_t pending_geometry;
@@ -117,6 +216,7 @@ int main(void) {
 #ifdef __APPLE__
   IOSurfaceRef copy_surface = NULL;
 #endif
+  if (!input_faults()) return 1;
   int result = 1, pipes[2] = {-1, -1};
   FILE *source = NULL;
   hvir_terminal_host host = {0};

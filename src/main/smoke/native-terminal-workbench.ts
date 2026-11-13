@@ -1,3 +1,8 @@
+import { verifyNativeTerminalPaste } from './native-terminal-paste'
+import {
+  verifyNativeTerminalInput,
+  verifyNativeReadonlyInput,
+} from './native-terminal-input'
 import { app, type BrowserWindow } from 'electron'
 import { nativeTerminalLinuxOptionsFromEnvironment } from '../../shared/native-terminal-linux'
 import { nativeTerminalDiagnostics } from '../terminal/native-terminal-diagnostics'
@@ -124,18 +129,16 @@ export async function verifyNativeTerminalWorkbench(
     return redPixels >= 500
   })
   console.log('[native-workbench] rendered-marker')
-  await win.webContents.executeJavaScript(String.raw`(async () => {
-    const input=document.querySelector('[aria-label="Native terminal development preview"]');
-    if (!input) throw new Error('Native input host missing');
-    input.focus();
-    const command="printf '\\116\\113\\105\\131\\067\\n'\r";
-    for (const key of command) {
-      input.dispatchEvent(new KeyboardEvent('keydown',{key:key==='\r'?'Enter':key,code:key==='\r'?'Enter':'',bubbles:true}));
-      await new Promise(resolve=>setTimeout(resolve,4));
-    }
-  })()`)
+  await win.webContents.executeJavaScript(
+    `(() => {const input=document.querySelector('.native-terminal-pane textarea');if(!(input instanceof HTMLTextAreaElement))throw new Error('Native textarea missing');input.focus({preventScroll:true});return true;})()`,
+  )
+  await win.webContents.insertText("printf '\\116\\113\\105\\131\\067\\n'")
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
   await waitFor(async () => (await text()).includes('NKEY7'))
   console.log('[native-workbench] encoded-keyboard')
+  const nativeInput = await verifyNativeTerminalInput(win, ptys, native, managed)
+  const largePaste = await verifyNativeTerminalPaste(win, ptys, native, managed)
   const initialGeometry = (await native.inspectRetained(managed.id, owner)).geometry
   await win.webContents.executeJavaScript(`(() => {
     const control = [...document.querySelectorAll('button[aria-label="Collapse terminal rail"],button[aria-label="Restore terminal rail"]')]
@@ -177,7 +180,7 @@ export async function verifyNativeTerminalWorkbench(
   await ptys.writeConfirmed(
     managed.id,
     owner.id,
-    "printf 'HVIR_NATIVE_FINAL_TAIL\\n'; exit\r",
+    "printf '\\033[?25lHVIR_NATIVE_FINAL_TAIL\\n'; exit\r",
     owner.generation,
   )
   await waitFor(() => Promise.resolve(native.sessions.get(managed.id)?.readonly === true))
@@ -185,6 +188,7 @@ export async function verifyNativeTerminalWorkbench(
     throw new Error('native-workbench-exit-tail')
   if (ptys.list().length) throw new Error('native-workbench-exit-live-pty')
   console.log('[native-workbench] retained-exit-tail')
+  const readonlyInput = await verifyNativeReadonlyInput(win, native, managed)
   await native.remove(managed.id, managed.instanceId)
   if (native.sessions.get(managed.id)) throw new Error('native-workbench-removed-state')
   console.log(
@@ -204,6 +208,9 @@ export async function verifyNativeTerminalWorkbench(
         rendererCanvas: true,
         capturedAnsiRedPixels: redPixels,
         nativeEncodedKeyboard: true,
+        nativeInput,
+        largePaste,
+        readonlyInput,
         resizeControl: 'terminal-rail',
         resizeAcknowledgedByStty: { rows: geometry.rows, columns: geometry.columns },
         development: true,

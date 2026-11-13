@@ -24,12 +24,21 @@ export interface PtyTerminalReservation {
   readonly ownerGeneration: number
   readonly workspaceRoot: HostPath
 }
+/** Two completion phases for one finite source-admitted UTF8 prefix. */
+export interface PtyTerminalInputPrefix {
+  parsed(this: void, signal: AbortSignal): Promise<void>
+  /** Response transport calls have been invoked, not necessarily confirmed. */
+  replies(this: void, signal: AbortSignal): Promise<void>
+}
 export interface PtyPreparedTerminal {
   readonly columns: number
   readonly rows: number
   connect(writer: {
     readonly live: boolean
     writeReply(bytes: Uint8Array): Promise<void>
+    /** Real parser acknowledgement, before reply/effect housekeeping. */
+    parsed(bytes: number): void
+    repliesDispatched(bytes: number): void
   }): void
   output(decoded: string): Promise<void>
   exited(exit: PtyExit): Promise<void>

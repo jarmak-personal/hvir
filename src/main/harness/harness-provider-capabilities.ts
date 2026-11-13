@@ -2,8 +2,18 @@ import type {
   ComposerSubmitMode,
   HarnessProfile,
   HarnessProviderCapabilities,
+  HarnessTerminalInputCapabilities,
 } from '../../shared'
 import type { HarnessProvider } from './harness-provider-contract'
+
+export function harnessTerminalInputCapabilities(
+  provider: HarnessProvider,
+): HarnessTerminalInputCapabilities {
+  return {
+    modifiedKeyProtocol: provider.manifest.modifiedKeyProtocol ?? 'none',
+    metaEnterAliasesControl: provider.manifest.metaEnterAliasesControl === true,
+  }
+}
 
 export function harnessProviderCapabilities(
   provider: HarnessProvider,

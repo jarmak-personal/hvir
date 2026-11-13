@@ -53,7 +53,12 @@ describe('native PTY producer operations', () => {
   })
   it('never spreads renderer properties over the trusted native operation or state identity', async () => {
     const f = await prepared()
-    f.request.mockResolvedValue(new Uint8Array([120]))
+    f.request.mockResolvedValue({
+      bytes: new Uint8Array([120]),
+      capacity: 1,
+      source: 'user',
+      requestedMutation: 0,
+    })
     const payload = {
       key: 0,
       modifiers: 0,
@@ -62,16 +67,40 @@ describe('native PTY producer operations', () => {
       kind: 'destroy',
       state: 'other',
       bytes: new Uint8Array([255]),
+      keyEncodingFallback: 'csi-u',
     }
     await f.host.encodeKey(f.handle, 'instance-0', payload)
     expect(f.request).toHaveBeenLastCalledWith(
-      { kind: 'key', state: '1', key: 0, modifiers: 0, action: 1, text: 'x' },
+      {
+        kind: 'input',
+        state: '1',
+        readOnly: false,
+        keyEncodingFallback: undefined,
+        input: {
+          kind: 'key',
+          key: 0,
+          modifiers: 0,
+          action: 1,
+          text: 'x',
+          consumedModifiers: 0,
+          unshiftedCodepoint: 0,
+          composing: false,
+          optionAsAlt: false,
+        },
+      },
       expect.any(AbortSignal),
+      undefined,
+      true,
     )
   })
   it('uses native key bytes without decoding or text re-encoding', async () => {
     const f = await prepared()
-    f.request.mockResolvedValue(new Uint8Array([0, 128, 255]))
+    f.request.mockResolvedValue({
+      bytes: new Uint8Array([0, 128, 255]),
+      capacity: 3,
+      source: 'user',
+      requestedMutation: 0,
+    })
     expect(
       await f.host.encodeKey(f.handle, 'instance-0', {
         key: 0,
@@ -81,8 +110,26 @@ describe('native PTY producer operations', () => {
       }),
     ).toEqual(new Uint8Array([0, 128, 255]))
     expect(f.request).toHaveBeenLastCalledWith(
-      { kind: 'key', state: '1', key: 0, modifiers: 0, action: 1, text: 'é' },
+      {
+        kind: 'input',
+        state: '1',
+        readOnly: false,
+        keyEncodingFallback: undefined,
+        input: {
+          kind: 'key',
+          key: 0,
+          modifiers: 0,
+          action: 1,
+          text: 'é',
+          consumedModifiers: 0,
+          unshiftedCodepoint: 0,
+          composing: false,
+          optionAsAlt: false,
+        },
+      },
       expect.any(AbortSignal),
+      undefined,
+      true,
     )
     await expect(
       f.host.encodeKey(f.handle, 'instance-0', {

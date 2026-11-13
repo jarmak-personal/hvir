@@ -4,7 +4,10 @@ import {
   type HarnessProviderId,
 } from '../../shared'
 import type { HarnessProvider } from './harness-provider-contract'
-import { harnessProviderCapabilities } from './harness-provider-capabilities'
+import {
+  harnessProviderCapabilities,
+  harnessTerminalInputCapabilities,
+} from './harness-provider-capabilities'
 
 export class HarnessProviderRegistry {
   private readonly providers = new Map<HarnessProviderId, HarnessProvider>()
@@ -32,10 +35,7 @@ export class HarnessProviderRegistry {
       default: provider.manifest.default === true,
       ...(provider.fork ? { exactForkLaunch: true as const } : {}),
       capabilities: harnessProviderCapabilities(provider),
-      terminalInput: {
-        modifiedKeyProtocol: provider.manifest.modifiedKeyProtocol ?? 'none',
-        metaEnterAliasesControl: provider.manifest.metaEnterAliasesControl === true,
-      },
+      terminalInput: harnessTerminalInputCapabilities(provider),
       profileTemplate: provider.profile.defaultProfile
         ? {
             displayName: provider.profile.defaultProfile.displayName,

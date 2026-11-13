@@ -1,4 +1,13 @@
 import { randomUUID } from 'node:crypto'
+import {
+  NativeTerminalCaretPending,
+  nativeTerminalKeyOperation,
+  validNativeTerminalInput,
+  validNativeTerminalInputResult,
+  type NativeTerminalInputOperation,
+  type NativeTerminalKeyEncodingFallback,
+  type NativeTerminalInputResult,
+} from '../../shared/native-terminal-input'
 import { hostPathEquals, localPath } from '../../shared/host-path'
 import {
   validNativeTerminalExportMode,
@@ -12,7 +21,6 @@ import {
   NATIVE_TERMINAL_LIMITS as limits,
   NativeTerminalAdmissionError,
   validNativeTerminalExtent,
-  validNativeTerminalKeyInput,
   type NativeTerminalCommand,
   type NativeTerminalSession,
   type NativeTerminalStatus,
@@ -22,7 +30,12 @@ import {
 } from '../../shared/native-terminal'
 
 export interface NativeTerminalProcessPort {
-  request(command: NativeTerminalCommand, signal?: AbortSignal): Promise<unknown>
+  request(
+    command: NativeTerminalCommand,
+    signal?: AbortSignal,
+    eligible?: (signal: AbortSignal) => Promise<void>,
+    physicalInput?: true,
+  ): Promise<unknown>
   readonly epoch: string
   readonly available: boolean
   dispose(): void
@@ -283,10 +296,11 @@ export class NativeTerminalHost {
   async inspectProducer(
     handle: string,
     instanceId: string,
+    producerProgress = false,
   ): Promise<NativeTerminalStatus> {
     const binding = this.requireProducer(handle, instanceId)
     const value = await this.process.request(
-      { kind: 'inspect', state: binding.state },
+      { kind: producerProgress ? 'producer-inspect' : 'inspect', state: binding.state },
       binding.abort.signal,
     )
     this.requireProducer(handle, instanceId)
@@ -294,33 +308,40 @@ export class NativeTerminalHost {
     binding.status = value
     return value
   }
+  async input(
+    handle: string,
+    instanceId: string,
+    input: NativeTerminalInputOperation,
+    eligible?: (signal: AbortSignal) => Promise<void>,
+    readOnly = false,
+    keyEncodingFallback?: NativeTerminalKeyEncodingFallback,
+  ): Promise<NativeTerminalInputResult> {
+    const binding = this.requireProducer(handle, instanceId)
+    if (!validNativeTerminalInput(input)) throw new Error('native-input-invalid')
+    const value = await this.process.request(
+      { kind: 'input', state: binding.state, input, readOnly, keyEncodingFallback },
+      binding.abort.signal,
+      eligible,
+      true,
+    )
+    this.requireProducer(handle, instanceId)
+    if (
+      input.kind === 'caret' &&
+      value &&
+      typeof value === 'object' &&
+      'busy' in value &&
+      value.busy === true
+    )
+      throw new NativeTerminalCaretPending()
+    if (!validNativeTerminalInputResult(value)) throw new Error('native-input-invalid')
+    return value
+  }
   async encodeKey(
     handle: string,
     instanceId: string,
-    input: {
-      key: number
-      modifiers: number
-      action: number
-      text: string
-    },
+    input: { key: number; modifiers: number; action: number; text: string },
   ): Promise<Uint8Array> {
-    const binding = this.requireProducer(handle, instanceId)
-    if (!validNativeTerminalKeyInput(input)) throw new Error('native-key-invalid')
-    const value = await this.process.request(
-      {
-        kind: 'key',
-        state: binding.state,
-        key: input.key,
-        modifiers: input.modifiers,
-        action: input.action,
-        text: input.text,
-      },
-      binding.abort.signal,
-    )
-    this.requireProducer(handle, instanceId)
-    if (!(value instanceof Uint8Array) || value.byteLength > limits.responseBytes)
-      throw new Error('native-input-bound')
-    return value
+    return (await this.input(handle, instanceId, nativeTerminalKeyOperation(input))).bytes
   }
   async readProducer(handle: string, instanceId: string): Promise<Uint8Array> {
     const binding = this.requireProducer(handle, instanceId)
@@ -843,6 +864,9 @@ function validStatus(value: unknown): value is NativeTerminalStatus {
   const g = v.geometry
   const unsigned = [
     v.appliedSequence,
+    v.ioAppliedSequence,
+    v.ioAppliedMutation,
+    v.inputFailure,
     v.replySequence,
     v.queuedReplyBytes,
     v.failure,
@@ -888,6 +912,8 @@ function validFrame(value: NativeTerminalFrameMetadata): boolean {
     value.geometrySerial > 0 &&
     Number.isSafeInteger(value.streamSequence) &&
     value.streamSequence >= 0 &&
+    Number.isSafeInteger(value.snapshotMutation) &&
+    value.snapshotMutation >= 0 &&
     [1, 2].includes(value.colorSpace) &&
     [1, 2].includes(value.origin) &&
     typeof value.premultiplied === 'boolean' &&

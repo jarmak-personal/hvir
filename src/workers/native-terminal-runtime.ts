@@ -14,6 +14,13 @@ import {
 } from '../shared/native-terminal'
 import { NativeTerminalJobs } from './native-terminal-jobs'
 import {
+  NativeTerminalInputResourceRefused,
+  nativeTerminalInputCleanup,
+  nativeTerminalInputResultCapacity,
+  validNativeTerminalInput,
+} from '../shared/native-terminal-input'
+import { NativeTerminalInputResultCredits } from '../shared/native-terminal-input-admission'
+import {
   validNativeTerminalExportMode,
   validNativeTerminalLinuxOptions,
 } from '../shared/native-terminal-linux'
@@ -35,6 +42,10 @@ interface NativeResult {
   event?: unknown
   stride?: number
   info?: unknown
+  source?: 'user' | 'terminal-response'
+  requestedMutation?: bigint
+  captured?: boolean
+  caret?: unknown
 }
 /** Process-local engine jobs and OS resources never cross the parent port. */
 export function runNativeTerminalHost(
@@ -54,6 +65,7 @@ export function runNativeTerminalHost(
   const frames = new Map<string, Frame>()
   const states = new Set<string>()
   let creating = 0
+  const resultCredits = new NativeTerminalInputResultCredits()
   let nativeId = 0
   let current:
     | { id: number; resolve(value: NativeResult): void; reject(error: Error): void }
@@ -178,6 +190,26 @@ export function runNativeTerminalHost(
             nativeTerminalCommandBytes(command),
           ),
         ).data
+      case 'input': {
+        const result = await invoke(
+          state,
+          'input',
+          [state, command.input, command.readOnly, command.keyEncodingFallback],
+          nativeTerminalCommandBytes(command),
+        )
+        if (
+          (result.result === 5 || result.result === 7) &&
+          result.requestedMutation === 0n
+        )
+          throw new NativeTerminalInputResourceRefused()
+        if (result.result === 6 && result.requestedMutation === 0n) {
+          if (command.input.kind === 'caret') return { busy: true }
+          // Native capacity was revalidated before any mutation/callback/fence.
+          throw new NativeTerminalAdmissionError('native-input-capacity-changed')
+        }
+        const { data, ...metadata } = requireOk(result)
+        return { ...(plain(metadata) as object), bytes: data }
+      }
       case 'visibility':
         return requireOk(await invoke(state, 'visibility', [state, command.visible]))
       case 'presentation-mode':
@@ -199,6 +231,7 @@ export function runNativeTerminalHost(
         return { bytes: copied.data, stride: copied.stride }
       }
       case 'inspect':
+      case 'producer-inspect':
         return plain(requireOk(await invoke(state, 'inspect', [state])).status)
       case 'renderer-info':
         return plain(requireOk(await invoke(state, 'renderer-info', [state])).info)
@@ -227,6 +260,7 @@ export function runNativeTerminalHost(
         return plain({
           lease: frame.lease,
           streamSequence: frame.streamSequence,
+          snapshotMutation: frame.snapshotMutation,
           geometrySerial: frame.geometrySerial,
           kind: frame.kind,
           width: frame.width,
@@ -302,6 +336,34 @@ export function runNativeTerminalHost(
     )
       return fatal()
     if (!validCommand(value.command)) return fatal()
+    const cleanup =
+      value.command.kind === 'input' && nativeTerminalInputCleanup(value.command.input)
+    let credit
+    try {
+      credit = resultCredits.reserve(
+        value.command.kind === 'input'
+          ? nativeTerminalInputResultCapacity(
+              value.command.input,
+              value.command.readOnly,
+              (text) => Buffer.byteLength(text),
+            )
+          : 0,
+        value.command.kind === 'input' && value.command.input.kind === 'paste',
+        cleanup,
+      )
+    } catch (error) {
+      port.postMessage({
+        kind: 'result',
+        epoch: options.epoch,
+        id: value.id,
+        ok: false,
+        error:
+          error instanceof NativeTerminalInputResourceRefused
+            ? 'native-input-resource-refused'
+            : 'native-admission-bound',
+      })
+      return
+    }
     const pending = { cancelled: false }
     requests.set(value.id, pending)
     void execute(value.command, () => pending.cancelled)
@@ -322,12 +384,17 @@ export function runNativeTerminalHost(
             ok: false,
             error: pending.cancelled
               ? 'cancelled'
-              : error instanceof NativeTerminalAdmissionError
-                ? 'native-admission-bound'
-                : 'native-operation-failed',
+              : error instanceof NativeTerminalInputResourceRefused
+                ? 'native-input-resource-refused'
+                : error instanceof NativeTerminalAdmissionError
+                  ? 'native-admission-bound'
+                  : 'native-operation-failed',
           }),
       )
-      .finally(() => requests.delete(value.id))
+      .finally(() => {
+        requests.delete(value.id)
+        credit.release()
+      })
   })
 }
 function plain(value: unknown): unknown {
@@ -366,6 +433,14 @@ function validCommand(value: NativeTerminalCommand): boolean {
       )
     case 'key':
       return validNativeTerminalKeyInput(value)
+    case 'input':
+      return (
+        validNativeTerminalInput(value.input) &&
+        typeof value.readOnly === 'boolean' &&
+        (value.keyEncodingFallback === undefined ||
+          value.keyEncodingFallback === 'csi-u' ||
+          value.keyEncodingFallback === 'modify-other-keys')
+      )
     case 'visibility':
       return typeof value.visible === 'boolean'
     case 'presentation-mode':
@@ -380,6 +455,7 @@ function validCommand(value: NativeTerminalCommand): boolean {
       )
     case 'shutdown':
     case 'inspect':
+    case 'producer-inspect':
     case 'read':
     case 'drain':
     case 'event':

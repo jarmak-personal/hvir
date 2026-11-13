@@ -221,7 +221,10 @@ export const terminalIpc = {
       string | undefined
     >(),
     'native-terminal:enabled': invoke<Record<string, never>, boolean>(),
-    'native-terminal:attach': invoke<{ id: string }, { viewId: string }>(),
+    'native-terminal:attach': invoke<
+      { id: string },
+      { viewId: string; inputUnavailable?: boolean }
+    >(),
     'native-terminal:update': invoke<
       {
         viewId: string
@@ -237,6 +240,13 @@ export const terminalIpc = {
     'native-terminal:key': invoke<
       { viewId: string; key: number; modifiers: number; action: number; text: string },
       void
+    >(),
+    'native-terminal:input': invoke<
+      {
+        viewId: string
+        input: import('../native-terminal-input').NativeTerminalInputOperation
+      },
+      import('../native-terminal-input').NativeTerminalInputCompletion
     >(),
     'pty:start': invoke<StartPtyRequest, StartPtyResponse>(),
   },

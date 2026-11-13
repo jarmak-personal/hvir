@@ -17,9 +17,9 @@ const legacy = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
   createGhosttyTerminalPane: legacy.create,
 }))
-const cleanup: Array<() => void> = []
-afterEach(() => {
-  for (const dispose of cleanup.splice(0)) dispose()
+const cleanup: Array<() => Promise<void>> = []
+afterEach(async () => {
+  for (const dispose of cleanup.splice(0)) await dispose()
   document.body.replaceChildren()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -54,12 +54,14 @@ function fixture() {
     if (channel === 'native-terminal:attach')
       return Promise.resolve({ viewId: 'native-view' })
     if (channel === 'native-terminal:demand') return Promise.resolve(true)
+    if (channel === 'native-terminal:input')
+      return Promise.resolve({ requestedMutation: 0 })
     return Promise.resolve()
   })
   const send = vi.fn()
   const presentation = {
-    mount: vi.fn(),
-    unmount: vi.fn(),
+    mount: vi.fn<(_viewId: string, _elementId: string) => void>(),
+    unmount: vi.fn<(_viewId: string) => void>(),
     onStatus: vi.fn(() => vi.fn()),
   }
   const api = {
@@ -80,9 +82,15 @@ function fixture() {
     vi.fn(),
     () => Promise.resolve(() => undefined),
   )
-  cleanup.push(() => {
+  cleanup.push(async () => {
     runtime.dispose()
     router.dispose()
+    await vi.waitFor(() => {
+      for (const [viewId] of presentation.mount.mock.calls) {
+        expect(presentation.unmount).toHaveBeenCalledWith(viewId)
+        expect(invoke).toHaveBeenCalledWith('native-terminal:detach', { viewId })
+      }
+    })
   })
   const container = document.createElement('div')
   document.body.appendChild(container)
@@ -147,6 +155,8 @@ describe('native workbench runtime selection', () => {
     f.runtime.attach(f.container)
     await vi.waitFor(() => expect(f.options.onStarted).toHaveBeenCalledTimes(1))
     const surface = f.container.firstElementChild
+    const input = surface?.querySelector('textarea')
+    expect(input).toBeInstanceOf(HTMLTextAreaElement)
     const detail = document.createElement('div')
     document.body.appendChild(detail)
     const acquired = f.runtime.acquireSessionsSurface({
@@ -166,9 +176,11 @@ describe('native workbench runtime selection', () => {
     expect(acquired.lease.attach(detail)).toBe(true)
     expect(detail.firstElementChild).toBe(surface)
     expect(acquired.lease.focus(detail)).toBe(true)
-    expect(document.activeElement).toBe(surface)
+    expect(document.activeElement).toBe(input)
     f.runtime.focus()
-    expect(document.activeElement).toBe(surface)
+    expect(document.activeElement).toBe(input)
+    expect(detail.firstElementChild).toBe(surface)
+    expect(f.container.contains(input ?? null)).toBe(false)
     acquired.lease.release()
     expect(f.container.firstElementChild).toBe(surface)
     expect(

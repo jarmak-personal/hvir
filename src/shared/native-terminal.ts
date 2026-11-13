@@ -1,4 +1,9 @@
 import type { HostPath } from './host-path'
+import {
+  nativeTerminalInputBytes,
+  type NativeTerminalInputOperation,
+  type NativeTerminalKeyEncodingFallback,
+} from './native-terminal-input'
 import type {
   NativeTerminalExportMode,
   NativeTerminalLinuxOptions,
@@ -38,6 +43,9 @@ export const NATIVE_TERMINAL_LIMITS = {
   frameTransfers: 3,
 } as const
 export interface NativeTerminalStatus {
+  readonly ioAppliedSequence: number
+  readonly ioAppliedMutation: number
+  readonly inputFailure: number
   readonly appliedSequence: number
   readonly replySequence: number
   readonly queuedReplyBytes: number
@@ -60,6 +68,7 @@ export interface NativeTerminalFrameResource {
   }[]
 }
 export interface NativeTerminalFrameInfo {
+  readonly snapshotMutation: number
   readonly streamSequence: number
   readonly geometrySerial: number
   readonly kind: number
@@ -111,6 +120,13 @@ export type NativeTerminalCommand =
   | { kind: 'create'; width: number; height: number }
   | { kind: 'feed'; state: string; sequence: number; bytes: Uint8Array }
   | {
+      kind: 'input'
+      state: string
+      input: NativeTerminalInputOperation
+      readOnly: boolean
+      keyEncodingFallback?: NativeTerminalKeyEncodingFallback
+    }
+  | {
       kind: 'resize'
       state: string
       serial: number
@@ -132,6 +148,7 @@ export type NativeTerminalCommand =
   | {
       kind:
         | 'inspect'
+        | 'producer-inspect'
         | 'read'
         | 'drain'
         | 'event'
@@ -145,11 +162,13 @@ export type NativeTerminalCommand =
   | { kind: 'release'; state: string; lease: string }
 /** Count both producer and encoder payloads in the existing physical credits. */
 export function nativeTerminalCommandBytes(command: NativeTerminalCommand): number {
-  return command.kind === 'feed'
-    ? command.bytes.byteLength
-    : command.kind === 'key'
-      ? new TextEncoder().encode(command.text).byteLength
-      : 0
+  return command.kind === 'input'
+    ? nativeTerminalInputBytes(command.input)
+    : command.kind === 'feed'
+      ? command.bytes.byteLength
+      : command.kind === 'key'
+        ? new TextEncoder().encode(command.text).byteLength
+        : 0
 }
 export interface NativeTerminalRequest {
   readonly kind: 'request'

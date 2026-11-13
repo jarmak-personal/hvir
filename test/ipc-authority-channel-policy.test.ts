@@ -120,6 +120,7 @@ it('keeps the reviewed owner and authority channel policies explicit', () => {
       'native-terminal:demand',
       'native-terminal:detach',
       'native-terminal:key',
+      'native-terminal:input',
       'pty:start',
       'sessions:observe',
       'sessions:snapshot',

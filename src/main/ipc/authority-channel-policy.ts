@@ -123,6 +123,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'native-terminal:demand',
   'native-terminal:detach',
   'native-terminal:key',
+  'native-terminal:input',
   'pty:start',
 ] as const satisfies readonly IpcInvokeChannel[]
 
