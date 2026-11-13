@@ -111,13 +111,14 @@ jobs:
           }
           assert(proof.mainBeats > 0 && proof.rendererBeats > 0);
           assert.equal(proof.responsivenessExcludesFaultPhases, true);
+          assert.equal(proof.controlledCapacityQualified, false);
           assert.deepEqual(proof.responsivenessPolicy, {
-            p99ExclusiveMs: 100, maximumInclusiveMs: 500, minimumSamplesPerLoop: 2,
+            maximumInclusiveMs: 500, minimumSamplesPerLoop: 2,
           });
           assert.deepEqual(proof.responsiveness.map(value => value.phase), ['native', 'transfer']);
           for (const phase of proof.responsiveness) for (const loop of [phase.main, phase.renderer]) {
             assert(Number.isInteger(loop.samples) && loop.samples >= 2);
-            assert(Number.isFinite(loop.p99Ms) && loop.p99Ms >= 0 && loop.p99Ms < 100);
+            assert(Number.isFinite(loop.p99Ms) && loop.p99Ms >= 0);
             assert(Number.isFinite(loop.maxMs) && loop.maxMs >= loop.p99Ms && loop.maxMs <= 500);
           }
           assert.equal(proof.mainImportMaximumInclusiveMs, 500);

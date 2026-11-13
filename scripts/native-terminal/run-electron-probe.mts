@@ -188,6 +188,8 @@ export async function runNativeElectronProbe(
     const stdout: Buffer[] = []
     let bytes = 0
     let settled = false
+    let fatal = false
+    let stderrTail = ''
     const fail = (error: Error): void => {
       if (settled) return
       settled = true
@@ -204,6 +206,11 @@ export async function runNativeElectronProbe(
         fail(new Error('native-electron-probe: output bound exceeded'))
         return
       }
+      if (!retain) {
+        const diagnostic = stderrTail + data.toString('utf8')
+        fatal ||= diagnostic.includes('native-probe:uncaught')
+        stderrTail = diagnostic.slice(-32)
+      }
       output.write(data)
       if (retain) stdout.push(data)
     }
@@ -219,7 +226,7 @@ export async function runNativeElectronProbe(
     })
     child.once('close', (code, signal) => {
       if (settled) return
-      if (code !== 0 || signal) {
+      if (code !== 0 || signal || fatal) {
         fail(new Error('native-electron-probe: unsuccessful exit'))
         return
       }

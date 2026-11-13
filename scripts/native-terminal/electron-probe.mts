@@ -1,5 +1,6 @@
 /** Standalone actual utility/Ghostty/OS-right/Electron proof, outside production sessions. */
 import assert from 'node:assert/strict'
+import { writeSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, sharedTexture } from 'electron'
 import { localPath } from '../../src/shared/host-path'
@@ -20,6 +21,23 @@ if (!library) throw new Error('native-probe requires --library=ABSOLUTE_TRUSTED_
 let window: BrowserWindow | undefined
 let processPort: NativeTerminalProcess | undefined
 let host: NativeTerminalHost | undefined
+let uncaughtFailure = false
+process.on('uncaughtExceptionMonitor', (error, origin) => {
+  uncaughtFailure = true
+  process.exitCode = 1
+  try {
+    writeSync(
+      2,
+      `native-probe:uncaught ${JSON.stringify({
+        origin,
+        name: error.name,
+        stack: error.stack?.slice(0, 8192),
+      })}\n`,
+    )
+  } catch {
+    /* Preserve Electron's ordinary exception handler. */
+  }
+})
 app.on('will-quit', () => phase('will-quit'))
 app.on('quit', (_event, code) => phase(`quit code=${code}`))
 app.on('window-all-closed', () => {
@@ -64,6 +82,8 @@ void app
       },
     })
     const target = window
+    const contents = target.webContents
+    const viewIsLive = (): boolean => !target.isDestroyed() && !contents.isDestroyed()
     const received: {
       bytes: number
       hash: number
@@ -84,7 +104,7 @@ void app
     ipcMain.on(
       'native-probe-ready',
       (event, value: { sandboxed: boolean; contextIsolated: boolean }) => {
-        if (event.sender === target.webContents) {
+        if (viewIsLive() && event.sender === contents) {
           assert.equal(value.sandboxed, true)
           assert.equal(value.contextIsolated, true)
           receiverSandboxed = value.sandboxed
@@ -97,7 +117,7 @@ void app
     ipcMain.on(
       'native-probe-heartbeat',
       (event, value: { phase?: number; gapMs: number }) => {
-        if (event.sender !== target.webContents) return
+        if (!viewIsLive() || event.sender !== contents) return
         rendererBeats++
         const phase = phases.find((entry) => entry.id === value.phase)
         if (phase) {
@@ -124,14 +144,14 @@ void app
       if (next) phases.push(next)
       const acknowledged = new Promise<void>((resolve) => {
         const done = (event: Electron.IpcMainEvent, value: { id: number }): void => {
-          if (event.sender === target.webContents && value.id === id) {
+          if (viewIsLive() && event.sender === contents && value.id === id) {
             ipcMain.removeListener('native-probe-phase-ready', done)
             resolve()
           }
         }
         ipcMain.on('native-probe-phase-ready', done)
       })
-      target.webContents.send('native-probe-phase', { id, name })
+      contents.send('native-probe-phase', { id, name })
       await acknowledged
       measuring = next
       lastMainBeat = performance.now()
@@ -151,10 +171,11 @@ void app
           cloneClosedBeforeReply: true
         },
       ) => {
-        if (event.sender === target.webContents) received.push(value)
+        if (viewIsLive() && event.sender === contents) received.push(value)
       },
     )
-    ipcMain.on('native-probe-failure', () => {
+    ipcMain.on('native-probe-failure', (event) => {
+      if (!viewIsLive() || event.sender !== contents) return
       throw new Error('native-probe-renderer-readback')
     })
     await target.loadURL(
@@ -167,7 +188,7 @@ void app
     const session = (id: string): NativeTerminalSession => ({
       sessionId: id,
       instanceId: `pty-${id}`,
-      ownerId: target.webContents.id,
+      ownerId: contents.id,
       ownerGeneration: 1,
       workspaceRoot: localPath('/native-probe'),
     })
@@ -176,10 +197,10 @@ void app
     const authority: NativeTerminalAuthority = {
       resolve: (id) => sessions.get(id),
       isRendererCurrent: (id, generation) =>
-        id === target.webContents.id &&
+        viewIsLive() &&
+        id === contents.id &&
         generation === rendererGeneration &&
-        !target.isDestroyed() &&
-        !target.webContents.isCrashed(),
+        !contents.isCrashed(),
     }
     host = new NativeTerminalHost(processPort, authority)
     const first = session('first'),
@@ -257,7 +278,7 @@ void app
       const readback = Buffer.from(await host.read(a, first.ownerId, 1)).toString('utf8')
       assert(readback.includes('NATIVE GHOSTTY BOUNDARY'))
       const imported = await textures.acquire(frame, {
-        frame: target.webContents.mainFrame,
+        frame: contents.mainFrame,
         ready: true,
         isCurrent: () => !target.isDestroyed(),
       })
@@ -299,7 +320,7 @@ void app
         measuredTextures,
       )
       const held = await importer.acquire(source, {
-        frame: target.webContents.mainFrame,
+        frame: contents.mainFrame,
         ready: true,
         isCurrent: () => !target.isDestroyed(),
       })
@@ -316,13 +337,13 @@ void app
           resolve(value),
         ),
       )
-      target.webContents.send('native-probe-check-held')
+      contents.send('native-probe-check-held')
       assert(
         (await checked).redPixels > 100,
         'receiver retains real pixels after producer death',
       )
       const beforeRelease = releasedReceipts
-      target.webContents.send('native-probe-release-held')
+      contents.send('native-probe-release-held')
       await held.released
       assert.equal(
         processPort.hasExited(processPort.epoch),
@@ -373,7 +394,7 @@ void app
         measuredTextures,
       )
       const retained = await importer.acquire(consumerSource, {
-        frame: target.webContents.mainFrame,
+        frame: contents.mainFrame,
         ready: true,
         isCurrent: () => !target.isDestroyed(),
       })
@@ -381,10 +402,10 @@ void app
       await retained.send()
       await until(() => received.length > prior)
       const crashed = new Promise<void>((resolve) =>
-        target.webContents.once('render-process-gone', () => resolve()),
+        contents.once('render-process-gone', () => resolve()),
       )
       phase('consumer-crash')
-      target.webContents.forcefullyCrashRenderer()
+      contents.forcefullyCrashRenderer()
       await crashed
       await retained.released
       // A fresh renderer reattaches to the same immutable parser; no PTY restart.
@@ -392,7 +413,7 @@ void app
       const renewed = { ...first, ownerGeneration: rendererGeneration }
       sessions.set(first.sessionId, renewed)
       const priorReady = readyCount
-      await target.webContents.loadURL(
+      await contents.loadURL(
         'data:text/html,<meta http-equiv="Content-Security-Policy" content="default-src %27none%27; worker-src blob:">',
       )
       await until(() => readyCount > priorReady)
@@ -408,7 +429,7 @@ void app
       await recovered.release()
       consumerDeathHeld = 'passed-real-renderer-crash-and-source-pool-recovery'
       const delayed = await completedFrame(host, d, renewed, renewedAttachment, 2)
-      const receiverFrame = target.webContents.mainFrame
+      const receiverFrame = contents.mainFrame
       const observedSource: NativeTerminalAcquiredFrame = {
         ...delayed,
         retire: async () => {
@@ -423,7 +444,7 @@ void app
         },
       }
       const held = await importer.acquire(observedSource, {
-        frame: target.webContents.mainFrame,
+        frame: contents.mainFrame,
         ready: true,
         isCurrent: () => !target.isDestroyed(),
       })
@@ -432,7 +453,7 @@ void app
       const blocking = new Promise<void>((resolve) =>
         ipcMain.once('native-probe-block-started', () => resolve()),
       )
-      target.webContents.send('native-probe-block')
+      contents.send('native-probe-block')
       await blocking
       await assert.rejects(held.send())
       let physicallyReleased = false
@@ -491,7 +512,6 @@ void app
     for (const phase of responsiveness)
       for (const loop of [phase.main, phase.renderer]) {
         assert(loop.samples >= 2)
-        assert(loop.p99Ms < budgets.responsivenessP99Ms, 'native-probe-heartbeat-p99')
         assert(
           loop.maxMs <= budgets.responsivenessMaxMs,
           'native-probe-heartbeat-maximum',
@@ -501,6 +521,7 @@ void app
     if (kind === 1 || kind === 2) assert(importTimes.length > 0)
     assert(importTimes.every((value) => Number.isFinite(value) && value >= 0))
     assert(importMaxMs <= budgets.responsivenessMaxMs, 'native-probe-main-import-maximum')
+    assert.equal(uncaughtFailure, false, 'native-probe-uncaught-failure')
     phase('receipt-flush')
     const receipt = JSON.stringify({
       nativeUtilityBoundary: 'passed',
@@ -532,13 +553,13 @@ void app
       importTimesMs: importTimes,
       responsiveness,
       responsivenessPolicy: {
-        p99ExclusiveMs: budgets.responsivenessP99Ms,
         maximumInclusiveMs: budgets.responsivenessMaxMs,
         minimumSamplesPerLoop: 2,
       },
       mainImportMaxMs: importMaxMs,
       mainImportMaximumInclusiveMs: budgets.responsivenessMaxMs,
       responsivenessExcludesFaultPhases: true,
+      controlledCapacityQualified: false,
       frames: received,
     })
     await new Promise<void>((resolve, reject) => {

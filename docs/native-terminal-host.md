@@ -102,8 +102,11 @@ It measures main heartbeat gaps at a nominal 5 ms and renderer gaps at 10 ms,
 using each loop's own monotonic clock. Acknowledged `native` and `transfer` phases
 cover initialization, concurrent parser/render work, resource transfer and the
 first real import/readback. Each phase requires at least two gaps from each loop.
-Nearest-rank p99 must be **less than 100 ms**, and every gap must be **at most
-500 ms**, reusing `CAPACITY_PERFORMANCE_BUDGETS` from the existing capacity owner.
+Every gap must be **at most 500 ms**, reusing the existing absolute responsiveness
+maximum. Nearest-rank p99 and sample counts remain reported. The controlled
+full-workbench capacity gate retains its **p99 less than 100 ms** requirement in
+M15; this standalone hosted M4 probe does not qualify that controlled performance
+budget and reports `controlledCapacityQualified: false`.
 Phase termination also records the final partial interval so a stall at the end
 cannot disappear from the evidence. Deliberate producer/renderer crash, reload,
 and the injected renderer stall are outside these measurement phases.

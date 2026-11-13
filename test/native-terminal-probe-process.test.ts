@@ -30,6 +30,7 @@ if (config.mode === 'hang' || config.mode === 'orphan') {
 } else if (config.mode === 'missing') process.exit(0);
 else if (config.mode === 'wrong-pid') { proof.mainPid++; console.log(JSON.stringify(proof)); }
 else if (config.mode === 'bad-sandbox') { proof.receiverSandboxed = false; console.log(JSON.stringify(proof)); }
+else if (config.mode === 'uncaught') { console.error('native-probe:uncaught {}'); console.log(JSON.stringify(proof)); }
 else if (config.mode === 'nonzero') { console.log(JSON.stringify(proof)); process.exitCode = 2; }
 else { console.log(JSON.stringify(proof)); if (config.mode === 'duplicate') console.log(JSON.stringify(proof)); }
 `,
@@ -201,7 +202,7 @@ try {
     expect(proof).toMatchObject({ nativeUtilityBoundary: 'passed', realGhostty: true })
     expect(proof.mainPid).not.toBe(process.pid)
   })
-  it.each(['missing', 'duplicate', 'wrong-pid', 'bad-sandbox', 'nonzero'])(
+  it.each(['missing', 'duplicate', 'wrong-pid', 'bad-sandbox', 'nonzero', 'uncaught'])(
     'refuses %s proof',
     async (mode) => {
       const files = await fixture(mode)
