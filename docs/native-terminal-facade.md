@@ -83,7 +83,11 @@ cannot label an older image with a newer sequence. Its resource record is proces
 planes, or owned compatibility pixels. Modifier is a full uint64; Linux plane allocation
 sizes come from the descriptor's size query, not a tiled-layout guess. Color space,
 orientation and premultiplication remain explicit. The receiving resource adapter must
-validate/map these properties before using Electron's import API.
+validate/map these properties before using Electron's import API. DMA-BUF export requires
+both per-display `EGL_MESA_image_dma_buf_export` advertisement and both loaded export
+procedures: a resolved EGL entrypoint alone does not establish driver support. Missing
+export capability reaches upstream's owned-pixel fallback; advertised, usable export
+remains available for the hardware path.
 
 One outstanding resource quiesces future drawing while parser and renderer control
 mailboxes continue processing. Metal completion runs synchronously on the native render

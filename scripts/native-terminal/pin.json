@@ -38,7 +38,7 @@
     },
     {
       "file": "patches/0002-external-engine.patch.txt",
-      "sha256": "0bb98b22f562b0cd33cf2e43cf80d3719bf275174a5702605477ec9824adb15d",
+      "sha256": "6b15720fda2658add5fcaab8fe2a71e5c58abd7ff85e19f1ff74ff8065d39070",
       "purpose": "Generic external transport without Exec/PTY; same-state feed/encoding/geometry/metadata hooks, windowless Metal/EGL surfaces and immutable completed-resource quiescence. Hvir admission, identities, queues and resource ownership remain maintained C."
     }
   ],

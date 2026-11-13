@@ -1,3 +1,74 @@
+--- a/pkg/opengl/egl.zig
++++ b/pkg/opengl/egl.zig
+@@ -22,6 +22,7 @@
+ }
+ 
+ pub const Error = error{
++    UnsupportedExtension,
+     NotInitialized,
+     BadAccess,
+     BadAlloc,
+@@ -90,6 +91,26 @@
+     return false;
+ }
+ 
++/// A resolved EGL procedure can exist even when a display's driver does not
++/// implement it. Both the per-display advertisement and procedures are required.
++pub fn dmabufExportSupported(extensions: ?[]const u8, query: bool, image: bool) bool {
++    return query and image and hasExtension(extensions orelse return false, "EGL_MESA_image_dma_buf_export");
++}
++
++test "DMA-BUF export requires display advertisement and both procedures" {
++    const expect = std.testing.expect;
++    const extension = "EGL_MESA_image_dma_buf_export";
++    try expect(dmabufExportSupported(extension, true, true));
++    try expect(dmabufExportSupported("EGL_EXT_other EGL_MESA_image_dma_buf_export EGL_EXT_next", true, true));
++    try expect(!dmabufExportSupported(null, true, true));
++    try expect(!dmabufExportSupported("", true, true));
++    try expect(!dmabufExportSupported("EGL_MESA_image_dma_buf_export_suffix", true, true));
++    try expect(!dmabufExportSupported("prefix_EGL_MESA_image_dma_buf_export", true, true));
++    try expect(!dmabufExportSupported(extension, false, true));
++    try expect(!dmabufExportSupported(extension, true, false));
++    try expect(!dmabufExportSupported(extension, false, false));
++}
++
+ pub const Display = opaque {
+     pub fn initPlatform(
+         platform: c.EGLenum,
+@@ -119,7 +140,16 @@
+         extensions = c.EGL_EXTENSIONS,
+     };
+     pub fn queryString(self: *Display, name: StringQuery) ?[:0]const u8 {
+-        return std.mem.span(c.eglQueryString(self, @backingInt(name)));
++        const value = c.eglQueryString(self, @backingInt(name)) orelse return null;
++        return std.mem.span(value);
++    }
++
++    pub fn supportsDmabufExport(self: *Display) bool {
++        return dmabufExportSupported(
++            self.queryString(.extensions),
++            c.glad_eglExportDMABUFImageQueryMESA != null,
++            c.glad_eglExportDMABUFImageMESA != null,
++        );
+     }
+ 
+     /// Make the EGL context current on the calling thread and (re)load
+@@ -235,6 +265,7 @@
+     }
+ 
+     pub fn exportDmabufQuery(self: *Image, display: *Display) Error!DmabufQuery {
++        if (!display.supportsDmabufExport()) return error.UnsupportedExtension;
+         var query: DmabufQuery = undefined;
+         if (c.eglExportDMABUFImageQueryMESA(
+             display,
+@@ -254,6 +285,7 @@
+         strides: []c_int,
+         offsets: []c_int,
+     ) Error!void {
++        if (!display.supportsDmabufExport()) return error.UnsupportedExtension;
+         if (c.eglExportDMABUFImageMESA(
+             display,
+             self,
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -662,43 +662,50 @@
@@ -606,6 +677,29 @@
          self.renderer.pushFrame(frame);
  
          // Notify the surface that it should redraw
+--- a/src/renderer/opengl/Target.zig
++++ b/src/renderer/opengl/Target.zig
+@@ -150,6 +150,10 @@
+     display: *egl.Display,
+     context: *egl.Context,
+ ) !Dmabuf {
++    // EGL procedure lookup alone does not establish driver support. Avoid all
++    // export preparation on displays that do not advertise the extension.
++    if (!display.supportsDmabufExport()) return error.UnsupportedExtension;
++
+     // We disable GL_FRAMEBUFFER_SRGB while doing this blit, otherwise
+     // the values may be linearized as they're copied, but even though
+     // the draw framebuffer has a linear internal format, the values in
+--- a/src/termio.zig
++++ b/src/termio.zig
+@@ -23,6 +23,7 @@
+ pub const backend = @import("termio/backend.zig");
+ pub const mailbox = @import("termio/mailbox.zig");
+ pub const Exec = @import("termio/Exec.zig");
++pub const External = @import("termio/External.zig");
+ pub const Options = @import("termio/Options.zig");
+ pub const Termio = @import("termio/Termio.zig");
+ pub const Thread = @import("termio/Thread.zig");
 --- /dev/null
 +++ b/src/termio/External.zig
 @@ -0,0 +1,116 @@
@@ -1022,13 +1116,3 @@
          const kitty_clipboard = terminal.kitty.clipboard;
  
          // Decode and validate the metadata. Malformed structure drops
---- a/src/termio.zig
-+++ b/src/termio.zig
-@@ -23,6 +23,7 @@
- pub const backend = @import("termio/backend.zig");
- pub const mailbox = @import("termio/mailbox.zig");
- pub const Exec = @import("termio/Exec.zig");
-+pub const External = @import("termio/External.zig");
- pub const Options = @import("termio/Options.zig");
- pub const Termio = @import("termio/Termio.zig");
- pub const Thread = @import("termio/Thread.zig");
