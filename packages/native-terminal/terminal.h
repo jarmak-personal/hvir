@@ -2,6 +2,7 @@
 #define HVIR_NATIVE_TERMINAL_H
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 /* Blocking native operations belong to one designated caller thread, never a UI loop.
  * Callback queues have an independent lock. Encoded input and replies are raw bytes. */
 typedef struct hvir_terminal_host hvir_terminal_host;
@@ -22,6 +23,14 @@ typedef enum {
 #define HVIR_TERMINAL_REPLY_MAX 65536u
 #define HVIR_TERMINAL_TEXT_MAX 1048576u
 #define HVIR_TERMINAL_PIXEL_MAX 16777216u
+#define HVIR_TERMINAL_INFO_MAX 256u
+typedef struct {
+  bool available;
+  char gl_vendor[HVIR_TERMINAL_INFO_MAX], gl_renderer[HVIR_TERMINAL_INFO_MAX];
+  char gl_version[HVIR_TERMINAL_INFO_MAX], egl_vendor[HVIR_TERMINAL_INFO_MAX];
+  char egl_version[HVIR_TERMINAL_INFO_MAX], render_node[HVIR_TERMINAL_INFO_MAX];
+  uint64_t pixel_frames, dma_buf_frames;
+} hvir_terminal_renderer_info;
 typedef struct {
   uint32_t kind;
   size_t length;
@@ -60,6 +69,14 @@ typedef struct {
  * is process-local, borrowed, configured before any surface, and outlives the host. */
 hvir_terminal_result hvir_terminal_open(const char *library, void *display,
                                         hvir_terminal_host **out);
+/* Linux-owned explicit display; NULL node retains the default surfaceless path.
+ * mode0 prefers native export; mode1 starts pixels before the first frame. */
+hvir_terminal_result hvir_terminal_open_linux(const char *library, const char *render_node,
+                                              uint32_t mode, hvir_terminal_host **out);
+hvir_terminal_result hvir_terminal_presentation_mode(hvir_terminal_host *, hvir_terminal_id,
+                                                     uint32_t mode);
+hvir_terminal_result hvir_terminal_renderer_info_get(hvir_terminal_host *, hvir_terminal_id,
+                                                     hvir_terminal_renderer_info *out);
 /* Starts construction and initial geometry without waiting for its acknowledgement.
  * The caller owns the returned state immediately and polls inspect before PTY spawn. */
 hvir_terminal_result hvir_terminal_create_begin(hvir_terminal_host *, uint32_t width,
@@ -91,8 +108,8 @@ hvir_terminal_result hvir_terminal_key(hvir_terminal_host *, hvir_terminal_id, u
                                        uint8_t *, size_t capacity, size_t *written);
 hvir_terminal_result hvir_terminal_take_frame(hvir_terminal_host *, hvir_terminal_id,
                                               hvir_terminal_frame *);
-/* Explicit compatibility readback of one held completed IOSurface, on the designated
- * caller thread. Packed BGRA rows; preserves lease and source color/alpha/origin.
+/* Explicit compatibility copy of one held IOSurface or owned Linux pixel frame.
+ * Packed BGRA rows; preserves lease and source color/alpha/origin.
  * Never performed by ordinary frame acquisition or release. */
 hvir_terminal_result hvir_terminal_copy_frame(hvir_terminal_host *, hvir_terminal_id,
                                               uint64_t lease, uint8_t *out, size_t capacity,

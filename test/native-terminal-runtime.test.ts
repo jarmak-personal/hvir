@@ -5,12 +5,12 @@ import { runNativeTerminalHost } from '../src/workers/native-terminal-runtime'
 import type { NativeTerminalHostMessage } from '../src/shared/native-terminal'
 
 const mocks = vi.hoisted(() => ({
-  spawn: vi.fn<() => unknown>(),
+  spawn: vi.fn<(...args: unknown[]) => unknown>(),
   sendFrame: vi.fn<(...args: unknown[]) => Promise<void>>(),
 }))
 vi.mock('node:worker_threads', () => ({
-  Worker: function () {
-    return mocks.spawn()
+  Worker: function (...args: unknown[]) {
+    return mocks.spawn(...args)
   },
 }))
 vi.mock('@hvir/native-terminal/resource', () => ({
@@ -140,6 +140,89 @@ afterEach(async () => {
 })
 
 describe('native utility owner', () => {
+  it('forwards validated Linux initialization before any engine work', () => {
+    const linux = {
+      device: { kind: 'default' as const },
+      presentationMode: 'pixels' as const,
+    }
+    runNativeTerminalHost(new Port(), {
+      epoch: 'other',
+      library: '/trusted/libghostty',
+      mainPid: 456,
+      resourceAddress: '/private/resource',
+      linux,
+    })
+    expect(mocks.spawn).toHaveBeenLastCalledWith(
+      expect.stringMatching(/\/native-terminal-engine\.js$/),
+      { workerData: { library: '/trusted/libghostty', linux } },
+    )
+    const count = mocks.spawn.mock.calls.length
+    expect(() =>
+      runNativeTerminalHost(new Port(), {
+        epoch: 'invalid',
+        library: '/trusted/libghostty',
+        mainPid: 456,
+        resourceAddress: '/private/resource',
+        linux: { ...linux, eglDisplay: 7 } as unknown as typeof linux,
+      }),
+    ).toThrow('native-linux-config-invalid')
+    expect(mocks.spawn).toHaveBeenCalledTimes(count)
+  })
+  it('uses the existing single caller for mode requests and safe renderer information', async () => {
+    await create()
+    port.send(2, { kind: 'presentation-mode', state: '7', mode: 'pixels' })
+    expect(last()).toMatchObject({
+      operation: 'presentation-mode',
+      args: ['7', 'pixels'],
+    })
+    await complete({ result: 0 })
+    expect(port.result(2)).toMatchObject({ ok: true, value: { result: 0 } })
+    port.send(3, { kind: 'renderer-info', state: '7' })
+    await complete({
+      result: 0,
+      info: { available: true, pixelFrames: 2n, dmaBufFrames: 3n },
+    })
+    expect(port.result(3)).toMatchObject({
+      ok: true,
+      value: { available: true, pixelFrames: 2, dmaBufFrames: 3 },
+    })
+    expect(mocks.sendFrame).not.toHaveBeenCalled()
+  })
+  it('reports exact modifier/plane facts without passing process-local descriptors to main', async () => {
+    await create()
+    port.send(2, { kind: 'frame', state: '7', ticket: 'ticket' })
+    await complete({
+      result: 0,
+      frame: {
+        ...frame(),
+        kind: 2,
+        fourcc: 0x34324241,
+        modifier: 0x123456789abcdef0n,
+        planeCount: 1,
+        planes: [{ fd: 9, stride: 3200, offset: 0, size: 1920000n }],
+        surface: undefined,
+      },
+    })
+    expect(port.result(2)).toMatchObject({
+      ok: true,
+      value: {
+        resource: {
+          fourcc: 0x34324241,
+          modifier: '1311768467463790320',
+          planes: [{ stride: 3200, offset: 0, size: 1920000 }],
+        },
+      },
+    })
+    expect(JSON.stringify(port.result(2))).not.toContain('"fd"')
+    expect(JSON.stringify(port.result(2))).not.toContain('"surface"')
+  })
+  it('refuses unknown mode control before the engine boundary', () => {
+    expect(() =>
+      port.send(1, { kind: 'presentation-mode', state: '7', mode: 'gpu' }),
+    ).toThrow(UtilityExit)
+    expect(engine.calls).toEqual([])
+  })
+
   it('rejects parent work before the engine is ready', () => {
     const unreadyEngine = new Engine()
     const unreadyPort = new Port()

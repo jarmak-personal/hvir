@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import { writeSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, sharedTexture } from 'electron'
+import { nativeTerminalDiagnostics } from '../../src/main/terminal/native-terminal-diagnostics'
 import { localPath } from '../../src/shared/host-path'
+import { nativeTerminalLinuxOptionsFromEnvironment } from '../../src/shared/native-terminal-linux'
 import type {
   NativeTerminalSession,
   NativeTerminalStatus,
@@ -18,10 +20,17 @@ import { RendererResourceScopes } from '../../src/main/renderer-resource-scopes'
 import { registerNativeTerminalPresentationIpc } from '../../src/main/ipc/features/native-terminal-presentation'
 
 const library = process.argv.find((a) => a.startsWith('--library='))?.slice(10)
-if (!library || process.platform !== 'darwin')
-  throw new Error('presenter-probe requires macOS and --library')
+if (!library || !['darwin', 'linux'].includes(process.platform))
+  throw new Error('presenter-probe requires macOS/Linux and --library')
 const compatibility = process.argv.includes('--compatibility')
-if (compatibility) app.disableHardwareAcceleration()
+if (compatibility && process.platform === 'darwin') app.disableHardwareAcceleration()
+const linuxOptions =
+  process.platform === 'linux'
+    ? {
+        ...nativeTerminalLinuxOptionsFromEnvironment(process.env),
+        ...(compatibility ? { presentationMode: 'pixels' as const } : {}),
+      }
+    : undefined
 let window: BrowserWindow | undefined
 let host: NativeTerminalHost | undefined
 let targets: NativeTerminalPresentationTargets | undefined
@@ -44,7 +53,12 @@ void app
   .whenReady()
   .then(async () => {
     timer = setTimeout(() => app.exit(1), 60000)
-    const processPort = new NativeTerminalProcess(library, __dirname)
+    const processPort = new NativeTerminalProcess(
+      library,
+      __dirname,
+      undefined,
+      linuxOptions,
+    )
     phase('create-window')
     const sessions = new Map<string, NativeTerminalSession>()
     const session = (id: string): NativeTerminalSession => ({
@@ -109,7 +123,11 @@ void app
       recordIpcContractDiagnostic: () => undefined,
     })
     registerNativeTerminalPresentationIpc(router, targets)
-    const presenter = new NativeTerminalPresenter(host, imports)
+    const presenter = new NativeTerminalPresenter(
+      host,
+      imports,
+      linuxOptions?.presentationMode,
+    )
     phase('prepare')
     const firstHandle = await host.prepare(first, 320, 192)
     const secondHandle = await host.prepare(second, 320, 192)
@@ -307,9 +325,15 @@ void app
       if (colorMaximumDifference > 4)
         await new Promise((resolve) => setTimeout(resolve, 16))
     }
+    const presentedFrame = (await host.rendererInfo(firstHandle, first.instanceId))
+      .lastFrame
+    const pixelPresentation = (await host.inspect(firstHandle, 1, 1)).frameCopies > 0
+    if (compatibility)
+      assert(pixelPresentation, 'explicit pixels selected before first frame')
+    if (process.platform === 'darwin' && !compatibility) assert(!pixelPresentation)
     let maximumCompatibilityUploadBytes = 0
     let compatibilityBoundRefused = false
-    if (compatibility) {
+    if (pixelPresentation) {
       phase('pixel-upload-bound')
       await contents.executeJavaScript(
         "document.getElementById('first').style.width='1024px';document.getElementById('first').style.height='1024px';true",
@@ -357,18 +381,18 @@ void app
     }
     const copied = (await host.inspect(firstHandle, 1, 1)).frameCopies
     assert(
-      compatibility ? copied > 0 : copied === 0,
+      pixelPresentation ? copied > 0 : copied === 0,
       'copy count distinguishes compatibility',
     )
     const statuses = (await contents.executeJavaScript(
       'window.nativeStatuses.map(s=>s.mode)',
     )) as string[]
-    assert(statuses.includes(compatibility ? 'native-pixels' : 'native-gpu'))
+    assert(statuses.includes(pixelPresentation ? 'native-pixels' : 'native-gpu'))
     let contextLossReported = false
     let contextLossNativeOccluded = false,
       occludedCompletedFrames = 0,
       occludedFeeds = 0
-    if (!compatibility) {
+    if (!pixelPresentation) {
       phase('context-loss')
       const triggered: unknown = await contents.executeJavaScript(
         `(()=>{const canvas=document.querySelector('#first canvas'),gl=canvas?.getContext('webgl2'),extension=gl?.getExtension('WEBGL_lose_context');if(!extension)return false;extension.loseContext();return true})()`,
@@ -459,6 +483,17 @@ void app
       responsiveness.main.maxMs <= 500 && responsiveness.renderer.maxMs <= 500,
       'presenter-heartbeat-maximum',
     )
+    const nativeRenderer = await host.rendererInfo(firstHandle, first.instanceId)
+    if (process.platform === 'linux') {
+      assert(nativeRenderer.available, 'actual native GL diagnostics available')
+      assert(
+        pixelPresentation
+          ? nativeRenderer.pixelFrames > 0
+          : nativeRenderer.pixelFrames === 0,
+        'native export counters distinguish GPU from readback',
+      )
+    }
+    const stack = await nativeTerminalDiagnostics(app, process.env)
     clearInterval(beat)
     assert(samples > 1 && mainMaxGapMs <= 500)
     await presenter.detach(view)
@@ -487,9 +522,21 @@ void app
           receiverSandboxed: true,
           receiverContextIsolated: true,
           hardwareGpuQualified: false,
+          stack,
+          nativeRenderer: { ...nativeRenderer, lastFrame: presentedFrame },
+          producerCompletion:
+            process.platform === 'linux'
+              ? 'gl-finish-before-export'
+              : 'metal-command-buffer-completed',
+          nativePixelFrames: nativeRenderer.pixelFrames,
           orientationQualified: true,
-          mode: compatibility ? 'native-pixels' : 'native-gpu',
-          routineGpuReadbacks: compatibility ? null : copied,
+          requestedPresentation:
+            compatibility || linuxOptions?.presentationMode === 'pixels'
+              ? 'pixels'
+              : 'auto',
+          selectedDevice: linuxOptions?.device ?? null,
+          mode: pixelPresentation ? 'native-pixels' : 'native-gpu',
+          routineGpuReadbacks: pixelPresentation ? null : copied,
           frameCopies: copied,
           contextLossReported,
           contextLossNativeOccluded,

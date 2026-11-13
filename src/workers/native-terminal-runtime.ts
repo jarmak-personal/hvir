@@ -14,6 +14,10 @@ import {
 } from '../shared/native-terminal'
 import { NativeTerminalJobs } from './native-terminal-jobs'
 import {
+  validNativeTerminalExportMode,
+  validNativeTerminalLinuxOptions,
+} from '../shared/native-terminal-linux'
+import {
   validNativeTerminalScale,
   NATIVE_TERMINAL_PRESENTATION,
 } from '../shared/native-terminal-presentation'
@@ -30,14 +34,20 @@ interface NativeResult {
   data?: Uint8Array
   event?: unknown
   stride?: number
+  info?: unknown
 }
 /** Process-local engine jobs and OS resources never cross the parent port. */
 export function runNativeTerminalHost(
   port: ParentPort,
   options: NativeTerminalWorkerOptions,
 ): void {
+  if (options.linux !== undefined && !validNativeTerminalLinuxOptions(options.linux))
+    throw new Error('native-linux-config-invalid')
   const worker = new Worker(join(__dirname, 'native-terminal-engine.js'), {
-    workerData: { library: options.library },
+    workerData: {
+      library: options.library,
+      ...(options.linux ? { linux: options.linux } : {}),
+    },
   })
   const jobs = new NativeTerminalJobs()
   const requests = new Map<number, { cancelled: boolean }>()
@@ -170,6 +180,8 @@ export function runNativeTerminalHost(
         ).data
       case 'visibility':
         return requireOk(await invoke(state, 'visibility', [state, command.visible]))
+      case 'presentation-mode':
+        return requireOk(await invoke(state, 'presentation-mode', [state, command.mode]))
       case 'pixels': {
         const frame = frames.get(state)
         if (!frame || frame.lease.toString() !== command.lease)
@@ -188,6 +200,8 @@ export function runNativeTerminalHost(
       }
       case 'inspect':
         return plain(requireOk(await invoke(state, 'inspect', [state])).status)
+      case 'renderer-info':
+        return plain(requireOk(await invoke(state, 'renderer-info', [state])).info)
       case 'read':
       case 'drain':
         return requireOk(await invoke(state, command.kind, [state])).data
@@ -220,6 +234,15 @@ export function runNativeTerminalHost(
           colorSpace: frame.colorSpace,
           origin: frame.origin,
           premultiplied: frame.premultiplied,
+          resource: {
+            fourcc: frame.fourcc,
+            modifier: frame.modifier.toString(),
+            planes: frame.planes.map(({ stride, offset, size }) => ({
+              stride,
+              offset,
+              size,
+            })),
+          },
         })
       }
       case 'transfer': {
@@ -345,6 +368,8 @@ function validCommand(value: NativeTerminalCommand): boolean {
       return validNativeTerminalKeyInput(value)
     case 'visibility':
       return typeof value.visible === 'boolean'
+    case 'presentation-mode':
+      return validNativeTerminalExportMode(value.mode)
     case 'feed':
       return (
         value.bytes instanceof Uint8Array &&
@@ -359,6 +384,7 @@ function validCommand(value: NativeTerminalCommand): boolean {
     case 'drain':
     case 'event':
     case 'discard-events':
+    case 'renderer-info':
     case 'destroy':
       return true
     case 'frame':

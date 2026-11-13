@@ -1,4 +1,6 @@
-import type { BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
+import { nativeTerminalLinuxOptionsFromEnvironment } from '../../shared/native-terminal-linux'
+import { nativeTerminalDiagnostics } from '../terminal/native-terminal-diagnostics'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import {
   createNativeTerminalApplication,
@@ -64,6 +66,9 @@ export async function verifyNativeTerminalWorkbench(
     )) !== true
   )
     throw new Error('native-workbench-renderer-isolation')
+  await win.webContents.executeJavaScript(
+    `window.nativeQualificationModes=[];window.hvir.nativeTerminalPresentation.onStatus(value=>{window.nativeQualificationModes.push(value.mode);window.nativeQualificationModes=window.nativeQualificationModes.slice(-8)});true`,
+  )
   console.log('[native-workbench] launch')
   await ensureExplicitBareShellLaunch(win, ptys)
   const managed = ptys.list()[0]
@@ -132,8 +137,13 @@ export async function verifyNativeTerminalWorkbench(
   await waitFor(async () => (await text()).includes('NKEY7'))
   console.log('[native-workbench] encoded-keyboard')
   const initialGeometry = (await native.inspectRetained(managed.id, owner)).geometry
-  const bounds = win.getContentBounds()
-  win.setContentSize(Math.max(600, bounds.width - 180), bounds.height)
+  await win.webContents.executeJavaScript(`(() => {
+    const control = [...document.querySelectorAll('button[aria-label="Collapse terminal rail"],button[aria-label="Restore terminal rail"]')]
+      .find(button => button instanceof HTMLButtonElement && !button.closest('[hidden]') && button.getBoundingClientRect().width > 0);
+    if (!(control instanceof HTMLButtonElement)) throw new Error('Native pane width control missing');
+    control.click();
+    return true;
+  })()`)
   await waitFor(async () => {
     const geometry = (await native.inspectRetained(managed.id, owner)).geometry
     return (
@@ -152,6 +162,15 @@ export async function verifyNativeTerminalWorkbench(
     (await text()).includes('HVIR_NATIVE_SIZE=' + geometry.rows + ' ' + geometry.columns),
   )
   console.log('[native-workbench] resized-stty')
+  const nativeRenderer = await native.rendererInfo(managed.id, owner)
+  const linuxOptions =
+    process.platform === 'linux'
+      ? nativeTerminalLinuxOptionsFromEnvironment(process.env)
+      : undefined
+  const stack = await nativeTerminalDiagnostics(app, process.env)
+  const observedModes: unknown = await win.webContents.executeJavaScript(
+    'window.nativeQualificationModes',
+  )
   const before = await text()
   if (!before.includes('HVIR_NATIVE_WORKBENCH_READY'))
     throw new Error('native-workbench-marker')
@@ -174,6 +193,8 @@ export async function verifyNativeTerminalWorkbench(
         platform: process.platform,
         arch: process.arch,
         actualWorkbench: true,
+        sourceCommit: process.env['HVIR_SMOKE_SOURCE_COMMIT'] ?? null,
+        sourceDirty: process.env['HVIR_SMOKE_SOURCE_DIRTY'] === '1',
         rendererSandboxed: true,
         rendererContextIsolated: true,
         supervisorSpawns: 1,
@@ -183,9 +204,20 @@ export async function verifyNativeTerminalWorkbench(
         rendererCanvas: true,
         capturedAnsiRedPixels: redPixels,
         nativeEncodedKeyboard: true,
+        resizeControl: 'terminal-rail',
         resizeAcknowledgedByStty: { rows: geometry.rows, columns: geometry.columns },
         development: true,
         hardwareQualified: false,
+        stack,
+        requestedPresentation: linuxOptions?.presentationMode ?? 'auto',
+        selectedDevice: linuxOptions?.device ?? null,
+        nativeRenderer,
+        producerCompletion:
+          process.platform === 'linux'
+            ? 'gl-finish-before-export'
+            : 'metal-command-buffer-completed',
+        backingScale: geometry.backingScale,
+        observedModes,
       }),
   )
 }

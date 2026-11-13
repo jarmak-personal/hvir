@@ -14,6 +14,8 @@ import {
   type NativeTerminalSession,
 } from '../../shared/native-terminal'
 import type { NativeTerminalHost } from './native-terminal-host'
+import type { NativeTerminalExportMode } from '../../shared/native-terminal-linux'
+import { NATIVE_TERMINAL_LIMITS } from '../../shared/native-terminal'
 import {
   NativeTerminalGpuImportUnavailable,
   NativeTerminalImportQuarantined,
@@ -47,6 +49,9 @@ interface View {
   closed: boolean
   visible: boolean
   pixelMode: boolean
+  pixelsRequested: boolean
+  pixelsApplied: boolean
+  pixelDeadline?: number
   failed: boolean
   lastPixels: number
   layout?: Layout
@@ -59,7 +64,14 @@ interface View {
 }
 type PresentationHost = Pick<
   NativeTerminalHost,
-  'attach' | 'detach' | 'inspect' | 'nativeEpoch' | 'resize' | 'setVisible' | 'takeFrame'
+  | 'attach'
+  | 'detach'
+  | 'inspect'
+  | 'nativeEpoch'
+  | 'resize'
+  | 'setVisible'
+  | 'takeFrame'
+  | 'presentationMode'
 >
 
 /** One app-owned presenter shares the existing host and import limit. Renderer
@@ -73,6 +85,7 @@ export class NativeTerminalPresenter {
   constructor(
     private readonly host: PresentationHost,
     private readonly imports: Pick<NativeTerminalFrameImports, 'acquire'>,
+    private readonly linuxMode?: NativeTerminalExportMode,
   ) {}
   isInputCurrent(viewId: string): boolean {
     const view = this.views.get(viewId)
@@ -119,7 +132,9 @@ export class NativeTerminalPresenter {
         revision: 0,
         closed: false,
         visible: false,
-        pixelMode: false,
+        pixelMode: this.linuxMode === 'pixels',
+        pixelsRequested: this.linuxMode === 'pixels',
+        pixelsApplied: false,
         failed: false,
         lastPixels: -Infinity,
         abort: new AbortController(),
@@ -137,6 +152,16 @@ export class NativeTerminalPresenter {
         )
         this.assertCurrent(view)
         view.serial = status.geometry.serial
+        if (this.linuxMode && !view.failed) {
+          await this.host.presentationMode(
+            handle,
+            session.ownerId,
+            session.ownerGeneration,
+            attachment,
+            this.linuxMode,
+          )
+          this.assertCurrent(view)
+        }
         await this.host.setVisible(
           handle,
           session.ownerId,
@@ -171,6 +196,7 @@ export class NativeTerminalPresenter {
     view.serial = serial
     if (!this.isBlocked(view)) view.failed = false
     view.revision++
+    view.pixelDeadline = undefined
     view.visible = layout.visible
     view.layout = { ...layout }
     view.desired = { ...layout, serial, revision: view.revision }
@@ -211,6 +237,7 @@ export class NativeTerminalPresenter {
     const view = this.views.get(viewId)
     if (!view) return Promise.resolve()
     view.closed = true
+    view.pixelDeadline = undefined
     view.visible = false
     view.grant = undefined
     view.abort.abort()
@@ -326,6 +353,9 @@ export class NativeTerminalPresenter {
     let ownsSource = true
     try {
       this.assertGrant(view, grant)
+      if (view.pixelMode) this.assertPixelBound(grant)
+      if (view.pixelMode && !view.pixelsApplied && !view.pixelDeadline)
+        view.pixelDeadline = Date.now() + NATIVE_TERMINAL_LIMITS.requestMs
       source = await this.host.takeFrame(
         view.handle,
         view.session.ownerId,
@@ -333,7 +363,10 @@ export class NativeTerminalPresenter {
         view.attachment,
         view.abort.signal,
       )
-      if (!source) return false
+      if (!source) {
+        this.assertPixelDeadline(view)
+        return false
+      }
       this.assertGrant(view, grant)
       source.assertCurrent()
       if (
@@ -347,6 +380,10 @@ export class NativeTerminalPresenter {
         nativeTerminal: grant,
         origin: source.metadata.origin,
         colorSpace: source.metadata.colorSpace,
+      }
+      if (source.metadata.kind === 2 && view.pixelMode) {
+        this.assertPixelDeadline(view)
+        return false // The enqueued mode is not an applied-frame acknowledgement.
       }
       if (!view.pixelMode && source.metadata.kind !== 3) {
         try {
@@ -381,12 +418,22 @@ export class NativeTerminalPresenter {
           ownsSource = true
           this.assertGrant(view, grant)
           source.assertCurrent()
+          this.assertPixelBound(grant)
+          if (source.metadata.kind === 2) {
+            await this.selectPixels(view, grant)
+            return false // Release the old DMA lease before requesting a new kind3 frame.
+          }
           view.pixelMode = true
         }
       }
+      this.assertPixelBound(grant)
+      if (source.metadata.kind === 3 && !view.pixelsRequested) {
+        await this.selectPixels(view, grant)
+        return false
+      }
       view.pixelMode = true
-      if (source.metadata.width * source.metadata.height * 4 > limits.maximumPixelBytes)
-        throw new Error('native-pixel-bound')
+      view.pixelsApplied = true
+      view.pixelDeadline = undefined
       const pixels = await source.copyPixels()
       this.assertGrant(view, grant)
       source.assertCurrent()
@@ -452,6 +499,29 @@ export class NativeTerminalPresenter {
     } finally {
       if (source && ownsSource) await source.release()
     }
+  }
+  private assertPixelBound(grant: NativeTerminalViewGrant): void {
+    if (grant.width * grant.height * 4 > limits.maximumPixelBytes)
+      throw new Error('native-pixel-bound')
+  }
+  private assertPixelDeadline(view: View): void {
+    if (view.pixelDeadline && Date.now() >= view.pixelDeadline)
+      throw new Error('native-presentation-unavailable')
+  }
+  private async selectPixels(view: View, grant: NativeTerminalViewGrant): Promise<void> {
+    this.assertGrant(view, grant)
+    await this.host.presentationMode(
+      view.handle,
+      view.session.ownerId,
+      view.session.ownerGeneration,
+      view.attachment,
+      'pixels',
+    )
+    this.assertGrant(view, grant)
+    view.pixelsRequested = true
+    view.pixelsApplied = false
+    view.pixelMode = true
+    view.pixelDeadline = Date.now() + NATIVE_TERMINAL_LIMITS.requestMs
   }
   private isBlocked(view: Pick<View, 'handle' | 'epoch'>): boolean {
     return this.blockedHandles.get(view.handle)?.has(view.epoch) ?? false

@@ -82,9 +82,11 @@ static void idle_tick(ghostty_app_t app) { (void)app; }
 static bool reject_rearm(ghostty_surface_t surface) { (void)surface; return false; }
 
 static uint64_t pending_geometry;
+static hvir_ghostty_external_config observed_config;
 static ghostty_surface_t begin_native_create(ghostty_app_t app, void *display,
     const hvir_ghostty_external_config *config, uint32_t width, uint32_t height) {
   (void)app; (void)display; (void)width; (void)height;
+  observed_config = *config;
   return (ghostty_surface_t)config->userdata;
 }
 static bool pending_resize(ghostty_surface_t surface, uint32_t width, uint32_t height,
@@ -156,6 +158,10 @@ int main(void) {
           unpublished_id && host.states && host.states->geometry.serial == 0 &&
           pending_geometry == 1 && live_allocations == 1,
           "create-begin-publishes-owned-state-without-waiting-for-geometry");
+  REQUIRE(observed_config.pixel_export_limit == 16u * 1024u * 1024u &&
+          observed_config.presentation_mode == 0 && observed_config.renderer_info &&
+          observed_config.write && observed_config.applied && observed_config.frame,
+          "external-config-explicit-limit-initial-auto-and-renderer-info-hook");
   hvir_terminal_status pending_status;
   hvir_terminal_frame initializing_frame;
   REQUIRE(hvir_terminal_inspect(&host, unpublished_id, &pending_status) == HVIR_OK &&
@@ -169,6 +175,13 @@ int main(void) {
           hvir_terminal_destroy(&host, unpublished_id) == HVIR_OK &&
           !host.states && !live_allocations && descriptor_count() == baseline,
           "create-begin-acknowledges-and-cleans-the-same-owned-state");
+  host.initial_presentation_mode = 1;
+  REQUIRE(hvir_terminal_create_begin(&host, 640, 480, &unpublished_id) == HVIR_OK &&
+          observed_config.presentation_mode == 1 &&
+          observed_config.pixel_export_limit == HVIR_TERMINAL_PIXEL_MAX &&
+          hvir_terminal_destroy(&host, unpublished_id) == HVIR_OK && !live_allocations,
+          "explicit-pixels-reaches-initial-native-config-before-first-frame");
+  host.initial_presentation_mode = 0;
   state.id = 900;
   state.requested_geometry = 7;
   state.geometry.serial = 6;
@@ -293,6 +306,82 @@ int main(void) {
   clear_frame(&state);
   REQUIRE(descriptor_count() == baseline && fcntl(fd, F_GETFD) >= 0,
           "repeated-clear-has-no-descriptor-effect");
+  hvir_terminal_renderer_info native_info;
+  REQUIRE(hvir_terminal_renderer_info_get(&host, state.id, &native_info) == HVIR_OK &&
+          !native_info.available && !native_info.gl_vendor[0] && !native_info.render_node[0],
+          "no-native-gl-callback-remains-unknown-including-metal");
+  uint8_t long_vendor[1024]; memset(long_vendor, 'v', sizeof(long_vendor));
+  hvir_ghostty_renderer_info diagnostic = {
+    .gl_vendor = long_vendor, .gl_vendor_len = sizeof(long_vendor),
+    .gl_renderer = (const uint8_t *)"actual-renderer", .gl_renderer_len = 15,
+    .gl_version = (const uint8_t *)"4.3", .gl_version_len = 3,
+    .egl_vendor = NULL, .egl_vendor_len = 100,
+    .egl_version = (const uint8_t *)"1.5", .egl_version_len = 3,
+  };
+  renderer_info(&state, &diagnostic);
+  memset(long_vendor, 'x', sizeof(long_vendor));
+  REQUIRE(hvir_terminal_renderer_info_get(&host, state.id, &native_info) == HVIR_OK &&
+          native_info.available && strlen(native_info.gl_vendor) == 255 &&
+          native_info.gl_vendor[0] == 'v' && native_info.gl_vendor[254] == 'v' &&
+          !strcmp(native_info.gl_renderer, "actual-renderer") &&
+          !strcmp(native_info.gl_version, "4.3") && !native_info.egl_vendor[0] &&
+          !strcmp(native_info.egl_version, "1.5") && !native_info.render_node[0],
+          "native-render-info-copies-bounded-strings-and-preserves-unknown-fields");
+  state.closing = true;
+  renderer_info(&state, &diagnostic);
+  state.closing = false;
+  REQUIRE(state.renderer_info.gl_vendor[0] == 'v', "late-render-info-cannot-mutate-retired-state");
+  const hvir_terminal_geometry prior_geometry = state.geometry;
+  const uint64_t prior_requested = state.requested_geometry;
+  state.geometry = (hvir_terminal_geometry){.serial = 7, .width = 2, .height = 2, .backing_scale = 1};
+  state.requested_geometry = 7;
+  const uint8_t rgba[16] = {200,2,3,255,4,105,6,128,7,8,109,64,10,11,12,0};
+  const uint8_t bgra[16] = {3,2,200,255,6,105,4,128,109,8,7,64,12,11,10,0};
+  hvir_ghostty_external_frame owned = {.kind = 3, .width = 2, .height = 2,
+    .geometry = 7, .stream = state.applied_sequence, .pixels = rgba, .pixel_bytes = sizeof(rgba),
+    .origin = 2, .color_space = 1, .premultiplied = 1};
+  const uint64_t before_pixel_frames = state.renderer_info.pixel_frames;
+  REQUIRE(frame_ready(&state, &owned) && state.renderer_info.pixel_frames == before_pixel_frames + 1,
+          "owned-pixel-export-is-counted-before-explicit-copy");
+  hvir_terminal_frame rgba_lease;
+  REQUIRE(hvir_terminal_take_frame(&host, state.id, &rgba_lease) == HVIR_OK &&
+          rgba_lease.origin == 2 && rgba_lease.color_space == 1 && rgba_lease.premultiplied,
+          "held-owned-pixels-preserve-color-origin-alpha-metadata");
+  uint8_t converted[16]; size_t written = 99; uint32_t stride = 99;
+  REQUIRE(hvir_terminal_copy_frame(&host, state.id, rgba_lease.lease, converted, 15,
+          &written, &stride) == HVIR_BOUND && !written && !stride && !state.frame_copies,
+          "owned-copy-capacity-is-checked-before-readback-or-count");
+  REQUIRE(hvir_terminal_copy_frame(&host, state.id, rgba_lease.lease + 1, converted, 16,
+          &written, &stride) == HVIR_INVALID && !state.frame_copies,
+          "owned-copy-rejects-stale-lease");
+  REQUIRE(hvir_terminal_copy_frame(&host, state.id, rgba_lease.lease, converted, 16,
+          &written, &stride) == HVIR_OK && written == 16 && stride == 8 &&
+          !memcmp(converted, bgra, 16) && !memcmp(state.frame.pixels, rgba, 16) &&
+          !memcmp(owned.pixels, rgba, 16) && state.frame_taken && state.frame_copies == 1,
+          "actual-owned-rgba-copy-converts-bgra-without-mutating-or-releasing-source");
+  state.frame.pixel_bytes = 15;
+  REQUIRE(hvir_terminal_copy_frame(&host, state.id, rgba_lease.lease, converted, 16,
+          &written, &stride) == HVIR_PRESENTATION && !written && !stride && state.frame_copies == 1,
+          "malformed-owned-byte-size-refuses-copy");
+  state.frame.pixel_bytes = 16;
+  state.frame.width = 4096; state.frame.height = 1025;
+  REQUIRE(hvir_terminal_copy_frame(&host, state.id, rgba_lease.lease, converted, 16,
+          &written, &stride) == HVIR_BOUND && !written && !stride && state.frame_copies == 1,
+          "over-16mib-copy-refuses-before-accessing-source");
+  state.frame.width = 2; state.frame.height = 2;
+  REQUIRE(hvir_terminal_copy_frame(&host, state.id, rgba_lease.lease, converted,
+          HVIR_TERMINAL_PIXEL_MAX + 1u, &written, &stride) == HVIR_BOUND && state.frame_copies == 1,
+          "output-capacity-cannot-exceed-copy-budget");
+  clear_frame(&state);
+  REQUIRE(hvir_terminal_copy_frame(&host, state.id, rgba_lease.lease, converted, 16,
+          &written, &stride) == HVIR_INVALID && state.frame_copies == 1,
+          "released-owned-lease-cannot-copy");
+  state.frame_copies = 0;
+  state.geometry = prior_geometry; state.requested_geometry = prior_requested;
+  owned.width = 4096; owned.height = 1025; owned.pixel_bytes = HVIR_TERMINAL_PIXEL_MAX + 4096u;
+  REQUIRE(rejected(&state, &owned, fd, baseline) && !live_allocations,
+          "over-16mib-export-refuses-before-allocating-or-reading-small-source");
+  state.presentation_failure = 0;
 #ifdef __APPLE__
   const int32_t width_value = 3, height_value = 2, element_value = 4;
   const int32_t format_value = 0x42475241;

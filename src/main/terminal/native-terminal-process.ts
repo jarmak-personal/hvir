@@ -8,6 +8,10 @@ import {
   type NativeTerminalCommand,
   type NativeTerminalHostMessage,
 } from '../../shared/native-terminal'
+import {
+  validNativeTerminalLinuxOptions,
+  type NativeTerminalLinuxOptions,
+} from '../../shared/native-terminal-linux'
 import { spawnUtilityWorker, workerPath } from '../worker-host'
 import type { NativeTerminalProcessPort } from './native-terminal-host'
 
@@ -40,6 +44,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
   private bytes = 0
   private ready?: () => void
   private startupFailure?: (error: Error) => void
+  private readonly linux?: NativeTerminalLinuxOptions
   constructor(
     private readonly library: string,
     private readonly outputDirectory?: string,
@@ -49,7 +54,24 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
       pid?: number
       code?: number
     }) => void,
-  ) {}
+    linux?: NativeTerminalLinuxOptions,
+  ) {
+    if (linux !== undefined && !validNativeTerminalLinuxOptions(linux))
+      throw new Error('native-linux-config-invalid')
+    this.linux =
+      linux &&
+      Object.freeze({
+        presentationMode: linux.presentationMode,
+        device: Object.freeze(
+          linux.device.kind === 'default'
+            ? { kind: 'default' as const }
+            : {
+                kind: 'drm-render-node' as const,
+                node: Object.freeze({ ...linux.device.node }),
+              },
+        ),
+      })
+  }
   get epoch(): string {
     return this.generation
   }
@@ -283,6 +305,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
           child.postMessage({
             epoch: this.epoch,
             library: this.library,
+            ...(this.linux ? { linux: this.linux } : {}),
             resourceAddress: this.resourceAddress,
             mainPid: process.pid,
           })

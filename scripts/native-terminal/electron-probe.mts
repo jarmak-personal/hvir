@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import { writeSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, sharedTexture } from 'electron'
+import { nativeTerminalDiagnostics } from '../../src/main/terminal/native-terminal-diagnostics'
 import { localPath } from '../../src/shared/host-path'
+import { nativeTerminalLinuxOptionsFromEnvironment } from '../../src/shared/native-terminal-linux'
 import type { NativeTerminalSession } from '../../src/shared/native-terminal'
 import {
   NativeTerminalHost,
@@ -18,6 +20,10 @@ const library = process.argv
   .find((arg) => arg.startsWith('--library='))
   ?.slice('--library='.length)
 if (!library) throw new Error('native-probe requires --library=ABSOLUTE_TRUSTED_LIBRARY')
+const linuxOptions =
+  process.platform === 'linux'
+    ? nativeTerminalLinuxOptionsFromEnvironment(process.env)
+    : undefined
 let window: BrowserWindow | undefined
 let processPort: NativeTerminalProcess | undefined
 let host: NativeTerminalHost | undefined
@@ -297,6 +303,7 @@ void app
     await measure()
     // A retained second state remains independent; clean final-state shutdown is reusable.
     await host.resize(b, second.ownerId, 1, attachB, 2, 720, 384)
+    const nativeRenderer = await host.rendererInfo(a, first.instanceId)
     await host.end(a, first.instanceId)
     await host.end(b, second.instanceId)
     assert.equal(processPort.pid, undefined)
@@ -564,6 +571,7 @@ void app
     assert(importTimes.every((value) => Number.isFinite(value) && value >= 0))
     assert(importMaxMs <= budgets.responsivenessMaxMs, 'native-probe-main-import-maximum')
     assert.equal(uncaughtFailure, false, 'native-probe-uncaught-failure')
+    const stack = await nativeTerminalDiagnostics(app, process.env)
     phase('receipt-flush')
     const receipt = JSON.stringify({
       nativeUtilityBoundary: 'passed',
@@ -574,11 +582,19 @@ void app
       gpuImport: kind === 1 || kind === 2 ? 'passed' : 'unavailable-owned-pixels',
       actualDmaBufImport: process.platform === 'linux' && kind === 2,
       hardwareGpuQualified: false,
+      stack,
+      nativeRenderer,
+      producerCompletion:
+        process.platform === 'linux'
+          ? 'gl-finish-before-export'
+          : 'metal-command-buffer-completed',
       orientationQualified: false,
       receiverSandboxed,
       receiverContextIsolated,
       realGhostty: true,
       resourceKind: kind,
+      requestedPresentation: linuxOptions?.presentationMode ?? 'auto',
+      selectedDevice: linuxOptions?.device ?? null,
       independentStates: 2,
       cleanIdleRestart: true,
       hostCrashRevocation: true,
@@ -697,7 +713,12 @@ function phase(name: string): void {
 }
 
 function nativeProcess(path: string): NativeTerminalProcess {
-  return new NativeTerminalProcess(path, __dirname, (event) => {
-    console.error('native-probe:utility-lifecycle', JSON.stringify(event))
-  })
+  return new NativeTerminalProcess(
+    path,
+    __dirname,
+    (event) => {
+      console.error('native-probe:utility-lifecycle', JSON.stringify(event))
+    },
+    linuxOptions,
+  )
 }

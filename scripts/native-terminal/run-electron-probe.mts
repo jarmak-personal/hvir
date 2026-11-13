@@ -1,10 +1,11 @@
 import { createRequire } from 'node:module'
-import { isAbsolute, resolve, join } from 'node:path'
+import { isAbsolute, resolve, join, dirname } from 'node:path'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
-import { repository } from './artifacts.mts'
+import { digest, repository } from './artifacts.mts'
+import { execute } from './source.mts'
 
 interface ProbeLaunch {
   /** Fixture-only injection; the CLI always uses the installed Electron and fixed entry. */
@@ -17,7 +18,18 @@ export async function runNativeElectronProbe(
   library: string,
   launch?: ProbeLaunch,
   presentation?: 'gpu' | 'pixels',
+  ozone?: 'x11' | 'wayland',
 ): Promise<Record<string, unknown>> {
+  const selectedOzone: string | undefined =
+    ozone ?? process.env['HVIR_NATIVE_TERMINAL_OZONE']
+  if (
+    selectedOzone !== undefined &&
+    selectedOzone !== 'x11' &&
+    selectedOzone !== 'wayland'
+  )
+    throw new Error('native-electron-probe: Ozone must be x11|wayland')
+  if (selectedOzone && process.platform !== 'linux' && !launch)
+    throw new Error('native-electron-probe: explicit Ozone requires Linux')
   if (!isAbsolute(library))
     throw new Error('native-electron-probe: absolute library required')
   const binary: unknown = launch?.binary ?? createRequire(import.meta.url)('electron')
@@ -41,8 +53,16 @@ export async function runNativeElectronProbe(
       `--library=${library}`,
       `--user-data-dir=${profile}`,
       ...(presentation === 'pixels' ? ['--compatibility'] : []),
+      ...(selectedOzone ? [`--ozone-platform=${selectedOzone}`] : []),
     ],
-    { detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
+    {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        ...(selectedOzone ? { HVIR_NATIVE_TERMINAL_OZONE: selectedOzone } : {}),
+      },
+    },
   )
   const pid = child.pid
   let expired = false
@@ -287,10 +307,15 @@ export async function runNativeElectronProbe(
       throw new Error('native-electron-probe: invalid receipt identity or isolation')
     if (
       presentation &&
-      (proof.nativePresenter !== 'passed' ||
-        proof.mode !== (presentation === 'gpu' ? 'native-gpu' : 'native-pixels') ||
-        proof.finalUtilityExit !== true ||
-        (presentation === 'gpu' && proof.routineGpuReadbacks !== 0))
+      !nativePresenterReceiptMatches(
+        proof,
+        presentation === 'pixels' ||
+          (process.platform === 'linux' &&
+            process.env['HVIR_NATIVE_TERMINAL_PRESENTATION'] === 'pixels')
+          ? 'pixels'
+          : 'auto',
+        process.platform,
+      )
     )
       throw new Error('native-electron-probe: invalid presenter receipt')
     return proof
@@ -318,22 +343,96 @@ export async function runNativeElectronProbe(
   }
 }
 
+/** Auto may use Linux compatibility; an explicit pixels request must actually copy. */
+export function nativePresenterReceiptMatches(
+  proof: Record<string, unknown>,
+  requested: 'auto' | 'pixels',
+  platform: string,
+): boolean {
+  if (
+    proof.nativePresenter !== 'passed' ||
+    proof.finalUtilityExit !== true ||
+    proof.requestedPresentation !== requested
+  )
+    return false
+  if (proof.mode === 'native-gpu')
+    return (
+      requested === 'auto' &&
+      proof.routineGpuReadbacks === 0 &&
+      proof.frameCopies === 0 &&
+      proof.nativePixelFrames === 0
+    )
+  return (
+    proof.mode === 'native-pixels' &&
+    (requested === 'pixels' || platform === 'linux') &&
+    typeof proof.frameCopies === 'number' &&
+    proof.frameCopies > 0 &&
+    proof.routineGpuReadbacks === null &&
+    proof.compatibilityBoundRefused === true &&
+    proof.maximumCompatibilityUploadBytes === 16 * 1024 * 1024
+  )
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2)
   const argument = args.find((value) => value.startsWith('--library='))
   const presenter = args.includes('--presenter')
   const compatibility = args.includes('--compatibility')
+  const ozoneArgument = args.find((value) => value.startsWith('--ozone-platform='))
+  const ozone = ozoneArgument?.slice('--ozone-platform='.length)
+  if (ozone !== undefined && ozone !== 'x11' && ozone !== 'wayland')
+    throw new Error('native-electron-probe: Ozone must be x11|wayland')
+  if (
+    ozone &&
+    process.env['HVIR_NATIVE_TERMINAL_OZONE'] &&
+    process.env['HVIR_NATIVE_TERMINAL_OZONE'] !== ozone
+  )
+    throw new Error('native-electron-probe: conflicting Ozone selections')
   if (
     !argument ||
-    args.length !== 1 + Number(presenter) + Number(compatibility) ||
+    args.length !==
+      1 + Number(presenter) + Number(compatibility) + Number(Boolean(ozoneArgument)) ||
     (compatibility && !presenter)
   )
     throw new Error(
-      'Usage: run-electron-probe.mts --library=ABS_PATH [--presenter [--compatibility]]',
+      'Usage: run-electron-probe.mts --library=ABS_PATH [--presenter [--compatibility]] [--ozone-platform=x11|wayland]',
     )
+  const library = argument.slice('--library='.length)
+  const source = (
+    await execute('git', ['rev-parse', 'HEAD'], {
+      cwd: repository,
+      timeout: 5000,
+      maxBuffer: 65536,
+    })
+  ).stdout.trim()
+  const dirty = Boolean(
+    (
+      await execute('git', ['status', '--porcelain'], {
+        cwd: repository,
+        timeout: 5000,
+        maxBuffer: 1024 * 1024,
+      })
+    ).stdout.trim(),
+  )
+  const manifestSha256 = await digest(join(dirname(library), 'manifest.json')).catch(
+    (error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw error
+    },
+  )
+  console.log(
+    'HVIR_NATIVE_PROBE_INPUT ' +
+      JSON.stringify({
+        source,
+        dirty,
+        librarySha256: await digest(library),
+        manifestSha256,
+      }),
+  )
   await runNativeElectronProbe(
-    argument.slice('--library='.length),
+    library,
     undefined,
     presenter ? (compatibility ? 'pixels' : 'gpu') : undefined,
+    ozone,
   )
 }

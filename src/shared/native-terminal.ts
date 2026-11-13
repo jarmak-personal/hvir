@@ -1,4 +1,8 @@
 import type { HostPath } from './host-path'
+import type {
+  NativeTerminalExportMode,
+  NativeTerminalLinuxOptions,
+} from './native-terminal-linux'
 
 /** Main resolves these values; an incoming renderer copy grants no authority. */
 export interface NativeTerminalSession {
@@ -45,6 +49,40 @@ export interface NativeTerminalStatus {
   readonly geometryFailureSerial: number
   readonly geometry: NativeTerminalGeometry
 }
+/** Bounded resource facts only: process-local fds and pointers never enter this DTO. */
+export interface NativeTerminalFrameResource {
+  readonly fourcc: number
+  readonly modifier: string
+  readonly planes: readonly {
+    readonly stride: number
+    readonly offset: number
+    readonly size: number
+  }[]
+}
+export interface NativeTerminalFrameInfo {
+  readonly streamSequence: number
+  readonly geometrySerial: number
+  readonly kind: number
+  readonly width: number
+  readonly height: number
+  readonly colorSpace: number
+  readonly origin: number
+  readonly premultiplied: boolean
+  readonly resource: NativeTerminalFrameResource
+}
+export interface NativeTerminalRendererInfo {
+  readonly available: boolean
+  readonly glVendor: string
+  readonly glRenderer: string
+  readonly glVersion: string
+  readonly eglVendor: string
+  readonly eglVersion: string
+  readonly renderNode?: HostPath
+  readonly pixelFrames: number
+  readonly dmaBufFrames: number
+  readonly frameCopies: number
+  readonly lastFrame?: NativeTerminalFrameInfo
+}
 export interface NativeTerminalKeyInput {
   readonly key: number
   readonly modifiers: number
@@ -89,9 +127,17 @@ export type NativeTerminalCommand =
       text: string
     }
   | { kind: 'visibility'; state: string; visible: boolean }
+  | { kind: 'presentation-mode'; state: string; mode: NativeTerminalExportMode }
   | { kind: 'pixels'; state: string; lease: string }
   | {
-      kind: 'inspect' | 'read' | 'drain' | 'event' | 'discard-events' | 'destroy'
+      kind:
+        | 'inspect'
+        | 'read'
+        | 'drain'
+        | 'event'
+        | 'discard-events'
+        | 'renderer-info'
+        | 'destroy'
       state: string
     }
   | { kind: 'frame'; state: string; ticket: string }
@@ -118,6 +164,7 @@ export type NativeTerminalHostMessage =
 export interface NativeTerminalWorkerOptions {
   readonly epoch: string
   readonly library: string
+  readonly linux?: NativeTerminalLinuxOptions
   readonly resourceAddress: string
   readonly mainPid: number
 }

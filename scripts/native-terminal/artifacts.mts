@@ -168,6 +168,14 @@ export async function verifyArtifact(
       'facade-proof.json',
       'frame-metadata-probe',
       'frame-metadata-proof.json',
+      ...(selected.platform === 'linux'
+        ? [
+            'linux-display-probe',
+            'linux-display-proof.json',
+            'linux-facade-probe',
+            'linux-facade-proof.json',
+          ]
+        : []),
     ].every((n) => names.has(n))
   )
     throw new Error('native-artifact: missing required file')

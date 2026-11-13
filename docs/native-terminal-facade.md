@@ -24,6 +24,23 @@ it before the app creates its first device. NULL uses upstream's surfaceless dis
 changing a live device is rejected. Windowless macOS uses the existing Metal renderer
 and an unattached native layer, without creating an NSView or window.
 
+`hvir_terminal_open_linux` owns explicit render-node display selection and teardown;
+its default path borrows upstream's selected display. Selection is immutable for the
+host lifetime. Private ABI 5 configures initial auto/pixels mode and a CPU export limit
+before renderer construction: zero disables external CPU export, while ordinary GTK
+rendering retains its existing policy. The maintained constructor supplies 16 MiB.
+The same-Surface mode command only enqueues presentation health; Linux compatibility
+is applied only when a completed kind3 frame with current geometry arrives. Allocation
+and GL readback failure report renderer-unhealthy without failing the parser; a later
+successful completed frame restores health. Metal compatibility continues copying its
+held kind1 IOSurface.
+
+The optional renderer-info callback borrows bounded driver strings and the process-local
+EGL display only while the render context is current. C immediately copies the strings
+and queries measured device identity; Node receives no platform pointer. The snapshot
+separates requested selection, actual native GL/EGL identity and frame/copy counters.
+Missing facts, including Metal attribution, remain unknown.
+
 External mode never constructs Exec, a shell, or a PTY. It does not load personal
 configuration or configured initial-input files. File, temporary-file and shared-memory
 image media and clipboard reads are unavailable; image storage starts disabled.
@@ -88,8 +105,9 @@ new frame acquisition. Existing immutable held frames remain releasable.
 
 Visibility uses the same Surface's occlusion operation. Hidden state keeps parsing
 while drawing is paused, and reveal rebuilds from that authoritative state.
-`copyFrame` explicitly reads a completed held macOS IOSurface on the designated
-caller, returning independently owned packed BGRA within a 16 MiB bound. It keeps
+`copyFrame` explicitly copies a completed held macOS IOSurface or owned Linux RGBA
+frame on the designated caller, returning independently owned packed BGRA within a
+16 MiB bound. It keeps
 the original lease alive and increments `frame_copies` only on a successful copy.
 The host worker owns compatibility-only RGBA normalization; ordinary GPU demand
 does not call this operation. Presentation-unavailable result 9 differs from

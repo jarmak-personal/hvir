@@ -180,6 +180,8 @@ export function collectModuleGraph(
             ? [
                 'host_binding.c',
                 'terminal.c',
+                'linux_display.c',
+                'linux_display.h',
                 'terminal.h',
                 'hvir_ghostty_embed.h',
                 'engine.d.ts',
