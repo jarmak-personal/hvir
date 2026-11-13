@@ -1,5 +1,8 @@
 import type { WebFrameMain } from 'electron'
-import type { NativeTerminalPixelFrame } from '../src/shared/native-terminal-presentation'
+import type {
+  NativeTerminalPixelFrame,
+  NativeTerminalViewGrant,
+} from '../src/shared/native-terminal-presentation'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { localPath } from '../src/shared/host-path'
 import type {
@@ -111,7 +114,15 @@ function fixture() {
         return Promise.resolve(status())
       },
     ),
-    setVisible: vi.fn(() => Promise.resolve()),
+    setVisible: vi.fn(
+      (
+        _handle: string,
+        _owner: number,
+        _generation: number,
+        _attachment: number,
+        _visible: boolean,
+      ) => Promise.resolve(),
+    ),
     takeFrame: vi.fn((): Promise<ReturnType<typeof source> | undefined> => {
       const value = source()
       sources.push(value)
@@ -126,7 +137,13 @@ function fixture() {
     released: consumed.promise,
   }
   const imports = { acquire: vi.fn(() => Promise.resolve(imported)) }
+  const unavailableCallbacks: ((grant: NativeTerminalViewGrant) => void)[] = []
+  const unbindUnavailable = vi.fn()
   const target = {
+    onUnavailable: vi.fn((callback: (grant: NativeTerminalViewGrant) => void) => {
+      unavailableCallbacks.push(callback)
+      return unbindUnavailable
+    }),
     frame: { isDestroyed: () => live.dead } as WebFrameMain,
     ready: true,
     isCurrent: () => live.current,
@@ -143,6 +160,8 @@ function fixture() {
     consumed,
     sources,
     target,
+    unavailableCallbacks,
+    unbindUnavailable,
     live,
     session,
     source,
@@ -622,4 +641,152 @@ it('revokes a healthy view and stops polling on native presentation failure whil
   expect(f.host.takeFrame).toHaveBeenCalledTimes(2)
   expect(f.imports.acquire).not.toHaveBeenCalled()
   expect(f.target.sendPixels).not.toHaveBeenCalled()
+})
+
+it('propagates a late old-view quarantine to the current replacement of the same native epoch', async () => {
+  const f = fixture(),
+    old = await f.owner.attach('state', f.session, f.target),
+    send = deferred<void>()
+  await f.owner.update(old, { width: 64, height: 32, backingScale: 1, visible: true })
+  f.imported.send.mockReturnValue(send.promise)
+  const prior = f.owner.demand(old)
+  await vi.waitFor(() => expect(f.imported.send).toHaveBeenCalled())
+  await f.owner.detach(old)
+  const fresh = await f.owner.attach('state', f.session, f.target)
+  await f.owner.update(fresh, { width: 96, height: 48, backingScale: 1, visible: true })
+  send.reject(new NativeTerminalImportQuarantined(new Error('late old send')))
+  await expect(prior).resolves.toBe(false)
+  expect(f.target.publishGrant).toHaveBeenLastCalledWith(undefined)
+  expect(f.target.publishStatus).toHaveBeenLastCalledWith({
+    viewId: fresh,
+    mode: 'unavailable',
+    reason: 'import-unavailable',
+  })
+  expect(f.host.setVisible).toHaveBeenLastCalledWith('state', 1, 1, 2, false)
+  await expect(f.owner.demand(fresh)).resolves.toBe(false)
+  await expect(
+    f.owner.update(fresh, { width: 96, height: 48, backingScale: 1, visible: true }),
+  ).resolves.toBeUndefined()
+  expect(f.host.setVisible).toHaveBeenLastCalledWith('state', 1, 1, 2, false)
+  expect(f.host.takeFrame).toHaveBeenCalledOnce()
+  expect(f.sources[0]!.release).not.toHaveBeenCalled()
+})
+it('does not carry an old quarantine into a replacement native epoch', async () => {
+  const f = fixture(),
+    old = await f.owner.attach('state', f.session, f.target),
+    send = deferred<void>()
+  await f.owner.update(old, { width: 64, height: 32, backingScale: 1, visible: true })
+  f.imported.send.mockReturnValueOnce(send.promise)
+  const prior = f.owner.demand(old)
+  await vi.waitFor(() => expect(f.imported.send).toHaveBeenCalled())
+  await f.owner.detach(old)
+  f.live.epoch = '22222222-2222-4222-8222-222222222222'
+  const fresh = await f.owner.attach('state', f.session, f.target)
+  const grant = await f.owner.update(fresh, {
+    width: 96,
+    height: 48,
+    backingScale: 1,
+    visible: true,
+  })
+  const notifications = f.target.publishStatus.mock.calls.length
+  send.reject(new NativeTerminalImportQuarantined(new Error('old generation')))
+  await prior
+  expect(f.target.publishStatus).toHaveBeenCalledTimes(notifications)
+  expect(f.target.publishGrant).toHaveBeenLastCalledWith(grant)
+  f.consumed.resolve()
+  await expect(f.owner.demand(fresh)).resolves.toBe(true)
+})
+it('rechecks an already updating replacement before it can show after late quarantine', async () => {
+  const f = fixture(),
+    old = await f.owner.attach('state', f.session, f.target),
+    send = deferred<void>(),
+    geometry = deferred<NativeTerminalStatus>()
+  await f.owner.update(old, { width: 64, height: 32, backingScale: 1, visible: true })
+  f.imported.send.mockReturnValue(send.promise)
+  const prior = f.owner.demand(old)
+  await vi.waitFor(() => expect(f.imported.send).toHaveBeenCalled())
+  await f.owner.detach(old)
+  const fresh = await f.owner.attach('state', f.session, f.target)
+  f.host.resize.mockReturnValueOnce(geometry.promise)
+  const updating = f.owner.update(fresh, {
+    width: 96,
+    height: 48,
+    backingScale: 1,
+    visible: true,
+  })
+  send.reject(new NativeTerminalImportQuarantined(new Error('late old send')))
+  await prior
+  geometry.resolve({
+    ...f.status(),
+    geometry: { ...f.status().geometry, serial: 3, width: 96, height: 48 },
+  })
+  await expect(updating).resolves.toBeUndefined()
+  expect(
+    f.host.setVisible.mock.calls
+      .filter((call) => call[3] === 2)
+      .every((call) => call[4] === false),
+  ).toBe(true)
+  expect(f.target.publishGrant).toHaveBeenLastCalledWith(undefined)
+})
+it('handles exact current receiver loss promptly without requiring frame demand', async () => {
+  const f = fixture(),
+    id = await f.owner.attach('state', f.session, f.target)
+  const grant = (await f.owner.update(id, {
+    width: 64,
+    height: 32,
+    backingScale: 1,
+    visible: true,
+  }))!
+  f.live.current = false
+  f.unavailableCallbacks[0]!(grant)
+  await vi.waitFor(() =>
+    expect(f.host.setVisible).toHaveBeenLastCalledWith('state', 1, 1, 1, false),
+  )
+  expect(f.target.publishGrant).toHaveBeenLastCalledWith(undefined)
+  expect(f.target.publishStatus).toHaveBeenLastCalledWith({
+    viewId: id,
+    mode: 'unavailable',
+    reason: 'renderer-lost',
+  })
+  expect(f.host.takeFrame).not.toHaveBeenCalled()
+  await expect(f.owner.demand(id)).resolves.toBe(false)
+})
+it('ignores stale grant loss and unbinds a detached view callback', async () => {
+  const f = fixture(),
+    id = await f.owner.attach('state', f.session, f.target)
+  const old = (await f.owner.update(id, {
+    width: 64,
+    height: 32,
+    backingScale: 1,
+    visible: true,
+  }))!
+  await f.owner.update(id, { width: 64, height: 32, backingScale: 1, visible: true })
+  const calls = f.target.publishStatus.mock.calls.length
+  f.unavailableCallbacks[0]!(old)
+  expect(f.target.publishStatus).toHaveBeenCalledTimes(calls)
+  await f.owner.detach(id)
+  expect(f.unbindUnavailable).toHaveBeenCalledOnce()
+  f.unavailableCallbacks[0]!(old)
+  expect(f.target.publishStatus).toHaveBeenCalledTimes(calls)
+})
+it('does not let failed loss notifications prevent native occlusion cleanup', async () => {
+  const f = fixture(),
+    id = await f.owner.attach('state', f.session, f.target)
+  const grant = (await f.owner.update(id, {
+    width: 64,
+    height: 32,
+    backingScale: 1,
+    visible: true,
+  }))!
+  f.target.publishGrant.mockImplementationOnce(() => {
+    throw new Error('renderer gone')
+  })
+  f.target.publishStatus.mockImplementationOnce(() => {
+    throw new Error('renderer gone')
+  })
+  f.live.current = false
+  expect(() => f.unavailableCallbacks[0]!(grant)).not.toThrow()
+  await vi.waitFor(() =>
+    expect(f.host.setVisible).toHaveBeenLastCalledWith('state', 1, 1, 1, false),
+  )
 })

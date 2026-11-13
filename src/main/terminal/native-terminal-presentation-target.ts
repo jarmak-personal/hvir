@@ -55,6 +55,7 @@ export class NativeTerminalPresentationTargets {
   create(frame: WebFrameMain, isCurrent: () => boolean, ready: () => boolean) {
     let viewId: string | undefined
     let failed = false
+    let unavailable: ((grant: NativeTerminalViewGrant) => void) | undefined
     const current = (): boolean =>
       !this.disposed && !failed && !frame.isDestroyed() && isCurrent() && ready()
     const send = (channel: string, value: unknown): void => {
@@ -67,6 +68,15 @@ export class NativeTerminalPresentationTargets {
         return ready()
       },
       isCurrent: current,
+      onUnavailable: (
+        listener: (grant: NativeTerminalViewGrant) => void,
+      ): (() => void) => {
+        if (this.disposed || unavailable) throw new Error('native-target-already-bound')
+        unavailable = listener
+        return () => {
+          if (unavailable === listener) unavailable = undefined
+        }
+      },
       publishGrant: (grant: NativeTerminalViewGrant | undefined): void => {
         if (grant) {
           viewId = grant.viewId
@@ -77,6 +87,7 @@ export class NativeTerminalPresentationTargets {
             grant,
             fail: () => {
               failed = true
+              unavailable?.(grant)
             },
           })
         } else if (viewId) this.granted.delete(viewId)
@@ -85,7 +96,9 @@ export class NativeTerminalPresentationTargets {
           frame.send(channels.grantChannel, { viewId, grant })
       },
       publishStatus: (status: NativeTerminalPresentationStatus): void => {
-        send(channels.statusChannel, status)
+        if (status.mode === 'unavailable' && !this.disposed && !frame.isDestroyed())
+          frame.send(channels.statusChannel, status)
+        else send(channels.statusChannel, status)
       },
       sendPixels: (pixels: NativeTerminalPixelFrame): Promise<void> => {
         if (

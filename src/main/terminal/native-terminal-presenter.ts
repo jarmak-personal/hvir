@@ -3,6 +3,7 @@ import type { WebFrameMain } from 'electron'
 import {
   NATIVE_TERMINAL_PRESENTATION as limits,
   validNativeTerminalScale,
+  sameNativeTerminalView,
   type NativeTerminalPixelFrame,
   type NativeTerminalPresentationStatus,
   type NativeTerminalViewGrant,
@@ -23,6 +24,7 @@ export interface NativeTerminalPresentationTarget {
   readonly frame: WebFrameMain
   readonly ready: boolean
   isCurrent(): boolean
+  onUnavailable(listener: (grant: NativeTerminalViewGrant) => void): () => void
   publishGrant(grant: NativeTerminalViewGrant | undefined): void
   publishStatus(status: NativeTerminalPresentationStatus): void
   sendPixels(frame: NativeTerminalPixelFrame): Promise<void>
@@ -53,6 +55,7 @@ interface View {
   active?: Promise<boolean>
   updating?: Promise<NativeTerminalViewGrant | undefined>
   abort: AbortController
+  unbindUnavailable?: () => void
 }
 type PresentationHost = Pick<
   NativeTerminalHost,
@@ -66,7 +69,7 @@ export class NativeTerminalPresenter {
   private readonly preparing = new Set<string>()
   private readonly detaching = new Map<string, Promise<void>>()
   // Each blocked handle still owns one of the shared importer's three credits.
-  private readonly blockedHandles = new Set<string>()
+  private readonly blockedHandles = new Map<string, Set<string>>()
   constructor(
     private readonly host: PresentationHost,
     private readonly imports: Pick<NativeTerminalFrameImports, 'acquire'>,
@@ -108,12 +111,16 @@ export class NativeTerminalPresenter {
         closed: false,
         visible: false,
         pixelMode: false,
-        failed: this.blockedHandles.has(handle),
+        failed: false,
         lastPixels: -Infinity,
         abort: new AbortController(),
       }
+      view.failed = this.isBlocked(view)
       this.views.set(view.id, view)
       try {
+        view.unbindUnavailable = target.onUnavailable((grant) =>
+          this.receiverUnavailable(view, grant),
+        )
         const status = await this.host.inspect(
           handle,
           session.ownerId,
@@ -153,7 +160,7 @@ export class NativeTerminalPresenter {
     const serial = view.serial + 1
     if (!Number.isSafeInteger(serial)) throw new Error('native-presentation-serial-bound')
     view.serial = serial
-    if (!this.blockedHandles.has(view.handle)) view.failed = false
+    if (!this.isBlocked(view)) view.failed = false
     view.revision++
     view.visible = layout.visible
     view.layout = { ...layout }
@@ -171,11 +178,12 @@ export class NativeTerminalPresenter {
     return work
   }
   demand(viewId: string): Promise<boolean> {
+    const known = this.views.get(viewId)
+    if (known && (known.failed || this.isBlocked(known))) return Promise.resolve(false)
     const view = this.require(viewId)
     if (!view.visible || !view.grant || view.updating) return Promise.resolve(false)
     if (view.active) return view.active
     if (view.failed) return Promise.reject(new Error('native-presentation-unavailable'))
-    if (!view.visible || !view.grant || view.updating) return Promise.resolve(false)
     if (
       view.pixelMode &&
       performance.now() - view.lastPixels < limits.compatibilityIntervalMs
@@ -197,6 +205,12 @@ export class NativeTerminalPresenter {
     view.visible = false
     view.grant = undefined
     view.abort.abort()
+    try {
+      view.unbindUnavailable?.()
+    } catch {
+      /* Unbinding cannot prevent native cleanup. */
+    }
+    view.unbindUnavailable = undefined
     this.views.delete(viewId)
     try {
       view.target.publishGrant(undefined)
@@ -271,6 +285,7 @@ export class NativeTerminalPresenter {
         this.assertCurrent(view)
         if (Math.abs(status.geometry.backingScale - desired.backingScale) > 0.00001)
           throw new Error('native-scale-unacknowledged')
+        if (this.isBlocked(view)) view.failed = true
         if (desired.visible && !view.failed) {
           view.grant = Object.freeze({
             viewId: view.id,
@@ -395,18 +410,17 @@ export class NativeTerminalPresenter {
       )
         return false
       if (error instanceof NativeTerminalImportQuarantined) {
-        this.blockedHandles.add(view.handle)
-        view.failed = true
-        if (!view.closed) {
-          view.grant = undefined
-          try {
-            view.target.publishGrant(undefined)
-          } catch {
-            /* Local revocation is authoritative. */
-          }
-          this.status(view, 'unavailable', 'import-unavailable')
-          await this.occlude(view)
-        }
+        let epochs = this.blockedHandles.get(view.handle)
+        if (!epochs) this.blockedHandles.set(view.handle, (epochs = new Set()))
+        epochs.add(view.epoch)
+        // The failure can settle after this view detached. Block every CURRENT
+        // view of that exact retained state/generation before further demand.
+        const affected = [...this.views.values()].filter(
+          (current) => current.handle === view.handle && current.epoch === view.epoch,
+        )
+        await Promise.all(
+          affected.map((current) => this.unavailable(current, 'import-unavailable')),
+        )
       } else if (this.currentGrant(view, grant)) {
         view.failed = true
         view.grant = undefined
@@ -429,6 +443,39 @@ export class NativeTerminalPresenter {
     } finally {
       if (source && ownsSource) await source.release()
     }
+  }
+  private isBlocked(view: Pick<View, 'handle' | 'epoch'>): boolean {
+    return this.blockedHandles.get(view.handle)?.has(view.epoch) ?? false
+  }
+  private receiverUnavailable(view: View, grant: NativeTerminalViewGrant): void {
+    // Target has already latched isCurrent=false. The issued grant, not renewed
+    // renderer authority, qualifies this cleanup notification.
+    if (
+      view.closed ||
+      this.views.get(view.id) !== view ||
+      !view.grant ||
+      !sameNativeTerminalView(view.grant, grant)
+    )
+      return
+    void this.unavailable(view, 'renderer-lost')
+  }
+  private async unavailable(
+    view: View,
+    reason: NativeTerminalPresentationStatus['reason'],
+  ): Promise<void> {
+    view.failed = true
+    view.grant = undefined
+    try {
+      view.target.publishGrant(undefined)
+    } catch {
+      /* Local revocation is authoritative. */
+    }
+    try {
+      this.status(view, 'unavailable', reason)
+    } catch {
+      /* A lost receiver cannot prevent hide cleanup. */
+    }
+    await this.occlude(view)
   }
   private status(
     view: View,

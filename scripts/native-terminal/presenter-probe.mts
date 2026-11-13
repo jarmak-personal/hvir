@@ -121,7 +121,8 @@ void app
         () => !targetWindow.isDestroyed() && !contents.isDestroyed(),
         () => true,
       )
-    const view = await presenter.attach(firstHandle, first, target())
+    const firstTarget = target()
+    const view = await presenter.attach(firstHandle, first, firstTarget)
     phase('attach')
     const otherView = await presenter.attach(secondHandle, second, target())
     await contents.executeJavaScript(
@@ -255,7 +256,7 @@ void app
     await contents.executeJavaScript(
       "document.body.appendChild(document.getElementById('first'));document.getElementById('detail').style.display='none';true",
     )
-    await presenter.update(view, {
+    const currentGrant = await presenter.update(view, {
       width: 320,
       height: 192,
       backingScale: 1,
@@ -364,6 +365,9 @@ void app
     )) as string[]
     assert(statuses.includes(compatibility ? 'native-pixels' : 'native-gpu'))
     let contextLossReported = false
+    let contextLossNativeOccluded = false,
+      occludedCompletedFrames = 0,
+      occludedFeeds = 0
     if (!compatibility) {
       phase('context-loss')
       const triggered: unknown = await contents.executeJavaScript(
@@ -379,6 +383,46 @@ void app
           throw new Error('presenter-context-loss-timeout')
         if (!contextLossReported) await new Promise((resolve) => setTimeout(resolve, 10))
       }
+      assert(currentGrant)
+      const attachment = currentGrant.attachment
+      while (firstTarget.isCurrent()) {
+        if (performance.now() > contextDeadline)
+          throw new Error('presenter-loss-notification-timeout')
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+      await host.inspect(firstHandle, 1, 1)
+      const take = async (): Promise<number> => {
+        const frame = await host!.takeFrame(firstHandle, 1, 1, attachment)
+        if (!frame) return 0
+        await frame.release()
+        return 1
+      }
+      // Drain an already completed image, then keep the failed view ATTACHED.
+      // Every subsequent feed dirties the terminal; a visible producer would
+      // export frames. No observer pixel readback occurs in this phase.
+      const warmUntil = performance.now() + 100
+      while (performance.now() < warmUntil) {
+        await take()
+        await new Promise((r) => setTimeout(r, 5))
+      }
+      const occludedUntil = performance.now() + 700
+      while (performance.now() < occludedUntil) {
+        await host.feed(
+          firstHandle,
+          first.instanceId,
+          new TextEncoder().encode(
+            `\x1b[48;2;${occludedFeeds % 2 ? '30;150;80' : '90;40;170'}m\x1b[2J\x1b[Hcontext-loss-progress`,
+          ),
+        )
+        occludedFeeds++
+        occludedCompletedFrames += await take()
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      assert(
+        occludedFeeds >= 10 && occludedCompletedFrames === 0,
+        'unavailable attached producer stays occluded',
+      )
+      contextLossNativeOccluded = true
       await host.feed(
         firstHandle,
         first.instanceId,
@@ -448,6 +492,9 @@ void app
           routineGpuReadbacks: compatibility ? null : copied,
           frameCopies: copied,
           contextLossReported,
+          contextLossNativeOccluded,
+          occludedCompletedFrames,
+          occludedFeeds,
           maximumCompatibilityUploadBytes,
           compatibilityBoundRefused,
           translucentAlphaQualified: false,

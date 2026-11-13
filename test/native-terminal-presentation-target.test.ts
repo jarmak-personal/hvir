@@ -185,3 +185,34 @@ it('drops destroyed-target grant cleanup and rejects its pending upload without 
   expect(f.target.isCurrent()).toBe(false)
   f.owner.dispose()
 })
+it('notifies its one bound attachment only for qualified loss and permits unavailable cleanup notification', () => {
+  const f = fixture()
+  const lost = vi.fn(() => {
+    expect(f.target.isCurrent()).toBe(false)
+  })
+  const unbind = f.target.onUnavailable(lost)
+  expect(() => f.target.onUnavailable(vi.fn())).toThrow('already-bound')
+  f.target.publishGrant(f.grant)
+  f.owner.acknowledge(f.frame, {
+    kind: 'renderer-failure',
+    grant: { ...f.grant, geometrySerial: 0 },
+  })
+  expect(lost).not.toHaveBeenCalled()
+  f.owner.acknowledge(f.frame, { kind: 'renderer-failure', grant: f.grant })
+  expect(lost).toHaveBeenCalledExactlyOnceWith(f.grant)
+  f.target.publishStatus({
+    viewId: f.grant.viewId,
+    mode: 'unavailable',
+    reason: 'renderer-lost',
+  })
+  expect(f.send).toHaveBeenLastCalledWith(channels.statusChannel, {
+    viewId: f.grant.viewId,
+    mode: 'unavailable',
+    reason: 'renderer-lost',
+  })
+  unbind()
+  unbind()
+  f.owner.acknowledge(f.frame, { kind: 'renderer-failure', grant: f.grant })
+  expect(lost).toHaveBeenCalledOnce()
+  f.owner.dispose()
+})

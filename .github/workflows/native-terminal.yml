@@ -138,7 +138,12 @@ jobs:
               assert(loop.samples >= 2);
               assert(loop.p99Ms >= 0 && loop.p99Ms <= loop.maxMs && loop.maxMs <= 500);
             }
-            if (mode === 'gpu') assert.equal(proof.contextLossReported, true);
+            if (mode === 'gpu') {
+              assert.equal(proof.contextLossReported, true);
+              assert.equal(proof.contextLossNativeOccluded, true);
+              assert.equal(proof.occludedCompletedFrames, 0);
+              assert(proof.occludedFeeds >= 10);
+            }
             if (mode === 'gpu') assert.equal(proof.routineGpuReadbacks, 0);
             else {
               assert(proof.frameCopies > 0);

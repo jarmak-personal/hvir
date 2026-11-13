@@ -79,7 +79,9 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
     return this.submit(
       command,
       signal,
-      command.kind === 'release' || command.kind === 'destroy',
+      command.kind === 'release' ||
+        command.kind === 'destroy' ||
+        (command.kind === 'visibility' && !command.visible),
     )
   }
   private submit(

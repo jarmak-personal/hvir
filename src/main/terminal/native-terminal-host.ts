@@ -181,8 +181,41 @@ export class NativeTerminalHost {
     attachment: number,
     visible: boolean,
   ): Promise<void> {
-    const binding = this.requireAttachment(handle, ownerId, generation, attachment)
     if (typeof visible !== 'boolean') throw new Error('native-visibility-invalid')
+    if (!visible) {
+      const deadline = Date.now() + limits.requestMs
+      for (;;) {
+        const binding = this.requireHideAttachment(
+          handle,
+          ownerId,
+          generation,
+          attachment,
+        )
+        try {
+          // Hide is captured cleanup authority, not a renewed renderer operation.
+          // It uses reserved cleanup admission and is never cancelled by its view.
+          const result = await this.process.request({
+            kind: 'visibility',
+            state: binding.state,
+            visible: false,
+          })
+          this.requireHideAttachment(handle, ownerId, generation, attachment)
+          if (
+            !result ||
+            typeof result !== 'object' ||
+            !('result' in result) ||
+            result.result !== 0
+          )
+            throw new Error('native-presentation-unavailable')
+          return
+        } catch (error) {
+          if (!(error instanceof NativeTerminalAdmissionError) || Date.now() >= deadline)
+            throw error
+          await new Promise<void>((resolve) => setTimeout(resolve, 16))
+        }
+      }
+    }
+    const binding = this.requireAttachment(handle, ownerId, generation, attachment)
     const result = await this.process.request(
       { kind: 'visibility', state: binding.state, visible },
       binding.abort.signal,
@@ -560,6 +593,25 @@ export class NativeTerminalHost {
       !this.authority.isRendererCurrent(ownerId, generation)
     )
       throw new Error('native-state-foreign')
+    if (!this.process.available || binding.epoch !== this.process.epoch)
+      throw new Error('native-host-lost')
+    return binding
+  }
+  private requireHideAttachment(
+    handle: string,
+    ownerId: number,
+    generation: number,
+    attachment: number,
+  ): Binding {
+    const binding = this.bindings.get(handle)
+    if (!binding || this.disposed) throw new Error('native-state-foreign')
+    if (
+      !attachment ||
+      binding.attachment?.serial !== attachment ||
+      binding.attachment.ownerId !== ownerId ||
+      binding.attachment.generation !== generation
+    )
+      throw new Error('native-attachment-stale')
     if (!this.process.available || binding.epoch !== this.process.epoch)
       throw new Error('native-host-lost')
     return binding

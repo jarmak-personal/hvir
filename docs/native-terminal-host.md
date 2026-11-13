@@ -134,6 +134,13 @@ display “Terminal unavailable”. Context loss is latched locally and qualifie
 back to main, so later GPU status cannot mask it. This path does not qualify as
 native GPU presentation.
 
+The target's one attachment-loss callback revokes and natively occludes an
+unavailable view even when no frame demand is active. Cleanup hide remains valid
+for its exact old attachment after renderer revocation; showing still requires
+current renderer authority. A late quarantine is keyed to the prepared handle
+and native epoch and also revokes a replacement that attached before the failure
+became known. A layout update cannot reactivate such a blocked producer.
+
 The 16 MiB compatibility limit does not cover every historically supported large
 viewport. Initial engine selection must retain the necessary legacy path when
 native presentation cannot support the requested configuration; a live bound

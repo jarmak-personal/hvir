@@ -664,3 +664,33 @@ it('keeps lifecycle progress authoritative when a diagnostic observer throws', a
     [{ kind: 'exit', epoch, pid: child.pid, code: 0 }],
   ])
 })
+
+it('admits hide through reserved cleanup credit while show remains ordinary control and absolute bounds hold', async () => {
+  const process = owner()
+  const controls = Array.from({ length: 31 }, (_, index) =>
+    call(process, { kind: 'inspect', state: String(index + 1) }),
+  )
+  const child = await ready(process)
+  const feeds = Array.from({ length: 32 }, (_, index) =>
+    call(process, {
+      kind: 'feed',
+      state: String(index + 1),
+      sequence: 1,
+      bytes: new Uint8Array(1),
+    }),
+  )
+  await flush()
+  expect(child.requests()).toHaveLength(63)
+  await expect(
+    call(process, { kind: 'visibility', state: '32', visible: true }),
+  ).rejects.toThrow('bound')
+  const hidden = call(process, { kind: 'visibility', state: '32', visible: false })
+  await flush()
+  expect(child.requests()).toHaveLength(64)
+  expect(last(child).command).toEqual({ kind: 'visibility', state: '32', visible: false })
+  await expect(
+    call(process, { kind: 'visibility', state: '31', visible: false }),
+  ).rejects.toThrow('bound')
+  for (const request of child.requests()) reply(child, request, { result: 0 })
+  await Promise.all([...controls, ...feeds, hidden])
+})
