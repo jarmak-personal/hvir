@@ -64,7 +64,7 @@ function excludeNativeProbeFromProduction(probeBuild: boolean): Plugin {
             moduleId
               .replaceAll('\\', '/')
               .match(
-                /\/(native-terminal-probe\.ts|native-terminal\/electron-probe\.mts)$/,
+                /\/(native-terminal-probe\.ts|native-terminal\/(electron|presenter)-probe\.mts)$/,
               ),
           )
         )
@@ -170,6 +170,9 @@ export default defineConfig(({ mode }) => {
               ? {
                   'native-terminal-probe': resolve(
                     'scripts/native-terminal/electron-probe.mts',
+                  ),
+                  'native-terminal-presenter-probe': resolve(
+                    'scripts/native-terminal/presenter-probe.mts',
                   ),
                 }
               : {}),

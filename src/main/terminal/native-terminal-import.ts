@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import {
+  validNativeTerminalViewGrant,
+  type NativeTerminalPresentedFrame,
+} from '../../shared/native-terminal-presentation'
 import type {
   SharedTexture,
   SharedTextureImportTextureInfo,
@@ -14,10 +18,26 @@ interface ResourceReceipts {
   receive(ticket: string): Promise<Receipt>
   release(receipt: Receipt): void
 }
-interface ImportTarget {
+export interface ImportTarget {
+  readonly presentation?: NativeTerminalPresentedFrame
   readonly frame: WebFrameMain
   readonly ready: boolean
   isCurrent(): boolean
+}
+/** Only an unsent Electron import failure can retain its source for compatibility. */
+export class NativeTerminalGpuImportUnavailable extends Error {
+  constructor(cause: unknown) {
+    super('native-gpu-import-unavailable', { cause })
+  }
+}
+/** GPU ownership has no usable physical release proof for this app lifetime. */
+export class NativeTerminalImportQuarantined extends Error {
+  constructor(cause: unknown) {
+    super(
+      `native-import-quarantined: ${cause instanceof Error ? cause.message : 'unknown ownership'}`,
+      { cause },
+    )
+  }
 }
 export interface ImportedNativeFrame {
   readonly metadata: NativeTerminalFrameMetadata & { readonly ticket: string }
@@ -31,6 +51,14 @@ export interface ImportedNativeFrame {
 export class NativeTerminalFrameImports {
   private serial: Promise<void> = Promise.resolve()
   private outstanding = 0
+  // An import that throws after entering Electron may conceal GPU ownership.
+  // No public release handle exists: keep source/resource and credit until this
+  // app process exits. Never infer GPU completion from target-frame destruction.
+  private readonly quarantined = new Set<{
+    source: NativeTerminalAcquiredFrame
+    receipt?: Receipt
+    imported?: ReturnType<SharedTexture['importSharedTexture']>
+  }>()
 
   constructor(
     private readonly edge: ResourceReceipts,
@@ -43,6 +71,7 @@ export class NativeTerminalFrameImports {
   async acquire(
     source: NativeTerminalAcquiredFrame,
     target: ImportTarget,
+    options?: { readonly allowPixelFallback: true },
   ): Promise<ImportedNativeFrame> {
     if (this.outstanding >= 3) {
       await source.release()
@@ -57,10 +86,34 @@ export class NativeTerminalFrameImports {
     await previous
     let receipt: Receipt | undefined
     let transferred = false
+    let indeterminateImport = false
+    let receiptReleased = false
+    const releaseReceipt = (): void => {
+      if (receipt && !receiptReleased) {
+        this.edge.release(receipt)
+        receiptReleased = true
+      }
+    }
     try {
       assertCurrent(source, target)
       if (source.metadata.kind !== 1 && source.metadata.kind !== 2)
         throw new Error('native-resource-kind')
+      const presentation = target.presentation
+        ? {
+            ...target.presentation,
+            nativeTerminal: { ...target.presentation.nativeTerminal },
+          }
+        : undefined
+      if (
+        presentation &&
+        (!validNativeTerminalViewGrant(presentation.nativeTerminal) ||
+          presentation.nativeTerminal.geometrySerial !== source.metadata.geometrySerial ||
+          presentation.nativeTerminal.width !== source.metadata.width ||
+          presentation.nativeTerminal.height !== source.metadata.height ||
+          presentation.origin !== source.metadata.origin ||
+          presentation.colorSpace !== source.metadata.colorSpace)
+      )
+        throw new Error('native-import-presentation-invalid')
       const ticket = randomUUID()
       // Settle both sides even if one fails: an accepted receive may still own a
       // resource and must finish before this shared endpoint can accept another.
@@ -76,11 +129,9 @@ export class NativeTerminalFrameImports {
       assertCurrent(source, target)
       if (!receipt || receipt.ticket !== ticket) throw new Error('native-resource-ticket')
       const textureInfo = texture(receipt, source.metadata)
-      let retired = false
       let physical = false
       let mainReleased = false
       let state: 'unsent' | 'sending' | 'sent' | 'quarantine' = 'unsent'
-      let polling: ReturnType<typeof setInterval> | undefined
       let resolveReleased!: () => void
       let rejectReleased!: (reason: unknown) => void
       const released = new Promise<void>((resolve, reject) => {
@@ -88,14 +139,20 @@ export class NativeTerminalFrameImports {
         rejectReleased = reject
       })
       void released.catch(() => undefined)
-      const owned = receipt
+      const ownedReceipt = receipt
+      let importDecision: 'pending' | 'imported' | 'discarded' = 'pending'
+      let releasePending = false
       const finish = (): void => {
+        if (importDecision === 'pending') {
+          releasePending = true
+          return
+        }
+        if (importDecision === 'discarded' || state === 'quarantine') return
         if (physical) return
         physical = true
-        if (polling) clearInterval(polling)
         let releaseError: unknown
         try {
-          this.edge.release(owned)
+          releaseReceipt()
         } catch (error) {
           releaseError = error
         }
@@ -116,23 +173,30 @@ export class NativeTerminalFrameImports {
             },
           )
       }
-      const imported = this.textures.importSharedTexture({
-        textureInfo,
-        allReferencesReleased: finish,
-      })
+      let imported: ReturnType<SharedTexture['importSharedTexture']>
+      try {
+        imported = this.textures.importSharedTexture({
+          textureInfo,
+          allReferencesReleased: finish,
+        })
+        importDecision = 'imported'
+        if (releasePending) finish()
+      } catch (error) {
+        importDecision = 'discarded'
+        // Pinned Electron rejects here before CreateSharedImage: no GPU work
+        // has received this source. A general import throw is not this proof.
+        const beforeGpuImport =
+          error instanceof Error &&
+          error.message === 'Failed to import shared texture: GPU is not available'
+        if (options?.allowPixelFallback && beforeGpuImport)
+          throw new NativeTerminalGpuImportUnavailable(error)
+        indeterminateImport = !beforeGpuImport
+        throw error
+      }
       const releaseMain = (): void => {
         if (mainReleased) return
         mainReleased = true
         imported.release()
-      }
-      const releaseQuarantine = (): void => {
-        if (retired && destroyed(target.frame)) {
-          if (polling) {
-            clearInterval(polling)
-            polling = undefined
-          }
-          releaseMain()
-        }
       }
       let sendPromise: Promise<void> | undefined
       const send = (): Promise<void> => {
@@ -149,31 +213,20 @@ export class NativeTerminalFrameImports {
           try {
             await this.textures.sendSharedTexture(
               { frame: target.frame, importedSharedTexture: imported },
-              { ...source.metadata, ticket },
+              presentation ?? { ...source.metadata, ticket },
             )
             state = 'sent'
             releaseMain()
           } catch (error) {
             state = 'quarantine'
-            // A timed-out transfer can still materialize a late consumer. Stop
-            // source reuse now; logical release never proves that consumer gone.
-            let retirement: Promise<void>
-            try {
-              retirement = source.retire()
-            } catch (error) {
-              retirement = Promise.reject(
-                error instanceof Error
-                  ? error
-                  : new Error('native-source-retirement-failed'),
-              )
-            }
-            polling = setInterval(releaseQuarantine, 50)
-            polling.unref()
-            void retirement.then(() => {
-              retired = true
-              releaseQuarantine()
-            }, rejectReleased)
-            throw error
+            // Electron's timeout can precede late consumer acquisition without
+            // recording its sync token. Neither target death nor an old callback
+            // proves that late GPU work gone. Keep all owners and bounded credit
+            // for this app lifetime; the parser itself remains live.
+            this.quarantined.add({ source, receipt: ownedReceipt, imported })
+            const unavailable = new NativeTerminalImportQuarantined(error)
+            rejectReleased(unavailable)
+            throw unavailable
           }
         })()
         return sendPromise
@@ -184,19 +237,36 @@ export class NativeTerminalFrameImports {
         send,
         released,
         release: () => {
-          if (state === 'quarantine') releaseQuarantine()
-          else if (state !== 'sending') releaseMain()
+          if (state !== 'quarantine' && state !== 'sending') releaseMain()
         },
       }
     } catch (error) {
-      try {
-        if (receipt) this.edge.release(receipt)
-      } finally {
-        await source.release()
+      if (indeterminateImport) {
+        this.quarantined.add({ source, receipt })
+        // Keep the immutable renderer lease, not a parser retirement. PTY feed
+        // and readback stay live while this presentation remains unavailable.
+        throw new NativeTerminalImportQuarantined(error)
       }
+      try {
+        releaseReceipt()
+      } catch (cleanupError) {
+        await source.release()
+        throw cleanupError
+      }
+      if (error instanceof NativeTerminalGpuImportUnavailable) {
+        try {
+          assertCurrent(source, target)
+        } catch (staleError) {
+          await source.release()
+          throw staleError
+        }
+        // No send occurred; the caller now retains the same immutable source lease.
+        throw error
+      }
+      await source.release()
       throw error
     } finally {
-      if (!transferred) this.outstanding--
+      if (!transferred && !indeterminateImport) this.outstanding--
       next()
     }
   }

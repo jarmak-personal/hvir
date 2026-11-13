@@ -430,14 +430,12 @@ void app
       consumerDeathHeld = 'passed-real-renderer-crash-and-source-pool-recovery'
       const delayed = await completedFrame(host, d, renewed, renewedAttachment, 2)
       const receiverFrame = contents.mainFrame
+      let quarantineReleaseCalls = 0
+      const beforeQuarantineReleased = releasedReceipts
       const observedSource: NativeTerminalAcquiredFrame = {
         ...delayed,
-        retire: async () => {
-          phase('quarantine-source-retire-enter')
-          await delayed.retire()
-          phase('quarantine-source-retire-settled')
-        },
         release: async () => {
+          quarantineReleaseCalls++
           phase('quarantine-source-release-enter')
           await delayed.release()
           phase('quarantine-source-release-settled')
@@ -456,13 +454,46 @@ void app
       contents.send('native-probe-block')
       await blocking
       await assert.rejects(held.send())
+      await host.setVisible(
+        d,
+        first.ownerId,
+        rendererGeneration,
+        renewedAttachment,
+        false,
+      )
       let physicallyReleased = false
-      void held.released.then(() => {
-        physicallyReleased = true
-      })
+      void held.released.then(
+        () => {
+          physicallyReleased = true
+        },
+        () => undefined,
+      )
       held.release()
       await until(() => received.length > beforeLateFrame)
       assert.equal(physicallyReleased, false, 'late consumer cannot bypass quarantine')
+      await host.feed(
+        d,
+        first.instanceId,
+        Buffer.from('quarantined-parser-still-live\r\n'),
+      )
+      assert.equal(
+        (await host.inspect(d, first.ownerId, rendererGeneration)).appliedSequence,
+        3,
+      )
+      assert(
+        new TextDecoder()
+          .decode(await host.read(d, first.ownerId, rendererGeneration))
+          .includes('quarantined-parser-still-live'),
+      )
+      await host.resize(
+        d,
+        first.ownerId,
+        rendererGeneration,
+        renewedAttachment,
+        acknowledged.geometry.serial + 1,
+        1000,
+        600,
+      )
       target.destroy()
       phase('quarantine-target-destroyed')
       let frameDestroyed: boolean
@@ -479,8 +510,19 @@ void app
           producerExited: processPort.hasExited(processPort.epoch),
         }),
       )
-      await held.released
-      timeoutQuarantine = 'passed-real-electron-timeout-and-late-consumer'
+      await assert.rejects(held.released)
+      assert.equal('retire' in delayed, false, 'frame consumer cannot destroy parser')
+      assert.equal(
+        quarantineReleaseCalls,
+        0,
+        'unknown GPU fence retains immutable source',
+      )
+      assert.equal(
+        releasedReceipts,
+        beforeQuarantineReleased,
+        'quarantined receipt remains owned',
+      )
+      timeoutQuarantine = 'passed-app-lifetime-held-late-consumer-parser-retained'
     }
     phase('final-idle')
     await host.end(d, first.instanceId)
@@ -546,6 +588,8 @@ void app
       releasedReceipts,
       consumerDeathHeld,
       timeoutQuarantine,
+      appLifetimeQuarantines: kind === 1 || kind === 2 ? 1 : 0,
+      quarantineReclaimedBeforeExit: false,
       utilityPid,
       mainPid: process.pid,
       mainBeats,

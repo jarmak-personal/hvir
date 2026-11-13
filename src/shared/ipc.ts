@@ -151,6 +151,7 @@ export type IpcEventPayload<E extends IpcEventChannel> = IpcEventMap[E]
  * against it without importing anything from main/preload.
  */
 export interface HvirApi {
+  readonly nativeTerminalPresentation: import('./native-terminal-presentation').NativeTerminalPresentationApi
   /** Signals that the workbench surface committed for the preload's exact generation. */
   rendererReady(): void
   /** Resolve one disk-backed clipboard File to safe local terminal paste text. */

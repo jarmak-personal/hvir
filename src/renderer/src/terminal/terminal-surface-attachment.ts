@@ -1,5 +1,11 @@
 import type { TerminalEventRoute } from './terminal-event-router'
-import type { TerminalPane, TerminalPresentation } from './terminal-pane'
+import type { TerminalPresentation } from './terminal-pane'
+
+export interface TerminalSurfacePort {
+  mount(container: HTMLElement): void
+  reparent(container: HTMLElement): void
+  setPresentation(presentation: TerminalPresentation): void
+}
 
 /**
  * Owns the ordered lease between one retained terminal surface and its current
@@ -8,7 +14,7 @@ import type { TerminalPane, TerminalPresentation } from './terminal-pane'
 export class TerminalSurfaceAttachment {
   private current?: HTMLElement
   private retained?: HTMLElement
-  private pane?: TerminalPane
+  private pane?: TerminalSurfacePort
   private route?: TerminalEventRoute
   private applied: TerminalPresentation = 'hidden'
   private workspacePresentation: TerminalPresentation = 'hidden'
@@ -56,7 +62,7 @@ export class TerminalSurfaceAttachment {
     this.interactionRevision += 1
   }
 
-  mountPane(pane: TerminalPane, fallback: HTMLElement): void {
+  mountPane(pane: TerminalSurfacePort, fallback: HTMLElement): void {
     this.pane = pane
     pane.setPresentation('hidden')
     this.applied = 'hidden'

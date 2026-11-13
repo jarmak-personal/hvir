@@ -1,0 +1,112 @@
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -2544,13 +2544,10 @@
+ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
+     log.debug("set font size size={}", .{size.points});
+ 
+-    // Update our font size so future changes work
+-    self.font_size = size;
+-
+     // We need to build up a new font stack for this font size.
+     const font_grid_key, const font_grid = try self.app.font_grid_set.ref(
+         &self.config.font,
+-        self.font_size,
++        size,
+     );
+     errdefer self.app.font_grid_set.deref(font_grid_key);
+ 
+@@ -2560,6 +2557,10 @@
+         .height = font_grid.metrics.cell_height,
+     });
+ 
++    // Commit desired DPI only after fallible allocation/cell update succeeds.
++    // A failed scale request must not make the next identical request a no-op.
++    self.font_size = size;
++
+     // Notify our render thread of the new font stack. The renderer
+     // MUST accept the new font grid and deref the old.
+     _ = self.renderer_thread.mailbox.push(global.io(), .{
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1548,15 +1548,28 @@
+         return !io.backend.external.failed.load(.acquire);
+     }
+ 
+-    export fn ghostty_external_resize(surface: *Surface, width: u32, height: u32, serial: u64) void {
+-        surface.updateSize(width, height);
+-        surface.core_surface.io.queueMessage(.{ .external_resize = .{ .size = surface.core_surface.size, .serial = serial } }, .unlocked);
++    export fn ghostty_external_resize(surface: *Surface, width: u32, height: u32, serial: u64, backing_scale: f64) bool {
++        if (!std.math.isFinite(backing_scale) or backing_scale < 1 or backing_scale > 4) return false;
++        const scale: apprt.ContentScale = .{ .x = @floatCast(backing_scale), .y = @floatCast(backing_scale) };
++        // Public setters log callback errors. External transports need a failed
++        // operation instead of falsely acknowledging geometry that never applied.
++        const previous_scale = surface.content_scale;
++        surface.content_scale = scale;
++        surface.core_surface.contentScaleCallback(scale) catch {
++            surface.content_scale = previous_scale;
++            return false;
++        };
++        const size: apprt.SurfaceSize = .{ .width = width, .height = height };
++        surface.core_surface.sizeCallback(size) catch return false;
++        surface.size = size;
++        surface.core_surface.io.queueMessage(.{ .external_resize = .{ .size = surface.core_surface.size, .serial = serial, .backing_scale = scale.x } }, .unlocked);
++        return true;
+     }
+ 
+     export fn ghostty_external_frame_release(surface: *Surface) bool {
+         const core = &surface.core_surface;
+         if (core.io.backend == .external) core.io.backend.external.frame_held.store(false, .release);
+-        core.renderer_thread.wakeup.notify() catch return false;
++        core.renderer_thread.draw_now.notify() catch return false;
+         return true;
+     }
+ 
+--- a/src/main_c.zig
++++ b/src/main_c.zig
+@@ -266,5 +266,5 @@
+ 
+ // Version of the pinned upstream hooks consumed by hvir's maintained C facade.
+ export fn hvir_ghostty_embed_abi() u32 {
+-    return 3;
++    return 4;
+ }
+--- a/src/termio/External.zig
++++ b/src/termio/External.zig
+@@ -26,7 +26,7 @@
+ pub const Config = extern struct {
+     userdata: ?*anyopaque,
+     write: *const fn (?*anyopaque, [*]const u8, usize) callconv(.c) bool,
+-    applied: *const fn (?*anyopaque, u64, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) callconv(.c) void,
++    applied: *const fn (?*anyopaque, u64, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, f64) callconv(.c) void,
+     failed: *const fn (?*anyopaque, u32) callconv(.c) void,
+     scrollback_limit: usize,
+     effect: *const fn (?*anyopaque, u32, [*]const u8, usize) callconv(.c) bool,
+--- a/src/termio/Thread.zig
++++ b/src/termio/Thread.zig
+@@ -335,7 +335,7 @@
+                     const e = &io.backend.external;
+                     const grid = v.size.grid();
+                     const pixels = v.size.terminal();
+-                    e.config.applied(e.config.userdata, v.serial, grid.columns, grid.rows, v.size.screen.width, v.size.screen.height, v.size.cell.width, v.size.cell.height, pixels.width, pixels.height, v.size.padding.left, v.size.padding.top);
++                    e.config.applied(e.config.userdata, v.serial, grid.columns, grid.rows, v.size.screen.width, v.size.screen.height, v.size.cell.width, v.size.cell.height, pixels.width, pixels.height, v.size.padding.left, v.size.padding.top, v.backing_scale);
+                 }
+             },
+             .size_report => |v| try io.sizeReport(data, v),
+--- a/src/termio/message.zig
++++ b/src/termio/message.zig
+@@ -49,7 +49,7 @@
+     resize: renderer.Size,
+ 
+     /// External parser geometry fence; never coalesced with ordinary requests.
+-    external_resize: struct { size: renderer.Size, serial: u64 },
++    external_resize: struct { size: renderer.Size, serial: u64, backing_scale: f64 },
+ 
+     /// Request a size report is sent to the PTY ([in-band
+     /// size report, mode 2048](https://gist.github.com/rockorager/e695fb2924d36b2bcf1fff4a3704bd83) and
+@@ -145,5 +145,5 @@
+ test {
+     // Ensure we don't grow our IO message size without explicitly wanting to.
+     const testing = std.testing;
+-    try testing.expectEqual(@as(usize, 48), @sizeOf(Message));
++    try testing.expectEqual(@as(usize, 56), @sizeOf(Message));
+ }

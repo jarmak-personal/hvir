@@ -1,6 +1,7 @@
 # ADR-086: Native terminal state and independent presentation
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-087](ADR-087-indeterminate-native-presentation-quarantine.md) | partial | Native presentation failure recovery and resource lifetime after indeterminate texture import or delivery.
 > Supersedes: [ADR-003](ADR-003-swappable-terminal-pane.md) | partial | ghostty-web and xterm.js engine selection, stable Linux embedding prerequisite, and the single TerminalPane interface as the required native boundary.
 > Supersedes: [ADR-014](ADR-014-modular-monolith-ownership.md) | partial | TerminalPane facade stability and process placement for native terminal state and presentation.
 > Supersedes: [ADR-024](ADR-024-demand-driven-terminal-workspace-lifecycle.md) | partial | Renderer-side ownership of materialized terminal runtime and presentation behind TerminalPane.

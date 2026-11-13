@@ -238,6 +238,11 @@ interface MockTerminalEventHandlers extends TerminalEventHandlers {
 }
 
 class FakeHvirApi implements HvirApi {
+  readonly nativeTerminalPresentation = {
+    mount: vi.fn(),
+    unmount: vi.fn(),
+    onStatus: vi.fn(() => () => undefined),
+  }
   rendererReady(): void {}
   resolveTerminalClipboardFilePaste(): string | undefined {
     return undefined

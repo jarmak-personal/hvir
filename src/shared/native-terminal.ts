@@ -20,6 +20,7 @@ export interface NativeTerminalGeometry {
   readonly contentHeight: number
   readonly paddingLeft: number
   readonly paddingTop: number
+  readonly backingScale: number
 }
 export const NATIVE_TERMINAL_LIMITS = {
   states: 32,
@@ -40,6 +41,8 @@ export interface NativeTerminalStatus {
   readonly closing: boolean
   readonly rendererHealth: number
   readonly presentationFailure: number
+  readonly frameCopies: number
+  readonly geometryFailureSerial: number
   readonly geometry: NativeTerminalGeometry
 }
 /** Private process metadata. Platform resources travel only through the OS edge. */
@@ -47,7 +50,16 @@ export type NativeTerminalCommand =
   | { kind: 'shutdown' }
   | { kind: 'create'; width: number; height: number }
   | { kind: 'feed'; state: string; sequence: number; bytes: Uint8Array }
-  | { kind: 'resize'; state: string; serial: number; width: number; height: number }
+  | {
+      kind: 'resize'
+      state: string
+      serial: number
+      width: number
+      height: number
+      backingScale?: number
+    }
+  | { kind: 'visibility'; state: string; visible: boolean }
+  | { kind: 'pixels'; state: string; lease: string }
   | { kind: 'inspect' | 'read' | 'drain' | 'event' | 'destroy'; state: string }
   | { kind: 'frame'; state: string; ticket: string }
   | { kind: 'transfer'; state: string; lease: string; ticket: string }

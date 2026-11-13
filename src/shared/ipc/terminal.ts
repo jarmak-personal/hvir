@@ -8,6 +8,12 @@ import { type ProjectState } from '../workspace-types'
 import { type OperationResult } from '../operation-result'
 import type { TerminalName } from '../terminal-title'
 import type { TerminalAttentionState } from '../terminal-attention'
+import type {
+  NativeTerminalPresentationAcknowledgement,
+  NativeTerminalViewGrant,
+  NativeTerminalPixelFrame,
+  NativeTerminalPresentationStatus,
+} from '../native-terminal-presentation'
 
 export interface TerminalCommandRequest {
   readonly ticket: string
@@ -212,6 +218,8 @@ export const terminalIpc = {
     'pty:start': invoke<StartPtyRequest, StartPtyResponse>(),
   },
   send: {
+    'native-terminal:presentation-ack':
+      payload<NativeTerminalPresentationAcknowledgement>(),
     'pty:write': payload<{ readonly id: string; readonly data: string }>(),
     'pty:resize': payload<{
       readonly id: string
@@ -226,6 +234,15 @@ export const terminalIpc = {
     'terminal:clipboard-write': payload<{ readonly text: string }>(),
   },
   event: {
+    'native-terminal:presentation-grant': payload<{
+      viewId: string
+      grant?: NativeTerminalViewGrant
+    }>(),
+    'native-terminal:presentation-pixels': payload<{
+      ticket: string
+      frame: NativeTerminalPixelFrame
+    }>(),
+    'native-terminal:presentation-status': payload<NativeTerminalPresentationStatus>(),
     'terminal:name-changed': payload<TerminalNameChanged>(),
     'terminal:command-requested': payload<TerminalCommandRequest>(),
     'terminal:command-revoked': payload<{ readonly ticket: string }>(),

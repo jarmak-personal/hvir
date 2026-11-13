@@ -1,5 +1,6 @@
 export interface Geometry {
   serial: bigint
+  backingScale: number
   columns: number
   rows: number
   width: number
@@ -13,6 +14,8 @@ export interface Geometry {
 }
 export interface Status {
   appliedSequence: bigint
+  frameCopies: bigint
+  geometryFailureSerial: bigint
   replySequence: bigint
   queuedReplyBytes: number
   failure: number
@@ -48,7 +51,21 @@ declare const engine: {
   open(path: string): Result & { host?: Host }
   createBegin(host: Host, width: number, height: number): Result & { id?: bigint }
   feed(host: Host, id: bigint, sequence: bigint, bytes: Uint8Array): Result
-  resize(host: Host, id: bigint, serial: bigint, width: number, height: number): Result
+  resize(
+    host: Host,
+    id: bigint,
+    serial: bigint,
+    width: number,
+    height: number,
+    backingScale?: number,
+  ): Result
+  visibility(host: Host, id: bigint, visible: boolean): Result
+  copyFrame(
+    host: Host,
+    id: bigint,
+    lease: bigint,
+    capacity: number,
+  ): Result & { data?: Buffer; stride?: number }
   inspect(host: Host, id: bigint): Result & { status?: Status }
   read(host: Host, id: bigint, capacity: number): Result & { data?: Buffer }
   drain(host: Host, id: bigint, capacity: number): Result & { data?: Buffer }

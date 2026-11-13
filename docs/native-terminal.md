@@ -29,12 +29,13 @@ The selected source ownership is concrete:
 | Maintained source / artifact location | Responsibility and language |
 | --- | --- |
 | `packages/native-terminal/` | Independently hvir-owned private facade, Node-API binding and OS-resource edge: `.c` / `.h`, package binding metadata and the small TS/JS loading edge. The facade calls minimal versioned Ghostty exports; it does not embed a standalone hvir Zig implementation. |
-| `src/main/terminal/native/` | Main session/native-host coordination and Electron resource adapter, in TypeScript. Main's native resource binding does not load Ghostty. |
-| `src/native-terminal-host/` | Utility entry and host adapter, in TypeScript; loads the maintained C facade and pinned Ghostty library. |
-| `src/shared/terminal-engine/` | Domain-named engine-neutral ports/protocol contracts, in TypeScript, importing no concrete process/engine/resource edge. |
+| `src/main/terminal/native-terminal-*.ts` | Main session/native-host coordination and Electron resource adapter, in TypeScript. Main's native resource binding does not load Ghostty. |
+| `src/workers/native-terminal-*.ts` | Utility entry and host adapter, in TypeScript; loads the maintained C facade and pinned Ghostty library. |
+| `src/shared/native-terminal*.ts` | Domain-named engine-neutral ports/protocol contracts, in TypeScript, importing no concrete process/engine/resource edge. |
+| `src/preload/native-terminal-{presentation,canvas}.ts` and `src/renderer/src/terminal/native-terminal-surface.ts` | Sandboxed frame reception/canvas and retained DOM attachment, in TypeScript; no parser or OS pointers. |
 | `scripts/native-terminal/` | Build/provenance/upgrade tooling and manifest, in the existing TS/JS/shell languages and data formats. |
 | `scripts/native-terminal/patches/*.patch.txt` | Genuine reproduced modifications to pinned Ghostty-owned embedding/backend/renderer/core exports, using the accepted external reproduction-patch text convention. Not a maintained hvir Zig host/facade/transport hidden as text. |
-| `out/native-terminal/<target>/` | Disposable build products/manifests, never maintained implementation source. External source/dependency caches stay outside the maintained tree. |
+| `packages/native-terminal/build/Release/` and an explicit external build-work directory | Disposable bindings, probes and build manifests, never maintained implementation source. External source/dependency caches stay outside the maintained tree. |
 
 Existing seam checks and runtime/type direction checks remain applicable. Each new native
 output gets an exact build-artifact loading disposition with its C source, binding, export
@@ -178,7 +179,14 @@ The host's completed source may be copied by GPU blit into an independently leas
 export target. Producer completion precedes import. Main owns the received reference until
 Electron's `allReferencesReleased` permits release; the send promise and rAF do not. The renderer
 owns/ closes its received VideoFrame. Discard, failed import/send, timeout, detach, host loss and
-renderer destruction release each reference exactly once without overwriting in-use pixels.
+renderer destruction preserve each ownership obligation without overwriting in-use pixels.
+[ADR-087](adr/ADR-087-indeterminate-native-presentation-quarantine.md) distinguishes
+successful-transfer completion from uncertain import/delivery: the latter revokes
+presentation while retaining its immutable source, OS reference, returned import,
+and credit through application shutdown. Do not claim physical reclamation from
+receiver destruction or an incomplete late-consumer callback. The parser remains
+available for authoritative feed, read, and geometry; only explicit terminal close
+may retire it independently.
 Retaining a descriptor keeps an allocation alive, not its content immutable. M4 proves actual
 cross-process ownership and producer/consumer termination; M5/M6 prove full pane presentation.
 
@@ -190,7 +198,11 @@ prove that swap-chain reuse cannot mutate frames Electron still holds.
 ## Compatibility and failure
 
 M5 (#1112) owns macOS pixel-export compatibility; M6 (#1113) owns Linux pixel-export compatibility.
-Use the same native state and bounded lease/presentation lifetime. Detect import failure before
+The selected macOS adapter recovers only the explicit GPU-unavailable rejection
+before Electron CreateSharedImage. Unknown import/delivery failure is unavailable
+with bounded application-lifetime quarantine, not automatically recoverable pixels.
+M15/M16 must explicitly retain or accept that limitation before cutover.
+Use the same native state and bounded lease/presentation lifetime. Detect proven pre-import failure before
 spawn where possible; if it occurs later, revoke the old attachment and switch only its
 presentation path while retaining the same state and PTY. Revalidate geometry and leases.
 Bound dimensions, retained pixel buffers, copy scheduling and work; no routine readback is

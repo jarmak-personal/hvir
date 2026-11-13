@@ -21,6 +21,7 @@ typedef enum {
 #define HVIR_TERMINAL_FEED_MAX 65536u
 #define HVIR_TERMINAL_REPLY_MAX 65536u
 #define HVIR_TERMINAL_TEXT_MAX 1048576u
+#define HVIR_TERMINAL_PIXEL_MAX 16777216u
 typedef struct {
   uint32_t kind;
   size_t length;
@@ -30,11 +31,12 @@ typedef struct {
 /* width/height are physical pixels; native metrics determine columns/rows. */
 typedef struct {
   uint64_t serial;
+  double backing_scale; /* actual native-applied isotropic scale, bounded 1..4 */
   uint32_t columns, rows, width, height;
   uint32_t cell_width, cell_height, content_width, content_height, padding_left, padding_top;
 } hvir_terminal_geometry;
 typedef struct {
-  uint64_t applied_sequence, reply_sequence;
+  uint64_t applied_sequence, reply_sequence, frame_copies, geometry_failure_serial;
   size_t queued_reply_bytes;
   uint32_t failure, closing;
   uint32_t renderer_health;      /* upstream state: 0 healthy, 1 unhealthy; not frame proof */
@@ -74,6 +76,12 @@ hvir_terminal_result hvir_terminal_read(hvir_terminal_host *, hvir_terminal_id, 
                                         size_t capacity, size_t *written);
 hvir_terminal_result hvir_terminal_resize(hvir_terminal_host *, hvir_terminal_id, uint64_t serial,
                                           uint32_t width, uint32_t height);
+/* The same Surface applies scale and physical size before its serial is acknowledged.
+ * PRESENTATION leaves prior acknowledged geometry and parser state available. */
+hvir_terminal_result hvir_terminal_resize_scaled(hvir_terminal_host *, hvir_terminal_id,
+                                                 uint64_t serial, uint32_t width,
+                                                 uint32_t height, double backing_scale);
+hvir_terminal_result hvir_terminal_visibility(hvir_terminal_host *, hvir_terminal_id, uint32_t visible);
 hvir_terminal_result hvir_terminal_inspect(hvir_terminal_host *, hvir_terminal_id,
                                            hvir_terminal_status *);
 /* Encode a Unicode text/key event using current native modes. key is a Ghostty key
@@ -83,6 +91,12 @@ hvir_terminal_result hvir_terminal_key(hvir_terminal_host *, hvir_terminal_id, u
                                        uint8_t *, size_t capacity, size_t *written);
 hvir_terminal_result hvir_terminal_take_frame(hvir_terminal_host *, hvir_terminal_id,
                                               hvir_terminal_frame *);
+/* Explicit compatibility readback of one held completed IOSurface, on the designated
+ * caller thread. Packed BGRA rows; preserves lease and source color/alpha/origin.
+ * Never performed by ordinary frame acquisition or release. */
+hvir_terminal_result hvir_terminal_copy_frame(hvir_terminal_host *, hvir_terminal_id,
+                                              uint64_t lease, uint8_t *out, size_t capacity,
+                                              size_t *written, uint32_t *stride);
 /* PRESENTATION means the resource was released but rearming drawing failed.
  * Parser state remains usable; duplicate release remains harmless. */
 hvir_terminal_result hvir_terminal_release_frame(hvir_terminal_host *, hvir_terminal_id,
