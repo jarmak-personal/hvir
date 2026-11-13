@@ -1,8 +1,11 @@
-# Native terminal process and resource qualification
+# Native terminal state and presentation
 
-The native host is a qualification seam for the migration in epic #1090. Normal
-sessions still use their existing terminal engine. This work does not enable a new
-production pane or change PTY spawning, harness policy, or recovery.
+The native host and macOS presentation adapters implement the state, resource,
+and presentation boundaries for epic #1090. Normal sessions continue using the
+existing terminal runtime until M7 wires these adapters to the PTY supervisor.
+The production preload owns a sandboxed GPU canvas receiver; native presentation
+requests require an already authorized prepared state and a current main-issued
+view grant.
 
 `NativeTerminalHost` authorizes immutable PTY instances against a main-owned
 session resolver. Renderer generations and attachment serials authorize current
@@ -50,12 +53,99 @@ Electron imports only main-local resources. The main importer bounds three
 pending/held imports and checks current attachment, geometry, color space,
 premultiplication and format. A completed producer lease remains immutable until
 Electron's `allReferencesReleased` callback. A renderer acknowledgement or closing
-one VideoFrame is insufficient. If `sendSharedTexture` times out, the source is
-retired immediately and the main reference is quarantined until retirement and
-target-frame destruction. Electron 43.8.1 can deliver a consumer after its one
-second timeout; its late wrapper release can log an upstream missing-reference
-error. The qualification exercises this condition without releasing the source
-early.
+one VideoFrame is insufficient. Indeterminate import or send failures retain the immutable source, received OS
+reference, main import (if one was returned), and one of the three import credits
+for the application lifetime. Presentation becomes unavailable and its grant is
+revoked. The same parser continues accepting authoritative output, readback, and
+acknowledged geometry; presentation failure does not destroy the terminal state.
+A destroyed receiver or the old high-level callback is insufficient to reclaim
+these resources: Electron 43.8.1 can create a late consumer after its send timeout
+without the missing creation sync token reaching that callback. Explicit terminal
+close may destroy its parser, while uncertain physical resources remain held until
+application shutdown. This is a bounded unavailable outcome, not transparent
+recovery or successful resource reclamation. M15/M16 must explicitly retain or
+accept this limitation before cutover.
+
+The one recoverable import failure is the pinned Electron rejection
+`Failed to import shared texture: GPU is not available`, which occurs before
+`CreateSharedImage`. After releasing that unsent receive reference, the presenter
+can select native pixels on the same parser and PTY. Other thrown imports are not
+assumed safe. No usable native renderer still requires the retained legacy path
+or an explicitly accepted support decision.
+
+## Production presentation owners
+
+`NativeTerminalPresenter` shares the existing Host and FrameImports owners. It
+creates an opaque view ID, qualifies the actual receiver, coalesces geometry,
+and permits one in-flight demand per view. One immutable source lease is valid;
+three is the import cap, not a required copy pool. A slow former consumer retains
+its source lease while a new attachment acquires authority. Demand then reports
+backpressure until that source physically releases. Detach revokes locally,
+occludes the old attachment, and never waits for an old consumer to authorize
+its replacement.
+
+Source release uses the existing native draw-only notification. It does not wake
+the full update path merely to rebuild unchanged cells and export another frame.
+Native cursor timers may still produce bounded redraws; idle acceptance counts
+completed leases over a fixed window with enough polling opportunities, separately
+from visible cursor-blink pixel checks. Unavailable/quarantined views stay natively
+occluded even when a blocked handle is attached again.
+
+Applied geometry includes backing scale (finite 1 through 4), physical extent,
+and the actual native cell grid. Equal dimensions still advance the serial.
+The same upstream Surface performs font/DPI changes, and the IO acknowledgement
+reports actual applied scale. Failed font-grid allocation leaves the prior font
+size intact; a failed/pending serial cannot label a new acquired frame. Hidden
+states keep parsing and use upstream occlusion to stop drawing. Zero-sized DOM
+measurements do not replace the last usable geometry.
+
+The inward `NativeTerminalViewGrant` and presented-frame DTO contain the main
+view ID, native epoch, attachment, and exact acknowledged geometry. One isolated
+preload receiver multiplexes grants. It closes stale frames and wrappers. A
+retained `NativeTerminalSurface` implements the small DOM/presentation port used
+by the existing Workspace/Sessions attachment owner; it drives coalesced visible
+frame demand and watches CSS extent/backing scale without owning a parser.
+
+`NativeTerminalPresentationTargets` owns pending pixel tickets and exact-frame
+acknowledgements. Its feature registrar uses the existing IPC authority router,
+owner policy, and typed terminal contract. Main-frame and current-owner checks
+precede the domain's exact target/grant checks. The normal registrar ignores
+acknowledgements when M7 has not supplied an authorized presentation owner.
+
+The GPU canvas uses WebGL VideoFrame upload and performs no routine readback.
+The native Metal target contains Display-P3 pixels. The adapter preserves numeric
+values using `UNPACK_COLORSPACE_CONVERSION_WEBGL=NONE`, requests premultiplied
+VideoFrame upload, and sets the drawing buffer to the actual source color space.
+It intentionally retains the sRGB unpack selector for the pinned Chromium GPU
+copy path; forcing that selector to P3 disables the fast-path eligibility.
+Compatibility RGBA uploads use straight alpha and multiply once in the shader.
+The currently exposed native configuration is opaque; translucent native settings
+remain unqualified rather than being inferred from opaque color tests.
+
+Native pixel compatibility explicitly copies a completed held IOSurface on the
+designated engine worker. The copy is bounded to 16 MiB (2048×2048 packed RGBA),
+one request per view and three outstanding uploads application-wide, paced to at
+most one accepted upload per 67 ms. Worker normalization converts BGRA premultiplied
+pixels to straight RGBA/top-left without changing their color-space interpretation.
+The receiver uploads to WebGL, or to an sRGB 2D canvas when browser GPU use is
+unavailable. The ImageData retains the actual source P3 tag, so Canvas2D performs
+the conversion rather than interpreting P3 numbers as sRGB. It displays “Compatibility rendering”; bound or context failures
+display “Terminal unavailable”. Context loss is latched locally and qualified
+back to main, so later GPU status cannot mask it. This path does not qualify as
+native GPU presentation.
+
+The target's one attachment-loss callback revokes and natively occludes an
+unavailable view even when no frame demand is active. Cleanup hide remains valid
+for its exact old attachment after renderer revocation; showing still requires
+current renderer authority. A late quarantine is keyed to the prepared handle
+and native epoch and also revokes a replacement that attached before the failure
+became known. A layout update cannot reactivate such a blocked producer.
+
+The 16 MiB compatibility limit does not cover every historically supported large
+viewport. Initial engine selection must retain the necessary legacy path when
+native presentation cannot support the requested configuration; a live bound
+failure reports unavailable rather than switching engines from partial replay.
+M15/M16 must cover or explicitly accept this limit before removing that legacy path.
 
 ## Reproducing the boundary proofs
 
@@ -180,3 +270,35 @@ fallback are bounded, and no diagnostic result can turn a timed-out probe into a
 pass. Utility spawn/exit markers retain the captured native epoch and PID,
 including initialization failures; public app quit and return markers locate the
 shutdown stage without claiming a cause from an alive-process snapshot alone.
+
+
+## macOS presenter acceptance
+
+After the native/binding build above, run both production receiver paths:
+
+```bash
+npm run native:presenter-probe -- --library=/absolute/trusted/artifact/libghostty.dylib
+npm run native:presenter-probe -- --compatibility --library=/absolute/trusted/artifact/libghostty.dylib
+```
+
+The compatibility command disables Electron hardware acceleration before startup;
+Ghostty still renders with Metal in its utility. The proof uses the production
+presenter, IPC registrar, sandboxed preload, and canvas. It checks independent
+view grants, 1→2→1 scale changes, equal-size serials, hidden parsing and retained
+DOM reparenting. Controlled truecolor blocks prove orientation. Opaque midtones
+are compared with independent CSS sRGB reference blocks in the same capture, so
+both GPU and pixel paths must honor the actual P3 source interpretation. Capture
+is an observer-only readback. The GPU receipt requires zero native copy requests;
+compatibility requires actual copies and exercises its maximum upload and refusal
+above that bound. Each run requires final native utility exit and an actual
+successful Electron process exit. Main and renderer heartbeats include first shader/upload, scale changes,
+hide/reveal and the maximum compatibility upload. Each records its final partial
+interval, sample count, nearest-rank p99 and maximum; both enforce a 500 ms
+absolute maximum, with no claim of the controlled M15 performance gate.
+
+Physical movement between Retina/non-Retina displays, physical latency, translucent
+settings, installed/signed packages, and whole-workbench terminal interaction are
+separate acceptance evidence. Forced scale transitions do not claim an untested
+external display. M6 consumes the shared grants, acknowledged geometry, visibility,
+and physical lease owner while supplying Linux presentation/driver evidence;
+M7 owns live PTY runtime composition, M8 input, M12 settings, and M14 packaging.

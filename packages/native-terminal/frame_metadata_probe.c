@@ -87,10 +87,17 @@ static ghostty_surface_t begin_native_create(ghostty_app_t app, void *display,
   (void)app; (void)display; (void)width; (void)height;
   return (ghostty_surface_t)config->userdata;
 }
-static void pending_resize(ghostty_surface_t surface, uint32_t width, uint32_t height,
-                            uint64_t serial) {
+static bool pending_resize(ghostty_surface_t surface, uint32_t width, uint32_t height,
+                            uint64_t serial, double scale) {
+  (void)scale;
   (void)surface; (void)width; (void)height;
   pending_geometry = serial;
+  return true;
+}
+static bool failed_resize(ghostty_surface_t surface, uint32_t width, uint32_t height,
+                           uint64_t serial, double scale) {
+  (void)surface; (void)width; (void)height; (void)serial; (void)scale;
+  return false;
 }
 static void drop_surface(ghostty_surface_t surface) { (void)surface; }
 static bool partial_frame_accepted;
@@ -105,6 +112,9 @@ static ghostty_surface_t reject_native_create(ghostty_app_t app, void *display,
 }
 
 int main(void) {
+#ifdef __APPLE__
+  IOSurfaceRef copy_surface = NULL;
+#endif
   int result = 1, pipes[2] = {-1, -1};
   FILE *source = NULL;
   hvir_terminal_host host = {0};
@@ -147,10 +157,13 @@ int main(void) {
           pending_geometry == 1 && live_allocations == 1,
           "create-begin-publishes-owned-state-without-waiting-for-geometry");
   hvir_terminal_status pending_status;
+  hvir_terminal_frame initializing_frame;
   REQUIRE(hvir_terminal_inspect(&host, unpublished_id, &pending_status) == HVIR_OK &&
-          pending_status.geometry.serial == 0 && !pending_status.failure,
-          "pending-initial-geometry-can-be-polled-without-blocking");
-  applied(host.states, 1, 80, 24, 640, 480, 8, 16, 640, 384, 0, 0);
+          pending_status.geometry.serial == 0 && !pending_status.failure &&
+          pending_status.renderer_health == GHOSTTY_RENDERER_HEALTH_HEALTHY &&
+          hvir_terminal_take_frame(&host, unpublished_id, &initializing_frame) == HVIR_BUSY,
+          "pending-initial-geometry-is-busy-and-can-be-polled-without-blocking");
+  applied(host.states, 1, 80, 24, 640, 480, 8, 16, 640, 384, 0, 0, 1);
   REQUIRE(hvir_terminal_inspect(&host, unpublished_id, &pending_status) == HVIR_OK &&
           pending_status.geometry.serial == 1 &&
           hvir_terminal_destroy(&host, unpublished_id) == HVIR_OK &&
@@ -162,14 +175,33 @@ int main(void) {
   host.states = &state;
   REQUIRE(hvir_terminal_resize(&host, state.id, 8, 0, 480) == HVIR_BOUND &&
           state.requested_geometry == 7, "invalid-resize-preserves-requested-serial");
+  state.surface = (ghostty_surface_t)&state;
+  host.external_resize = failed_resize;
+  REQUIRE(hvir_terminal_resize_scaled(&host, state.id, 8, 640, 480, 2) == HVIR_PRESENTATION &&
+          state.geometry.serial == 6 && state.geometry_failure_serial == 8 && !state.failure,
+          "failed-scale-is-correlated-without-false-geometry-ack-or-parser-poison");
+  applied(&state, 8, 80, 24, 640, 480, 8, 16, 640, 384, 0, 0, 2);
+  REQUIRE(state.geometry.serial == 6, "failed-scale-cannot-later-acknowledge-same-serial");
+  host.external_resize = pending_resize;
+  REQUIRE(hvir_terminal_resize_scaled(&host, state.id, 9, 640, 480, 1) == HVIR_OK,
+          "later-scale-operation-can-recover");
+  applied(&state, 9, 80, 24, 640, 480, 8, 16, 640, 384, 0, 0, 1);
+  REQUIRE(state.geometry.serial == 9 && state.geometry.backing_scale == 1 &&
+          !state.geometry_failure_serial, "only-later-applied-geometry-clears-scale-failure");
+  REQUIRE(hvir_terminal_resize_scaled(&host, state.id, 10, 640, 480, NAN) == HVIR_BOUND &&
+          hvir_terminal_resize_scaled(&host, state.id, 10, 640, 480, 0.5) == HVIR_BOUND &&
+          hvir_terminal_resize_scaled(&host, state.id, 10, 640, 480, 4.1) == HVIR_BOUND &&
+          state.requested_geometry == 9, "invalid-scale-preserves-requested-serial");
+  state.requested_geometry = 7;
+  state.geometry = (hvir_terminal_geometry){.serial = 6};
   state.closing = true;
-  applied(&state, 7, 80, 24, 640, 480, 8, 16, 640, 384, 0, 0);
+  applied(&state, 7, 80, 24, 640, 480, 8, 16, 640, 384, 0, 0, 1);
   REQUIRE(state.geometry.serial == 6 && state.geometry.width == 0,
           "late-applied-callback-cannot-mutate-closing-state");
   state.closing = false;
   failed(&state, 17);
   REQUIRE(state.failure == 17, "native-geometry-failure-is-latched");
-  applied(&state, 7, 80, 24, 640, 480, 8, 16, 640, 384, 0, 0);
+  applied(&state, 7, 80, 24, 640, 480, 8, 16, 640, 384, 0, 0, 1);
   REQUIRE(state.geometry.serial == 6 && state.geometry.width == 0 &&
           state.failure == 17, "late-applied-callback-cannot-advance-failed-state");
   state.failure = 0;
@@ -261,21 +293,95 @@ int main(void) {
   clear_frame(&state);
   REQUIRE(descriptor_count() == baseline && fcntl(fd, F_GETFD) >= 0,
           "repeated-clear-has-no-descriptor-effect");
+#ifdef __APPLE__
+  const int32_t width_value = 3, height_value = 2, element_value = 4;
+  const int32_t format_value = 0x42475241;
+  const void *surface_keys[] = {kIOSurfaceWidth, kIOSurfaceHeight, kIOSurfaceBytesPerElement,
+                                kIOSurfacePixelFormat};
+  CFNumberRef surface_values[] = {
+    CFNumberCreate(NULL, kCFNumberSInt32Type, &width_value),
+    CFNumberCreate(NULL, kCFNumberSInt32Type, &height_value),
+    CFNumberCreate(NULL, kCFNumberSInt32Type, &element_value),
+    CFNumberCreate(NULL, kCFNumberSInt32Type, &format_value)};
+  CFDictionaryRef properties = CFDictionaryCreate(NULL, surface_keys, (const void **)surface_values,
+    4, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+  copy_surface = IOSurfaceCreate(properties);
+  CFRelease(properties);
+  for (unsigned i = 0; i < 4; i++) CFRelease(surface_values[i]);
+  REQUIRE(copy_surface, "create-real-iosurface-copy-fixture");
+  REQUIRE(IOSurfaceLock(copy_surface, 0, NULL) == kIOReturnSuccess, "lock-copy-fixture");
+  const uint8_t packed[24] = {1,2,200,255,4,5,6,255,7,8,9,255,
+                              101,102,103,255,104,105,106,255,107,108,109,255};
+  uint8_t *base = IOSurfaceGetBaseAddress(copy_surface);
+  const size_t row_size = IOSurfaceGetBytesPerRow(copy_surface);
+  memcpy(base, packed, 12); memcpy(base + row_size, packed + 12, 12);
+  REQUIRE(IOSurfaceUnlock(copy_surface, 0, NULL) == kIOReturnSuccess, "unlock-copy-fixture");
+  host.states = &state;
+  state.geometry = (hvir_terminal_geometry){.serial = 7, .width = 3, .height = 2, .backing_scale = 1};
+  hvir_ghostty_external_frame pixel_frame = {.kind = 1, .width = 3, .height = 2, .geometry = 7,
+    .fourcc = 0x42475241, .surface = copy_surface};
+  REQUIRE(frame_ready(&state, &pixel_frame), "accept-real-completed-iosurface-fixture");
+  CFRelease(copy_surface); copy_surface = NULL;
+  hvir_terminal_frame pixel_lease;
+  REQUIRE(hvir_terminal_take_frame(&host, state.id, &pixel_lease) == HVIR_OK &&
+          !state.frame_copies, "acquisition-does-not-copy-pixels");
+  uint8_t copied[24]; size_t copied_bytes = 99; uint32_t copied_stride = 99;
+  REQUIRE(hvir_terminal_copy_frame(&host, state.id, pixel_lease.lease, copied, 23,
+          &copied_bytes, &copied_stride) == HVIR_BOUND && !copied_bytes && !copied_stride &&
+          !state.frame_copies, "copy-capacity-rejection-does-not-copy-or-count");
+  REQUIRE(hvir_terminal_copy_frame(&host, state.id, pixel_lease.lease + 1, copied, 24,
+          &copied_bytes, &copied_stride) == HVIR_INVALID && !state.frame_copies,
+          "copy-rejects-foreign-lease");
+  REQUIRE(hvir_terminal_copy_frame(&host, state.id, pixel_lease.lease, copied, 24,
+          &copied_bytes, &copied_stride) == HVIR_OK && copied_bytes == 24 && copied_stride == 12 &&
+          !memcmp(copied, packed, 24) && state.frame_copies == 1 && state.frame_taken,
+          "copy-exact-packed-bgra-and-preserves-held-lease");
+  state.closing = true;
+  REQUIRE(hvir_terminal_copy_frame(&host, state.id, pixel_lease.lease, copied, 24,
+          &copied_bytes, &copied_stride) == HVIR_OK && state.frame_copies == 2,
+          "copy-held-resource-after-engine-retirement");
+  state.closing = false;
+  clear_frame(&state);
+  REQUIRE(hvir_terminal_copy_frame(&host, state.id, pixel_lease.lease, copied, 24,
+          &copied_bytes, &copied_stride) == HVIR_INVALID && state.frame_copies == 2,
+          "released-resource-cannot-be-copied-or-counted");
+#endif
   const uint8_t opaque = 42;
   for (unsigned i = 0; i < 128; i++) {
     const uint8_t item = (uint8_t)i;
     REQUIRE(effect(&state, 9, &item, 1), "fill-noncoalescible-fifo");
   }
   for (unsigned i = 0; i < 300; i++) renderer_health(&state, i % 2);
-  renderer_health(&state, 1);
+  renderer_health(&state, GHOSTTY_RENDERER_HEALTH_UNHEALTHY);
+  const uint64_t health_geometry = state.geometry.serial;
   REQUIRE(hvir_terminal_inspect(&host, state.id, &acquisition_status) == HVIR_OK &&
-          !acquisition_status.failure && acquisition_status.renderer_health == 1 &&
+          !acquisition_status.failure &&
+          acquisition_status.renderer_health == GHOSTTY_RENDERER_HEALTH_UNHEALTHY &&
           state.event_count == 128, "health-flapping-does-not-consume-full-event-fifo");
+  REQUIRE(hvir_terminal_take_frame(&host, state.id, &obsolete) == HVIR_PRESENTATION &&
+          !state.failure && !state.closing && state.geometry.serial == health_geometry,
+          "native-unhealthy-no-frame-is-presentation-unavailable-without-retiring-parser");
   state.applied_sequence = 0;
   REQUIRE(hvir_terminal_feed(&host, state.id, 1, (const uint8_t *)"ok", 2) == HVIR_OK &&
           hvir_terminal_read(&host, state.id, readable, sizeof(readable), &readable_size) == HVIR_OK &&
           readable_size == 2 && !memcmp(readable, "ok", 2),
           "renderer-health-preserves-parser-owner-ports-with-full-fifo");
+  renderer_health(&state, GHOSTTY_RENDERER_HEALTH_HEALTHY);
+  REQUIRE(hvir_terminal_inspect(&host, state.id, &acquisition_status) == HVIR_OK &&
+          acquisition_status.renderer_health == GHOSTTY_RENDERER_HEALTH_HEALTHY &&
+          !acquisition_status.failure && !acquisition_status.closing &&
+          hvir_terminal_take_frame(&host, state.id, &obsolete) == HVIR_BUSY &&
+          state.geometry.serial == health_geometry,
+          "native-health-recovery-without-frame-is-busy-not-presentation-failure");
+  state.geometry = (hvir_terminal_geometry){.serial = health_geometry, .backing_scale = 1,
+    .width = 1, .height = 1};
+  state.requested_geometry = health_geometry;
+  pixels.geometry = health_geometry;
+  REQUIRE(frame_ready(&state, &pixels) &&
+          hvir_terminal_take_frame(&host, state.id, &obsolete) == HVIR_OK &&
+          obsolete.geometry_serial == health_geometry && !state.failure && !state.closing,
+          "healthy-replacement-frame-can-be-acquired-after-renderer-failure");
+  clear_frame(&state);
   uint8_t cwd[4097];
   for (size_t i = 0; i < sizeof(cwd); i++) cwd[i] = i % 128 ? 'b' : '/';
   hvir_terminal_event event;
@@ -308,6 +414,9 @@ int main(void) {
           "noncoalescible-overflow-remains-bounded-explicit-failure");
   result = 0;
 cleanup:
+#ifdef __APPLE__
+  if (copy_surface) CFRelease(copy_surface);
+#endif
   clear_frame(&state);
   if (pipes[0] >= 0) close(pipes[0]);
   if (pipes[1] >= 0) close(pipes[1]);

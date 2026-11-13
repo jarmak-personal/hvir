@@ -5,7 +5,7 @@
 #include <stdint.h>
 /* Pinned full-core hooks, separate from stable libghostty-vt. Local pointers/FDs
  * belong to this process; M4 must transfer real OS rights across processes. */
-#define HVIR_GHOSTTY_EMBED_ABI 3u
+#define HVIR_GHOSTTY_EMBED_ABI 4u
 typedef uint32_t (*hvir_ghostty_embed_abi_fn)(void);
 typedef struct {
   uint32_t kind, width, height, fourcc, plane_count, premultiplied, color_space, origin;
@@ -20,7 +20,7 @@ typedef struct {
   void *userdata;
   bool (*write)(void *, const uint8_t *, size_t);
   void (*applied)(void *, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
-                  uint32_t, uint32_t, uint32_t, uint32_t);
+                  uint32_t, uint32_t, uint32_t, uint32_t, double);
   void (*failed)(void *, uint32_t);
   size_t scrollback_limit;
   bool (*effect)(void *, uint32_t, const uint8_t *, size_t);

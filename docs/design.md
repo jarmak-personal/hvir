@@ -871,7 +871,8 @@ with operation-scoped authority and no additional confirmation.
 
 ### [ADR-086 — Native terminal state and independent presentation](adr/ADR-086-native-terminal-state-and-presentation.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-087](adr/ADR-087-indeterminate-native-presentation-quarantine.md) | partial | Native presentation failure recovery and resource lifetime after indeterminate texture import or delivery.
 > Supersedes: [ADR-003](adr/ADR-003-swappable-terminal-pane.md) | partial | ghostty-web and xterm.js engine selection, stable Linux embedding prerequisite, and the single TerminalPane interface as the required native boundary.
 > Supersedes: [ADR-014](adr/ADR-014-modular-monolith-ownership.md) | partial | TerminalPane facade stability and process placement for native terminal state and presentation.
 > Supersedes: [ADR-024](adr/ADR-024-demand-driven-terminal-workspace-lifecycle.md) | partial | Renderer-side ownership of materialized terminal runtime and presentation behind TerminalPane.
@@ -887,6 +888,16 @@ presentation/input attachments, real OS resource transfer, explicit failure and 
 paths, and pinned private Ghostty patches. Existing terminal ADR mechanisms are revisable;
 retain user and trust outcomes on their merits. See the [native contract](native-terminal.md)
 and [compatibility inventory](native-terminal-compatibility.md).
+
+### [ADR-087 — Preserve terminal state through indeterminate presentation failures](adr/ADR-087-indeterminate-native-presentation-quarantine.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) | partial | Native presentation failure recovery and resource lifetime after indeterminate texture import or delivery.
+
+Keep authoritative terminal state alive when texture import or delivery cannot prove
+physical completion. Retain bounded immutable resources through application shutdown;
+only proven pre-import rejection may select same-state pixel compatibility.
+
 
 ---
 

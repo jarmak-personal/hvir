@@ -6,7 +6,10 @@ import type {
 } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Receipt } from '../packages/native-terminal/resource'
-import { NativeTerminalFrameImports } from '../src/main/terminal/native-terminal-import'
+import {
+  NativeTerminalFrameImports,
+  NativeTerminalGpuImportUnavailable,
+} from '../src/main/terminal/native-terminal-import'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -31,9 +34,9 @@ function source() {
       premultiplied: true,
     },
     assertCurrent: vi.fn(),
+    copyPixels: vi.fn(() => Promise.resolve({ bytes: new Uint8Array(1024), stride: 64 })),
     transfer: vi.fn(() => Promise.resolve()),
     release: vi.fn(() => Promise.resolve()),
-    retire: vi.fn(() => Promise.resolve()),
   }
 }
 function receipt(ticket: string, extra: Partial<Receipt> = {}): Receipt {
@@ -177,7 +180,7 @@ describe('native terminal main imports', () => {
     expect(native.release).toHaveBeenCalledTimes(1)
   })
 
-  it('refuses an unready receiver before opening a transfer and releases failed imports', async () => {
+  it('refuses an unready receiver and quarantines unknown import ownership', async () => {
     const f = fixture(),
       unready = source()
     f.target.ready = false
@@ -192,8 +195,8 @@ describe('native terminal main imports', () => {
       throw new Error('import-failed')
     })
     await expect(f.owner.acquire(failed, f.target)).rejects.toThrow('import-failed')
-    expect(f.edge.release).toHaveBeenCalledTimes(1)
-    expect(failed.release).toHaveBeenCalledTimes(1)
+    expect(f.edge.release).not.toHaveBeenCalled()
+    expect(failed.release).not.toHaveBeenCalled()
   })
 
   it('counts pending endpoint handshakes against the three-resource bound', async () => {
@@ -306,35 +309,24 @@ describe('native terminal main imports', () => {
     expect(native.release).toHaveBeenCalledTimes(1)
   })
 
-  it('quarantines an indeterminate late send until both source retirement and receiver destruction', async () => {
-    vi.useFakeTimers()
+  it('keeps an indeterminate send quarantined even after target death and an old callback', async () => {
     const f = fixture(),
       native = source(),
-      retirement = deferred<void>(),
       acknowledgement = deferred<void>()
     f.textures.sendSharedTexture.mockReturnValue(acknowledgement.promise)
-    vi.mocked(native.retire).mockReturnValue(retirement.promise)
     const value = await f.owner.acquire(native, f.target)
     const sent = value.send()
     value.release()
     expect(f.imported[0]!.release).not.toHaveBeenCalled()
     acknowledgement.reject(new Error('send-timeout'))
     await expect(sent).rejects.toThrow('send-timeout')
-    expect(native.retire).toHaveBeenCalledTimes(1)
-    value.release()
+    await expect(value.released).rejects.toThrow('send-timeout')
     f.live.dead = true
-    await vi.advanceTimersByTimeAsync(50)
+    value.release()
+    f.options[0]!.allReferencesReleased?.()
     expect(f.imported[0]!.release).not.toHaveBeenCalled()
-    retirement.resolve()
-    await vi.advanceTimersByTimeAsync(50)
-    expect(f.imported[0]!.release).toHaveBeenCalledTimes(1)
     expect(f.edge.release).not.toHaveBeenCalled()
     expect(native.release).not.toHaveBeenCalled()
-    f.options[0]!.allReferencesReleased?.()
-    await value.released
-    expect(f.edge.release).toHaveBeenCalledTimes(1)
-    expect(native.release).toHaveBeenCalledTimes(1)
-    expect(vi.getTimerCount()).toBe(0)
   })
 })
 
@@ -369,4 +361,107 @@ it('admits a fresh source only after the previous physical owner settles', async
   const fresh = await f.owner.acquire(source(), f.target)
   for (const options of f.options.slice(1)) options.allReferencesReleased?.()
   await Promise.all([second.released, third.released, fresh.released])
+})
+
+it('retains the same immutable source only for pinned pre-create GPU unavailability', async () => {
+  const f = fixture(),
+    native = source()
+  f.textures.importSharedTexture.mockImplementation((options) => {
+    f.options.push(options)
+    throw new Error('Failed to import shared texture: GPU is not available')
+  })
+  await expect(
+    f.owner.acquire(native, f.target, { allowPixelFallback: true }),
+  ).rejects.toBeInstanceOf(NativeTerminalGpuImportUnavailable)
+  expect(f.edge.release).toHaveBeenCalledTimes(1)
+  expect(native.release).not.toHaveBeenCalled()
+  f.options[0]!.allReferencesReleased?.()
+  expect(native.release).not.toHaveBeenCalled()
+  await native.copyPixels()
+  await native.release()
+  expect(native.release).toHaveBeenCalledTimes(1)
+})
+it('keeps malformed metadata outside recoverable import classification', async () => {
+  const f = fixture({ origin: 99 }),
+    native = source()
+  await expect(
+    f.owner.acquire(native, f.target, { allowPixelFallback: true }),
+  ).rejects.not.toBeInstanceOf(NativeTerminalGpuImportUnavailable)
+  expect(f.textures.importSharedTexture).not.toHaveBeenCalled()
+  expect(native.release).toHaveBeenCalledTimes(1)
+})
+it('rechecks authority before offering retained-source compatibility', async () => {
+  const f = fixture(),
+    native = source()
+  f.textures.importSharedTexture.mockImplementation(() => {
+    f.live.current = false
+    throw new Error('Failed to import shared texture: GPU is not available')
+  })
+  await expect(
+    f.owner.acquire(native, f.target, { allowPixelFallback: true }),
+  ).rejects.toThrow('native-import-target-stale')
+  expect(native.release).toHaveBeenCalledTimes(1)
+})
+it('routes main-granted metadata independently from the private native lease', async () => {
+  const f = fixture({ width: 32, height: 32 }),
+    native = source()
+  native.metadata.width = 32
+  native.metadata.height = 32
+  const presentation = {
+    nativeTerminal: {
+      viewId: '11111111-1111-4111-8111-111111111111',
+      nativeEpoch: '22222222-2222-4222-8222-222222222222',
+      attachment: 2,
+      geometrySerial: 2,
+      width: 32,
+      height: 32,
+      backingScale: 1,
+    },
+    origin: 1,
+    colorSpace: 2,
+  }
+  const frame = await f.owner.acquire(native, { ...f.target, presentation })
+  await frame.send()
+  expect(f.textures.sendSharedTexture).toHaveBeenCalledWith(
+    expect.anything(),
+    presentation,
+  )
+  f.options[0]!.allReferencesReleased?.()
+  await frame.released
+})
+
+it('retains bounded unknown-import credit even after a late callback and target death', async () => {
+  const f = fixture()
+  f.textures.importSharedTexture.mockImplementation((options) => {
+    f.options.push(options)
+    throw new Error('Failed to create shared image from shared texture handle')
+  })
+  const retained = [source(), source(), source()]
+  for (const native of retained) {
+    await expect(
+      f.owner.acquire(native, f.target, { allowPixelFallback: true }),
+    ).rejects.toThrow('Failed to create')
+  }
+  f.live.dead = true
+  for (const options of f.options) options.allReferencesReleased?.()
+  expect(f.edge.release).not.toHaveBeenCalled()
+  for (const native of retained) expect(native.release).not.toHaveBeenCalled()
+  const refused = source()
+  await expect(f.owner.acquire(refused, f.target)).rejects.toThrow('native-import-bound')
+  expect(refused.release).toHaveBeenCalledTimes(1)
+})
+
+it('bounds late-send quarantine globally without retiring unrelated parser states', async () => {
+  const f = fixture()
+  f.textures.sendSharedTexture.mockRejectedValue(new Error('late send'))
+  const retained = [source(), source(), source()]
+  for (const native of retained) {
+    const imported = await f.owner.acquire(native, f.target)
+    await expect(imported.send()).rejects.toThrow('late send')
+    await expect(imported.released).rejects.toThrow('late send')
+    imported.release()
+    expect(native.release).not.toHaveBeenCalled()
+  }
+  await expect(f.owner.acquire(source(), f.target)).rejects.toThrow('native-import-bound')
+  expect(f.edge.release).not.toHaveBeenCalled()
 })

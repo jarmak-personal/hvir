@@ -63,8 +63,10 @@ function status(): Status {
     queuedReplyBytes: 0,
     failure: 0,
     closing: false,
-    rendererHealth: 1,
+    rendererHealth: 0,
     presentationFailure: 0,
+    frameCopies: 0n,
+    geometryFailureSerial: 0n,
     geometry: {
       serial: 1n,
       columns: 80,
@@ -77,6 +79,7 @@ function status(): Status {
       contentHeight: 480,
       paddingLeft: 0,
       paddingTop: 0,
+      backingScale: 1,
     },
   }
 }

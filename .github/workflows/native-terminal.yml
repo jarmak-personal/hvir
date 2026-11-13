@@ -8,10 +8,17 @@ on:
       - packages/native-terminal/**
       - src/main/terminal/native-terminal-*
       - src/workers/native-terminal-*
-      - src/shared/native-terminal.ts
+      - src/shared/native-terminal*
       - src/shared/ui-responsiveness-budget.ts
       - src/main/worker-host.ts
-      - src/preload/native-terminal-probe.ts
+      - src/preload/native-terminal-*
+      - src/preload/index.ts
+      - src/renderer/src/terminal/native-terminal-surface.ts
+      - src/main/ipc/features/native-terminal-presentation.ts
+      - src/main/ipc/authority-router.ts
+      - src/main/ipc/authority-channel-policy.ts
+      - src/main/renderer-resource-scopes.ts
+      - src/shared/ipc/terminal.ts
       - electron.vite.config.ts
       - package-lock.json
       - .github/workflows/native-terminal.yml
@@ -75,6 +82,18 @@ jobs:
         run: |
           node scripts/native-terminal/build.mts "$TARGET" "$RUNNER_TEMP/hvir-native-build"
           node scripts/native-terminal/check.mts "$TARGET" "$RUNNER_TEMP/hvir-native-build/artifact"
+          node - "$RUNNER_TEMP/hvir-native-build/artifact/facade-proof.json" <<'NODE'
+          const assert = require('node:assert/strict');
+          const proof = require(process.argv[2]);
+          assert(proof.idleObservationMs >= 1200);
+          assert(proof.idleCompletedFrames <= 4);
+          assert(proof.idlePolls >= 100);
+          assert.equal(proof.idleCpuReadback, false);
+          assert.equal(proof.cursorObservationMs, 1300);
+          assert(proof.cursorCompletedFrames >= 2);
+          if (proof.frameKind === 1 || proof.frameKind === 3)
+            assert.equal(proof.cursorPixelsChecked, true);
+          NODE
       - name: Install pinned Electron and build binding snapshots
         env:
           TARGET: ${{ matrix.target }}
@@ -91,6 +110,48 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           xvfb-run -a node scripts/native-terminal/run-electron-probe.mts --library="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/electron-proof.jsonl"
+      - name: Prove production macOS canvas and GPU-disabled compatibility
+        if: runner.os == 'macOS'
+        run: |
+          node scripts/native-terminal/run-electron-probe.mts --presenter --library="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/presenter-gpu.jsonl"
+          node scripts/native-terminal/run-electron-probe.mts --presenter --compatibility --library="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/presenter-pixels.jsonl"
+          node - "$RUNNER_TEMP/hvir-native-bindings" <<'NODE'
+          const fs = require('node:fs');
+          const assert = require('node:assert/strict');
+          for (const mode of ['gpu', 'pixels']) {
+            const records = fs.readFileSync(`${process.argv[2]}/presenter-${mode}.jsonl`, 'utf8')
+              .split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+              .filter(value => value.nativePresenter === 'passed');
+            assert.equal(records.length, 1);
+            const proof = records[0];
+            assert.equal(proof.mode, `native-${mode}`);
+            assert.equal(proof.receiverSandboxed, true);
+            assert.equal(proof.receiverContextIsolated, true);
+            assert.equal(proof.finalUtilityExit, true);
+            assert.equal(proof.hardwareGpuQualified, false);
+            assert.equal(proof.controlledCapacityQualified, false);
+            assert.equal(proof.orientationQualified, true);
+            assert(proof.colorMaximumDifference <= 4);
+            assert(proof.mainMaxGapMs <= 500);
+            assert.equal(proof.responsivenessMaximumInclusiveMs, 500);
+            for (const loop of [proof.responsiveness.main, proof.responsiveness.renderer]) {
+              assert(loop.samples >= 2);
+              assert(loop.p99Ms >= 0 && loop.p99Ms <= loop.maxMs && loop.maxMs <= 500);
+            }
+            if (mode === 'gpu') {
+              assert.equal(proof.contextLossReported, true);
+              assert.equal(proof.contextLossNativeOccluded, true);
+              assert.equal(proof.occludedCompletedFrames, 0);
+              assert(proof.occludedFeeds >= 10);
+            }
+            if (mode === 'gpu') assert.equal(proof.routineGpuReadbacks, 0);
+            else {
+              assert(proof.frameCopies > 0);
+              assert.equal(proof.maximumCompatibilityUploadBytes, 16 * 1024 * 1024);
+              assert.equal(proof.compatibilityBoundRefused, true);
+            }
+          }
+          NODE
       - name: Require the completed Electron proof receipt
         run: |
           node - "$RUNNER_TEMP/hvir-native-bindings/electron-proof.jsonl" <<'NODE'
@@ -104,6 +165,12 @@ jobs:
           assert.equal(proof.hardwareGpuQualified, false);
           assert.equal(proof.receiverSandboxed, true);
           assert.equal(proof.receiverContextIsolated, true);
+          if (proof.gpuImport === 'passed') {
+            assert.equal(proof.appLifetimeQuarantines, 1);
+            assert.equal(proof.quarantineReclaimedBeforeExit, false);
+            assert.equal(proof.timeoutQuarantine, 'passed-app-lifetime-held-late-consumer-parser-retained');
+            assert.equal(proof.releasedReceipts, 3);
+          }
           assert(Array.isArray(proof.frames));
           for (const frame of proof.frames) {
             assert.equal(frame.readbackWorker, true);
@@ -174,7 +241,11 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: |
-          tar -czf "$RUNNER_TEMP/native-terminal-bindings-${TARGET}.tar.gz" -C packages/native-terminal/build Release -C "$RUNNER_TEMP/hvir-native-bindings" resource-proof.jsonl electron-proof.jsonl
+          proofs=(resource-proof.jsonl electron-proof.jsonl)
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            proofs+=(presenter-gpu.jsonl presenter-pixels.jsonl)
+          fi
+          tar -czf "$RUNNER_TEMP/native-terminal-bindings-${TARGET}.tar.gz" -C packages/native-terminal/build Release -C "$RUNNER_TEMP/hvir-native-bindings" "${proofs[@]}"
       - uses: actions/upload-artifact@v7
         with:
           name: native-terminal-bindings-${{ matrix.target }}

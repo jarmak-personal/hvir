@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { hostPathEquals } from '../../shared/host-path'
 import {
+  NATIVE_TERMINAL_PRESENTATION,
+  validNativeTerminalScale,
+} from '../../shared/native-terminal-presentation'
+import {
   NATIVE_TERMINAL_LIMITS as limits,
   NativeTerminalAdmissionError,
   validNativeTerminalExtent,
@@ -52,10 +56,9 @@ export interface NativeTerminalFrameMetadata {
 }
 export interface NativeTerminalAcquiredFrame {
   readonly metadata: NativeTerminalFrameMetadata
+  copyPixels(): Promise<{ bytes: Uint8Array; stride: number }>
   transfer(ticket: string): Promise<void>
   assertCurrent(): void
-  /** Stop the source before retiring an indeterminate consumer. Never overwrite it. */
-  retire(): Promise<void>
   release(): Promise<void>
 }
 /** Main-only authority. Renderer payloads never supply the binding's PTY identity. */
@@ -163,6 +166,69 @@ export class NativeTerminalHost {
       throw new Error('native-attachment-stale')
     binding.attachment = undefined
   }
+  nativeEpoch(
+    handle: string,
+    ownerId: number,
+    generation: number,
+    attachment: number,
+  ): string {
+    return this.requireAttachment(handle, ownerId, generation, attachment).epoch
+  }
+  async setVisible(
+    handle: string,
+    ownerId: number,
+    generation: number,
+    attachment: number,
+    visible: boolean,
+  ): Promise<void> {
+    if (typeof visible !== 'boolean') throw new Error('native-visibility-invalid')
+    if (!visible) {
+      const deadline = Date.now() + limits.requestMs
+      for (;;) {
+        const binding = this.requireHideAttachment(
+          handle,
+          ownerId,
+          generation,
+          attachment,
+        )
+        try {
+          // Hide is captured cleanup authority, not a renewed renderer operation.
+          // It uses reserved cleanup admission and is never cancelled by its view.
+          const result = await this.process.request({
+            kind: 'visibility',
+            state: binding.state,
+            visible: false,
+          })
+          this.requireHideAttachment(handle, ownerId, generation, attachment)
+          if (
+            !result ||
+            typeof result !== 'object' ||
+            !('result' in result) ||
+            result.result !== 0
+          )
+            throw new Error('native-presentation-unavailable')
+          return
+        } catch (error) {
+          if (!(error instanceof NativeTerminalAdmissionError) || Date.now() >= deadline)
+            throw error
+          await new Promise<void>((resolve) => setTimeout(resolve, 16))
+        }
+      }
+    }
+    const binding = this.requireAttachment(handle, ownerId, generation, attachment)
+    const result = await this.process.request(
+      { kind: 'visibility', state: binding.state, visible },
+      binding.abort.signal,
+    )
+    this.requireAttachment(handle, ownerId, generation, attachment)
+    if (
+      !result ||
+      typeof result !== 'object' ||
+      !('result' in result) ||
+      result.result !== 0
+    )
+      throw new Error('native-presentation-unavailable')
+  }
   async feed(handle: string, instanceId: string, bytes: Uint8Array): Promise<void> {
     const binding = this.requireProducer(handle, instanceId)
     if (
@@ -246,15 +312,19 @@ export class NativeTerminalHost {
     serial: number,
     width: number,
     height: number,
+    backingScale = 1,
   ): Promise<NativeTerminalStatus> {
     const binding = this.requireAttachment(handle, ownerId, generation, attachment)
-    if (!validNativeTerminalExtent(width, height))
+    if (
+      !validNativeTerminalExtent(width, height) ||
+      !validNativeTerminalScale(backingScale)
+    )
       throw new Error('native-extent-invalid')
     if (!Number.isSafeInteger(serial) || serial <= binding.requestedGeometry)
       throw new Error('native-geometry-stale')
     binding.requestedGeometry = serial
     await this.process.request(
-      { kind: 'resize', state: binding.state, serial, width, height },
+      { kind: 'resize', state: binding.state, serial, width, height, backingScale },
       binding.abort.signal,
     )
     const deadline = Date.now() + 10000
@@ -263,7 +333,13 @@ export class NativeTerminalHost {
       if (binding.requestedGeometry !== serial)
         throw new Error('native-geometry-superseded')
       const status = await this.inspect(handle, ownerId, generation)
-      if (status.geometry.serial === serial) return status
+      if (status.geometryFailureSerial === serial)
+        throw new Error('native-geometry-failed')
+      if (status.geometry.serial === serial) {
+        if (Math.abs(status.geometry.backingScale - backingScale) > 0.00001)
+          throw new Error('native-scale-unacknowledged')
+        return status
+      }
       if (Date.now() >= deadline) throw new Error('native-geometry-timeout')
       await new Promise<void>((resolve) => setTimeout(resolve, 1))
     }
@@ -296,7 +372,8 @@ export class NativeTerminalHost {
         unacquired = true
         binding.frameHeld = false
         if (binding.closing) await this.finishRetirement(handle, binding)
-        if (value.unavailable === 6 || value.unavailable === 9) return undefined
+        if (value.unavailable === 6) return undefined
+        if (value.unavailable === 9) throw new Error('native-presentation-unavailable')
         await this.retireBinding(binding)
         throw new Error('native-frame-state-unavailable')
       }
@@ -304,6 +381,11 @@ export class NativeTerminalHost {
       if (!validFrame(metadata)) throw new Error('native-frame-invalid')
     } catch (error) {
       if (unacquired) throw error
+      if (error instanceof NativeTerminalAdmissionError) {
+        binding.frameHeld = false
+        if (binding.closing) await this.finishRetirement(handle, binding)
+        throw error
+      }
       if (signal?.aborted) {
         binding.frameHeld = false
         if (binding.closing)
@@ -355,7 +437,27 @@ export class NativeTerminalHost {
       metadata,
       assertCurrent,
       release,
-      retire: () => this.retireBinding(binding),
+      copyPixels: async () => {
+        assertCurrent()
+        const result = await this.process.request(
+          { kind: 'pixels', state: binding.state, lease: metadata.lease },
+          signal,
+        )
+        assertCurrent()
+        const pixels = result as { bytes?: unknown; stride?: unknown } | undefined
+        if (
+          !pixels ||
+          !(pixels.bytes instanceof Uint8Array) ||
+          pixels.bytes.buffer instanceof SharedArrayBuffer ||
+          !Number.isSafeInteger(pixels.stride) ||
+          typeof pixels.stride !== 'number' ||
+          pixels.stride < metadata.width * 4 ||
+          pixels.bytes.byteLength > NATIVE_TERMINAL_PRESENTATION.maximumPixelBytes ||
+          pixels.stride * metadata.height !== pixels.bytes.byteLength
+        )
+          throw new Error('native-pixel-bound')
+        return { bytes: pixels.bytes, stride: pixels.stride }
+      },
       transfer: async (ticket) => {
         assertCurrent()
         await this.process.request(
@@ -495,6 +597,25 @@ export class NativeTerminalHost {
       throw new Error('native-host-lost')
     return binding
   }
+  private requireHideAttachment(
+    handle: string,
+    ownerId: number,
+    generation: number,
+    attachment: number,
+  ): Binding {
+    const binding = this.bindings.get(handle)
+    if (!binding || this.disposed) throw new Error('native-state-foreign')
+    if (
+      !attachment ||
+      binding.attachment?.serial !== attachment ||
+      binding.attachment.ownerId !== ownerId ||
+      binding.attachment.generation !== generation
+    )
+      throw new Error('native-attachment-stale')
+    if (!this.process.available || binding.epoch !== this.process.epoch)
+      throw new Error('native-host-lost')
+    return binding
+  }
   private requireAttachment(
     handle: string,
     ownerId: number,
@@ -559,6 +680,8 @@ function validStatus(value: unknown): value is NativeTerminalStatus {
     v.failure,
     v.rendererHealth,
     v.presentationFailure,
+    v.frameCopies,
+    v.geometryFailureSerial,
     g.serial,
     g.columns,
     g.rows,
@@ -573,6 +696,7 @@ function validStatus(value: unknown): value is NativeTerminalStatus {
   ]
   return (
     unsigned.every((n) => Number.isSafeInteger(n) && n >= 0) &&
+    validNativeTerminalScale(g.backingScale) &&
     v.queuedReplyBytes <= limits.responseBytes &&
     g.serial > 0 &&
     g.width > 0 &&

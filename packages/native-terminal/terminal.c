@@ -10,8 +10,10 @@
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <math.h>
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
+#include <IOSurface/IOSurface.h>
 #endif
 
 /* One application host caller; IO/render callbacks use only events, never caller
@@ -25,7 +27,7 @@ typedef struct {
 struct terminal_state {
   terminal_state *next;
   struct hvir_terminal_host *host;
-  uint64_t id, applied_sequence, reply_sequence, requested_geometry;
+  uint64_t id, applied_sequence, reply_sequence, requested_geometry, frame_copies, geometry_failure_serial;
   ghostty_surface_t surface;
   hvir_terminal_geometry geometry;
   uint8_t replies[HVIR_TERMINAL_REPLY_MAX];
@@ -61,7 +63,8 @@ struct hvir_terminal_host {
                                     uint32_t, uint32_t);
   bool (*external_feed)(ghostty_surface_t, const uint8_t *, size_t, uint64_t);
   bool (*external_frame_release)(ghostty_surface_t);
-  void (*external_resize)(ghostty_surface_t, uint32_t, uint32_t, uint64_t);
+  bool (*external_resize)(ghostty_surface_t, uint32_t, uint32_t, uint64_t, double);
+  void (*surface_visibility)(ghostty_surface_t, bool);
   bool (*external_read)(ghostty_surface_t, uint8_t *, size_t, size_t *);
   bool (*external_key)(ghostty_surface_t, int, uint32_t, int, const uint8_t *, size_t, uint8_t *,
                        size_t, size_t *);
@@ -299,13 +302,16 @@ static bool frame_ready(void *userdata, const hvir_ghostty_external_frame *nativ
 static void applied(void *userdata, uint64_t serial, uint32_t cols, uint32_t rows, uint32_t width,
                     uint32_t height, uint32_t cell_width, uint32_t cell_height,
                     uint32_t content_width, uint32_t content_height, uint32_t padding_left,
-                    uint32_t padding_top) {
+                    uint32_t padding_top, double backing_scale) {
   terminal_state *s = userdata;
   pthread_mutex_lock(&s->host->events);
-  if (!s->closing && !s->failure && serial == s->requested_geometry)
-    s->geometry = (hvir_terminal_geometry){serial,         cols,         rows,        width,
-                                           height,         cell_width,   cell_height, content_width,
-                                           content_height, padding_left, padding_top};
+  if (!s->closing && !s->failure && serial == s->requested_geometry && serial != s->geometry_failure_serial) {
+    s->geometry = (hvir_terminal_geometry){.serial = serial, .backing_scale = backing_scale,
+      .columns = cols, .rows = rows, .width = width, .height = height,
+      .cell_width = cell_width, .cell_height = cell_height, .content_width = content_width,
+      .content_height = content_height, .padding_left = padding_left, .padding_top = padding_top};
+    s->geometry_failure_serial = 0;
+  }
   pthread_cond_broadcast(&s->host->changed);
   pthread_mutex_unlock(&s->host->events);
 }
@@ -369,6 +375,7 @@ hvir_terminal_result hvir_terminal_open(const char *path, void *display, hvir_te
   LOAD(external_frame_release, "ghostty_external_frame_release");
   LOAD(external_feed, "ghostty_external_feed");
   LOAD(external_resize, "ghostty_external_resize");
+  LOAD(surface_visibility, "ghostty_surface_set_occlusion");
   LOAD(external_read, "ghostty_external_read");
   LOAD(external_key, "ghostty_external_key");
   if (!initialized_library) {
@@ -446,7 +453,10 @@ hvir_terminal_result hvir_terminal_create_begin(hvir_terminal_host *h, uint32_t 
   }
   s->next = h->states;
   h->states = s;
-  h->external_resize(s->surface, width, height, 1);
+  if (!h->external_resize(s->surface, width, height, 1, 1)) {
+    (void)hvir_terminal_destroy(h, s->id);
+    return HVIR_PRESENTATION;
+  }
   *out = s->id;
   return HVIR_OK;
 }
@@ -558,11 +568,15 @@ hvir_terminal_result hvir_terminal_read(hvir_terminal_host *h, hvir_terminal_id 
 }
 hvir_terminal_result hvir_terminal_resize(hvir_terminal_host *h, hvir_terminal_id id,
                                           uint64_t serial, uint32_t width, uint32_t height) {
+  return hvir_terminal_resize_scaled(h, id, serial, width, height, 1);
+}
+hvir_terminal_result hvir_terminal_resize_scaled(hvir_terminal_host *h, hvir_terminal_id id,
+                                                 uint64_t serial, uint32_t width, uint32_t height,
+                                                 double backing_scale) {
   terminal_state *s;
   hvir_terminal_result r = state_for(h, id, &s, false);
-  if (r)
-    return r;
-  if (!dimensions(width, height))
+  if (r) return r;
+  if (!dimensions(width, height) || !isfinite(backing_scale) || backing_scale < 1 || backing_scale > 4)
     return HVIR_BOUND;
   pthread_mutex_lock(&h->events);
   if (!serial || serial <= s->requested_geometry) {
@@ -571,7 +585,22 @@ hvir_terminal_result hvir_terminal_resize(hvir_terminal_host *h, hvir_terminal_i
   }
   s->requested_geometry = serial;
   pthread_mutex_unlock(&h->events);
-  h->external_resize(s->surface, width, height, serial);
+  if (!h->external_resize(s->surface, width, height, serial, backing_scale)) {
+    pthread_mutex_lock(&h->events);
+    s->geometry_failure_serial = serial;
+    s->presentation_failure = HVIR_PRESENTATION;
+    pthread_mutex_unlock(&h->events);
+    return HVIR_PRESENTATION;
+  }
+  return HVIR_OK;
+}
+hvir_terminal_result hvir_terminal_visibility(hvir_terminal_host *h, hvir_terminal_id id,
+                                              uint32_t visible) {
+  terminal_state *s;
+  hvir_terminal_result result = state_for(h, id, &s, false);
+  if (result != HVIR_OK) return result;
+  if (visible > 1) return HVIR_INVALID;
+  h->surface_visibility(s->surface, visible != 0);
   return HVIR_OK;
 }
 hvir_terminal_result hvir_terminal_inspect(hvir_terminal_host *h, hvir_terminal_id id,
@@ -585,6 +614,8 @@ hvir_terminal_result hvir_terminal_inspect(hvir_terminal_host *h, hvir_terminal_
   h->app_tick(h->app);
   pthread_mutex_lock(&h->events);
   *out = (hvir_terminal_status){.applied_sequence = s->applied_sequence,
+                                .frame_copies = s->frame_copies,
+                                .geometry_failure_serial = s->geometry_failure_serial,
                                 .reply_sequence = s->reply_sequence,
                                 .queued_reply_bytes = s->reply_count,
                                 .failure = s->failure,
@@ -624,11 +655,14 @@ hvir_terminal_result hvir_terminal_take_frame(hvir_terminal_host *h, hvir_termin
   h->app_tick(h->app);
   pthread_mutex_lock(&h->events);
   if (!s->frame_available || s->frame_taken) {
-    hvir_terminal_result availability = s->presentation_failure ? HVIR_PRESENTATION : HVIR_BUSY;
+    hvir_terminal_result availability =
+        s->presentation_failure || s->renderer_health == GHOSTTY_RENDERER_HEALTH_UNHEALTHY
+            ? HVIR_PRESENTATION : HVIR_BUSY;
     pthread_mutex_unlock(&h->events);
     return availability;
   }
-  if (s->frame.geometry_serial != s->geometry.serial || s->frame.width != s->geometry.width ||
+  if (s->geometry.serial != s->requested_geometry || s->geometry_failure_serial ||
+      s->frame.geometry_serial != s->geometry.serial || s->frame.width != s->geometry.width ||
       s->frame.height != s->geometry.height) {
     clear_frame(s);
     pthread_mutex_unlock(&h->events);
@@ -638,6 +672,48 @@ hvir_terminal_result hvir_terminal_take_frame(hvir_terminal_host *h, hvir_termin
   *out = s->frame;
   pthread_mutex_unlock(&h->events);
   return HVIR_OK;
+}
+hvir_terminal_result hvir_terminal_copy_frame(hvir_terminal_host *h, hvir_terminal_id id,
+                                              uint64_t lease, uint8_t *out, size_t capacity,
+                                              size_t *written, uint32_t *stride) {
+  terminal_state *s;
+  hvir_terminal_result result = state_for(h, id, &s, true);
+  if (result != HVIR_OK) return result;
+  if (!out || !written || !stride) return HVIR_INVALID;
+  *written = 0; *stride = 0;
+  if (!capacity || capacity > HVIR_TERMINAL_PIXEL_MAX) return HVIR_BOUND;
+  if (!lease || !s->frame_taken || s->frame.lease != lease) return HVIR_INVALID;
+#ifdef __APPLE__
+  const hvir_terminal_frame *frame = &s->frame;
+  if (frame->kind != 1 || !frame->surface) return HVIR_PRESENTATION;
+  IOSurfaceRef surface = frame->surface;
+  const size_t width = frame->width, height = frame->height;
+  if (!width || !height || width > HVIR_TERMINAL_PIXEL_MAX / 4 ||
+      height > HVIR_TERMINAL_PIXEL_MAX / (width * 4)) return HVIR_BOUND;
+  const size_t packed_stride = width * 4, bytes = packed_stride * height;
+  if (s->frame_copies == UINT64_MAX) return HVIR_BOUND;
+  if (capacity < bytes) return HVIR_BOUND;
+  if (IOSurfaceGetPlaneCount(surface) || IOSurfaceGetWidth(surface) != width ||
+      IOSurfaceGetHeight(surface) != height || IOSurfaceGetPixelFormat(surface) != 0x42475241u)
+    return HVIR_PRESENTATION;
+  const size_t source_stride = IOSurfaceGetBytesPerRow(surface);
+  const size_t allocation = IOSurfaceGetAllocSize(surface);
+  if (source_stride < packed_stride || source_stride > SIZE_MAX / height ||
+      source_stride * height > allocation) return HVIR_PRESENTATION;
+  if (IOSurfaceLock(surface, kIOSurfaceLockReadOnly, NULL) != kIOReturnSuccess)
+    return HVIR_PRESENTATION;
+  const uint8_t *source = IOSurfaceGetBaseAddress(surface);
+  if (source)
+    for (size_t row = 0; row < height; row++)
+      memcpy(out + row * packed_stride, source + row * source_stride, packed_stride);
+  const bool unlocked = IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, NULL) == kIOReturnSuccess;
+  if (!source || !unlocked) return HVIR_PRESENTATION;
+  *written = bytes; *stride = (uint32_t)packed_stride;
+  s->frame_copies++;
+  return HVIR_OK;
+#else
+  return HVIR_PRESENTATION;
+#endif
 }
 hvir_terminal_result hvir_terminal_release_frame(hvir_terminal_host *h, hvir_terminal_id id,
                                                  uint64_t lease) {

@@ -1,5 +1,7 @@
 import { createRequire } from 'node:module'
-import { isAbsolute, resolve } from 'node:path'
+import { isAbsolute, resolve, join } from 'node:path'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 import { repository } from './artifacts.mts'
@@ -14,6 +16,7 @@ interface ProbeLaunch {
 export async function runNativeElectronProbe(
   library: string,
   launch?: ProbeLaunch,
+  presentation?: 'gpu' | 'pixels',
 ): Promise<Record<string, unknown>> {
   if (!isAbsolute(library))
     throw new Error('native-electron-probe: absolute library required')
@@ -24,11 +27,20 @@ export async function runNativeElectronProbe(
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 75_000)
     throw new Error('native-electron-probe: invalid deadline')
   const started = performance.now()
+  const profile = await mkdtemp(join(tmpdir(), 'hvir-native-electron-'))
   const child = spawn(
     binary,
     [
-      launch?.entry ?? resolve(repository, 'out/main/native-terminal-probe.js'),
+      launch?.entry ??
+        resolve(
+          repository,
+          presentation
+            ? 'out/main/native-terminal-presenter-probe.js'
+            : 'out/main/native-terminal-probe.js',
+        ),
       `--library=${library}`,
+      `--user-data-dir=${profile}`,
+      ...(presentation === 'pixels' ? ['--compatibility'] : []),
     ],
     { detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
   )
@@ -264,7 +276,7 @@ export async function runNativeElectronProbe(
       proof.platform !== process.platform ||
       proof.arch !== process.arch ||
       proof.hardwareGpuQualified !== false ||
-      proof.orientationQualified !== false ||
+      proof.orientationQualified !== Boolean(presentation) ||
       proof.receiverSandboxed !== true ||
       proof.receiverContextIsolated !== true ||
       proof.realGhostty !== true ||
@@ -273,6 +285,14 @@ export async function runNativeElectronProbe(
       proof.utilityPid === pid
     )
       throw new Error('native-electron-probe: invalid receipt identity or isolation')
+    if (
+      presentation &&
+      (proof.nativePresenter !== 'passed' ||
+        proof.mode !== (presentation === 'gpu' ? 'native-gpu' : 'native-pixels') ||
+        proof.finalUtilityExit !== true ||
+        (presentation === 'gpu' && proof.routineGpuReadbacks !== 0))
+    )
+      throw new Error('native-electron-probe: invalid presenter receipt')
     return proof
   } finally {
     process.off('SIGINT', sigint)
@@ -294,12 +314,26 @@ export async function runNativeElectronProbe(
     child.stdout?.destroy()
     child.stderr?.destroy()
     child.unref()
+    await rm(profile, { recursive: true, force: true })
   }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const argument = process.argv[2]
-  if (process.argv.length !== 3 || !argument?.startsWith('--library='))
-    throw new Error('Usage: run-electron-probe.mts --library=ABS_PATH')
-  await runNativeElectronProbe(argument.slice('--library='.length))
+  const args = process.argv.slice(2)
+  const argument = args.find((value) => value.startsWith('--library='))
+  const presenter = args.includes('--presenter')
+  const compatibility = args.includes('--compatibility')
+  if (
+    !argument ||
+    args.length !== 1 + Number(presenter) + Number(compatibility) ||
+    (compatibility && !presenter)
+  )
+    throw new Error(
+      'Usage: run-electron-probe.mts --library=ABS_PATH [--presenter [--compatibility]]',
+    )
+  await runNativeElectronProbe(
+    argument.slice('--library='.length),
+    undefined,
+    presenter ? (compatibility ? 'pixels' : 'gpu') : undefined,
+  )
 }

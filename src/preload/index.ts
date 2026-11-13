@@ -5,7 +5,51 @@
  * reach channels declared in `INVOKE_CHANNELS`.
  */
 
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, sharedTexture, webUtils } from 'electron'
+import { NativeTerminalPresentationReceiver } from './native-terminal-presentation'
+import { createNativeTerminalCanvas } from './native-terminal-canvas'
+import { NATIVE_TERMINAL_PRESENTATION as nativePresentation } from '../shared/native-terminal-presentation'
+
+const nativeReceiver = new NativeTerminalPresentationReceiver(
+  createNativeTerminalCanvas,
+  (grant) =>
+    ipcRenderer.send(nativePresentation.acknowledgementChannel, {
+      kind: 'renderer-failure',
+      grant,
+    }),
+)
+ipcRenderer.on(
+  nativePresentation.grantChannel,
+  (_event, value: { viewId: string; grant?: unknown }) => nativeReceiver.grant(value),
+)
+ipcRenderer.on(
+  nativePresentation.statusChannel,
+  (
+    _event,
+    value: import('../shared/native-terminal-presentation').NativeTerminalPresentationStatus,
+  ) => nativeReceiver.status(value),
+)
+ipcRenderer.on(
+  nativePresentation.pixelsChannel,
+  (
+    _event,
+    value: {
+      ticket: string
+      frame: import('../shared/native-terminal-presentation').NativeTerminalPixelFrame
+    },
+  ) => {
+    if (!value || typeof value.ticket !== 'string') return
+    const accepted = nativeReceiver.pixels(value.frame)
+    ipcRenderer.send(nativePresentation.acknowledgementChannel, {
+      kind: 'pixels',
+      ticket: value.ticket,
+      accepted,
+    })
+  },
+)
+sharedTexture.setSharedTextureReceiver(({ importedSharedTexture }, metadata: unknown) =>
+  Promise.resolve().then(() => nativeReceiver.receive(importedSharedTexture, metadata)),
+)
 
 import {
   EVENT_CHANNELS,
@@ -47,6 +91,11 @@ ipcRenderer.on('diagnostics:session', (_event, session: unknown) => {
 })
 
 const api: HvirApi = {
+  nativeTerminalPresentation: {
+    mount: (viewId, elementId) => nativeReceiver.mount(viewId, elementId),
+    unmount: (viewId) => nativeReceiver.unmount(viewId),
+    onStatus: (listener) => nativeReceiver.onStatus(listener),
+  },
   rendererReady: () => {
     readyRequested = true
     signalRendererReady()

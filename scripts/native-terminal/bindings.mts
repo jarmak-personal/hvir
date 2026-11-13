@@ -125,7 +125,9 @@ const commands = [
       '-DNODE_GYP_MODULE_NAME=native_terminal_engine',
       join(native, 'host_binding.c'),
       join(native, 'terminal.c'),
-      ...(process.platform === 'darwin' ? ['-framework', 'CoreFoundation'] : ['-ldl']),
+      ...(process.platform === 'darwin'
+        ? ['-framework', 'CoreFoundation', '-framework', 'IOSurface']
+        : ['-ldl']),
     ],
   },
   {

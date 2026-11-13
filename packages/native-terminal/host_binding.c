@@ -33,7 +33,9 @@ typedef enum {
   TAKE_FRAME,
   RELEASE_FRAME,
   DESTROY,
-  CLOSE
+  CLOSE,
+  VISIBILITY,
+  COPY_FRAME
 } operation;
 static bool checked(napi_env env, napi_status status) {
   if (status == napi_ok)
@@ -50,6 +52,10 @@ static void bad_argument(napi_env env) {
 static napi_value number(napi_env env, uint32_t value) {
   napi_value result;
   return checked(env, napi_create_uint32(env, value, &result)) ? result : NULL;
+}
+static napi_value real(napi_env env, double value) {
+  napi_value result;
+  return checked(env, napi_create_double(env, value, &result)) ? result : NULL;
 }
 static napi_value integer(napi_env env, int32_t value) {
   napi_value result;
@@ -158,7 +164,8 @@ static void finalize_host(napi_env env, void *data, void *hint) {
 }
 static napi_value geometry_value(napi_env env, const hvir_terminal_geometry *g) {
   napi_value result = object(env);
-  if (!put(env, result, "serial", big(env, g->serial)))
+  if (!put(env, result, "serial", big(env, g->serial)) ||
+      !put(env, result, "backingScale", real(env, g->backing_scale)))
     return NULL;
 #define METRIC(name, member)                                                                       \
   if (!put(env, result, name, number(env, g->member)))                                             \
@@ -179,6 +186,8 @@ static napi_value geometry_value(napi_env env, const hvir_terminal_geometry *g) 
 static napi_value status_value(napi_env env, const hvir_terminal_status *s) {
   napi_value result = object(env);
   if (!put(env, result, "appliedSequence", big(env, s->applied_sequence)) ||
+      !put(env, result, "frameCopies", big(env, s->frame_copies)) ||
+      !put(env, result, "geometryFailureSerial", big(env, s->geometry_failure_serial)) ||
       !put(env, result, "replySequence", big(env, s->reply_sequence)) ||
       !put(env, result, "queuedReplyBytes", number(env, (uint32_t)s->queued_reply_bytes)) ||
       !put(env, result, "failure", number(env, s->failure)) ||
@@ -281,14 +290,14 @@ static napi_value read_bytes(napi_env env, binding_host *h, uint64_t id, uint32_
   return result;
 }
 static napi_value invoke(napi_env env, napi_callback_info info) {
-  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1};
+  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4};
   size_t argc = 8;
   napi_value args[8];
   void *data;
   if (!checked(env, napi_get_cb_info(env, info, &argc, args, NULL, &data)))
     return NULL;
   operation op = (operation)(uintptr_t)data;
-  if (argc != counts[op]) {
+  if (op == RESIZE ? (argc != 5 && argc != 6) : argc != counts[op]) {
     bad_argument(env);
     return NULL;
   }
@@ -353,7 +362,35 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
   if (op == RESIZE) {
     if (!u64(env, args[2], &serial) || !u32(env, args[3], &width) || !u32(env, args[4], &height))
       return NULL;
-    return outcome(env, hvir_terminal_resize(h->native, id, serial, width, height));
+    double scale = 1;
+    if (argc == 6 && napi_get_value_double(env, args[5], &scale) != napi_ok) {
+      bad_argument(env);
+      return NULL;
+    }
+    return outcome(env, hvir_terminal_resize_scaled(h->native, id, serial, width, height, scale));
+  }
+  if (op == VISIBILITY) {
+    bool visible;
+    if (napi_get_value_bool(env, args[2], &visible) != napi_ok) {
+      bad_argument(env);
+      return NULL;
+    }
+    return outcome(env, hvir_terminal_visibility(h->native, id, visible ? 1 : 0));
+  }
+  if (op == COPY_FRAME) {
+    if (!u64(env, args[2], &serial) || !u32(env, args[3], &capacity)) return NULL;
+    if (!capacity || capacity > HVIR_TERMINAL_PIXEL_MAX) return outcome(env, HVIR_BOUND);
+    uint8_t *data = malloc(capacity);
+    if (!data) return outcome(env, HVIR_NOMEM);
+    size_t written = 0;
+    uint32_t stride = 0;
+    hvir_terminal_result code = hvir_terminal_copy_frame(h->native, id, serial, data,
+                                                        capacity, &written, &stride);
+    napi_value result = outcome(env, code);
+    if (code == HVIR_OK && (!put(env, result, "data", bytes(env, data, written)) ||
+                            !put(env, result, "stride", number(env, stride)))) result = NULL;
+    free(data);
+    return result;
   }
   if (op == INSPECT) {
     hvir_terminal_status status;
@@ -435,7 +472,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
 static napi_value initialize(napi_env env, napi_value exports) {
   static const char *names[] = {"open",         "createBegin", "feed", "resize", "inspect",
                                 "read",         "drain",       "key",  "event",  "takeFrame",
-                                "releaseFrame", "destroy",     "close"};
+                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame"};
   for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
     napi_value function;
     if (!checked(env, napi_create_function(env, names[i], NAPI_AUTO_LENGTH, invoke,

@@ -20,6 +20,7 @@ import { registerProjectIpc } from './ipc/features/project'
 import { registerSessionsIpc } from './ipc/features/sessions'
 import { registerTerminalIpc } from './ipc/features/terminal'
 import { registerTerminalFilePasteIpc } from './ipc/features/terminal-file-paste'
+import { registerNativeTerminalPresentationIpc } from './ipc/features/native-terminal-presentation'
 import { registerWebPaneIpc } from './ipc/features/web-pane'
 import { ElectronClipboardFilePaste } from './terminal/electron-clipboard-file-paste'
 
@@ -52,6 +53,7 @@ export function registerIpcHandlers(
     registerWebPaneIpc(router, deps)
     registerTerminalIpc(router, deps)
     registerTerminalFilePasteIpc(router, new ElectronClipboardFilePaste())
+    registerNativeTerminalPresentationIpc(router, deps.nativeTerminalPresentation)
     router.assertComplete()
     return router
   } catch (error) {

@@ -11,6 +11,10 @@ import {
   type NativeTerminalWorkerOptions,
 } from '../shared/native-terminal'
 import { NativeTerminalJobs } from './native-terminal-jobs'
+import {
+  validNativeTerminalScale,
+  NATIVE_TERMINAL_PRESENTATION,
+} from '../shared/native-terminal-presentation'
 
 interface ParentPort {
   on(event: 'message', listener: (event: { data: unknown }) => void): void
@@ -23,6 +27,7 @@ interface NativeResult {
   frame?: Frame
   data?: Uint8Array
   event?: unknown
+  stride?: number
 }
 /** Process-local engine jobs and OS resources never cross the parent port. */
 export function runNativeTerminalHost(
@@ -149,8 +154,27 @@ export function runNativeTerminalHost(
             command.serial,
             command.width,
             command.height,
+            command.backingScale ?? 1,
           ]),
         )
+      case 'visibility':
+        return requireOk(await invoke(state, 'visibility', [state, command.visible]))
+      case 'pixels': {
+        const frame = frames.get(state)
+        if (!frame || frame.lease.toString() !== command.lease)
+          throw new Error('native-frame-lease-mismatch')
+        const copied = requireOk(
+          await invoke(state, 'pixels', [state, command.lease, frame.origin]),
+        )
+        if (
+          !(copied.data instanceof Uint8Array) ||
+          copied.stride !== frame.width * 4 ||
+          copied.data.byteLength !== copied.stride * frame.height ||
+          copied.data.byteLength > NATIVE_TERMINAL_PRESENTATION.maximumPixelBytes
+        )
+          throw new Error('native-pixel-bound')
+        return { bytes: copied.data, stride: copied.stride }
+      }
       case 'inspect':
         return plain(requireOk(await invoke(state, 'inspect', [state])).status)
       case 'read':
@@ -300,9 +324,12 @@ function validCommand(value: NativeTerminalCommand): boolean {
     case 'resize':
       return (
         validNativeTerminalExtent(value.width, value.height) &&
+        (value.kind === 'create' || validNativeTerminalScale(value.backingScale ?? 1)) &&
         (value.kind === 'create' ||
           (Number.isSafeInteger(value.serial) && value.serial > 0))
       )
+    case 'visibility':
+      return typeof value.visible === 'boolean'
     case 'feed':
       return (
         value.bytes instanceof Uint8Array &&
@@ -328,6 +355,7 @@ function validCommand(value: NativeTerminalCommand): boolean {
         /^[1-9][0-9]{0,19}$/.test(value.lease)
       )
     case 'release':
+    case 'pixels':
       return typeof value.lease === 'string' && /^[1-9][0-9]{0,19}$/.test(value.lease)
     default:
       return false

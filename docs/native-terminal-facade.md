@@ -77,6 +77,24 @@ Closing revokes pending acknowledgements. Geometry distinguishes the outer pixel
 content extent, actual cell metrics, padding, columns and rows; padding is not inferred
 from a division of window size by the grid.
 
+Private ABI 4 extends that acknowledgement with the actual backing scale.
+`hvir_terminal_resize_scaled` accepts finite scale 1 through 4, reuses the same
+Surface's font/DPI algorithms, and fences the resulting IO and renderer geometry.
+The old resize wrapper selects scale 1. Font-grid allocation commits the requested
+font size only after allocation succeeds, so a failed DPI request can be retried.
+`geometry_failure_serial` identifies a failed native transition; it does not
+advance applied geometry or fail the parser. Pending or failed geometry prevents
+new frame acquisition. Existing immutable held frames remain releasable.
+
+Visibility uses the same Surface's occlusion operation. Hidden state keeps parsing
+while drawing is paused, and reveal rebuilds from that authoritative state.
+`copyFrame` explicitly reads a completed held macOS IOSurface on the designated
+caller, returning independently owned packed BGRA within a 16 MiB bound. It keeps
+the original lease alive and increments `frame_copies` only on a successful copy.
+The host worker owns compatibility-only RGBA normalization; ordinary GPU demand
+does not call this operation. Presentation-unavailable result 9 differs from
+temporarily absent/busy result 6, and neither authorizes parser destruction.
+
 A completed frame carries the stream and geometry observations captured with the parser
 snapshot and committed only after its image rebuild succeeds. Synchronized-output skips
 cannot label an older image with a newer sequence. Its resource record is process-local: a retained IOSurface, duplicated DMA-BUF

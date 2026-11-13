@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { hostPath, LOCAL_HOST_ID } from '../src/shared/host-path'
+import { NativeTerminalAdmissionError } from '../src/shared/native-terminal'
+import type { WebFrameMain } from 'electron'
+import { NativeTerminalPresenter } from '../src/main/terminal/native-terminal-presenter'
 import {
-  NativeTerminalAdmissionError,
-  type NativeTerminalCommand,
-  type NativeTerminalSession,
-  type NativeTerminalStatus,
-} from '../src/shared/native-terminal'
-import { NativeTerminalHost } from '../src/main/terminal/native-terminal-host'
+  NativeTerminalFrameImports,
+  NativeTerminalImportQuarantined,
+} from '../src/main/terminal/native-terminal-import'
+import {
+  nativeTerminalHostFixture as fixture,
+  nativeTerminalStatus as status,
+} from './fixtures/native-terminal-host'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -17,115 +20,33 @@ function deferred<T>() {
   })
   return { promise, resolve, reject }
 }
-function status(serial = 1): NativeTerminalStatus {
-  return {
-    appliedSequence: 0,
-    replySequence: 0,
-    queuedReplyBytes: 0,
-    failure: 0,
-    closing: false,
-    rendererHealth: 0,
-    presentationFailure: 0,
-    geometry: {
-      serial,
-      columns: 4,
-      rows: 4,
-      width: 32,
-      height: 32,
-      cellWidth: 8,
-      cellHeight: 8,
-      contentWidth: 32,
-      contentHeight: 32,
-      paddingLeft: 0,
-      paddingTop: 0,
-    },
-  }
-}
-function fixture(exitEvidence?: (epoch: string) => boolean) {
-  const sessions = new Map<string, NativeTerminalSession>()
-  const live = {
-    renderer: true,
-    owner: 1,
-    generation: 1,
-    available: true,
-    status: status(),
-  }
-  let nextState = 0
-  let nextLease = 0
-  const held = new Set<string>()
-  const request = vi.fn(
-    (command: NativeTerminalCommand, _signal?: AbortSignal): Promise<unknown> => {
-      switch (command.kind) {
-        case 'create':
-          return Promise.resolve({ state: String(++nextState), status: status() })
-        case 'inspect':
-          return Promise.resolve(live.status)
-        case 'read':
-          return Promise.resolve(new Uint8Array([1]))
-        case 'frame':
-          held.add(command.state)
-          return Promise.resolve({
-            lease: String(++nextLease),
-            streamSequence: 0,
-            geometrySerial: 1,
-            kind: 1,
-            width: 32,
-            height: 32,
-            colorSpace: 2,
-            origin: 1,
-            premultiplied: true,
-          })
-        case 'release':
-          held.delete(command.state)
-          return Promise.resolve({ result: 0 })
-        case 'destroy':
-          return Promise.resolve({ result: held.has(command.state) ? 6 : 0 })
-        default:
-          return Promise.resolve({ result: 0 })
-      }
-    },
-  )
-  const process = {
-    epoch: 'host-1',
-    ...(exitEvidence ? { hasExited: vi.fn(exitEvidence) } : {}),
-    get available() {
-      return live.available
-    },
-    request,
-    idle: vi.fn(() => Promise.resolve()),
-    dispose: vi.fn(() => {
-      live.available = false
-    }),
-  }
-  const authority = {
-    resolve: (id: string) => sessions.get(id),
-    isRendererCurrent: (owner: number, generation: number) =>
-      live.renderer && owner === live.owner && generation === live.generation,
-  }
-  const session = (id = 0): NativeTerminalSession => {
-    const value = {
-      sessionId: `session-${id}`,
-      instanceId: `instance-${id}`,
-      ownerId: live.owner,
-      ownerGeneration: live.generation,
-      workspaceRoot: hostPath(LOCAL_HOST_ID, '/native-proof'),
-    }
-    sessions.set(value.sessionId, value)
-    return value
-  }
-  return {
-    host: new NativeTerminalHost(process, authority),
-    process,
-    request,
-    sessions,
-    live,
-    session,
-  }
-}
 
 afterEach(() => vi.useRealTimers())
 
 describe('native terminal main session authority', () => {
+  it('distinguishes absent frames from presentation failure while preserving parser authority', async () => {
+    const f = fixture(),
+      session = f.session()
+    const handle = await f.host.prepare(session, 32, 32)
+    const attachment = f.host.attach(handle, session)
+    f.request.mockResolvedValueOnce({ unavailable: 6 })
+    await expect(f.host.takeFrame(handle, 1, 1, attachment)).resolves.toBeUndefined()
+    f.request.mockResolvedValueOnce({ unavailable: 9 })
+    await expect(f.host.takeFrame(handle, 1, 1, attachment)).rejects.toThrow(
+      'native-presentation-unavailable',
+    )
+    await f.host.feed(handle, session.instanceId, Uint8Array.of(65))
+    await expect(f.host.read(handle, 1, 1)).resolves.toEqual(Uint8Array.of(1))
+    expect(f.request.mock.calls.some(([command]) => command.kind === 'destroy')).toBe(
+      false,
+    )
+    expect(f.process.dispose).not.toHaveBeenCalled()
+    const frame = await f.host.takeFrame(handle, 1, 1, attachment)
+    expect(frame).toBeDefined()
+    expect('retire' in frame!).toBe(false)
+    await frame!.release()
+    await f.host.end(handle, session.instanceId)
+  })
   it('reserves duplicate and global state capacity while preparation is still pending', async () => {
     const f = fixture(),
       creation = deferred<void>()
@@ -688,4 +609,249 @@ it('rejects cleanup after a bounded wait when process exit remains unconfirmed',
   expect(f.process.idle).not.toHaveBeenCalled()
   expect(f.process.dispose).toHaveBeenCalledTimes(1)
   expect(f.process.hasExited).toHaveBeenCalledWith('host-1')
+})
+
+it('keeps parser authority after proven-unsent frame admission pressure', async () => {
+  const f = fixture(),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  f.request.mockRejectedValueOnce(new NativeTerminalAdmissionError())
+  await expect(f.host.takeFrame(handle, 1, 1, attachment)).rejects.toBeInstanceOf(
+    NativeTerminalAdmissionError,
+  )
+  expect(f.process.dispose).not.toHaveBeenCalled()
+  expect(f.request.mock.calls.some(([command]) => command.kind === 'destroy')).toBe(false)
+  await f.host.feed(handle, session.instanceId, new Uint8Array([128]))
+  const frame = await f.host.takeFrame(handle, 1, 1, attachment)
+  expect(frame).toBeDefined()
+  await frame!.release()
+})
+it('copies only the held current lease and validates the bounded pixel result', async () => {
+  const f = fixture(),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  expect(f.host.nativeEpoch(handle, 1, 1, attachment)).toBe('host-1')
+  const frame = (await f.host.takeFrame(handle, 1, 1, attachment))!
+  const bytes = new Uint8Array(32 * 32 * 4)
+  f.request.mockResolvedValueOnce({ bytes, stride: 128 })
+  await expect(frame.copyPixels()).resolves.toEqual({ bytes, stride: 128 })
+  expect(f.request).toHaveBeenLastCalledWith(
+    { kind: 'pixels', state: '1', lease: '1' },
+    undefined,
+  )
+  f.request.mockResolvedValueOnce({ bytes: new Uint8Array(4), stride: 128 })
+  await expect(frame.copyPixels()).rejects.toThrow('native-pixel-bound')
+  f.host.detach(handle, 1, 1, attachment)
+  const before = f.request.mock.calls.length
+  await expect(frame.copyPixels()).rejects.toThrow('native-attachment-stale')
+  expect(f.request).toHaveBeenCalledTimes(before)
+  await frame.release()
+})
+it('reports an acknowledged geometry failure promptly while retaining feed/read authority', async () => {
+  const f = fixture(),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  f.live.status = { ...status(), geometryFailureSerial: 2 }
+  await expect(f.host.resize(handle, 1, 1, attachment, 2, 32, 32, 2)).rejects.toThrow(
+    'native-geometry-failed',
+  )
+  expect(f.process.dispose).not.toHaveBeenCalled()
+  await f.host.feed(handle, session.instanceId, new Uint8Array([129]))
+  await expect(f.host.read(handle, 1, 1)).resolves.toEqual(new Uint8Array([1]))
+})
+
+it('keeps the same parser feeding and readable under an indeterminate GPU import quarantine', async () => {
+  const f = fixture(),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  const source = (await f.host.takeFrame(handle, 1, 1, attachment))!
+  const edge = {
+    receive: vi.fn((ticket: string) =>
+      Promise.resolve({
+        ticket,
+        kind: 1,
+        width: 32,
+        height: 32,
+        fourcc: 0x42475241,
+        colorSpace: 2,
+        origin: 1,
+        premultiplied: true,
+        modifier: 0n,
+        planeCount: 0,
+        planes: [],
+        surface: Buffer.alloc(8),
+      }),
+    ),
+    release: vi.fn(),
+  }
+  const imports = new NativeTerminalFrameImports(edge, {
+    importSharedTexture: () => {
+      throw new Error('post-create import failure')
+    },
+    sendSharedTexture: () => Promise.resolve(),
+  })
+  await expect(
+    imports.acquire(
+      source,
+      {
+        ready: true,
+        isCurrent: () => true,
+        frame: { isDestroyed: () => false } as WebFrameMain,
+      },
+      { allowPixelFallback: true },
+    ),
+  ).rejects.toThrow('post-create import failure')
+  await f.host.feed(handle, session.instanceId, new Uint8Array([128, 255]))
+  await expect(f.host.read(handle, 1, 1)).resolves.toEqual(new Uint8Array([1]))
+  expect(edge.release).not.toHaveBeenCalled()
+  expect(
+    f.request.mock.calls.some(
+      ([command]) => command.kind === 'destroy' || command.kind === 'release',
+    ),
+  ).toBe(false)
+  expect(f.process.dispose).not.toHaveBeenCalled()
+})
+
+it('keeps the same parser alive after send quarantine without trusting target death or old release callbacks', async () => {
+  const f = fixture(),
+    session = f.session(),
+    handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session),
+    source = (await f.host.takeFrame(handle, 1, 1, attachment))!
+  let released: (() => void) | undefined
+  const mainRelease = vi.fn(),
+    releaseReceipt = vi.fn()
+  const imports = new NativeTerminalFrameImports(
+    {
+      receive: (ticket: string) =>
+        Promise.resolve({
+          ticket,
+          kind: 1,
+          width: 32,
+          height: 32,
+          fourcc: 0x42475241,
+          colorSpace: 2,
+          origin: 1,
+          premultiplied: true,
+          modifier: 0n,
+          planeCount: 0,
+          planes: [],
+          surface: Buffer.alloc(8),
+        }),
+      release: releaseReceipt,
+    },
+    {
+      importSharedTexture: (options) => {
+        released = options.allReferencesReleased
+        return { release: mainRelease } as unknown as ReturnType<
+          import('electron').SharedTexture['importSharedTexture']
+        >
+      },
+      sendSharedTexture: () => Promise.reject(new Error('transfer timed out')),
+    },
+  )
+  let dead = false
+  const imported = await imports.acquire(source, {
+    ready: true,
+    isCurrent: () => true,
+    frame: { isDestroyed: () => dead } as WebFrameMain,
+  })
+  await expect(imported.send()).rejects.toThrow('transfer timed out')
+  await expect(imported.released).rejects.toThrow('transfer timed out')
+  dead = true
+  imported.release()
+  released?.()
+  await f.host.feed(handle, session.instanceId, new Uint8Array([128, 255]))
+  await expect(f.host.read(handle, 1, 1)).resolves.toEqual(new Uint8Array([1]))
+  expect(mainRelease).not.toHaveBeenCalled()
+  expect(releaseReceipt).not.toHaveBeenCalled()
+  expect(
+    f.request.mock.calls.some(
+      ([command]) => command.kind === 'destroy' || command.kind === 'release',
+    ),
+  ).toBe(false)
+  expect(f.process.dispose).not.toHaveBeenCalled()
+})
+
+it('keeps retained parser feed/read and physical import ownership across late quarantine after replacement', async () => {
+  const f = fixture(),
+    session = f.session(),
+    original = f.request.getMockImplementation()!
+  f.request.mockImplementation(async (command, signal) => {
+    if (command.kind === 'resize') {
+      f.live.status = {
+        ...status(command.serial),
+        geometry: {
+          ...status(command.serial).geometry,
+          width: command.width,
+          height: command.height,
+          backingScale: command.backingScale ?? 1,
+        },
+      }
+    }
+    const value = await original(command, signal)
+    if (command.kind === 'frame')
+      return { ...(value as object), geometrySerial: f.live.status.geometry.serial }
+    return value
+  })
+  const handle = await f.host.prepare(session, 32, 32),
+    send = deferred<void>(),
+    physical = deferred<void>()
+  const mainRelease = vi.fn()
+  const imports = {
+    acquire: vi.fn(
+      (
+        source: import('../src/main/terminal/native-terminal-host').NativeTerminalAcquiredFrame,
+      ) =>
+        Promise.resolve({
+          metadata: { ...source.metadata, ticket: 'ticket' },
+          send: () => send.promise,
+          release: mainRelease,
+          released: physical.promise,
+        }),
+    ),
+  }
+  const target = {
+    frame: { isDestroyed: () => false } as WebFrameMain,
+    ready: true,
+    isCurrent: () => true,
+    onUnavailable: () => () => undefined,
+    publishGrant: vi.fn(),
+    publishStatus: vi.fn(),
+    sendPixels: () => Promise.resolve(),
+  }
+  const presenter = new NativeTerminalPresenter(f.host, imports)
+  const old = await presenter.attach(handle, session, target)
+  await presenter.update(old, { width: 32, height: 32, backingScale: 1, visible: true })
+  const prior = presenter.demand(old)
+  await vi.waitFor(() => expect(imports.acquire).toHaveBeenCalledOnce())
+  await presenter.detach(old)
+  const fresh = await presenter.attach(handle, session, target)
+  await presenter.update(fresh, { width: 32, height: 32, backingScale: 1, visible: true })
+  send.reject(new NativeTerminalImportQuarantined(new Error('late detached send')))
+  await expect(prior).resolves.toBe(false)
+  expect(target.publishStatus).toHaveBeenLastCalledWith({
+    viewId: fresh,
+    mode: 'unavailable',
+    reason: 'import-unavailable',
+  })
+  expect(f.request).toHaveBeenLastCalledWith({
+    kind: 'visibility',
+    state: '1',
+    visible: false,
+  })
+  await expect(presenter.demand(fresh)).resolves.toBe(false)
+  await f.host.feed(handle, session.instanceId, new Uint8Array([128, 255]))
+  await expect(f.host.read(handle, 1, 1)).resolves.toEqual(new Uint8Array([1]))
+  expect(
+    f.request.mock.calls.some(
+      ([command]) => command.kind === 'release' || command.kind === 'destroy',
+    ),
+  ).toBe(false)
+  expect(f.process.dispose).not.toHaveBeenCalled()
+  expect(mainRelease).toHaveBeenCalledOnce() // Import owner release() is a quarantine no-op.
 })

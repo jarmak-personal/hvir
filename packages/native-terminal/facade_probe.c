@@ -5,6 +5,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -33,7 +34,9 @@ typedef struct {
   hvir_terminal_host *host;
   hvir_terminal_id first;
   hvir_terminal_result wrong_inspect, wrong_feed;
-  unsigned checks, frame_kind;
+  unsigned checks, frame_kind, idle_frames, cursor_frames, idle_polls;
+  uint64_t idle_elapsed_ms;
+  bool cursor_pixels_checked;
   bool frame_hashed, os_children_checked, os_ptys_checked;
   int result;
 } probe;
@@ -254,6 +257,173 @@ static bool frame_valid(const hvir_terminal_frame *frame) {
 
 #define REQUIRE(value, name) do { if (!check(p, (value), (name))) goto cleanup; } while (0)
 
+static bool collect_completed(hvir_terminal_host *host, hvir_terminal_id id, probe *p,
+                              uint64_t sequence, uint64_t duration, unsigned *count,
+                              uint64_t *first_hash, bool *different_hash, bool *hashed,
+                              bool sample_pixels, unsigned *polls) {
+  const uint64_t end = now_ms() + duration;
+  do {
+    hvir_terminal_status status;
+    hvir_terminal_frame frame;
+    if (polls) (*polls)++;
+    if (!check(p, hvir_terminal_inspect(host, id, &status) == HVIR_OK && !status.failure,
+               "idle-window-parser-remains-live")) return false;
+    const hvir_terminal_result result = hvir_terminal_take_frame(host, id, &frame);
+    if (result == HVIR_OK) {
+      bool valid = frame.geometry_serial == status.geometry.serial && frame.stream_sequence <= sequence;
+      if (valid && frame.stream_sequence == sequence) {
+        (*count)++;
+        uint64_t hash = 0;
+        if (sample_pixels && frame_hash(&frame, &hash)) {
+          if (*hashed && hash != *first_hash) *different_hash = true;
+          if (!*hashed) *first_hash = hash;
+          *hashed = true;
+        }
+      }
+      const hvir_terminal_result released = hvir_terminal_release_frame(host, id, frame.lease);
+      if (!check(p, valid && released == HVIR_OK, "idle-window-completed-frame-fence")) return false;
+    } else if (!check(p, result == HVIR_BUSY, "idle-window-only-missing-frame-is-busy")) return false;
+    yield_owner();
+  } while (now_ms() < end);
+  return true;
+}
+
+static bool idle_checks(hvir_terminal_host *host, hvir_terminal_id id, uint64_t *sequence, probe *p) {
+  const char hide[] = "\x1b[?25l\x1b[2 q";
+  const char blink[] = "\x1b[?25h\x1b[1 q";
+  REQUIRE(feed(host, id, sequence, hide, sizeof(hide) - 1), "hide-cursor-for-steady-idle-proof");
+  bool hashed = false, different = false;
+  uint64_t hash = 0;
+  unsigned warm = 0;
+  // Drain the asynchronous first frame, then observe a bounded warmup. No PTY
+  // traffic, geometry changes, explicit redraw or visibility toggles occur after it.
+  const uint64_t deadline = now_ms() + 10000;
+  while (!warm && now_ms() < deadline) {
+    REQUIRE(collect_completed(host, id, p, *sequence, 10, &warm, &hash, &different, &hashed, false, NULL),
+            "wait-for-hidden-cursor-frame-after-feed-ack");
+  }
+  REQUIRE(warm, "hidden-cursor-first-frame-eventually-arrives");
+  REQUIRE(collect_completed(host, id, p, *sequence, 150, &warm, &hash, &different, &hashed, false, NULL),
+          "bounded-hidden-cursor-warmup");
+  const uint64_t started = now_ms();
+  REQUIRE(collect_completed(host, id, p, *sequence, 1200, &p->idle_frames, &hash, &different, &hashed, false, &p->idle_polls),
+          "fixed-hidden-cursor-idle-window");
+  p->idle_elapsed_ms = now_ms() - started;
+  // Release rearm must not sustain a display-rate feedback loop. Native cursor
+  // timer wakeups are measured separately before deciding whether they need a guard.
+  fprintf(stderr, "native-facade-probe: idle-frames=%u polls=%u observation-ms=%" PRIu64 "\n",
+          p->idle_frames, p->idle_polls, p->idle_elapsed_ms);
+  REQUIRE(p->idle_polls >= 100 && p->idle_frames <= 4, "idle-release-does-not-self-sustain-display-rate-redraw");
+  REQUIRE(feed(host, id, sequence, blink, sizeof(blink) - 1), "enable-visible-native-cursor-blink");
+  hashed = false; different = false; hash = 0;
+  REQUIRE(collect_completed(host, id, p, *sequence, 1300, &p->cursor_frames, &hash, &different, &hashed, true, NULL),
+          "fixed-native-cursor-animation-window");
+  p->cursor_pixels_checked = hashed;
+  REQUIRE(p->cursor_frames >= 2 && (!hashed || different), "native-cursor-blink-remains-observable");
+  return true;
+cleanup:
+  return false;
+}
+
+static bool presentation_checks(hvir_terminal_host *host, probe *p) {
+  hvir_terminal_id id = 0;
+  hvir_terminal_status status;
+  hvir_terminal_frame held = {0};
+  uint8_t *pixels = NULL, *again = NULL;
+  uint64_t sequence = 0;
+  bool passed = false;
+  REQUIRE(hvir_terminal_create(host, 640, 480, &id) == HVIR_OK &&
+          hvir_terminal_inspect(host, id, &status) == HVIR_OK &&
+          status.geometry.backing_scale == 1 && !status.frame_copies,
+          "presentation-initial-scale-and-no-routine-copy");
+  const uint32_t columns = status.geometry.columns, rows = status.geometry.rows;
+  REQUIRE(hvir_terminal_resize_scaled(host, id, 2, 640, 480, 2) == HVIR_OK &&
+          geometry(host, id, 2, 640, 480, &status) && status.geometry.backing_scale == 2 &&
+          status.geometry.columns < columns && status.geometry.rows < rows,
+          "same-surface-scale-two-changes-grid-at-same-physical-size");
+  REQUIRE(hvir_terminal_resize_scaled(host, id, 3, 640, 480, 2) == HVIR_OK &&
+          geometry(host, id, 3, 640, 480, &status) && status.geometry.backing_scale == 2,
+          "repeated-scale-and-size-still-acknowledges-new-serial");
+  REQUIRE(hvir_terminal_resize_scaled(host, id, 4, 640, 480, 1) == HVIR_OK &&
+          geometry(host, id, 4, 640, 480, &status) && status.geometry.backing_scale == 1 &&
+          status.geometry.columns == columns && status.geometry.rows == rows,
+          "same-surface-scale-one-restores-native-grid");
+  REQUIRE(hvir_terminal_resize_scaled(host, id, 5, 640, 480, NAN) == HVIR_BOUND &&
+          hvir_terminal_resize_scaled(host, id, 5, 640, 480, 0.5) == HVIR_BOUND &&
+          hvir_terminal_inspect(host, id, &status) == HVIR_OK && status.geometry.serial == 4 &&
+          !status.failure, "invalid-scale-does-not-acknowledge-or-poison-parser");
+  REQUIRE(hvir_terminal_visibility(host, id, 0) == HVIR_OK &&
+          feed(host, id, &sequence, "hidden-parser-stays-live", 24) &&
+          text_is(host, id, "hidden-parser-stays-live") &&
+          hvir_terminal_visibility(host, id, 1) == HVIR_OK,
+          "hidden-feed-and-reveal-preserve-same-parser");
+  REQUIRE(hvir_terminal_resize_scaled(host, id, 5, 640, 480, 1) == HVIR_OK &&
+          geometry(host, id, 5, 640, 480, &status), "reveal-geometry-progress");
+  if (p->frames) {
+    const uint64_t deadline = now_ms() + 10000;
+    do {
+      REQUIRE(hvir_terminal_inspect(host, id, &status) == HVIR_OK && !status.failure,
+              "presentation-frame-progress");
+      const hvir_terminal_result result = hvir_terminal_take_frame(host, id, &held);
+      if (result == HVIR_OK) {
+        if (held.geometry_serial == 5 && held.stream_sequence == sequence) break;
+        REQUIRE(hvir_terminal_release_frame(host, id, held.lease) == HVIR_OK,
+                "presentation-discard-older-frame");
+        memset(&held, 0, sizeof(held));
+      } else REQUIRE(result == HVIR_BUSY, "presentation-frame-remains-supported");
+      yield_owner();
+    } while (now_ms() < deadline);
+    REQUIRE(held.lease && status.frame_copies == 0, "native-frame-needs-no-pixel-readback");
+    uint64_t before = 0, after = 0;
+    const bool hashed = frame_hash(&held, &before);
+    REQUIRE(hvir_terminal_resize_scaled(host, id, 6, 640, 480, 2) == HVIR_OK &&
+            geometry(host, id, 6, 640, 480, &status) && status.geometry.backing_scale == 2 &&
+            held.geometry_serial == 5 && (!hashed || (frame_hash(&held, &after) && before == after)),
+            "pending-lease-remains-immutable-through-scale-change");
+    REQUIRE(feed(host, id, &sequence, "-held", 5) &&
+            text_is(host, id, "hidden-parser-stays-live-held") &&
+            (!hashed || (frame_hash(&held, &after) && before == after)),
+            "held-output-preserves-parser-and-immutable-resource");
+#ifdef __APPLE__
+    REQUIRE(held.kind == 1 && held.width <= HVIR_TERMINAL_PIXEL_MAX / 4 &&
+            held.height <= HVIR_TERMINAL_PIXEL_MAX / (held.width * 4),
+            "bounded-macos-compatibility-source");
+    const size_t capacity = (size_t)held.width * held.height * 4;
+    pixels = malloc(capacity); again = malloc(capacity);
+    REQUIRE(pixels && again, "allocate-bounded-compatibility-proof");
+    size_t written = 0; uint32_t stride = 0;
+    REQUIRE(hvir_terminal_copy_frame(host, id, held.lease, pixels, capacity, &written, &stride) == HVIR_OK &&
+            written == capacity && stride == held.width * 4 &&
+            hvir_terminal_copy_frame(host, id, held.lease, again, capacity, &written, &stride) == HVIR_OK &&
+            !memcmp(pixels, again, capacity) &&
+            hvir_terminal_inspect(host, id, &status) == HVIR_OK && status.frame_copies == 2,
+            "same-held-native-frame-explicit-bgra-copy-is-stable-and-counted");
+#endif
+    REQUIRE(hvir_terminal_release_frame(host, id, held.lease) == HVIR_OK,
+            "release-presentation-proof-lease");
+    memset(&held, 0, sizeof(held));
+    unsigned caught_up = 0;
+    bool catchup_hashed = false, catchup_different = false;
+    uint64_t catchup_hash = 0;
+    const uint64_t catchup_deadline = now_ms() + 10000;
+    while (!caught_up && now_ms() < catchup_deadline)
+      REQUIRE(collect_completed(host, id, p, sequence, 10, &caught_up, &catchup_hash,
+              &catchup_different, &catchup_hashed, false, NULL),
+              "held-output-and-resize-catch-up-without-another-feed");
+    REQUIRE(caught_up, "held-output-latest-completed-frame-arrives-after-release");
+  }
+  if (p->frames) REQUIRE(idle_checks(host, id, &sequence, p), "native-idle-and-cursor-proof");
+  REQUIRE(text_is(host, id, p->frames ? "hidden-parser-stays-live-held" : "hidden-parser-stays-live") &&
+          hvir_terminal_destroy(host, id) == HVIR_OK, "presentation-proof-preserves-and-destroys-same-state");
+  id = 0;
+  passed = true;
+cleanup:
+  free(pixels); free(again);
+  if (held.lease) (void)hvir_terminal_release_frame(host, id, held.lease);
+  if (id) (void)hvir_terminal_destroy(host, id);
+  return passed;
+}
+
 static void *run_probe(void *context) {
   probe *p = context;
   hvir_terminal_host *host = NULL;
@@ -293,6 +463,7 @@ static void *run_probe(void *context) {
           status.applied_sequence == 0 && text_is(host, a, ""),
           "wrong-thread-has-no-effect");
 
+  REQUIRE(presentation_checks(host, p), "native-presentation-operations");
   fputs("native-facade-probe: phase feed\n", stderr);
   REQUIRE(feed(host, a, &sequence_a, "alpha:", 6), "feed-first-prefix");
   const uint8_t utf8_head[] = {0xf0, 0x9f}, utf8_tail[] = {0x99, 0x82};
@@ -706,8 +877,11 @@ int main(int argc, char **argv) {
   printf("{\"schema\":1,\"nativeFacade\":\"passed\",\"checks\":%u,"
     "\"owner\":\"pthread\",\"childCountChecked\":%s,\"ptyDescriptorCountChecked\":%s,"
     "\"frameRequested\":%s,\"frameKind\":%u,\"heldPixelsChecked\":%s,"
+    "\"idleObservationMs\":%" PRIu64 ",\"idleCompletedFrames\":%u,\"idlePolls\":%u,\"idleCpuReadback\":false,"
+    "\"cursorObservationMs\":%u,\"cursorCompletedFrames\":%u,\"cursorPixelsChecked\":%s,"
     "\"hardwareGpuQualified\":false}\n", p.checks,
     p.os_children_checked ? "true" : "false", p.os_ptys_checked ? "true" : "false",
-    p.frames ? "true" : "false", p.frame_kind, p.frame_hashed ? "true" : "false");
+    p.frames ? "true" : "false", p.frame_kind, p.frame_hashed ? "true" : "false",
+    p.idle_elapsed_ms, p.idle_frames, p.idle_polls, p.frames ? 1300u : 0u, p.cursor_frames, p.cursor_pixels_checked ? "true" : "false");
   return 0;
 }
