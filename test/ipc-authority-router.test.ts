@@ -470,6 +470,7 @@ describe('IpcAuthorityRouter', () => {
       'clipboard.ts',
       'terminal-file-paste.ts',
       'native-terminal-presentation.ts',
+      'native-terminal-runtime.ts',
       'sessions.ts',
     ]
     const source = (

@@ -54,3 +54,16 @@ export function ghosttyLifecycleRuntimeOptions() {
     onOpenTerminalSettings: vi.fn(),
   } as const
 }
+
+export { ghosttyLifecycleRuntimeOptions as runtimeOptions }
+
+// Keep scripted lifecycle responses scoped to launch; the main-owned engine
+// selection query is a distinct immediate transport operation.
+export function webInvoke(
+  dispatch: (channel: string, request: unknown) => Promise<unknown>,
+) {
+  return (channel: string, request: unknown): Promise<unknown> =>
+    channel === 'native-terminal:enabled'
+      ? Promise.resolve(false)
+      : dispatch(channel, request)
+}

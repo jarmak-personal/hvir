@@ -1,5 +1,6 @@
 export const ELECTRON_SMOKE_SCENARIOS = [
   'pty-native',
+  'native-terminal-workbench',
   'viewer-position',
   'viewer-content',
   'git-workflow',

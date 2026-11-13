@@ -16,7 +16,36 @@ import type {
   HarnessProvider,
 } from '../harness/harness-provider-contract'
 
+/** Native preparation consumes the supervisor's existing reserved identity. */
+export interface PtyTerminalReservation {
+  readonly sessionId: string
+  readonly instanceId: string
+  readonly ownerId: number
+  readonly ownerGeneration: number
+  readonly workspaceRoot: HostPath
+}
+export interface PtyPreparedTerminal {
+  readonly columns: number
+  readonly rows: number
+  connect(writer: {
+    readonly live: boolean
+    writeReply(bytes: Uint8Array): Promise<void>
+  }): void
+  output(decoded: string): Promise<void>
+  exited(exit: PtyExit): Promise<void>
+  failed(error: unknown): void
+  dispose(): Promise<void>
+}
+
 export interface PtySpawnRequest {
+  readonly prepareTerminal?: (
+    reservation: PtyTerminalReservation,
+    signal: AbortSignal,
+  ) => Promise<PtyPreparedTerminal>
+  readonly resolveLaunchSpec?: (size: {
+    cols: number
+    rows: number
+  }) => Promise<HarnessLaunchSpec>
   readonly signal?: AbortSignal
   /** Async final inspection, followed by the supervisor's cancellation fence. */
   readonly beforeDispatch?: () => void | Promise<void>

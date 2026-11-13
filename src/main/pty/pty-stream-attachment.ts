@@ -29,9 +29,11 @@ export class PtyStreamAttachment {
   start(
     source: Pick<PtyProcess, 'onData'>,
     recordLaunchOutput: (data: string) => void,
+    terminalOutput?: (data: string) => void,
   ): void {
     const dispose = source.onData((data) => {
       if (this.disposed) return
+      terminalOutput?.(data)
       recordLaunchOutput(data)
       if (this.replayPending && !this.attached) this.retainReplay(data)
       for (const listener of this.dataListeners) listener(data)

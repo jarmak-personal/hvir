@@ -106,6 +106,7 @@ const api: HvirApi = {
     ),
   diagnostics: {
     processSandboxed: process.sandboxed,
+    contextIsolated: process.contextIsolated,
     recordRenderContainment: (occurrenceId) =>
       rendererDiagnostics.recordRenderContainment(occurrenceId),
   },

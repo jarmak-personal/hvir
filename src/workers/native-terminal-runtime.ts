@@ -5,7 +5,9 @@ import type { Frame, Status } from '@hvir/native-terminal/engine'
 import {
   NATIVE_TERMINAL_LIMITS as limits,
   NativeTerminalAdmissionError,
+  nativeTerminalCommandBytes,
   validNativeTerminalExtent,
+  validNativeTerminalKeyInput,
   type NativeTerminalCommand,
   type NativeTerminalHostMessage,
   type NativeTerminalWorkerOptions,
@@ -157,6 +159,15 @@ export function runNativeTerminalHost(
             command.backingScale ?? 1,
           ]),
         )
+      case 'key':
+        return requireOk(
+          await invoke(
+            state,
+            'key',
+            [state, command.key, command.modifiers, command.action, command.text],
+            nativeTerminalCommandBytes(command),
+          ),
+        ).data
       case 'visibility':
         return requireOk(await invoke(state, 'visibility', [state, command.visible]))
       case 'pixels': {
@@ -180,6 +191,8 @@ export function runNativeTerminalHost(
       case 'read':
       case 'drain':
         return requireOk(await invoke(state, command.kind, [state])).data
+      case 'discard-events':
+        return requireOk(await invoke(state, 'discard-events', [state]))
       case 'event':
         return requireOk(await invoke(state, 'event', [state])).event
       case 'frame': {
@@ -328,6 +341,8 @@ function validCommand(value: NativeTerminalCommand): boolean {
         (value.kind === 'create' ||
           (Number.isSafeInteger(value.serial) && value.serial > 0))
       )
+    case 'key':
+      return validNativeTerminalKeyInput(value)
     case 'visibility':
       return typeof value.visible === 'boolean'
     case 'feed':
@@ -343,6 +358,7 @@ function validCommand(value: NativeTerminalCommand): boolean {
     case 'read':
     case 'drain':
     case 'event':
+    case 'discard-events':
     case 'destroy':
       return true
     case 'frame':

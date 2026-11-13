@@ -277,6 +277,7 @@ describe('main native presentation attachment', () => {
       origin: 1,
       premultiplied: false,
     })
+    expect(f.owner.isInputCurrent(id)).toBe(true)
     expect(f.target.publishStatus).toHaveBeenLastCalledWith({
       viewId: id,
       mode: 'native-pixels',

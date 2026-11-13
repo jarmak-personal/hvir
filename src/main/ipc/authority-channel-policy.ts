@@ -117,6 +117,12 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'terminal:move',
   'terminal:record-recovery-decision',
   'terminal:resolve-file-clipboard',
+  'native-terminal:enabled',
+  'native-terminal:attach',
+  'native-terminal:update',
+  'native-terminal:demand',
+  'native-terminal:detach',
+  'native-terminal:key',
   'pty:start',
 ] as const satisfies readonly IpcInvokeChannel[]
 

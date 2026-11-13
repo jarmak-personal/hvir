@@ -74,6 +74,7 @@
     "smoke": "npm run build:smoke && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane extensions agent-workbench renderer-authority renderer-recovery sessions-projection document-review terminal-presentation terminal-lifecycle native-host-worker workbench-health platform-contracts terminal-theme terminal-move workbench-layout terminal-split app-settings harness-profiles",
     "smoke:macos": "npm run build:smoke && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane extensions agent-workbench renderer-authority platform-contracts renderer-recovery sessions-projection document-review terminal-presentation terminal-lifecycle",
     "smoke:macos:ci": "npm run build:smoke && node scripts/run-smoke-scenarios.mts pty-native viewer-position viewer-content git-workflow workspace-remote web-pane extensions agent-workbench renderer-authority platform-contracts renderer-recovery sessions-projection document-review",
+    "smoke:native-terminal": "npm run build:smoke && node scripts/run-smoke-scenarios.mts native-terminal-workbench",
     "smoke:scenario": "npm run build:smoke && node scripts/run-smoke-scenarios.mts",
     "smoke:isolation": "npm run build:smoke && node scripts/run-smoke-interruption.mts",
     "acceptance:ssh:real-host": "vite build --config scripts/real-host-ssh.vite.config.mts && node out/real-host-ssh/real-host-ssh-acceptance.cjs",

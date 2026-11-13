@@ -1,3 +1,4 @@
+import { registerNativeTerminalRuntimeIpc } from './ipc/features/native-terminal-runtime'
 import { MermaidRenderOwner } from './viewer/mermaid-render-owner'
 import { ElectronMermaidComputation } from './viewer/electron-mermaid-computation'
 import { registerMermaidIpc } from './ipc/features/mermaid'
@@ -54,6 +55,7 @@ export function registerIpcHandlers(
     registerTerminalIpc(router, deps)
     registerTerminalFilePasteIpc(router, new ElectronClipboardFilePaste())
     registerNativeTerminalPresentationIpc(router, deps.nativeTerminalPresentation)
+    registerNativeTerminalRuntimeIpc(router, deps.nativeTerminals)
     router.assertComplete()
     return router
   } catch (error) {

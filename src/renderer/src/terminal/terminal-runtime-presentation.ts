@@ -19,6 +19,18 @@ export function terminalRecoveryFailureEquals(
   return left?.kind === right?.kind && left?.reason === right?.reason
 }
 
+export function terminalRuntimeSnapshotEquals(
+  left: TerminalRuntimeSnapshot,
+  right: TerminalRuntimeSnapshot,
+): boolean {
+  return (
+    left.title === right.title &&
+    left.status === right.status &&
+    left.exited === right.exited &&
+    terminalRecoveryFailureEquals(left.recoveryFailure, right.recoveryFailure)
+  )
+}
+
 export function terminalStartFailureSnapshot(
   current: TerminalRuntimeSnapshot,
   status: string,
@@ -36,7 +48,9 @@ export function terminalUnavailablePresentation(
 ): Readonly<{ status: string; recoveryFailure?: TerminalRecoveryFailure }> {
   switch (result.outcome) {
     case 'launch-unavailable':
-      return { status: 'Launch unavailable · session recovery baseline could not be read' }
+      return {
+        status: 'Launch unavailable · session recovery baseline could not be read',
+      }
     case 'resume-unavailable':
       return {
         status: 'Resume unavailable · session data is missing',

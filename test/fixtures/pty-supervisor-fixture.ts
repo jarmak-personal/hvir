@@ -8,6 +8,7 @@ import type {
   ProjectHost,
   PtyExit,
   PtyProcess,
+  PtyWriteData,
   SpawnPtyOptions,
 } from '../../src/main/project-host'
 import {
@@ -31,10 +32,12 @@ export class TestPtyProcess implements PtyProcess {
   readonly pid = 4242
   readonly dataListeners = new Set<(data: string) => void>()
   readonly exitListeners = new Set<(exit: PtyExit) => void>()
-  readonly write = vi.fn<(data: string) => void>()
-  readonly writeConfirmed = vi.fn<(data: string) => Promise<void>>(() =>
+  readonly write = vi.fn<(data: PtyWriteData) => void>()
+  readonly writeConfirmed = vi.fn<(data: PtyWriteData) => Promise<void>>(() =>
     Promise.resolve(),
   )
+  readonly pause = vi.fn<() => void>()
+  readonly resume = vi.fn<() => void>()
   readonly resize = vi.fn<(cols: number, rows: number) => void>()
   readonly kill = vi.fn<(signal?: string) => void>()
 

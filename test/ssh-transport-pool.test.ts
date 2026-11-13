@@ -101,12 +101,53 @@ describe('SshHost transport pool', () => {
     await host.dispose()
   })
 
+  it('snapshots exact byte PTY writes while output stays incrementally decoded text', async () => {
+    const fixture = await poolFixture()
+    try {
+      await spawnShells(fixture, 1)
+      const channel = fixture.clients[1]?.channels[0] as
+        (ClientChannel & { readonly write: ReturnType<typeof vi.fn> }) | undefined
+      if (!channel) throw new Error('Expected an SSH PTY channel')
+      const source = Uint8Array.of(99, 0, 128, 255, 77)
+      fixture.supervisor.write('shell-0', OWNER_ID, source.subarray(1, 4))
+      source.fill(42)
+      expect(channel.write.mock.calls.at(-1)).toEqual([Buffer.from([0, 128, 255])])
+      let finish!: () => void
+      channel.write.mockImplementationOnce((_value: unknown, callback: () => void) => {
+        finish = callback
+        return true
+      })
+      const confirmedSource = Uint8Array.of(9, 255, 0, 128, 8)
+      const confirmed = fixture.supervisor.writeConfirmed(
+        'shell-0',
+        OWNER_ID,
+        confirmedSource.subarray(1, 4),
+      )
+      confirmedSource.fill(42)
+      expect(channel.write.mock.calls.at(-1)).toEqual([
+        Buffer.from([255, 0, 128]),
+        expect.any(Function),
+      ])
+      finish()
+      await confirmed
+      const output = vi.fn<(data: string) => void>()
+      const detach = fixture.supervisor.attach('shell-0', OWNER_ID, { onData: output })
+      channel.emit('data', Buffer.from([0xc3]))
+      expect(output).not.toHaveBeenCalled()
+      channel.emit('data', Buffer.from([0xa9]))
+      expect(output).toHaveBeenCalledExactlyOnceWith('é')
+      await detach()
+    } finally {
+      fixture.supervisor.disposeAll()
+      await fixture.host.dispose()
+    }
+  })
+
   it('confirms one SSH PTY write and rejects callback failure or exit races', async () => {
     const fixture = await poolFixture()
     await spawnShells(fixture, 1)
     const channel = fixture.clients[1]?.channels[0] as
-      | (ClientChannel & { readonly write: ReturnType<typeof vi.fn> })
-      | undefined
+      (ClientChannel & { readonly write: ReturnType<typeof vi.fn> }) | undefined
     if (!channel) throw new Error('Expected an SSH PTY channel')
 
     await expect(
@@ -131,11 +172,7 @@ describe('SshHost transport pool', () => {
         return true
       },
     )
-    const raced = fixture.supervisor.writeConfirmed(
-      'shell-0',
-      OWNER_ID,
-      'raced',
-    )
+    const raced = fixture.supervisor.writeConfirmed('shell-0', OWNER_ID, 'raced')
     channel.emit('exit', 7)
     const racedError = await raced.catch((reason: unknown) => reason)
     expect(racedError).toBeInstanceOf(PtyWriteIndeterminateError)
@@ -149,8 +186,7 @@ describe('SshHost transport pool', () => {
     const fixture = await poolFixture()
     await spawnShells(fixture, 1)
     const channel = fixture.clients[1]?.channels[0] as
-      | (ClientChannel & { readonly write: ReturnType<typeof vi.fn> })
-      | undefined
+      (ClientChannel & { readonly write: ReturnType<typeof vi.fn> }) | undefined
     if (!channel) throw new Error('Expected an SSH PTY channel')
     channel.emit('exit', 7)
     channel.write.mockClear()
@@ -169,8 +205,7 @@ describe('SshHost transport pool', () => {
     const fixture = await poolFixture()
     await spawnShells(fixture, 1)
     const channel = fixture.clients[1]?.channels[0] as
-      | (ClientChannel & { readonly write: ReturnType<typeof vi.fn> })
-      | undefined
+      (ClientChannel & { readonly write: ReturnType<typeof vi.fn> }) | undefined
     if (!channel) throw new Error('Expected an SSH PTY channel')
     let completeWrite: ((error?: Error) => void) | undefined
     channel.write.mockImplementationOnce(
@@ -183,14 +218,8 @@ describe('SshHost transport pool', () => {
     vi.useFakeTimers()
     try {
       const timersBefore = vi.getTimerCount()
-      const pending = fixture.supervisor.writeConfirmed(
-        'shell-0',
-        OWNER_ID,
-        'stalled',
-      )
-      const rejected = expect(pending).rejects.toBeInstanceOf(
-        PtyWriteIndeterminateError,
-      )
+      const pending = fixture.supervisor.writeConfirmed('shell-0', OWNER_ID, 'stalled')
+      const rejected = expect(pending).rejects.toBeInstanceOf(PtyWriteIndeterminateError)
       expect(vi.getTimerCount()).toBe(timersBefore + 1)
 
       await vi.advanceTimersByTimeAsync(SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS)

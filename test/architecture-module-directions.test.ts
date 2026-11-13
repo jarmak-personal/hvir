@@ -67,6 +67,19 @@ async function originalMessages(owner: string, source: string) {
 }
 
 describe('resolved adapter for existing dependency direction policy', () => {
+  it.each([
+    "import { NativeTerminalHost } from '../terminal/native-terminal-host'",
+    "import type { NativeTerminalSessions } from '../terminal/native-terminal-sessions'",
+    "type Owner = import('../terminal/native-terminal-application').NativeTerminalApplication",
+    "void import('../terminal/native-terminal-process')",
+  ])(
+    'keeps supervisor preparation independent of concrete native owners: %s',
+    async (source) => {
+      const messages = await originalMessages('src/main/pty/pty-supervisor.ts', source)
+      expect(messages.some((message) => message.severity === 2)).toBe(true)
+    },
+  )
+
   it('anchors native ownership to the repository when an ancestor is named src', async () => {
     const cwd = join(root, 'src', 'hvir')
     const nested = new Linter({ cwd })

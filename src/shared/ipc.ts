@@ -174,6 +174,7 @@ export interface HvirApi {
   readonly diagnostics: {
     /** Electron's renderer-process sandbox state, surfaced read-only by preload. */
     readonly processSandboxed: boolean
+    readonly contextIsolated: boolean
     /** Domain-owned, content-free evidence. Invalid or overloaded calls are dropped. */
     recordRenderContainment(occurrenceId: string): void
   }

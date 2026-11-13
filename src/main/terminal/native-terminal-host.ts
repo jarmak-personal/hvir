@@ -8,6 +8,7 @@ import {
   NATIVE_TERMINAL_LIMITS as limits,
   NativeTerminalAdmissionError,
   validNativeTerminalExtent,
+  validNativeTerminalKeyInput,
   type NativeTerminalCommand,
   type NativeTerminalSession,
   type NativeTerminalStatus,
@@ -278,6 +279,109 @@ export class NativeTerminalHost {
       this.deliveryBytes -= snapshot.byteLength
     }
   }
+  /** Immutable PTY authority keeps parser/reply work independent of view generations. */
+  async inspectProducer(
+    handle: string,
+    instanceId: string,
+  ): Promise<NativeTerminalStatus> {
+    const binding = this.requireProducer(handle, instanceId)
+    const value = await this.process.request(
+      { kind: 'inspect', state: binding.state },
+      binding.abort.signal,
+    )
+    this.requireProducer(handle, instanceId)
+    if (!validStatus(value)) throw new Error('native-status-invalid')
+    binding.status = value
+    return value
+  }
+  async encodeKey(
+    handle: string,
+    instanceId: string,
+    input: {
+      key: number
+      modifiers: number
+      action: number
+      text: string
+    },
+  ): Promise<Uint8Array> {
+    const binding = this.requireProducer(handle, instanceId)
+    if (!validNativeTerminalKeyInput(input)) throw new Error('native-key-invalid')
+    const value = await this.process.request(
+      {
+        kind: 'key',
+        state: binding.state,
+        key: input.key,
+        modifiers: input.modifiers,
+        action: input.action,
+        text: input.text,
+      },
+      binding.abort.signal,
+    )
+    this.requireProducer(handle, instanceId)
+    if (!(value instanceof Uint8Array) || value.byteLength > limits.responseBytes)
+      throw new Error('native-input-bound')
+    return value
+  }
+  async readProducer(handle: string, instanceId: string): Promise<Uint8Array> {
+    const binding = this.requireProducer(handle, instanceId)
+    const value = await this.process.request(
+      { kind: 'read', state: binding.state },
+      binding.abort.signal,
+    )
+    this.requireProducer(handle, instanceId)
+    if (!(value instanceof Uint8Array) || value.byteLength > limits.responseBytes)
+      throw new Error('native-read-bound')
+    return value
+  }
+  /** Preview housekeeping only; M11 replaces this with the one policy consumer. */
+  async discardEffectsProducer(handle: string, instanceId: string): Promise<number> {
+    const binding = this.requireProducer(handle, instanceId)
+    const value = await this.process.request(
+      { kind: 'discard-events', state: binding.state },
+      binding.abort.signal,
+    )
+    this.requireProducer(handle, instanceId)
+    const result = value as { result?: number; discarded?: number } | undefined
+    if (
+      result?.result !== 0 ||
+      !Number.isSafeInteger(result.discarded) ||
+      typeof result.discarded !== 'number' ||
+      result.discarded < 0 ||
+      result.discarded > 130
+    )
+      throw new Error('native-effect-drain-invalid')
+    return result.discarded
+  }
+  async drainReplies(handle: string, instanceId: string): Promise<Uint8Array> {
+    const binding = this.requireProducer(handle, instanceId)
+    const value = await this.process.request(
+      { kind: 'drain', state: binding.state },
+      binding.abort.signal,
+    )
+    this.requireProducer(handle, instanceId)
+    if (!(value instanceof Uint8Array) || value.byteLength > limits.responseBytes)
+      throw new Error('native-reply-bound')
+    return value
+  }
+  async resizeProducer(
+    handle: string,
+    instanceId: string,
+    serial: number,
+    width: number,
+    height: number,
+    backingScale: number,
+  ): Promise<NativeTerminalStatus> {
+    const binding = this.requireProducer(handle, instanceId)
+    return this.applyGeometry(
+      binding,
+      serial,
+      width,
+      height,
+      backingScale,
+      () => this.requireProducer(handle, instanceId),
+      () => this.inspectProducer(handle, instanceId),
+    )
+  }
   async inspect(
     handle: string,
     ownerId: number,
@@ -315,6 +419,25 @@ export class NativeTerminalHost {
     backingScale = 1,
   ): Promise<NativeTerminalStatus> {
     const binding = this.requireAttachment(handle, ownerId, generation, attachment)
+    return this.applyGeometry(
+      binding,
+      serial,
+      width,
+      height,
+      backingScale,
+      () => this.requireAttachment(handle, ownerId, generation, attachment),
+      () => this.inspect(handle, ownerId, generation),
+    )
+  }
+  private async applyGeometry(
+    binding: Binding,
+    serial: number,
+    width: number,
+    height: number,
+    backingScale: number,
+    assertCurrent: () => void,
+    inspect: () => Promise<NativeTerminalStatus>,
+  ): Promise<NativeTerminalStatus> {
     if (
       !validNativeTerminalExtent(width, height) ||
       !validNativeTerminalScale(backingScale)
@@ -329,10 +452,10 @@ export class NativeTerminalHost {
     )
     const deadline = Date.now() + 10000
     for (;;) {
-      this.requireAttachment(handle, ownerId, generation, attachment)
+      assertCurrent()
       if (binding.requestedGeometry !== serial)
         throw new Error('native-geometry-superseded')
-      const status = await this.inspect(handle, ownerId, generation)
+      const status = await inspect()
       if (status.geometryFailureSerial === serial)
         throw new Error('native-geometry-failed')
       if (status.geometry.serial === serial) {

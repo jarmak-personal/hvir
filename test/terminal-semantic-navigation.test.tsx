@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { webInvoke } from './fixtures/ghostty-lifecycle-runtime-options'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { TerminalEvent as GhosttyTerminalEvent } from 'ghostty-web'
@@ -177,7 +178,7 @@ describe('semantic transcript navigation', () => {
     const invoke = vi.fn(() => Promise.resolve(started()))
     Object.defineProperty(window, 'hvir', {
       configurable: true,
-      value: { invoke, send, on: vi.fn(() => () => undefined) },
+      value: { invoke: webInvoke(invoke), send, on: vi.fn(() => () => undefined) },
     })
     const registry = new TerminalRuntimeRegistry()
     const host = document.createElement('div')
@@ -186,7 +187,14 @@ describe('semantic transcript navigation', () => {
 
     act(() => root.render(<TerminalView {...viewProps(registry)} />))
     await act(async () => {
-      await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+      await vi.waitFor(() =>
+        expect(
+          host
+            .querySelector('[data-terminal-status]')
+            ?.getAttribute('data-terminal-status'),
+        ).toBe('pid 4321'),
+      )
+      expect(invoke).toHaveBeenCalledOnce()
     })
     const state = terminalState.instances[0]!
     const surface = host.querySelector<HTMLElement>('.terminal-engine-host')
@@ -231,7 +239,7 @@ describe('semantic transcript navigation', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke: vi.fn(() => Promise.resolve(started())),
+        invoke: webInvoke(vi.fn(() => Promise.resolve(started()))),
         send: vi.fn(),
         on: vi.fn(() => () => undefined),
       },

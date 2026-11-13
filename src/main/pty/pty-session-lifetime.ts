@@ -1,4 +1,9 @@
-import type { Disposer, PtyExit, PtyProcess } from '../project-host/project-host'
+import type {
+  Disposer,
+  PtyExit,
+  PtyProcess,
+  PtyWriteData,
+} from '../project-host/project-host'
 
 export interface PendingPtyExit {
   readonly promise: Promise<void>
@@ -47,10 +52,10 @@ export class PtySessionLifetime {
     )
   }
 
-  write(data: string): void {
+  write(data: PtyWriteData): void {
     this.pty.write(data)
   }
-  writeConfirmed(data: string): Promise<void> {
+  writeConfirmed(data: PtyWriteData): Promise<void> {
     return this.pty.writeConfirmed(data)
   }
   resize(cols: number, rows: number): void {

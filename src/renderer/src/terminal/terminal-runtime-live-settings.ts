@@ -1,4 +1,4 @@
-import type { TerminalPane } from './terminal-pane'
+import { isNativeTerminalPane, type TerminalRuntimePane } from './terminal-pane'
 import { terminalColorThemeEquals } from './terminal-palette'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
 
@@ -10,9 +10,10 @@ export function runtimeCanInteract(
 
 /** Synchronize the latest presentation options after asynchronous pane construction. */
 export function synchronizePanePresentationOptions(
-  pane: TerminalPane,
+  pane: TerminalRuntimePane,
   options: TerminalRuntimeOptions,
 ): void {
+  if (isNativeTerminalPane(pane)) return
   pane.setTheme(options.theme)
   pane.setTypography(options.typography)
   pane.setCursorDefaults(options.cursorDefaults)
@@ -21,13 +22,14 @@ export function synchronizePanePresentationOptions(
 
 /** Apply mutable presentation settings without replacing the pane or its native state. */
 export function applyLivePaneOptions(
-  pane: TerminalPane | undefined,
+  pane: TerminalRuntimePane | undefined,
   previous: TerminalRuntimeOptions,
   next: TerminalRuntimeOptions,
 ): boolean {
   const typographyChanged =
     next.typography.fontFamily !== previous.typography.fontFamily ||
     next.typography.fontSize !== previous.typography.fontSize
+  if (pane && isNativeTerminalPane(pane)) return false
   if (typographyChanged) pane?.setTypography(next.typography)
   if (!terminalColorThemeEquals(next.theme, previous.theme)) pane?.setTheme(next.theme)
   if (

@@ -135,6 +135,11 @@ function dependencyDirectionRules(
   }
 }
 
+const PTY_PREPARATION_DIRECTIONS = dependencyDirectionRules(
+  '(^|/)terminal/native-terminal[^/]*(\\.[cm]?[jt]sx?)?$',
+  'The PTY supervisor consumes neutral preparation contracts, never concrete native terminal owners.',
+)
+
 export default tseslint.config(
   {
     ignores: [
@@ -662,17 +667,14 @@ export default tseslint.config(
     },
   },
 
-  // Seam exemption: only the supervisor may call host.spawnPty().
+  // Only the supervisor may spawn PTYs, through injected preparation contracts.
   {
     files: ['src/main/pty/pty-supervisor.ts'],
     rules: {
-      'no-restricted-syntax': [
-        'error',
-        EXTENSION_PACKAGE_IMPORT_BAN,
-        NATIVE_BUILD_TOOL_IMPORT_BAN,
-        NATIVE_EXTENSION_IMPORT_BAN,
-        ...DYNAMIC_HOST_IMPORT_BANS,
-      ],
+      ...PTY_PREPARATION_DIRECTIONS,
+      'no-restricted-syntax': PTY_PREPARATION_DIRECTIONS['no-restricted-syntax'].filter(
+        (restriction) => restriction !== SPAWN_PTY_BAN,
+      ),
     },
   },
 

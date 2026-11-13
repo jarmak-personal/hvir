@@ -15,7 +15,7 @@ import {
   asSessionsTerminalHandle,
   asSessionsWorkspaceRuntimeId,
 } from '../src/shared'
-import { ghosttyLifecycleRuntimeOptions as runtimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
+import { runtimeOptions, webInvoke } from './fixtures/ghostty-lifecycle-runtime-options'
 import { ghosttyState, ghosttyWebMock } from './fixtures/ghostty-terminal-pane-mock'
 
 vi.mock('ghostty-web', async () => {
@@ -316,7 +316,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke,
+        invoke: webInvoke(invoke),
         send,
         on: vi.fn(() => () => undefined),
       },
@@ -401,7 +401,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke,
+        invoke: webInvoke(invoke),
         send,
         on: vi.fn(() => () => undefined),
       },
@@ -481,7 +481,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke,
+        invoke: webInvoke(invoke),
         send,
         on: vi.fn((channel: string, listener: typeof emitData) => {
           if (channel === 'pty:data') emitData = listener
@@ -575,7 +575,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke,
+        invoke: webInvoke(invoke),
         send,
         on: vi.fn((channel: string, listener: (event: never) => void) => {
           events.set(channel, listener)
@@ -668,7 +668,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke,
+        invoke: webInvoke(invoke),
         send: vi.fn(),
         on: vi.fn(() => () => undefined),
       },
@@ -734,7 +734,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke,
+        invoke: webInvoke(invoke),
         send: vi.fn(),
         on: vi.fn(() => () => undefined),
       },
@@ -796,7 +796,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke,
+        invoke: webInvoke(invoke),
         send: vi.fn(),
         on: vi.fn(() => () => undefined),
       },
@@ -881,7 +881,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke,
+        invoke: webInvoke(invoke),
         send,
         on: vi.fn((channel: string, listener: (event: never) => void) => {
           events.set(channel, listener)
@@ -1007,7 +1007,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke,
+        invoke: webInvoke(invoke),
         send: vi.fn(),
         on: vi.fn(() => () => undefined),
       },
@@ -1082,7 +1082,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke,
+        invoke: webInvoke(invoke),
         send: vi.fn(),
         on: vi.fn((channel: string, listener: unknown) => {
           if (channel === 'pty:exit') {
@@ -1126,7 +1126,7 @@ describe('GhosttyTerminalPane lifecycle', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke,
+        invoke: webInvoke(invoke),
         send: vi.fn(),
         on: vi.fn(() => () => undefined),
       },

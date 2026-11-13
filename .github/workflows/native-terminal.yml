@@ -7,19 +7,34 @@ on:
       - scripts/native-terminal/**
       - packages/native-terminal/**
       - src/main/terminal/native-terminal-*
+      - src/main/terminal/terminal-application.ts
       - src/workers/native-terminal-*
       - src/shared/native-terminal*
       - src/shared/ui-responsiveness-budget.ts
       - src/main/worker-host.ts
       - src/preload/native-terminal-*
       - src/preload/index.ts
-      - src/renderer/src/terminal/native-terminal-surface.ts
+      - src/renderer/src/terminal/native-terminal-*.ts
+      - src/renderer/src/terminal/terminal-runtime*.ts
+      - src/renderer/src/terminal/terminal-pane*.ts
+      - src/main/pty/pty-supervisor.ts
+      - src/main/pty/pty-contract.ts
+      - src/main/pty/pty-session-lifetime.ts
+      - src/main/pty/pty-stream-attachment.ts
+      - src/main/pty/pty-terminal-output.ts
+      - src/main/project-host/project-host.ts
+      - src/main/project-host/local-host.ts
+      - src/main/project-host/ssh-host.ts
+      - src/main/smoke/native-terminal-workbench.ts
+      - src/main/ipc/features/native-terminal-runtime.ts
+      - scripts/run-smoke.sh
       - src/main/ipc/features/native-terminal-presentation.ts
       - src/main/ipc/authority-router.ts
       - src/main/ipc/authority-channel-policy.ts
       - src/main/renderer-resource-scopes.ts
       - src/shared/ipc/terminal.ts
       - electron.vite.config.ts
+      - package.json
       - package-lock.json
       - .github/workflows/native-terminal.yml
   workflow_dispatch:
@@ -195,6 +210,36 @@ jobs:
             assert(Number.isFinite(value) && value >= 0 && value <= 500);
           assert.equal(proof.mainImportMaxMs, Math.max(0, ...proof.importTimesMs));
           NODE
+      - name: Qualify the ordinary macOS native workbench runtime
+        if: runner.os == 'macOS'
+        timeout-minutes: 5
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          npm run build:smoke
+          HVIR_NATIVE_TERMINAL_LIBRARY="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" \
+            node scripts/run-smoke-scenarios.mts native-terminal-workbench 2>&1 \
+            | tee "$RUNNER_TEMP/hvir-native-bindings/workbench-proof.jsonl"
+          node - "$RUNNER_TEMP/hvir-native-bindings/workbench-proof.jsonl" <<'NODE'
+          const fs = require('node:fs');
+          const assert = require('node:assert/strict');
+          const prefix = 'HVIR_NATIVE_WORKBENCH_OK ';
+          const records = fs.readFileSync(process.argv[2], 'utf8').split('\n')
+            .filter(line => line.startsWith(prefix)).map(line => JSON.parse(line.slice(prefix.length)));
+          assert.equal(records.length, 1);
+          const proof = records[0];
+          assert.equal(proof.platform, 'darwin');
+          assert.equal(proof.actualWorkbench, true);
+          assert.equal(proof.rendererSandboxed, true);
+          assert.equal(proof.rendererContextIsolated, true);
+          assert.equal(proof.supervisorSpawns, 1);
+          for (const field of ['nativeInstanceMatched', 'parserMarker', 'retainedExitTail', 'rendererCanvas', 'nativeEncodedKeyboard'])
+            assert.equal(proof[field], true);
+          assert(proof.capturedAnsiRedPixels >= 500);
+          assert(proof.resizeAcknowledgedByStty.rows > 0 && proof.resizeAcknowledgedByStty.columns > 0);
+          assert.equal(proof.development, true);
+          assert.equal(proof.hardwareQualified, false);
+          NODE
       - name: Diagnose failed Linux library relocation
         if: failure() && runner.os == 'Linux'
         run: |
@@ -243,7 +288,7 @@ jobs:
         run: |
           proofs=(resource-proof.jsonl electron-proof.jsonl)
           if [[ "$RUNNER_OS" == macOS ]]; then
-            proofs+=(presenter-gpu.jsonl presenter-pixels.jsonl)
+            proofs+=(presenter-gpu.jsonl presenter-pixels.jsonl workbench-proof.jsonl)
           fi
           tar -czf "$RUNNER_TEMP/native-terminal-bindings-${TARGET}.tar.gz" -C packages/native-terminal/build Release -C "$RUNNER_TEMP/hvir-native-bindings" "${proofs[@]}"
       - uses: actions/upload-artifact@v7

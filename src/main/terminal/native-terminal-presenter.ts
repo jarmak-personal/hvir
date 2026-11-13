@@ -74,6 +74,15 @@ export class NativeTerminalPresenter {
     private readonly host: PresentationHost,
     private readonly imports: Pick<NativeTerminalFrameImports, 'acquire'>,
   ) {}
+  isInputCurrent(viewId: string): boolean {
+    const view = this.views.get(viewId)
+    return !!view?.grant && this.currentGrant(view, view.grant)
+  }
+  /** Producer failure revokes presentation without inventing a second parser. */
+  async suspend(viewId: string): Promise<void> {
+    const view = this.views.get(viewId)
+    if (view && !view.closed) await this.unavailable(view, 'native-lost')
+  }
   async attach(
     handle: string,
     session: NativeTerminalSession,

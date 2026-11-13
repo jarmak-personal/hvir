@@ -16,6 +16,7 @@ import type {
 } from '../renderer-resource-scopes'
 
 interface RendererPtyLifecycleDeps {
+  readonly nativeTerminals?: import('./native-terminal-application').NativeTerminalApplication
   readonly rendererResources: RendererResourceScopes
   readonly ptySupervisor: PtySupervisor
 }
@@ -80,18 +81,35 @@ export function registerRendererPty(
   return deps.rendererResources.register(
     owner,
     rendererPtyQualifier(root, id),
-    () =>
-      deps.ptySupervisor.disposeSession(id, resourceOwner.id, resourceOwner.generation),
+    async () => {
+      const native = deps.nativeTerminals?.sessions.get(id)
+      deps.ptySupervisor.disposeSession(id, resourceOwner.id, resourceOwner.generation)
+      if (native) await deps.nativeTerminals!.remove(id, native.session.instanceId)
+    },
     {
       rollover: (nextOwner) => {
-        const transferred = deps.ptySupervisor.transferRendererSession(
-          id,
-          resourceOwner.id,
-          resourceOwner.generation,
-          nextOwner.id,
-          nextOwner.generation,
-        )
-        if (transferred) resourceOwner = nextOwner
+        const retainedNative = deps.nativeTerminals?.sessions.get(id)
+        const transferred =
+          deps.ptySupervisor.transferRendererSession(
+            id,
+            resourceOwner.id,
+            resourceOwner.generation,
+            nextOwner.id,
+            nextOwner.generation,
+          ) ||
+          (!deps.ptySupervisor.get(id) && !!retainedNative)
+        if (transferred) {
+          const native = deps.nativeTerminals?.sessions.get(id)
+          if (native)
+            deps.nativeTerminals!.sessions.transferOwner(
+              id,
+              native.session.instanceId,
+              nextOwner.id,
+              nextOwner.generation,
+              native.session.workspaceRoot,
+            )
+          resourceOwner = nextOwner
+        }
         return transferred
       },
     },
@@ -117,7 +135,7 @@ export function attachRendererPty(
       },
       onExit: (exit) => {
         void detach()
-        ptyLease.release()
+        if (!deps.nativeTerminals?.sessions.get(managed.id)) ptyLease.release()
         if (deps.rendererResources.isCurrent(owner) && !sender.isDestroyed()) {
           sendRendererEvent(sender, 'pty:exit', { id: managed.id, ...exit })
         }

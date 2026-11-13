@@ -435,14 +435,20 @@ export class LocalHost implements ProjectHost {
         return () => sub.dispose()
       },
       write(data) {
-        proc.write(data)
+        proc.write(typeof data === 'string' ? data : Buffer.from(data))
       },
       writeConfirmed(data) {
         // node-pty exposes a synchronous enqueue boundary, not agent/TUI
         // acknowledgement. A non-throwing complete call is the strongest local
         // PTY-boundary confirmation available.
-        proc.write(data)
+        proc.write(typeof data === 'string' ? data : Buffer.from(data))
         return Promise.resolve()
+      },
+      pause() {
+        proc.pause()
+      },
+      resume() {
+        proc.resume()
       },
       resize(cols, rows) {
         proc.resize(cols, rows)

@@ -108,6 +108,7 @@ describe('smoke PTY output', () => {
         return dispose
       })
       const command = write.mock.calls[0]![2]
+      if (typeof command !== 'string') throw new Error('Expected a textual smoke command')
       fixture.emitData(command)
       await Promise.resolve()
       expect(ready).toBe(false)
@@ -118,6 +119,8 @@ describe('smoke PTY output', () => {
         stopped = true
       })
       const stopCommand = write.mock.calls[1]![2]
+      if (typeof stopCommand !== 'string')
+        throw new Error('Expected a textual stop command')
       fixture.emitData(stopCommand)
       await Promise.resolve()
       expect(stopped).toBe(false)

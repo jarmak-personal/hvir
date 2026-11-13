@@ -52,6 +52,7 @@ export interface SystemClipboardPort {
 }
 
 export interface IpcDeps extends IpcRouterAuthorityPort {
+  readonly nativeTerminals?: import('../terminal/native-terminal-application').NativeTerminalApplication
   readonly nativeTerminalPresentation?: Pick<
     import('../terminal/native-terminal-presentation-target').NativeTerminalPresentationTargets,
     'acknowledge'

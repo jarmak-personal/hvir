@@ -479,7 +479,8 @@ export class SshHost implements ProjectHost {
       pid: nextRemotePid--,
       onData: (cb) => subscribe(data, cb),
       onExit: (cb) => subscribe(exits, cb),
-      write: (v) => channel.write(v),
+      write: (value) =>
+        channel.write(typeof value === 'string' ? value : Buffer.from(value)),
       writeConfirmed: (value) => {
         if (exited) return Promise.reject(new Error('SSH PTY already exited'))
         return new Promise<void>((resolve, reject) => {
@@ -508,11 +509,20 @@ export class SshHost implements ProjectHost {
             SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS,
           )
           try {
-            channel.write(value, (error?: Error | null) => finish(error ?? undefined))
+            channel.write(
+              typeof value === 'string' ? value : Buffer.from(value),
+              (error?: Error | null) => finish(error ?? undefined),
+            )
           } catch (error) {
             finish(asError(error))
           }
         })
+      },
+      pause: () => {
+        channel.pause()
+      },
+      resume: () => {
+        channel.resume()
       },
       resize: (cols, rows) => channel.setWindow(rows, cols, 0, 0),
       kill: () => channel.close(),
