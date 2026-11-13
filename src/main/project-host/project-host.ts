@@ -272,6 +272,8 @@ export type PtyWriteData = string | Uint8Array
 /** A live pseudo-terminal. Produced only via the PTY supervisor (ADR-006). */
 export interface PtyProcess {
   readonly pid: number
+  /** Known input termination can precede drained output/public exit. EOF alone is not input closure. */
+  readonly inputClosed?: boolean
   onData(cb: (data: string) => void): Disposer
   onExit(cb: (e: PtyExit) => void): Disposer
   write(data: PtyWriteData): void

@@ -267,15 +267,20 @@ stream listeners. A source-owned ingress pauses the transport while bounded admi
 settles (128 KiB per session, 1 MiB aggregate); the native session encodes UTF-8 and feeds
 16 KiB pieces, draining terminal replies between pieces. Reply writes retain exact bytes
 and do not trigger user-input observation. The pinned node-pty Unix dependency includes
-a guarded, reproduced exit-drain correction: its existing 200 ms idle workaround does not destroy deliberately
-paused reads, and observed physical exit forbids signalling a reaped PID. Public
-exit follows stream drain; the supervisor then settles its admitted native tail.
+a guarded, reproduced exit-drain correction: its existing 200 ms idle workaround
+does not destroy deliberately paused reads. Observed physical exit prevents
+signalling a reaped PID. Public exit follows stream drain; the supervisor then settles its admitted native tail.
 Real transport regression covers exact small and >1 MiB streams with a 500 ms
 consumer delay. Wider delayed-feed/exit stress and capacity remain M13 gates;
 the earlier demonstrated paused-tail loss is corrected, not accepted as a waiver.
+SSH also separates remote exit status from drained output: known input termination
+stops native replies immediately, while the public PTY exit waits for buffered
+readable output and the UTF-8 decoder to finish. Readable EOF alone remains an
+output half-close and does not revoke still-valid input. Real loopback protocol
+tests cover fast and delayed small/streamed output; these tests simulate the remote
+producer and native consumer, and do not qualify a remote operating system or GPU.
 Overflow or indeterminate feed failure makes native presentation unavailable while
-preserving the supervised PTY; it does
-not replay, restart, or switch engines.
+preserving the supervised PTY; it does not replay, restart, or switch engines.
 
 The designated native caller drains and discards unsupported effect metadata after each
 feed segment, within the existing 128-record mailbox plus two latest-value slots.

@@ -230,6 +230,50 @@ describe('supervisor native preparation boundary', () => {
     expect(replacement.pty.writeConfirmed).not.toHaveBeenCalled()
     expect(f.pty.writeConfirmed).toHaveBeenCalledOnce()
   })
+  it('keeps output alive while known input closure suppresses stale native replies', async () => {
+    const f = createPtySupervisorFixture({ provider: plainShellProvider })
+    const native = prepared()
+    let inputClosed = false
+    Object.defineProperty(f.pty, 'inputClosed', { get: () => inputClosed })
+    const info = await f.spawn({ prepareTerminal: () => Promise.resolve(native) })
+    const writer = native.connect.mock.calls[0]![0]
+    expect(writer.live).toBe(true)
+    inputClosed = true
+    expect(writer.live).toBe(false)
+    await writer.writeReply(Uint8Array.of(255))
+    expect(f.pty.writeConfirmed).not.toHaveBeenCalled()
+    f.pty.emitData('remote output after status')
+    await flush()
+    expect(native.output).toHaveBeenCalledExactlyOnceWith('remote output after status')
+    expect(f.supervisor.get(info.id)?.instanceId).toBe(info.instanceId)
+    expect(native.failed).not.toHaveBeenCalled()
+    expect(native.exited).not.toHaveBeenCalled()
+  })
+  it('does not fail retained output when input closes during a native reply write', async () => {
+    const f = createPtySupervisorFixture({ provider: plainShellProvider })
+    const native = prepared(),
+      ack = deferred<void>()
+    let inputClosed = false
+    Object.defineProperty(f.pty, 'inputClosed', { get: () => inputClosed })
+    await f.spawn({ prepareTerminal: () => Promise.resolve(native) })
+    const writer = native.connect.mock.calls[0]![0]
+    f.pty.writeConfirmed.mockReturnValueOnce(ack.promise)
+    native.output.mockImplementation(() => writer.writeReply(Uint8Array.of(255)))
+    f.pty.emitData('accepted final query')
+    await flush()
+    expect(f.pty.writeConfirmed).toHaveBeenCalledOnce()
+    inputClosed = true
+    ack.reject(new Error('known remote input ended'))
+    await flush()
+    expect(native.failed).not.toHaveBeenCalled()
+    expect(native.exited).not.toHaveBeenCalled()
+    f.pty.emitExit({ exitCode: 7, signal: undefined })
+    await flush()
+    expect(native.exited).toHaveBeenCalledExactlyOnceWith({
+      exitCode: 7,
+      signal: undefined,
+    })
+  })
   it('rejects an indeterminate reply failure while its exact PTY remains live', async () => {
     const f = createPtySupervisorFixture({ provider: plainShellProvider })
     const native = prepared(),

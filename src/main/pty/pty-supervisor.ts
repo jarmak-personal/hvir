@@ -306,6 +306,7 @@ export class PtySupervisor {
     const stream = new PtyStreamAttachment()
     const isCurrent = (): boolean =>
       lifetime.current && this.entries.get(sessionId) === entry
+    const canReply = (): boolean => isCurrent() && pty.inputClosed !== true
     const identityChanged = (): void => {
       if (!isCurrent()) return
       for (const cb of this.identityListeners) cb(entry.info)
@@ -387,17 +388,17 @@ export class PtySupervisor {
     try {
       prepared?.connect({
         get live() {
-          return isCurrent()
+          return canReply()
         },
         writeReply: async (bytes) => {
-          if (!isCurrent()) return
+          if (!canReply()) return
           try {
             // Native replies belong to this PTY lifetime, not a renderer lease.
             await entry.lifetime.writeConfirmed(bytes)
           } catch (error) {
-            // An exited/revoked instance cannot accept more replies. Its admitted
-            // parser tail still drains; only a live transport failure is fatal.
-            if (isCurrent()) throw error
+            // Known input closure or revocation stops replies while admitted output
+            // still drains; only a live transport failure is fatal.
+            if (canReply()) throw error
           }
         },
       })

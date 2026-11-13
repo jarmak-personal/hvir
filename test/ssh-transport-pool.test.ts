@@ -48,6 +48,9 @@ describe('SshHost transport pool', () => {
     await expect(host.exec('git', ['status'])).resolves.toMatchObject({ code: 0 })
 
     clients[1]?.emit('close')
+    expect(exits).not.toHaveBeenCalled()
+    // ssh2 retires transport first, then closes each drained readable channel.
+    for (const channel of clients[1]?.channels ?? []) channel.emit('close')
     expect(exits).toHaveBeenCalledTimes(SSH_TERMINAL_CHANNEL_BUDGET)
     expect(supervisor.list()).toHaveLength(4)
     expect(host.connectionState).toBe('connected')
@@ -196,7 +199,14 @@ describe('SshHost transport pool', () => {
       .catch((reason: unknown) => reason)
     expect(rejected).toBeInstanceOf(Error)
     expect(rejected).not.toBeInstanceOf(PtyWriteIndeterminateError)
-    expect((rejected as Error).message).toMatch(/No PTY session/)
+    expect((rejected as Error).message).toMatch(/SSH PTY already exited/)
+    expect(fixture.supervisor.get('shell-0')).toBeDefined()
+    expect(channel.write.mock.calls).toEqual([])
+    channel.emit('close')
+    expect(fixture.supervisor.get('shell-0')).toBeUndefined()
+    await expect(
+      fixture.supervisor.writeConfirmed('shell-0', OWNER_ID, 'after-drain'),
+    ).rejects.toThrow(/No PTY session/)
     expect(channel.write.mock.calls).toEqual([])
     await fixture.host.dispose()
   })
