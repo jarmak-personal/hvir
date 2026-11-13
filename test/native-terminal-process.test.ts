@@ -1,6 +1,8 @@
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NativeTerminalProcess } from '../src/main/terminal/native-terminal-process'
+import { localPath } from '../src/shared/host-path'
+import type { NativeTerminalLinuxOptions } from '../src/shared/native-terminal-linux'
 import {
   NATIVE_TERMINAL_LIMITS,
   NativeTerminalAdmissionError,
@@ -55,8 +57,13 @@ class Child extends EventEmitter {
 }
 const owners: NativeTerminalProcess[] = []
 const children: Child[] = []
-function owner(): NativeTerminalProcess {
-  const value = new NativeTerminalProcess('/trusted/libghostty')
+function owner(linux?: NativeTerminalLinuxOptions): NativeTerminalProcess {
+  const value = new NativeTerminalProcess(
+    '/trusted/libghostty',
+    undefined,
+    undefined,
+    linux,
+  )
   owners.push(value)
   return value
 }
@@ -118,6 +125,38 @@ afterEach(() => {
 })
 
 describe('native process cancelled acquisition ownership', () => {
+  it('snapshots trusted Linux selection before lazy startup', async () => {
+    const config = {
+      device: {
+        kind: 'drm-render-node' as const,
+        node: localPath('/dev/dri/renderD128'),
+      },
+      presentationMode: 'pixels' as const,
+    }
+    const process = owner(config)
+    Object.assign(config.device.node, { path: '/dev/dri/renderD129' })
+    const pending = call(process, { kind: 'inspect', state: '1' })
+    const child = await ready(process)
+    expect(child.messages[0]).toMatchObject({
+      linux: {
+        device: { kind: 'drm-render-node', node: localPath('/dev/dri/renderD128') },
+        presentationMode: 'pixels',
+      },
+    })
+    reply(child, last(child), {})
+    await pending
+  })
+  it('refuses malformed Linux selection before creating an endpoint or process', () => {
+    expect(() =>
+      owner({
+        device: { kind: 'default' },
+        presentationMode: 'gpu',
+      } as unknown as NativeTerminalLinuxOptions),
+    ).toThrow('native-linux-config-invalid')
+    expect(mocks.createEndpoint).not.toHaveBeenCalled()
+    expect(mocks.spawn).not.toHaveBeenCalled()
+  })
+
   it('copies admitted output before asynchronous startup can expose caller mutation', async () => {
     const process = owner()
     const bytes = Uint8Array.from([0, 128, 255])

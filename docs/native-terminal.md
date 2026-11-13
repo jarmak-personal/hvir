@@ -240,10 +240,103 @@ reports any failed stage without terminal contents, private paths, or credential
 
 ## Development workbench runtime
 
-The macOS development runtime is opt-in through the main-process environment:
+The development runtime is opt-in through the main-process environment:
 `HVIR_NATIVE_TERMINAL_LIBRARY=/absolute/path/to/libghostty.dylib npm run dev`.
 Build matching contributor bindings first with
 `npm run native:bindings -- macos-arm64 ARTIFACT_DIR NEW_SCRATCH_DIR --development`.
+On Linux the library is `ghostty-internal.so`. Trusted main accepts
+`HVIR_NATIVE_TERMINAL_DEVICE=default` or an exact local `/dev/dri/renderD<number>` node,
+and `HVIR_NATIVE_TERMINAL_PRESENTATION=auto|pixels`. Device selection applies before
+the native epoch opens its shared EGL device; changing the environment does not switch
+a live epoch. Explicit `pixels` applies before its first export. It preserves the same
+native parser and reports compatibility rather than GPU presentation.
+
+From a clean pushed checkout on the Linux desktop, this single copyable sequence reuses
+the maintained build, binding, qualification and interactive workbench owners:
+
+```bash
+set -euo pipefail
+case "$(uname -m)" in
+  x86_64) target=linux-x64 ;;
+  aarch64) target=linux-arm64 ;;
+  *) echo 'Unsupported native architecture' >&2; exit 1 ;;
+esac
+qualification_work=$(mktemp -d /tmp/hvir-linux-qualification.XXXXXX)
+printf 'Retain qualification artifacts: %s\n' "$qualification_work"
+git rev-parse HEAD
+cat /etc/os-release
+uname -r
+if command -v nvidia-smi >/dev/null; then nvidia-smi --query-gpu=name,pci.bus_id,driver_version --format=csv || echo "NVIDIA diagnostic unavailable"; fi
+test -z "$(git status --porcelain)"
+node --version
+pkg-config --modversion egl
+npm ci
+npm run native:build -- "$target" "$qualification_work/native"
+npm run native:check -- "$target" "$qualification_work/native/artifact"
+npm run native:bindings -- "$target" "$qualification_work/native/artifact" "$qualification_work/bindings"
+sha256sum "$qualification_work/native/artifact/manifest.json" "$qualification_work/native/artifact/ghostty-internal.so" packages/native-terminal/build/Release/bindings.json
+export HVIR_NATIVE_TERMINAL_LIBRARY="$qualification_work/native/artifact/ghostty-internal.so"
+export HVIR_NATIVE_TERMINAL_DEVICE="${HVIR_NATIVE_TERMINAL_DEVICE:-default}"
+export HVIR_NATIVE_TERMINAL_PRESENTATION="${HVIR_NATIVE_TERMINAL_PRESENTATION:-auto}"
+npm run smoke:native-terminal
+npm run dev
+```
+
+For separate explicit backend qualification on an available desktop, use the closed
+`HVIR_NATIVE_TERMINAL_OZONE=x11|wayland` selector with the existing contained commands:
+
+```bash
+HVIR_NATIVE_TERMINAL_OZONE=x11 npm run smoke:native-terminal
+HVIR_NATIVE_TERMINAL_OZONE=wayland npm run smoke:native-terminal
+HVIR_NATIVE_TERMINAL_OZONE=wayland npm run native:presenter-probe -- --library="$HVIR_NATIVE_TERMINAL_LIBRARY" --ozone-platform=wayland
+HVIR_NATIVE_TERMINAL_OZONE=x11 npm run dev -- -- --ozone-platform=x11
+HVIR_NATIVE_TERMINAL_OZONE=wayland npm run dev -- -- --ozone-platform=wayland
+```
+
+The development command has two `--` delimiters: npm consumes the first and
+`electron-vite` forwards the following Electron switches. The contained probe accepts
+only the optional `--ozone-platform=x11|wayland` choice and rejects conflicting selections;
+no arbitrary Chromium arguments or sandbox bypass are added. The ordinary workbench
+resize proof clicks its real terminal-rail control and checks native cells against `stty`;
+it does not rely on programmatic window resizing, which Wayland generally restricts.
+Retain manual user window-drag behavior separately.
+
+A recorded matching explicit switch plus successful window startup is labelled
+`successfulExplicitSelection` with a pinned-startup inference basis. It stays separate
+from `actualOzoneBackend:unknown`, because no public runtime backend getter is used.
+Explicit X11 does not itself distinguish an X server from XWayland; neither a Wayland
+login environment nor `DISPLAY` substitutes for the selected backend. The old
+`ELECTRON_OZONE_PLATFORM_HINT` selector was removed in Electron38 and is not used.
+Do not set display-socket variables to manufacture a session. CI explicitly tests X11
+under Xvfb as software mechanics; native Wayland and real desktop GPU acceptance remain
+separate requirements.
+
+The standalone host probe requires its explicit absolute `--library` argument and
+compiled entry; use `npx electron-vite build --mode native-terminal-probe` followed by
+`npm run native:host-probe -- --library="$HVIR_NATIVE_TERMINAL_LIBRARY"` when running
+that lower-level boundary proof separately. The ordinary smoke builds its own entry.
+Build and binding work directories must be new. Node24+ and a working native
+C/C++/make/Python toolchain, Git, tar, patch and readelf are required; the native build
+fetches its authenticated Zig and full source dependencies itself. Linux also requires
+`pkg-config` and EGL development files (`pkg-config libegl-dev` in the checked-in Ubuntu
+CI). CI's `libgl1-mesa-dri` provides its software renderer; it is not an NVIDIA driver
+installation instruction or a complete stock Ubuntu24.04 desktop setup recipe.
+Use the desktop's existing working driver and preserve its sandbox. Do not add Xvfb,
+`--no-sandbox` or forced-software overrides to turn a hardware failure into a pass.
+
+The first available manual desktop is Ubuntu24.04/NVIDIA, with exact GPU, driver and
+session collected by qualification. NVIDIA, Intel and AMD remain distinct required
+targets. The diagnostic receipt keeps requested versus observed presentation, bounded
+Electron/session facts and actual native/resource observations; unavailable facts remain
+unknown. Wayland environment plus `DISPLAY` does not establish native Wayland rather
+than XWayland. Owned pixels do not identify a software renderer: hardware GL can render
+then read back. Successful DMA-BUF import does not by itself identify a physical GPU.
+Retain the artifact manifests, binding provenance and qualification logs. Software CI,
+hardware desktop, X11/Wayland and Mesa/NVIDIA coverage must remain separate. The probes
+retain `hardwareGpuQualified:false`; final hardware acceptance and controlled performance
+remain explicit gates. Test manual scroll/typing/window resize on the launched ordinary
+pane, then repeat with `HVIR_NATIVE_TERMINAL_PRESENTATION=pixels` for compatibility.
+
 The artifact must come from the maintained native build owner; development provenance
 remains explicit. Packaged applications ignore this development selector. An absent
 selector uses the existing web pane; a selected native failure never silently starts

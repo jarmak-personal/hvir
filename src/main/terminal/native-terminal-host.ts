@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { hostPathEquals } from '../../shared/host-path'
+import { hostPathEquals, localPath } from '../../shared/host-path'
+import {
+  validNativeTerminalExportMode,
+  type NativeTerminalExportMode,
+} from '../../shared/native-terminal-linux'
 import {
   NATIVE_TERMINAL_PRESENTATION,
   validNativeTerminalScale,
@@ -12,6 +16,9 @@ import {
   type NativeTerminalCommand,
   type NativeTerminalSession,
   type NativeTerminalStatus,
+  type NativeTerminalFrameInfo,
+  type NativeTerminalFrameResource,
+  type NativeTerminalRendererInfo,
 } from '../../shared/native-terminal'
 
 export interface NativeTerminalProcessPort {
@@ -41,19 +48,12 @@ interface Binding {
   frameHeld: boolean
   closing: boolean
   nativeDestroyed: boolean
+  lastFrame?: NativeTerminalFrameInfo
   retiring?: Promise<void>
   finishing?: Promise<void>
 }
-export interface NativeTerminalFrameMetadata {
+export interface NativeTerminalFrameMetadata extends NativeTerminalFrameInfo {
   readonly lease: string
-  readonly streamSequence: number
-  readonly geometrySerial: number
-  readonly kind: number
-  readonly width: number
-  readonly height: number
-  readonly colorSpace: number
-  readonly origin: number
-  readonly premultiplied: boolean
 }
 export interface NativeTerminalAcquiredFrame {
   readonly metadata: NativeTerminalFrameMetadata
@@ -382,6 +382,26 @@ export class NativeTerminalHost {
       () => this.inspectProducer(handle, instanceId),
     )
   }
+  /** Main-only qualification facts, separately authorized from renderer commands. */
+  async rendererInfo(
+    handle: string,
+    instanceId: string,
+  ): Promise<NativeTerminalRendererInfo> {
+    const binding = this.requireProducer(handle, instanceId)
+    const value = await this.process.request(
+      { kind: 'renderer-info', state: binding.state },
+      binding.abort.signal,
+    )
+    this.requireProducer(handle, instanceId)
+    if (!validRendererInfo(value)) throw new Error('native-renderer-info-invalid')
+    const status = await this.inspectProducer(handle, instanceId)
+    return {
+      ...value,
+      renderNode: value.renderNode ? localPath(value.renderNode) : undefined,
+      frameCopies: status.frameCopies,
+      lastFrame: binding.lastFrame && structuredClone(binding.lastFrame),
+    }
+  }
   async inspect(
     handle: string,
     ownerId: number,
@@ -467,6 +487,29 @@ export class NativeTerminalHost {
       await new Promise<void>((resolve) => setTimeout(resolve, 1))
     }
   }
+  /** Success means the renderer request was enqueued, not that a frame applied it. */
+  async presentationMode(
+    handle: string,
+    ownerId: number,
+    generation: number,
+    attachment: number,
+    mode: NativeTerminalExportMode,
+  ): Promise<void> {
+    const binding = this.requireAttachment(handle, ownerId, generation, attachment)
+    if (!validNativeTerminalExportMode(mode)) throw new Error('native-mode-invalid')
+    const result = await this.process.request(
+      { kind: 'presentation-mode', state: binding.state, mode },
+      binding.abort.signal,
+    )
+    this.requireAttachment(handle, ownerId, generation, attachment)
+    if (
+      !result ||
+      typeof result !== 'object' ||
+      !('result' in result) ||
+      result.result !== 0
+    )
+      throw new Error('native-presentation-unavailable')
+  }
   async takeFrame(
     handle: string,
     ownerId: number,
@@ -502,6 +545,8 @@ export class NativeTerminalHost {
       }
       metadata = value as NativeTerminalFrameMetadata
       if (!validFrame(metadata)) throw new Error('native-frame-invalid')
+      const { lease: _lease, ...frameInfo } = metadata
+      binding.lastFrame = structuredClone(frameInfo)
     } catch (error) {
       if (unacquired) throw error
       if (error instanceof NativeTerminalAdmissionError) {
@@ -846,11 +891,78 @@ function validFrame(value: NativeTerminalFrameMetadata): boolean {
     [1, 2].includes(value.colorSpace) &&
     [1, 2].includes(value.origin) &&
     typeof value.premultiplied === 'boolean' &&
+    validFrameResource(value.resource, value.kind) &&
     Number.isInteger(value.width) &&
     value.width > 0 &&
     value.width <= 8192 &&
     Number.isInteger(value.height) &&
     value.height > 0 &&
     value.height <= 8192
+  )
+}
+
+function validFrameResource(value: NativeTerminalFrameResource, kind: number): boolean {
+  return (
+    !!value &&
+    Number.isInteger(value.fourcc) &&
+    value.fourcc >= 0 &&
+    value.fourcc <= 0xffffffff &&
+    typeof value.modifier === 'string' &&
+    /^(0|[1-9][0-9]{0,19})$/.test(value.modifier) &&
+    BigInt(value.modifier) <= 0xffffffffffffffffn &&
+    Array.isArray(value.planes) &&
+    (kind === 2
+      ? value.planes.length >= 1 && value.planes.length <= 4
+      : value.planes.length === 0) &&
+    value.planes.every(
+      (plane: NativeTerminalFrameResource['planes'][number]) =>
+        !!plane &&
+        Number.isInteger(plane.stride) &&
+        plane.stride > 0 &&
+        plane.stride <= 0xffffffff &&
+        Number.isInteger(plane.offset) &&
+        plane.offset >= 0 &&
+        plane.offset <= 0xffffffff &&
+        Number.isSafeInteger(plane.size) &&
+        plane.size > 0 &&
+        plane.offset + plane.stride <= plane.size,
+    )
+  )
+}
+interface RawRendererInfo {
+  available: boolean
+  glVendor: string
+  glRenderer: string
+  glVersion: string
+  eglVendor: string
+  eglVersion: string
+  renderNode: string
+  pixelFrames: number
+  dmaBufFrames: number
+}
+function validRendererInfo(value: unknown): value is RawRendererInfo {
+  if (!value || typeof value !== 'object') return false
+  const info = value as RawRendererInfo
+  return (
+    typeof info.available === 'boolean' &&
+    [
+      info.glVendor,
+      info.glRenderer,
+      info.glVersion,
+      info.eglVendor,
+      info.eglVersion,
+      info.renderNode,
+    ].every(
+      (text) =>
+        typeof text === 'string' &&
+        text.length <= 255 &&
+        !Array.from(text).some(
+          (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+        ),
+    ) &&
+    (info.renderNode === '' || /^\/dev\/dri\/renderD[0-9]+$/.test(info.renderNode)) &&
+    [info.pixelFrames, info.dmaBufFrames].every(
+      (count) => Number.isSafeInteger(count) && count >= 0,
+    )
   )
 }

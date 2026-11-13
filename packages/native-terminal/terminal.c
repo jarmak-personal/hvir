@@ -2,6 +2,7 @@
 #include "terminal.h"
 #include "hvir_ghostty_embed.h"
 #include "ghostty.h"
+#include "linux_display.h"
 #include <dlfcn.h>
 #include <pthread.h>
 #include <stdbool.h>
@@ -41,6 +42,7 @@ struct terminal_state {
   hvir_terminal_frame frame;
   bool frame_available, frame_taken;
   uint64_t last_released;
+  hvir_terminal_renderer_info renderer_info;
 };
 struct hvir_terminal_host {
   pthread_t caller;
@@ -49,6 +51,8 @@ struct hvir_terminal_host {
   terminal_state *states;
   ghostty_app_t app;
   void *display;
+  hvir_linux_display *owned_display;
+  uint32_t initial_presentation_mode;
   bool closing;
   uint64_t next_id, next_lease;
   int (*init)(uintptr_t, char **);
@@ -63,6 +67,7 @@ struct hvir_terminal_host {
                                     uint32_t, uint32_t);
   bool (*external_feed)(ghostty_surface_t, const uint8_t *, size_t, uint64_t);
   bool (*external_frame_release)(ghostty_surface_t);
+  bool (*external_presentation_mode)(ghostty_surface_t, uint32_t);
   bool (*external_resize)(ghostty_surface_t, uint32_t, uint32_t, uint64_t, double);
   void (*surface_visibility)(ghostty_surface_t, bool);
   bool (*external_read)(ghostty_surface_t, uint8_t *, size_t, size_t *);
@@ -73,6 +78,29 @@ static pthread_mutex_t loader_lock = PTHREAD_MUTEX_INITIALIZER;
 static void *initialized_library;
 static char *initialized_path;
 static bool initialization_ok;
+
+static void info_string(char *out, const uint8_t *value, size_t length) {
+  if (!value) length = 0;
+  if (length >= HVIR_TERMINAL_INFO_MAX) length = HVIR_TERMINAL_INFO_MAX - 1;
+  if (length) memcpy(out, value, length);
+  out[length] = 0;
+}
+static void renderer_info(void *userdata, const hvir_ghostty_renderer_info *info) {
+  terminal_state *s = userdata;
+  if (!info) return;
+  pthread_mutex_lock(&s->host->events);
+  if (!s->closing) {
+    hvir_terminal_renderer_info *out = &s->renderer_info;
+    info_string(out->gl_vendor, info->gl_vendor, info->gl_vendor_len);
+    info_string(out->gl_renderer, info->gl_renderer, info->gl_renderer_len);
+    info_string(out->gl_version, info->gl_version, info->gl_version_len);
+    info_string(out->egl_vendor, info->egl_vendor, info->egl_vendor_len);
+    info_string(out->egl_version, info->egl_version, info->egl_version_len);
+    hvir_linux_display_render_node(s->host->owned_display, info->egl_display, out->render_node);
+    out->available = true;
+  }
+  pthread_mutex_unlock(&s->host->events);
+}
 
 static hvir_terminal_result owner(hvir_terminal_host *host) {
   if (!host || host->closing)
@@ -216,6 +244,10 @@ static bool frame_ready(void *userdata, const hvir_ghostty_external_frame *nativ
     pthread_mutex_unlock(&h->events);
     return false;
   }
+  if (native->kind == 3 && s->renderer_info.pixel_frames != UINT64_MAX)
+    s->renderer_info.pixel_frames++;
+  if (native->kind == 2 && s->renderer_info.dma_buf_frames != UINT64_MAX)
+    s->renderer_info.dma_buf_frames++;
   if (s->frame_available) {
     /* A duplicate producer completion must not unfreeze an existing lease. */
     s->presentation_failure = 5;
@@ -271,7 +303,7 @@ static bool frame_ready(void *userdata, const hvir_ghostty_external_frame *nativ
     }
   } else if (native->kind == 3) {
     uint64_t required = (uint64_t)native->width * native->height * 4;
-    if (!native->pixels || !required || required > 64u * 1024u * 1024u ||
+    if (!native->pixels || !required || required > HVIR_TERMINAL_PIXEL_MAX ||
         native->pixel_bytes != required)
       valid = false;
     else {
@@ -373,6 +405,7 @@ hvir_terminal_result hvir_terminal_open(const char *path, void *display, hvir_te
   LOAD(surface_free, "ghostty_surface_free");
   LOAD(external_new, "ghostty_external_surface_new");
   LOAD(external_frame_release, "ghostty_external_frame_release");
+  LOAD(external_presentation_mode, "ghostty_external_set_presentation_mode");
   LOAD(external_feed, "ghostty_external_feed");
   LOAD(external_resize, "ghostty_external_resize");
   LOAD(surface_visibility, "ghostty_surface_set_occlusion");
@@ -417,6 +450,25 @@ failed_app:
   free(h);
   return HVIR_FAILED;
 }
+hvir_terminal_result hvir_terminal_open_linux(const char *path, const char *node,
+                                              uint32_t mode, hvir_terminal_host **out) {
+  if (!out || mode > 1) return HVIR_INVALID;
+  *out = NULL;
+#ifndef __linux__
+  (void)path; (void)node;
+  return HVIR_PRESENTATION;
+#else
+  hvir_linux_display *owned = NULL;
+  void *display = NULL;
+  hvir_terminal_result result = hvir_linux_display_open(node, &owned, &display);
+  if (result != HVIR_OK) return result;
+  result = hvir_terminal_open(path, display, out);
+  if (result != HVIR_OK) { hvir_linux_display_close(owned); return result; }
+  (*out)->owned_display = owned;
+  (*out)->initial_presentation_mode = mode;
+  return HVIR_OK;
+#endif
+}
 #undef LOAD
 static bool dimensions(uint32_t width, uint32_t height) {
   return width >= 32 && height >= 32 && width <= 8192 && height <= 8192;
@@ -442,7 +494,10 @@ hvir_terminal_result hvir_terminal_create_begin(hvir_terminal_host *h, uint32_t 
                                             .scrollback_limit = 10000000,
                                             .effect = effect,
                                             .health = renderer_health,
-                                            .frame = frame_ready};
+                                            .frame = frame_ready,
+                                            .pixel_export_limit = HVIR_TERMINAL_PIXEL_MAX,
+                                            .presentation_mode = h->initial_presentation_mode,
+                                            .renderer_info = renderer_info};
   s->surface = h->external_new(h->app, h->states ? NULL : h->display, &callbacks, width, height);
   if (!s->surface) {
     /* Native partial initialization has settled its threads before returning.
@@ -683,8 +738,23 @@ hvir_terminal_result hvir_terminal_copy_frame(hvir_terminal_host *h, hvir_termin
   *written = 0; *stride = 0;
   if (!capacity || capacity > HVIR_TERMINAL_PIXEL_MAX) return HVIR_BOUND;
   if (!lease || !s->frame_taken || s->frame.lease != lease) return HVIR_INVALID;
-#ifdef __APPLE__
   const hvir_terminal_frame *frame = &s->frame;
+  if (frame->kind == 3) {
+    const size_t width = frame->width, height = frame->height;
+    if (!width || !height || width > HVIR_TERMINAL_PIXEL_MAX / 4 ||
+        height > HVIR_TERMINAL_PIXEL_MAX / (width * 4)) return HVIR_BOUND;
+    const size_t row = width * 4, bytes = row * height;
+    if (!frame->pixels || frame->pixel_bytes != bytes) return HVIR_PRESENTATION;
+    if (capacity < bytes || s->frame_copies == UINT64_MAX) return HVIR_BOUND;
+    for (size_t at = 0; at < bytes; at += 4) {
+      out[at] = frame->pixels[at + 2]; out[at + 1] = frame->pixels[at + 1];
+      out[at + 2] = frame->pixels[at]; out[at + 3] = frame->pixels[at + 3];
+    }
+    *written = bytes; *stride = (uint32_t)row;
+    s->frame_copies++;
+    return HVIR_OK;
+  }
+#ifdef __APPLE__
   if (frame->kind != 1 || !frame->surface) return HVIR_PRESENTATION;
   IOSurfaceRef surface = frame->surface;
   const size_t width = frame->width, height = frame->height;
@@ -714,6 +784,29 @@ hvir_terminal_result hvir_terminal_copy_frame(hvir_terminal_host *h, hvir_termin
 #else
   return HVIR_PRESENTATION;
 #endif
+}
+hvir_terminal_result hvir_terminal_presentation_mode(hvir_terminal_host *h, hvir_terminal_id id,
+                                                     uint32_t mode) {
+  terminal_state *s;
+  hvir_terminal_result result = state_for(h, id, &s, false);
+  if (result != HVIR_OK) return result;
+  if (mode > 1) return HVIR_INVALID;
+#ifndef __linux__
+  return HVIR_PRESENTATION;
+#else
+  return h->external_presentation_mode(s->surface, mode) ? HVIR_OK : HVIR_PRESENTATION;
+#endif
+}
+hvir_terminal_result hvir_terminal_renderer_info_get(hvir_terminal_host *h, hvir_terminal_id id,
+                                                     hvir_terminal_renderer_info *out) {
+  terminal_state *s;
+  hvir_terminal_result result = state_for(h, id, &s, true);
+  if (result != HVIR_OK) return result;
+  if (!out) return HVIR_INVALID;
+  pthread_mutex_lock(&h->events);
+  *out = s->renderer_info;
+  pthread_mutex_unlock(&h->events);
+  return HVIR_OK;
 }
 hvir_terminal_result hvir_terminal_release_frame(hvir_terminal_host *h, hvir_terminal_id id,
                                                  uint64_t lease) {
@@ -771,6 +864,7 @@ hvir_terminal_result hvir_terminal_close(hvir_terminal_host *h) {
     return HVIR_BUSY;
   h->closing = true;
   h->app_free(h->app);
+  hvir_linux_display_close(h->owned_display);
   pthread_cond_destroy(&h->changed);
   pthread_mutex_destroy(&h->events);
   free(h);

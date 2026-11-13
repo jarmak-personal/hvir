@@ -83,6 +83,41 @@ describe('native artifact admission before loader execution', () => {
       'missing required file',
     )
   })
+  it('requires Linux display and real GL proofs independently of the Mac artifact', async () => {
+    const linuxFiles = []
+    for (const path of [
+      'ghostty-internal.so',
+      'linux-display-probe',
+      'linux-display-proof.json',
+      'linux-facade-probe',
+      'linux-facade-proof.json',
+    ]) {
+      await writeFile(join(root, path), `linux artifact ${path}`)
+      linuxFiles.push({
+        path,
+        sha256: await digest(join(root, path)),
+        bytes: (await readFile(join(root, path))).length,
+      })
+    }
+    const linux = {
+      ...manifest,
+      target: 'linux-x64',
+      files: [...manifest.files, ...linuxFiles],
+    }
+    await save(linux)
+    await expect(verifyArtifact(root, 'linux-x64')).resolves.toMatchObject({
+      target: 'linux-x64',
+    })
+    for (const missing of linuxFiles.slice(1)) {
+      await save({
+        ...linux,
+        files: linux.files.filter((file) => file.path !== missing.path),
+      })
+      await expect(verifyArtifact(root, 'linux-x64')).rejects.toThrow(
+        'missing required file',
+      )
+    }
+  })
   it('rejects changed artifact bytes', async () => {
     await writeFile(join(root, 'libghostty.dylib'), 'corrupt library')
     await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow('corrupt file')

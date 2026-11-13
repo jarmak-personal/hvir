@@ -1,4 +1,5 @@
 import { hostPathEquals } from '../../shared/host-path'
+import { nativeTerminalLinuxOptionsFromEnvironment } from '../../shared/native-terminal-linux'
 import type { ManagedPty } from '../pty/pty-contract'
 import { app, sharedTexture, type WebFrameMain } from 'electron'
 import type { RendererOwner } from '../renderer-resource-scopes'
@@ -35,12 +36,14 @@ export async function createNativeTerminalApplication(
 ): Promise<NativeTerminalApplication | undefined> {
   const library = process.env['HVIR_NATIVE_TERMINAL_LIBRARY']
   if (!library || app.isPackaged) return
-  if (process.platform !== 'darwin')
-    throw new Error(
-      'Native workbench development runtime is currently qualified on macOS',
-    )
+  if (process.platform !== 'darwin' && process.platform !== 'linux')
+    throw new Error('Native workbench development runtime requires macOS or Linux')
+  const linux =
+    process.platform === 'linux'
+      ? nativeTerminalLinuxOptionsFromEnvironment(process.env)
+      : undefined
   const { NativeTerminalProcess } = await import('./native-terminal-process')
-  const processOwner = new NativeTerminalProcess(library)
+  const processOwner = new NativeTerminalProcess(library, undefined, undefined, linux)
   const host = new NativeTerminalHost(processOwner, {
     resolve: (id) => sessions?.resolve(id),
     isRendererCurrent: (id, generation) => isCurrent({ id, generation }),
@@ -54,6 +57,7 @@ export async function createNativeTerminalApplication(
   const presenter = new NativeTerminalPresenter(
     host,
     new NativeTerminalFrameImports(processOwner, sharedTexture),
+    linux?.presentationMode,
   )
   const application: NativeTerminalApplication = new NativeTerminalApplication(
     sessions,
@@ -89,7 +93,7 @@ export class NativeTerminalApplication {
     >,
     private readonly host: Pick<
       NativeTerminalHost,
-      'inspectProducer' | 'readProducer' | 'encodeKey' | 'dispose'
+      'inspectProducer' | 'readProducer' | 'encodeKey' | 'rendererInfo' | 'dispose'
     >,
     private readonly presenter: Pick<
       NativeTerminalPresenter,
@@ -134,6 +138,14 @@ export class NativeTerminalApplication {
           managed.workspaceRoot,
         )
     }
+  }
+  /** Trusted-main qualification only; not a renderer IPC capability. */
+  async rendererInfo(id: string, owner: RendererOwner) {
+    const record = this.requireSession(id, owner)
+    const info = await this.host.rendererInfo(record.handle, record.session.instanceId)
+    if (this.requireSession(id, owner).session.instanceId !== record.session.instanceId)
+      throw new Error('native-session-stale')
+    return info
   }
   preparation(viewport: NativeTerminalViewport) {
     return (

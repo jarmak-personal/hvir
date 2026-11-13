@@ -1,9 +1,13 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runNativeElectronProbe } from '../scripts/native-terminal/run-electron-probe.mts'
+import {
+  nativePresenterReceiptMatches,
+  runNativeElectronProbe,
+} from '../scripts/native-terminal/run-electron-probe.mts'
 
 const directories: string[] = []
 async function fixture(mode: string) {
@@ -21,7 +25,10 @@ const { spawn } = require('node:child_process');
 const config = JSON.parse(fs.readFileSync(process.argv.find(v => v.startsWith('--library=')).slice(10), 'utf8'));
 const proof = { nativeUtilityBoundary: 'passed', mainPid: process.pid, utilityPid: process.pid + 1,
   platform: process.platform, arch: process.arch, hardwareGpuQualified: false, orientationQualified: false,
-  receiverSandboxed: true, receiverContextIsolated: true, realGhostty: true };
+  receiverSandboxed: true, receiverContextIsolated: true, realGhostty: true,
+  receivedOzone: process.argv.filter(v=>v.startsWith('--ozone-platform=')),
+  receivedNoSandbox: process.argv.includes('--no-sandbox'),
+  selectedOzoneEnvironment: process.env.HVIR_NATIVE_TERMINAL_OZONE };
 if (config.mode === 'hang' || config.mode === 'orphan') {
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 1, 2] });
   fs.writeFileSync(config.pids, JSON.stringify({ parent: process.pid, child: child.pid }));
@@ -55,12 +62,14 @@ function killFixtureGroup(pid: number): void {
 }
 const diagnostics: unknown[][] = []
 beforeEach(() => {
+  vi.stubEnv('HVIR_NATIVE_TERMINAL_OZONE', undefined)
   diagnostics.length = 0
   vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
     diagnostics.push(values)
   })
 })
 afterEach(async () => {
+  vi.unstubAllEnvs()
   vi.restoreAllMocks()
   await Promise.all(
     directories
@@ -119,7 +128,7 @@ describe('native Electron probe process containment', () => {
       await writeFile(
         wrapperPath,
         `
-import { runNativeElectronProbe } from ${JSON.stringify(moduleUrl)};
+import { nativePresenterReceiptMatches, runNativeElectronProbe } from ${JSON.stringify(moduleUrl)};
 try {
   await runNativeElectronProbe(${JSON.stringify(files.library)}, {
     binary: process.execPath, entry: ${JSON.stringify(files.entry)}, timeoutMs: 75000,
@@ -238,4 +247,121 @@ it('preserves deadline cleanup when the diagnostic sink throws', async () => {
     await new Promise((resolve) => setTimeout(resolve, 10))
   expect(alive(pids.parent)).toBe(false)
   expect(alive(pids.child)).toBe(false)
+})
+
+describe('native presenter receipt mode fidelity', () => {
+  const pixels = {
+    nativePresenter: 'passed',
+    finalUtilityExit: true,
+    requestedPresentation: 'auto',
+    mode: 'native-pixels',
+    frameCopies: 2,
+    routineGpuReadbacks: null,
+    compatibilityBoundRefused: true,
+    maximumCompatibilityUploadBytes: 16 * 1024 * 1024,
+  }
+  it('accepts actual Linux compatibility under auto without relabelling it GPU', () => {
+    expect(nativePresenterReceiptMatches(pixels, 'auto', 'linux')).toBe(true)
+    expect(nativePresenterReceiptMatches(pixels, 'auto', 'darwin')).toBe(false)
+    expect(
+      nativePresenterReceiptMatches(
+        { ...pixels, requestedPresentation: 'pixels' },
+        'pixels',
+        'linux',
+      ),
+    ).toBe(true)
+    expect(
+      nativePresenterReceiptMatches({ ...pixels, frameCopies: 0 }, 'auto', 'linux'),
+    ).toBe(false)
+    expect(
+      nativePresenterReceiptMatches(
+        { ...pixels, compatibilityBoundRefused: false },
+        'auto',
+        'linux',
+      ),
+    ).toBe(false)
+  })
+  it('rejects a GPU claim when explicit pixels or any readback was observed', () => {
+    const gpu = {
+      ...pixels,
+      mode: 'native-gpu',
+      frameCopies: 0,
+      routineGpuReadbacks: 0,
+      nativePixelFrames: 0,
+    }
+    expect(nativePresenterReceiptMatches(gpu, 'auto', 'linux')).toBe(true)
+    expect(
+      nativePresenterReceiptMatches(
+        { ...gpu, requestedPresentation: 'pixels' },
+        'pixels',
+        'linux',
+      ),
+    ).toBe(false)
+    expect(
+      nativePresenterReceiptMatches({ ...gpu, routineGpuReadbacks: 1 }, 'auto', 'linux'),
+    ).toBe(false)
+    expect(
+      nativePresenterReceiptMatches({ ...gpu, frameCopies: 1 }, 'auto', 'linux'),
+    ).toBe(false)
+    expect(
+      nativePresenterReceiptMatches({ ...gpu, nativePixelFrames: 1 }, 'auto', 'linux'),
+    ).toBe(false)
+  })
+})
+
+describe('contained native qualification Ozone forwarding', () => {
+  it.each(['x11', 'wayland'] as const)(
+    'forwards only explicit %s without changing sandbox flags',
+    async (backend) => {
+      const files = await fixture('success')
+      const proof = await runNativeElectronProbe(
+        files.library,
+        {
+          binary: process.execPath,
+          entry: files.entry,
+          timeoutMs: 2000,
+        },
+        undefined,
+        backend,
+      )
+      expect(proof.receivedOzone).toEqual([`--ozone-platform=${backend}`])
+      expect(proof.selectedOzoneEnvironment).toBe(backend)
+      expect(proof.receivedNoSandbox).toBe(false)
+    },
+  )
+  it('rejects an arbitrary backend before creating a child', async () => {
+    const files = await fixture('success')
+    await expect(
+      runNativeElectronProbe(
+        files.library,
+        {
+          binary: process.execPath,
+          entry: files.entry,
+          timeoutMs: 2000,
+        },
+        undefined,
+        'headless' as 'x11',
+      ),
+    ).rejects.toThrow('Ozone must be x11|wayland')
+  })
+  it('refuses an arbitrary smoke backend before acquiring resources', () => {
+    const result = spawnSync(
+      'bash',
+      [fileURLToPath(new URL('../scripts/run-smoke.sh', import.meta.url))],
+      {
+        env: {
+          ...process.env,
+          HVIR_SMOKE_SCENARIO: 'native-terminal-workbench',
+          HVIR_NATIVE_TERMINAL_OZONE: 'headless',
+        },
+        timeout: 2000,
+        maxBuffer: 65536,
+        encoding: 'utf8',
+      },
+    )
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain(
+      'requires Linux native-terminal-workbench and x11|wayland',
+    )
+  })
 })

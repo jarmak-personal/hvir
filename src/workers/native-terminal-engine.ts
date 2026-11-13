@@ -3,9 +3,27 @@ import { discardNativeTerminalEffects } from './native-terminal-effects'
 import { parentPort, workerData } from 'node:worker_threads'
 import engine, { type Host } from '@hvir/native-terminal/engine'
 import { normalizeNativeTerminalPixels } from './native-terminal-pixels'
+import {
+  validNativeTerminalLinuxOptions,
+  validNativeTerminalExportMode,
+} from '../shared/native-terminal-linux'
+import type { NativeTerminalWorkerOptions } from '../shared/native-terminal'
 
 if (!parentPort) throw new Error('Native terminal engine requires its owner worker')
-const opened = engine.open((workerData as { library: string }).library)
+const options = workerData as Pick<NativeTerminalWorkerOptions, 'library' | 'linux'>
+if (
+  options.linux !== undefined &&
+  (process.platform !== 'linux' || !validNativeTerminalLinuxOptions(options.linux))
+)
+  throw new Error('native-linux-config-invalid')
+const opened = options.linux
+  ? engine.open(options.library, {
+      ...(options.linux.device.kind === 'drm-render-node'
+        ? { renderNode: options.linux.device.node.path }
+        : {}),
+      presentationMode: options.linux.presentationMode,
+    })
+  : engine.open(options.library)
 if (opened.result || !opened.host) throw new Error(`native-open:${opened.result}`)
 const host: Host = opened.host
 parentPort.postMessage({ kind: 'ready' })
@@ -50,6 +68,18 @@ parentPort.on(
           break
         case 'visibility':
           value = engine.visibility(host, BigInt(String(args[0])), args[1] === true)
+          break
+        case 'presentation-mode':
+          if (!validNativeTerminalExportMode(args[1]))
+            throw new Error('native-mode-invalid')
+          value = engine.presentationMode(
+            host,
+            BigInt(String(args[0])),
+            args[1] === 'pixels' ? 1 : 0,
+          )
+          break
+        case 'renderer-info':
+          value = engine.rendererInfo(host, BigInt(String(args[0])))
           break
         case 'pixels':
           value = engine.copyFrame(

@@ -29,6 +29,7 @@ function fixture() {
     transferOwner: vi.fn(),
   }
   const host = {
+    rendererInfo: vi.fn(),
     inspectProducer: vi.fn(() => Promise.resolve(nativeTerminalStatus())),
     readProducer: vi.fn(() => Promise.resolve(new Uint8Array())),
     encodeKey: vi.fn(() => Promise.resolve(new Uint8Array([0, 128, 255]))),

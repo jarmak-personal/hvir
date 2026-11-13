@@ -200,6 +200,7 @@ await run(
     '-g',
     '-fno-omit-frame-pointer',
     join(repository, 'packages/native-terminal/terminal.c'),
+    join(repository, 'packages/native-terminal/linux_display.c'),
     join(repository, 'packages/native-terminal/facade_probe.c'),
     '-pthread',
     ...nativeLibraries,
@@ -253,6 +254,7 @@ await run(
     '-Werror',
     ...nativeIncludes,
     join(repository, 'packages/native-terminal/frame_metadata_probe.c'),
+    join(repository, 'packages/native-terminal/linux_display.c'),
     '-pthread',
     ...nativeLibraries,
     '-o',
@@ -265,6 +267,55 @@ const metadata = await execute(join(output, 'frame-metadata-probe'), [], {
 })
 await writeFile(join(output, 'frame-metadata-proof.json'), metadata.stdout)
 console.log(metadata.stdout.trim())
+
+// Linux mechanisms and same-context GL export proof use the same maintained C
+// owner. Synthetic EGL checks establish selection/cleanup, never hardware support.
+if (selected.platform === 'linux') {
+  await run(
+    zig,
+    [
+      'build',
+      'test',
+      ...args.slice(1),
+      '-Dtest-filter=pixel export bound precedes allocation and GL access',
+      '-Dtest-shards=1',
+    ],
+    source,
+    environment,
+  )
+  for (const name of ['linux_display', 'linux_facade'] as const) {
+    const probe = name.replaceAll('_', '-') + '-probe'
+    await run(
+      'cc',
+      [
+        '-std=c11',
+        '-Wall',
+        '-Wextra',
+        '-Werror',
+        ...nativeIncludes,
+        ...(name === 'linux_facade'
+          ? [
+              join(repository, 'packages/native-terminal/terminal.c'),
+              join(repository, 'packages/native-terminal/linux_display.c'),
+            ]
+          : []),
+        join(repository, `packages/native-terminal/${name}_probe.c`),
+        '-pthread',
+        ...nativeLibraries,
+        '-o',
+        join(output, probe),
+      ],
+      repository,
+    )
+    const proof = await execute(
+      join(output, probe),
+      name === 'linux_facade' ? [join(output, selected.library)] : [],
+      { timeout: 90_000 },
+    )
+    await writeFile(join(output, probe.replace('-probe', '-proof.json')), proof.stdout)
+    console.log(proof.stdout.trim())
+  }
+}
 
 // Keep upstream and dependency notices with the artifact. This is the full renderer input set,
 // not the smaller libghostty-vt-only license inventory.

@@ -47,8 +47,21 @@ export interface Host {
 export interface Result {
   result: number
 }
+export interface RendererInfo {
+  available: boolean
+  glVendor: string
+  glRenderer: string
+  glVersion: string
+  eglVendor: string
+  eglVersion: string
+  renderNode: string
+  pixelFrames: bigint
+  dmaBufFrames: bigint
+}
 declare const engine: {
-  open(path: string): Result & { host?: Host }
+  open(path: string, options?: { renderNode?: string; presentationMode?: 'auto' | 'pixels' }): Result & { host?: Host }
+  presentationMode(host: Host, id: bigint, mode: 0 | 1): Result
+  rendererInfo(host: Host, id: bigint): Result & { info?: RendererInfo }
   createBegin(host: Host, width: number, height: number): Result & { id?: bigint }
   feed(host: Host, id: bigint, sequence: bigint, bytes: Uint8Array): Result
   resize(

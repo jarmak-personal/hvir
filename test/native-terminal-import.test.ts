@@ -32,6 +32,7 @@ function source() {
       colorSpace: 2,
       origin: 1,
       premultiplied: true,
+      resource: { fourcc: 0x42475241, modifier: '0', planes: [] },
     },
     assertCurrent: vi.fn(),
     copyPixels: vi.fn(() => Promise.resolve({ bytes: new Uint8Array(1024), stride: 64 })),
@@ -274,7 +275,16 @@ describe('native terminal main imports', () => {
       planes: [{ fd: 9, stride: 64, offset: 0, size: 4096n }],
     })
     const native = source()
-    Object.assign(native.metadata, { kind: 2, colorSpace: 1, origin: 2 })
+    Object.assign(native.metadata, {
+      kind: 2,
+      colorSpace: 1,
+      origin: 2,
+      resource: {
+        fourcc: 0x34324241,
+        modifier: '1311768467463790320',
+        planes: [{ stride: 64, offset: 0, size: 4096 }],
+      },
+    })
     const value = await f.owner.acquire(native, f.target)
     expect(f.options[0]!.textureInfo).toMatchObject({
       pixelFormat: 'rgba',
@@ -301,7 +311,14 @@ describe('native terminal main imports', () => {
       planes: [{ fd: 9, stride: 64, offset: 0, size: 1n << 60n }],
     })
     const native = source()
-    Object.assign(native.metadata, { kind: 2 })
+    Object.assign(native.metadata, {
+      kind: 2,
+      resource: {
+        fourcc: 0x34325241,
+        modifier: '0',
+        planes: [{ stride: 64, offset: 0, size: 4096 }],
+      },
+    })
     await expect(f.owner.acquire(native, f.target)).rejects.toThrow(
       'native-resource-plane',
     )
@@ -464,4 +481,80 @@ it('bounds late-send quarantine globally without retiring unrelated parser state
   }
   await expect(f.owner.acquire(source(), f.target)).rejects.toThrow('native-import-bound')
   expect(f.edge.release).not.toHaveBeenCalled()
+})
+
+it('retains only a fully validated unsupported Linux format before any GPU entry', async () => {
+  const f = fixture({
+    kind: 2,
+    fourcc: 0xdeadbeef,
+    modifier: 0n,
+    planeCount: 1,
+    planes: [{ fd: 9, stride: 64, offset: 0, size: 4096n }],
+    surface: undefined,
+  })
+  const native = source()
+  Object.assign(native.metadata, {
+    kind: 2,
+    resource: {
+      fourcc: 0xdeadbeef,
+      modifier: '0',
+      planes: [{ stride: 64, offset: 0, size: 4096 }],
+    },
+  })
+  await expect(
+    f.owner.acquire(native, f.target, { allowPixelFallback: true }),
+  ).rejects.toBeInstanceOf(NativeTerminalGpuImportUnavailable)
+  expect(f.textures.importSharedTexture).not.toHaveBeenCalled()
+  expect(f.edge.release).toHaveBeenCalledOnce()
+  expect(native.release).not.toHaveBeenCalled()
+  await native.release()
+})
+it('does not mask malformed Linux planes as safe unsupported-format compatibility', async () => {
+  const f = fixture({
+    kind: 2,
+    fourcc: 0xdeadbeef,
+    modifier: 0n,
+    planeCount: 1,
+    planes: [{ fd: 9, stride: 64, offset: 0, size: 0n }],
+    surface: undefined,
+  })
+  const native = source()
+  Object.assign(native.metadata, {
+    kind: 2,
+    resource: {
+      fourcc: 0xdeadbeef,
+      modifier: '0',
+      planes: [{ stride: 64, offset: 0, size: 4096 }],
+    },
+  })
+  await expect(
+    f.owner.acquire(native, f.target, { allowPixelFallback: true }),
+  ).rejects.toThrow('native-resource-plane')
+  expect(f.textures.importSharedTexture).not.toHaveBeenCalled()
+  expect(f.edge.release).toHaveBeenCalledOnce()
+  expect(native.release).toHaveBeenCalledOnce()
+})
+it('rejects a well-formed resource whose format differs from its immutable producer metadata', async () => {
+  const f = fixture({
+    kind: 2,
+    fourcc: 0x34325241,
+    modifier: 0n,
+    planeCount: 1,
+    planes: [{ fd: 9, stride: 64, offset: 0, size: 4096n }],
+    surface: undefined,
+  })
+  const native = source()
+  Object.assign(native.metadata, {
+    kind: 2,
+    resource: {
+      fourcc: 0x34324241,
+      modifier: '0',
+      planes: [{ stride: 64, offset: 0, size: 4096 }],
+    },
+  })
+  await expect(
+    f.owner.acquire(native, f.target, { allowPixelFallback: true }),
+  ).rejects.toThrow('native-resource-metadata')
+  expect(f.textures.importSharedTexture).not.toHaveBeenCalled()
+  expect(native.release).toHaveBeenCalledOnce()
 })

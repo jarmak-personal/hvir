@@ -124,12 +124,16 @@ jobs:
       - name: Prove Linux utility and resource mechanics with explicit hardware gate
         if: runner.os == 'Linux'
         run: |
-          xvfb-run -a node scripts/native-terminal/run-electron-probe.mts --library="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/electron-proof.jsonl"
-      - name: Prove production macOS canvas and GPU-disabled compatibility
-        if: runner.os == 'macOS'
+          HVIR_NATIVE_TERMINAL_OZONE=x11 xvfb-run -a node scripts/native-terminal/run-electron-probe.mts --library="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/electron-proof.jsonl"
+      - name: Prove production canvas and explicit pixel compatibility
         run: |
-          node scripts/native-terminal/run-electron-probe.mts --presenter --library="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/presenter-gpu.jsonl"
-          node scripts/native-terminal/run-electron-probe.mts --presenter --compatibility --library="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/presenter-pixels.jsonl"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            HVIR_NATIVE_TERMINAL_OZONE=x11 xvfb-run -a node scripts/native-terminal/run-electron-probe.mts --presenter --library="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/presenter-gpu.jsonl"
+            HVIR_NATIVE_TERMINAL_OZONE=x11 xvfb-run -a node scripts/native-terminal/run-electron-probe.mts --presenter --compatibility --library="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/presenter-pixels.jsonl"
+          else
+            node scripts/native-terminal/run-electron-probe.mts --presenter --library="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/presenter-gpu.jsonl"
+            node scripts/native-terminal/run-electron-probe.mts --presenter --compatibility --library="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/presenter-pixels.jsonl"
+          fi
           node - "$RUNNER_TEMP/hvir-native-bindings" <<'NODE'
           const fs = require('node:fs');
           const assert = require('node:assert/strict');
@@ -139,13 +143,23 @@ jobs:
               .filter(value => value.nativePresenter === 'passed');
             assert.equal(records.length, 1);
             const proof = records[0];
-            assert.equal(proof.mode, `native-${mode}`);
+            assert.equal(proof.requestedPresentation, mode === 'pixels' ? 'pixels' : 'auto');
+            if (mode === 'pixels' || process.env.RUNNER_OS !== 'Linux')
+              assert.equal(proof.mode, `native-${mode}`);
+            else assert(['native-gpu', 'native-pixels'].includes(proof.mode));
             assert.equal(proof.receiverSandboxed, true);
             assert.equal(proof.receiverContextIsolated, true);
             assert.equal(proof.finalUtilityExit, true);
             assert.equal(proof.hardwareGpuQualified, false);
             assert.equal(proof.controlledCapacityQualified, false);
             assert.equal(proof.orientationQualified, true);
+            assert.equal(proof.stack.actualOzoneBackend, 'unknown');
+            assert(proof.stack.devices.length <= 16);
+            if (process.env.RUNNER_OS === 'Linux') {
+              assert.equal(proof.nativeRenderer.available, true);
+              assert.equal(proof.stack.successfulExplicitSelection.backend, 'x11');
+              assert.equal(proof.producerCompletion, 'gl-finish-before-export');
+            }
             assert(proof.colorMaximumDifference <= 4);
             assert(proof.mainMaxGapMs <= 500);
             assert.equal(proof.responsivenessMaximumInclusiveMs, 500);
@@ -153,13 +167,16 @@ jobs:
               assert(loop.samples >= 2);
               assert(loop.p99Ms >= 0 && loop.p99Ms <= loop.maxMs && loop.maxMs <= 500);
             }
-            if (mode === 'gpu') {
+            if (proof.mode === 'native-gpu') {
               assert.equal(proof.contextLossReported, true);
               assert.equal(proof.contextLossNativeOccluded, true);
               assert.equal(proof.occludedCompletedFrames, 0);
               assert(proof.occludedFeeds >= 10);
             }
-            if (mode === 'gpu') assert.equal(proof.routineGpuReadbacks, 0);
+            if (proof.mode === 'native-gpu') {
+              assert.equal(proof.routineGpuReadbacks, 0);
+              assert.equal(proof.nativePixelFrames, 0);
+            }
             else {
               assert(proof.frameCopies > 0);
               assert.equal(proof.maximumCompatibilityUploadBytes, 16 * 1024 * 1024);
@@ -210,16 +227,21 @@ jobs:
             assert(Number.isFinite(value) && value >= 0 && value <= 500);
           assert.equal(proof.mainImportMaxMs, Math.max(0, ...proof.importTimesMs));
           NODE
-      - name: Qualify the ordinary macOS native workbench runtime
-        if: runner.os == 'macOS'
+      - name: Qualify the ordinary native workbench runtime
         timeout-minutes: 5
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: |
           npm run build:smoke
-          HVIR_NATIVE_TERMINAL_LIBRARY="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" \
-            node scripts/run-smoke-scenarios.mts native-terminal-workbench 2>&1 \
-            | tee "$RUNNER_TEMP/hvir-native-bindings/workbench-proof.jsonl"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            HVIR_NATIVE_TERMINAL_OZONE=x11 HVIR_NATIVE_TERMINAL_LIBRARY="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" \
+              xvfb-run -a node scripts/run-smoke-scenarios.mts native-terminal-workbench 2>&1 \
+              | tee "$RUNNER_TEMP/hvir-native-bindings/workbench-proof.jsonl"
+          else
+            HVIR_NATIVE_TERMINAL_LIBRARY="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" \
+              node scripts/run-smoke-scenarios.mts native-terminal-workbench 2>&1 \
+              | tee "$RUNNER_TEMP/hvir-native-bindings/workbench-proof.jsonl"
+          fi
           node - "$RUNNER_TEMP/hvir-native-bindings/workbench-proof.jsonl" <<'NODE'
           const fs = require('node:fs');
           const assert = require('node:assert/strict');
@@ -228,8 +250,11 @@ jobs:
             .filter(line => line.startsWith(prefix)).map(line => JSON.parse(line.slice(prefix.length)));
           assert.equal(records.length, 1);
           const proof = records[0];
-          assert.equal(proof.platform, 'darwin');
+          assert.equal(proof.platform, process.env.RUNNER_OS === 'Linux' ? 'linux' : 'darwin');
           assert.equal(proof.actualWorkbench, true);
+          assert.equal(proof.resizeControl, 'terminal-rail');
+          if (process.env.RUNNER_OS === 'Linux')
+            assert.equal(proof.stack.successfulExplicitSelection.backend, 'x11');
           assert.equal(proof.rendererSandboxed, true);
           assert.equal(proof.rendererContextIsolated, true);
           assert.equal(proof.supervisorSpawns, 1);

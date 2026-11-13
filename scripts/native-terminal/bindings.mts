@@ -65,6 +65,8 @@ const sources = [
   ...[
     'host_binding.c',
     'terminal.c',
+    'linux_display.c',
+    'linux_display.h',
     'terminal.h',
     'hvir_ghostty_embed.h',
     'resource_binding.c',
@@ -125,6 +127,7 @@ const commands = [
       '-DNODE_GYP_MODULE_NAME=native_terminal_engine',
       join(native, 'host_binding.c'),
       join(native, 'terminal.c'),
+      join(native, 'linux_display.c'),
       ...(process.platform === 'darwin'
         ? ['-framework', 'CoreFoundation', '-framework', 'IOSurface']
         : ['-ldl']),

@@ -35,7 +35,9 @@ typedef enum {
   DESTROY,
   CLOSE,
   VISIBILITY,
-  COPY_FRAME
+  COPY_FRAME,
+  PRESENTATION_MODE,
+  RENDERER_INFO
 } operation;
 static bool checked(napi_env env, napi_status status) {
   if (status == napi_ok)
@@ -244,7 +246,7 @@ static napi_value frame_value(napi_env env, const hvir_terminal_frame *f) {
     return NULL;
   return result;
 }
-static napi_value open_host(napi_env env, napi_value path) {
+static napi_value open_host(napi_env env, napi_value path, napi_value options) {
   char *library = text(env, path, 4096);
   if (!library)
     return NULL;
@@ -253,7 +255,44 @@ static napi_value open_host(napi_env env, napi_value path) {
     free(library);
     return outcome(env, HVIR_NOMEM);
   }
-  hvir_terminal_result code = hvir_terminal_open(library, NULL, &h->native);
+  char *node = NULL;
+  uint32_t mode = 0;
+  if (options) {
+    napi_valuetype type;
+    if (napi_typeof(env, options, &type) != napi_ok) goto invalid_options;
+    if (type == napi_undefined) options = NULL;
+    else if (type != napi_object) goto invalid_options;
+  }
+  if (options) {
+    napi_value names; uint32_t count = 0;
+    if (napi_get_property_names(env, options, &names) != napi_ok ||
+        napi_get_array_length(env, names, &count) != napi_ok || count > 2) goto invalid_options;
+    for (uint32_t i = 0; i < count; i++) {
+      napi_value name, value;
+      if (napi_get_element(env, names, i, &name) != napi_ok) goto invalid_options;
+      char *key = text(env, name, 32);
+      if (!key) goto invalid_options;
+      if (napi_get_property(env, options, name, &value) != napi_ok) { free(key); goto invalid_options; }
+      if (!strcmp(key, "renderNode")) {
+        node = text(env, value, 255);
+        free(key);
+        if (!node) goto invalid_options;
+      } else if (!strcmp(key, "presentationMode")) {
+        char *requested = text(env, value, 8);
+        free(key);
+        if (!requested) goto invalid_options;
+        if (!strcmp(requested, "pixels")) mode = 1;
+        else if (strcmp(requested, "auto")) { free(requested); goto invalid_options; }
+        free(requested);
+      } else { free(key); goto invalid_options; }
+    }
+  }
+#ifdef __linux__
+  hvir_terminal_result code = hvir_terminal_open_linux(library, node, mode, &h->native);
+#else
+  hvir_terminal_result code = node || mode ? HVIR_PRESENTATION : hvir_terminal_open(library, NULL, &h->native);
+#endif
+  free(node);
   free(library);
   if (code != HVIR_OK) {
     free(h);
@@ -267,6 +306,8 @@ static napi_value open_host(napi_env env, napi_value path) {
   }
   /* After wrapping, the JS object's finalizer owns cleanup even if property setup fails. */
   return put(env, result, "host", wrapper) ? result : NULL;
+invalid_options:
+  free(node); free(library); free(h); bad_argument(env); return NULL;
 }
 static napi_value read_bytes(napi_env env, binding_host *h, uint64_t id, uint32_t capacity,
                              operation op, uint32_t key, uint32_t mods, uint32_t action,
@@ -290,19 +331,19 @@ static napi_value read_bytes(napi_env env, binding_host *h, uint64_t id, uint32_
   return result;
 }
 static napi_value invoke(napi_env env, napi_callback_info info) {
-  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4};
+  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4, 3, 2};
   size_t argc = 8;
   napi_value args[8];
   void *data;
   if (!checked(env, napi_get_cb_info(env, info, &argc, args, NULL, &data)))
     return NULL;
   operation op = (operation)(uintptr_t)data;
-  if (op == RESIZE ? (argc != 5 && argc != 6) : argc != counts[op]) {
+  if (op == OPEN ? (argc != 1 && argc != 2) : op == RESIZE ? (argc != 5 && argc != 6) : argc != counts[op]) {
     bad_argument(env);
     return NULL;
   }
   if (op == OPEN)
-    return open_host(env, args[0]);
+    return open_host(env, args[0], argc == 2 ? args[1] : NULL);
   binding_host *h = host(env, args[0]);
   if (!h)
     return NULL;
@@ -368,6 +409,26 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
       return NULL;
     }
     return outcome(env, hvir_terminal_resize_scaled(h->native, id, serial, width, height, scale));
+  }
+  if (op == PRESENTATION_MODE) {
+    if (!u32(env, args[2], &width)) return NULL;
+    return outcome(env, hvir_terminal_presentation_mode(h->native, id, width));
+  }
+  if (op == RENDERER_INFO) {
+    hvir_terminal_renderer_info info;
+    hvir_terminal_result code = hvir_terminal_renderer_info_get(h->native, id, &info);
+    napi_value result = outcome(env, code);
+    if (code != HVIR_OK) return result;
+    napi_value value = object(env), string;
+    if (!put(env, value, "available", boolean(env, info.available)) ||
+        !put(env, value, "pixelFrames", big(env, info.pixel_frames)) ||
+        !put(env, value, "dmaBufFrames", big(env, info.dma_buf_frames))) return NULL;
+#define INFO_STRING(name, member) do { if (!checked(env, napi_create_string_utf8(env, info.member, NAPI_AUTO_LENGTH, &string)) || !put(env, value, name, string)) return NULL; } while (0)
+    INFO_STRING("glVendor", gl_vendor); INFO_STRING("glRenderer", gl_renderer);
+    INFO_STRING("glVersion", gl_version); INFO_STRING("eglVendor", egl_vendor);
+    INFO_STRING("eglVersion", egl_version); INFO_STRING("renderNode", render_node);
+#undef INFO_STRING
+    return put(env, result, "info", value) ? result : NULL;
   }
   if (op == VISIBILITY) {
     bool visible;
@@ -472,7 +533,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
 static napi_value initialize(napi_env env, napi_value exports) {
   static const char *names[] = {"open",         "createBegin", "feed", "resize", "inspect",
                                 "read",         "drain",       "key",  "event",  "takeFrame",
-                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame"};
+                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame", "presentationMode", "rendererInfo"};
   for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
     napi_value function;
     if (!checked(env, napi_create_function(env, names[i], NAPI_AUTO_LENGTH, invoke,

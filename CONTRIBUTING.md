@@ -317,13 +317,16 @@ fixture. `npm run smoke:macos` runs the focused PTY, viewer, Git, workspace/remo
 renderer-authority, platform-contract, renderer-recovery, terminal-presentation, and
 document-review, terminal-presentation, and terminal-lifecycle correctness groups.
 
-The macOS-only `native-terminal-workbench` group is explicit and stays outside the default
-smoke groups. After building the native bindings against the selected library, run
+The `native-terminal-workbench` group is explicit and stays outside the default
+smoke groups. It uses the production sandbox and actual renderer/IPC/supervisor/ProjectHost
+path. See [the native development entry](docs/native-terminal.md#development-workbench-runtime)
+for the single Linux build/bind/qualify/manual sequence, trusted device/presentation selection,
+and required diagnostic artifacts. On macOS use
 `HVIR_NATIVE_TERMINAL_LIBRARY=/absolute/path/to/libghostty.dylib npm run smoke:native-terminal`.
-It exercises the ordinary workbench's native terminal through the sandboxed renderer, existing
-PTY supervisor and ProjectHost: ANSI presentation, encoded keyboard input, acknowledged resize
-checked with `stty`, and retained output after exit. This development qualification does not
-establish Linux GPU or hardware performance acceptance.
+The receipt proves ANSI presentation, encoded keyboard input, acknowledged resize checked
+with `stty`, and retained output after exit. Linux software CI is compatibility evidence;
+Ubuntu24.04/NVIDIA is the first hardware desktop, with Intel and AMD still required.
+These development checks do not establish hardware or controlled performance acceptance.
 
 Viewer and Git evidence follows the same ownership rule. `viewer-position` proves CodeMirror
 virtualization, source/rendered/diff anchors, remounts, pending and empty diffs, scoped commands,

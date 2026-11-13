@@ -7,7 +7,7 @@
     "sha256": "2c276d3e62cb15fb38f0d7f621f199029d1d4df86538096c6bec2a107cad7159",
     "applicationVersion": "1.4.1-dev",
     "vtVersion": "1.0.1",
-    "embedAbi": 4
+    "embedAbi": 5
   },
   "zig": {
     "version": "0.17.0",
@@ -45,6 +45,11 @@
       "file": "patches/0003-scale-geometry.patch.txt",
       "sha256": "51848a2facf79975a333bd65ff1e969488829b50e6c2fe50bb53c652ccd059f1",
       "purpose": "Apply same-Surface scale and error-aware geometry acknowledgements, preserve font state on allocation failure, and rearm released exports without manufacturing a renderer rebuild."
+    },
+    {
+      "file": "patches/0004-linux-presentation.patch.txt",
+      "sha256": "989b9750ef30d46d699a3697ffd3238eb4804f09084bde4dabf7d7ee58c4d553",
+      "purpose": "Configure generic external pixel export limits and initial presentation before rendering; reuse same-Surface presentation health, report bounded native renderer attribution, and bound readback allocation with truthful frame health. Linux device selection and product policy remain maintained C/TypeScript."
     }
   ],
   "targets": {

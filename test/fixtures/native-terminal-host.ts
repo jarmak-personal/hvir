@@ -72,6 +72,7 @@ export function nativeTerminalHostFixture(exitEvidence?: (epoch: string) => bool
             colorSpace: 2,
             origin: 1,
             premultiplied: true,
+            resource: { fourcc: 0x42475241, modifier: '0', planes: [] },
           })
         case 'release':
           held.delete(command.state)

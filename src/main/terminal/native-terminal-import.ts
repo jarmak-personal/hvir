@@ -24,7 +24,7 @@ export interface ImportTarget {
   readonly ready: boolean
   isCurrent(): boolean
 }
-/** Only an unsent Electron import failure can retain its source for compatibility. */
+/** Only validated pre-import rejection or a proven unsent failure permits compatibility. */
 export class NativeTerminalGpuImportUnavailable extends Error {
   constructor(cause: unknown) {
     super('native-gpu-import-unavailable', { cause })
@@ -39,6 +39,8 @@ export class NativeTerminalImportQuarantined extends Error {
     )
   }
 }
+class UnsupportedNativeTextureFormat extends Error {}
+
 export interface ImportedNativeFrame {
   readonly metadata: NativeTerminalFrameMetadata & { readonly ticket: string }
   send(): Promise<void>
@@ -128,7 +130,17 @@ export class NativeTerminalFrameImports {
       if (failed?.status === 'rejected') throw failed.reason
       assertCurrent(source, target)
       if (!receipt || receipt.ticket !== ticket) throw new Error('native-resource-ticket')
-      const textureInfo = texture(receipt, source.metadata)
+      let textureInfo: SharedTextureImportTextureInfo
+      try {
+        textureInfo = texture(receipt, source.metadata)
+      } catch (error) {
+        if (
+          options?.allowPixelFallback &&
+          error instanceof UnsupportedNativeTextureFormat
+        )
+          throw new NativeTerminalGpuImportUnavailable(error)
+        throw error
+      }
       let physical = false
       let mainReleased = false
       let state: 'unsent' | 'sending' | 'sent' | 'quarantine' = 'unsent'
@@ -303,7 +315,12 @@ function texture(
     receipt.colorSpace !== expected.colorSpace ||
     ![1, 2].includes(receipt.colorSpace) ||
     receipt.origin !== expected.origin ||
-    ![1, 2].includes(receipt.origin)
+    ![1, 2].includes(receipt.origin) ||
+    !expected.resource ||
+    receipt.fourcc !== expected.resource.fourcc ||
+    typeof receipt.modifier !== 'bigint' ||
+    receipt.modifier.toString() !== expected.resource.modifier ||
+    receipt.planeCount !== expected.resource.planes.length
   )
     throw new Error('native-resource-metadata')
   const common = {
@@ -325,7 +342,9 @@ function texture(
     return { ...common, handle: { ioSurface: receipt.surface }, pixelFormat: 'bgra' }
   if (
     receipt.kind !== 2 ||
-    ![0x34325241, 0x34324241].includes(receipt.fourcc) ||
+    !Number.isInteger(receipt.fourcc) ||
+    receipt.fourcc < 0 ||
+    receipt.fourcc > 0xffffffff ||
     !Number.isInteger(receipt.planeCount) ||
     receipt.planeCount < 1 ||
     receipt.planeCount > 4 ||
@@ -336,7 +355,7 @@ function texture(
     receipt.modifier > 0xffffffffffffffffn
   )
     throw new Error('native-resource-format')
-  const planes = receipt.planes.map((plane) => {
+  const planes = receipt.planes.map((plane, index) => {
     if (
       !Number.isInteger(plane.fd) ||
       plane.fd < 0 ||
@@ -353,6 +372,14 @@ function texture(
       BigInt(plane.offset) + BigInt(plane.stride) > plane.size
     )
       throw new Error('native-resource-plane')
+    const expectedPlane = expected.resource.planes[index]
+    if (
+      !expectedPlane ||
+      expectedPlane.stride !== plane.stride ||
+      expectedPlane.offset !== plane.offset ||
+      BigInt(expectedPlane.size) !== plane.size
+    )
+      throw new Error('native-resource-metadata')
     return {
       fd: plane.fd,
       stride: plane.stride,
@@ -360,6 +387,10 @@ function texture(
       size: Number(plane.size),
     }
   })
+  // This decision precedes Electron's GPU entry, after every received-plane check.
+  // A generic import throw or an unfamiliar modifier is not the same evidence.
+  if (![0x34325241, 0x34324241].includes(receipt.fourcc))
+    throw new UnsupportedNativeTextureFormat('native-resource-format-unsupported')
   return {
     ...common,
     pixelFormat: receipt.fourcc === 0x34325241 ? 'bgra' : 'rgba',

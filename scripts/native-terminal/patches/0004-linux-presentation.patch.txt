@@ -1,0 +1,249 @@
+--- a/src/main_c.zig
++++ b/src/main_c.zig
+@@ -266,5 +266,5 @@
+ 
+ // Version of the pinned upstream hooks consumed by hvir's maintained C facade.
+ export fn hvir_ghostty_embed_abi() u32 {
+-    return 4;
+-}
++    return 5;
++}
+--- a/src/termio/External.zig
++++ b/src/termio/External.zig
+@@ -23,6 +23,19 @@
+     pixels: ?[*]const u8 = null,
+     pixel_bytes: usize = 0,
+ };
++pub const RendererInfo = extern struct {
++    gl_vendor: [*]const u8,
++    gl_vendor_len: usize,
++    gl_renderer: [*]const u8,
++    gl_renderer_len: usize,
++    gl_version: [*]const u8,
++    gl_version_len: usize,
++    egl_vendor: [*]const u8,
++    egl_vendor_len: usize,
++    egl_version: [*]const u8,
++    egl_version_len: usize,
++    egl_display: ?*anyopaque,
++};
+ pub const Config = extern struct {
+     userdata: ?*anyopaque,
+     write: *const fn (?*anyopaque, [*]const u8, usize) callconv(.c) bool,
+@@ -32,6 +45,11 @@
+     effect: *const fn (?*anyopaque, u32, [*]const u8, usize) callconv(.c) bool,
+     health: *const fn (?*anyopaque, u32) callconv(.c) void,
+     frame: *const fn (?*anyopaque, *const Frame) callconv(.c) bool,
++    /// Zero disables external CPU exports. Native application runtimes keep their policy.
++    pixel_export_limit: usize,
++    /// 0: prefer native exports; 1: start with CPU presentation before any frame.
++    presentation_mode: u32,
++    renderer_info: ?*const fn (?*anyopaque, *const RendererInfo) callconv(.c) void,
+ };
+ config: Config,
+ failed: std.atomic.Value(bool) = .init(false),
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1531,6 +1531,7 @@
+ // C API
+ pub const CAPI = struct {
+     export fn ghostty_external_surface_new(app: *App, display: ?*anyopaque, external: *const termio.External.Config, width: u32, height: u32) ?*Surface {
++        if (external.presentation_mode > 1) return null;
+         if (app.core_app.device != null and display != null and display != app.external_display) return null;
+         if (app.core_app.device == null) app.external_display = display;
+         var opts: Surface.Options = .{};
+@@ -1563,6 +1564,13 @@
+         surface.core_surface.sizeCallback(size) catch return false;
+         surface.size = size;
+         surface.core_surface.io.queueMessage(.{ .external_resize = .{ .size = surface.core_surface.size, .serial = serial, .backing_scale = scale.x } }, .unlocked);
++        return true;
++    }
++
++    export fn ghostty_external_set_presentation_mode(surface: *Surface, mode: u32) bool {
++        const io = &surface.core_surface.io;
++        if (mode > 1 or io.backend != .external or io.backend.external.failed.load(.acquire)) return false;
++        surface.core_surface.reportPresentationHealth(if (mode == 1) .unhealthy else .healthy);
+         return true;
+     }
+ 
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -743,7 +743,15 @@
+                 };
+             };
+ 
++            const initial_presentation: Health = initial: {
++                if (comptime @hasDecl(apprt.Surface, "externalBackend")) {
++                    if (options.rt_surface.externalBackend()) |external|
++                        if (external.presentation_mode == 1) break :initial .unhealthy;
++                }
++                break :initial .healthy;
++            };
+             var result: Self = .{
++                .presentation_health = .init(initial_presentation),
+                 .alloc = alloc,
+                 .config = options.config,
+                 .surface_mailbox = options.surface_mailbox,
+@@ -2098,14 +2106,13 @@
+                 if (self.externalTransport()) |external| {
+                     // Presentation health is metadata, not parser failure. Never
+                     // block a completed GPU frame on the caller's App mailbox.
+-                    external.config.health(external.config.userdata, @intCast(@intFromEnum(health)));
++                    external.config.health(external.config.userdata, @intCast(@backingInt(health)));
+                 } else {
+                     _ = self.surface_mailbox.push(.{
+                         .renderer_health = health,
+                     }, .{ .forever = {} });
+                 }
+             }
+-
+         }
+ 
+         // Callback from the graphics API when a frame is completed.
+--- a/src/renderer/OpenGL.zig
++++ b/src/renderer/OpenGL.zig
+@@ -48,6 +48,8 @@
+ device: *const Device,
+ 
+ egl_context: *gl.egl.Context,
++/// Only external runtimes configure a CPU-export bound; ordinary runtimes are unchanged.
++pixel_export_limit: ?usize,
+ 
+ pub fn init(
+     alloc: Allocator,
+@@ -86,6 +88,12 @@
+         .blending = opts.config.blending,
+         .device = device,
+         .egl_context = context,
++        .pixel_export_limit = limit: {
++            if (comptime @hasDecl(apprt.Surface, "externalBackend")) {
++                if (opts.rt_surface.externalBackend()) |external| break :limit external.pixel_export_limit;
++            }
++            break :limit null;
++        },
+     };
+ }
+ 
+@@ -199,10 +207,40 @@
+ /// here we (re)bind it to this thread and load the thread-local glad
+ /// function pointers so all subsequent GL work on this thread is valid.
+ pub fn threadEnter(self: *OpenGL, surface: *apprt.Surface) !void {
+-    _ = surface;
+     try self.device.display.makeCurrent(null, null, self.egl_context);
+     // Load our function pointers for this thread's threadlocal.
+     try prepareContext(&gl.egl.getProcAddress);
++    if (comptime @hasDecl(apprt.Surface, "externalBackend")) {
++        if (surface.externalBackend()) |external| if (external.renderer_info) |callback| {
++            const vendor = boundedString(@ptrCast(gl.glad.context.GetString.?(gl.c.GL_VENDOR)));
++            const renderer = boundedString(@ptrCast(gl.glad.context.GetString.?(gl.c.GL_RENDERER)));
++            const version = boundedString(@ptrCast(gl.glad.context.GetString.?(gl.c.GL_VERSION)));
++            const egl_vendor = boundedString(@ptrCast(gl.egl.c.eglQueryString(self.device.display, gl.egl.c.EGL_VENDOR)));
++            const egl_version = boundedString(@ptrCast(gl.egl.c.eglQueryString(self.device.display, gl.egl.c.EGL_VERSION)));
++            const info: @import("../termio.zig").External.RendererInfo = .{
++                .gl_vendor = vendor.ptr,
++                .gl_vendor_len = vendor.len,
++                .gl_renderer = renderer.ptr,
++                .gl_renderer_len = renderer.len,
++                .gl_version = version.ptr,
++                .gl_version_len = version.len,
++                .egl_vendor = egl_vendor.ptr,
++                .egl_vendor_len = egl_vendor.len,
++                .egl_version = egl_version.ptr,
++                .egl_version_len = egl_version.len,
++                .egl_display = @ptrCast(self.device.display),
++            };
++            callback(external.userdata, &info);
++        };
++    }
++}
++
++/// Driver strings are borrowed only for the callback; no unbounded scan or queue.
++fn boundedString(value: ?[*:0]const u8) []const u8 {
++    const ptr = value orelse return "";
++    var length: usize = 0;
++    while (length < 255 and ptr[length] != 0) : (length += 1) {}
++    return ptr[0..length];
+ }
+ 
+ /// Callback called by renderer.Thread when it exits. Called on the render
+@@ -292,7 +330,7 @@
+     return .{ .memory = .{
+         .width = @intCast(target.width),
+         .height = @intCast(target.height),
+-        .pixels = try target.readPixelsAlloc(self.alloc),
++        .pixels = try target.readPixelsAlloc(self.alloc, self.pixel_export_limit),
+         .alloc = self.alloc,
+     } };
+ }
+--- a/src/renderer/opengl/Target.zig
++++ b/src/renderer/opengl/Target.zig
+@@ -225,11 +225,14 @@
+ /// i.e. `width * 4` bytes per row, containing sRGB-encoded values:
+ /// `GL_FRAMEBUFFER_SRGB` has no effect on `ReadPixels`, so the stored
+ /// values are returned verbatim.
+-pub fn readPixelsAlloc(self: *const Self, alloc: std.mem.Allocator) ![]u8 {
++pub fn readPixelsAlloc(self: *const Self, alloc: std.mem.Allocator, limit: ?usize) ![]u8 {
++    const stride = std.math.mul(usize, self.width, 4) catch return error.PixelExportTooLarge;
++    const bytes = std.math.mul(usize, stride, self.height) catch return error.PixelExportTooLarge;
++    if (limit) |maximum| if (bytes > maximum) return error.PixelExportTooLarge;
+     const bind = try self.framebuffer.bind(.read);
+     defer bind.unbind();
+ 
+-    const pixels = try alloc.alloc(u8, self.width * self.height * 4);
++    const pixels = try alloc.alloc(u8, bytes);
+     errdefer alloc.free(pixels);
+ 
+     try gl.readPixels(
+@@ -244,3 +247,20 @@
+ 
+     return pixels;
+ }
++
++// No current GL context is needed: rejection must precede framebuffer access
++// and allocation, including disabled external readback and arithmetic overflow.
++test "pixel export bound precedes allocation and GL access" {
++    var target: Self = undefined;
++    target.width = 2050;
++    target.height = 2048;
++    try std.testing.expectError(error.PixelExportTooLarge, target.readPixelsAlloc(std.testing.failing_allocator, 16 * 1024 * 1024));
++    target.width = 1;
++    target.height = 1;
++    try std.testing.expectError(error.PixelExportTooLarge, target.readPixelsAlloc(std.testing.failing_allocator, 0));
++    target.width = std.math.maxInt(usize);
++    try std.testing.expectError(error.PixelExportTooLarge, target.readPixelsAlloc(std.testing.failing_allocator, null));
++    target.width = 4;
++    target.height = std.math.maxInt(usize);
++    try std.testing.expectError(error.PixelExportTooLarge, target.readPixelsAlloc(std.testing.failing_allocator, null));
++}
+--- a/src/renderer/opengl/Frame.zig
++++ b/src/renderer/opengl/Frame.zig
+@@ -58,7 +58,7 @@
+     _ = sync;
+ 
+     // If there are any GL errors, consider the frame unhealthy.
+-    const health: Health = if (gl.errors.getError()) .healthy else |_| .unhealthy;
++    var health: Health = if (gl.errors.getError()) .healthy else |_| .unhealthy;
+ 
+     // If the frame is healthy, draw it to an ExportedFrame
+     // Then sync before exporting and pushing to the present queue.
+@@ -69,6 +69,7 @@
+             self.renderer.presentationHealth(),
+         ) catch |err| {
+             log.warn("failed to present render target: err={}", .{err});
++            health = .unhealthy;
+             break :frame null;
+         };
+         break :frame frame;
+@@ -76,6 +77,12 @@
+ 
+     // Sync after frame draw AND frame present GL calls.
+     gl.finish();
++    if (gl.errors.getError()) {} else |_| {
++        health = .unhealthy;
++        if (presented_frame) |frame| frame.deinit();
++        self.renderer.frameCompleted(health);
++        return;
++    }
+ 
+     // At this point the ExportedFrame is finished and can be shared
+     if (presented_frame) |frame| {

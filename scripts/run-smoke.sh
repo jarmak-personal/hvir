@@ -6,6 +6,17 @@ source_checkout=$PWD
 
 : "${HVIR_SMOKE_SCENARIO:?Select one Electron smoke scenario with HVIR_SMOKE_SCENARIO; use npm run smoke for the aggregate suite}"
 
+# This closed qualification selector changes only the actual window backend.
+smoke_ozone_args=()
+if [[ -n "${HVIR_NATIVE_TERMINAL_OZONE:-}" ]]; then
+  if [[ "$(uname -s)" != Linux ]] || [[ "$HVIR_SMOKE_SCENARIO" != native-terminal-workbench ]] ||
+     [[ "$HVIR_NATIVE_TERMINAL_OZONE" != x11 && "$HVIR_NATIVE_TERMINAL_OZONE" != wayland ]]; then
+    echo 'HVIR_NATIVE_TERMINAL_OZONE requires Linux native-terminal-workbench and x11|wayland' >&2
+    exit 1
+  fi
+  smoke_ozone_args=("--ozone-platform=$HVIR_NATIVE_TERMINAL_OZONE")
+fi
+
 # One lease covers this entire invocation, including child cleanup.
 if [[ -z "${HVIR_SMOKE_LEASE:-}" ]]; then
   exec node "$source_checkout/scripts/smoke-run-lock.mts" bash "$source_checkout/scripts/run-smoke.sh" "$@"
@@ -129,6 +140,7 @@ else
     "$source_checkout/node_modules/.bin/electron" "$source_checkout" \
     --project-root="$project_root" \
     ${smoke_sandbox_args[@]+"${smoke_sandbox_args[@]}"} \
+    ${smoke_ozone_args[@]+"${smoke_ozone_args[@]}"} \
     --user-data-dir="$user_data_root" &
   smoke_pid=$!
   wait "$smoke_pid"
