@@ -2,10 +2,23 @@
 import { ipcRenderer, sharedTexture } from 'electron'
 
 let beats = 0
+let phase: number | undefined
+let lastBeat = performance.now()
+function heartbeat(): void {
+  const now = performance.now()
+  ipcRenderer.send('native-probe-heartbeat', { beats, phase, gapMs: now - lastBeat })
+  lastBeat = now
+}
 const timer = setInterval(() => {
   beats++
-  ipcRenderer.send('native-probe-heartbeat', beats)
+  heartbeat()
 }, 10)
+ipcRenderer.on('native-probe-phase', (_event, value: { id: number; name?: string }) => {
+  if (phase !== undefined) heartbeat()
+  phase = value.name === undefined ? undefined : value.id
+  lastBeat = performance.now()
+  ipcRenderer.send('native-probe-phase-ready', { id: value.id })
+})
 interface ProbeFrame {
   allocationSize(options: { format: string }): number
   copyTo(bytes: Uint8Array, options: { format: string }): Promise<unknown>

@@ -1,4 +1,7 @@
-import { NATIVE_TERMINAL_LIMITS } from '../shared/native-terminal'
+import {
+  NATIVE_TERMINAL_LIMITS,
+  NativeTerminalAdmissionError,
+} from '../shared/native-terminal'
 
 type Priority = 'feed' | 'control'
 export interface NativeTerminalJobLimits {
@@ -81,7 +84,9 @@ export class NativeTerminalJobs {
       bytes > this.limits.queuedBytes - this.bytes ||
       bytes > this.limits.queuedBytesPerState - (existing?.bytes ?? 0)
     )
-      return Promise.reject(new Error('Native terminal job capacity exceeded'))
+      return Promise.reject(
+        new NativeTerminalAdmissionError('Native terminal job capacity exceeded'),
+      )
     return new Promise<T>((resolve, reject) => {
       const jobs = existing ?? { count: 0, bytes: 0, feed: [], control: [] }
       const job: Job = {

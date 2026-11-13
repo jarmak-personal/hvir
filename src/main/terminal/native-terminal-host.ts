@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { hostPathEquals } from '../../shared/host-path'
 import {
   NATIVE_TERMINAL_LIMITS as limits,
+  NativeTerminalAdmissionError,
+  validNativeTerminalExtent,
   type NativeTerminalCommand,
   type NativeTerminalSession,
   type NativeTerminalStatus,
@@ -68,6 +70,8 @@ export class NativeTerminalHost {
     signal?: AbortSignal,
   ): Promise<string> {
     this.assertSession(session)
+    if (!validNativeTerminalExtent(width, height))
+      throw new Error('native-extent-invalid')
     if (
       this.disposed ||
       this.bindings.size + this.preparing.size >= limits.states ||
@@ -160,10 +164,11 @@ export class NativeTerminalHost {
     if (
       !(bytes instanceof Uint8Array) ||
       bytes.buffer instanceof SharedArrayBuffer ||
-      bytes.byteLength > limits.queuedBytesPerState ||
-      this.deliveryBytes + bytes.byteLength > limits.queuedBytes
+      bytes.byteLength > limits.queuedBytesPerState
     )
-      throw new Error('native-feed-bound')
+      throw new RangeError('native-feed-payload-bound')
+    if (this.deliveryBytes + bytes.byteLength > limits.queuedBytes)
+      throw new NativeTerminalAdmissionError('native-feed-capacity')
     if (binding.feeding) {
       await this.retireBinding(binding)
       throw new Error('native-concurrent-delivery')
@@ -179,7 +184,7 @@ export class NativeTerminalHost {
         offset += limits.feedChunkBytes
       ) {
         this.requireProducer(handle, instanceId)
-        const sequence = ++binding.stream
+        const sequence = binding.stream + 1
         if (!Number.isSafeInteger(sequence)) throw new Error('native-stream-bound')
         try {
           await this.process.request(
@@ -191,9 +196,11 @@ export class NativeTerminalHost {
             },
             binding.abort.signal,
           )
+          binding.stream = sequence
         } catch (error) {
+          if (error instanceof NativeTerminalAdmissionError && offset === 0) throw error
           await this.retireBinding(binding)
-          throw error
+          throw new Error('native-stream-failed', { cause: error })
         }
       }
     } finally {
@@ -237,6 +244,8 @@ export class NativeTerminalHost {
     height: number,
   ): Promise<NativeTerminalStatus> {
     const binding = this.requireAttachment(handle, ownerId, generation, attachment)
+    if (!validNativeTerminalExtent(width, height))
+      throw new Error('native-extent-invalid')
     if (!Number.isSafeInteger(serial) || serial <= binding.requestedGeometry)
       throw new Error('native-geometry-stale')
     binding.requestedGeometry = serial

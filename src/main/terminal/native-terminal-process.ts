@@ -3,6 +3,7 @@ import type { UtilityProcess } from 'electron'
 import resource, { type Endpoint, type Receipt } from '@hvir/native-terminal/resource'
 import {
   NATIVE_TERMINAL_LIMITS as limits,
+  NativeTerminalAdmissionError,
   type NativeTerminalCommand,
   type NativeTerminalHostMessage,
 } from '../../shared/native-terminal'
@@ -12,6 +13,7 @@ import type { NativeTerminalProcessPort } from './native-terminal-host'
 interface Pending {
   readonly state: string
   readonly command: NativeTerminalCommand
+  readonly feed: boolean
   readonly bytes: number
   sent: boolean
   cancelled: boolean
@@ -27,7 +29,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
   private starting?: Promise<void>
   private stopping?: Promise<void>
   private settled?: () => void
-  private readonly waiting = new Set<{ state: string; bytes: number }>()
+  private readonly waiting = new Set<{ state: string; bytes: number; feed: boolean }>()
   private disposed = false
   private failure?: Error
   private nextId = 0
@@ -79,25 +81,31 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
         : command.kind === 'shutdown'
           ? 'host'
           : 'prepare'
+    const feed = command.kind === 'feed'
+    const admitted = [...this.pending.values(), ...this.waiting]
+    const controls = admitted.filter((item) => !item.feed)
     const byteCount = command.kind === 'feed' ? command.bytes.byteLength : 0
-    const same = [...this.pending.values(), ...this.waiting].filter(
-      (p) => p.state === state,
-    )
+    const same = admitted.filter((p) => p.state === state)
     if (
       this.pending.size + this.waiting.size >=
         limits.commands -
           (this.stopping && command.kind !== 'shutdown' && !cleanup ? 1 : 0) ||
       same.length >= limits.commandsPerState ||
+      (!feed &&
+        !cleanup &&
+        command.kind !== 'shutdown' &&
+        (controls.length >= limits.commands - limits.states ||
+          same.filter((item) => !item.feed).length >= limits.commandsPerState - 1)) ||
       this.bytes + byteCount > limits.queuedBytes ||
       same.reduce((n, p) => n + p.bytes, 0) + byteCount > limits.queuedBytesPerState
     )
-      return Promise.reject(new Error('native-command-bound'))
+      return Promise.reject(new NativeTerminalAdmissionError('native-command-bound'))
     const snapshot =
       command.kind === 'feed'
         ? { ...command, bytes: command.bytes.slice() }
         : { ...command }
     if (this.stopping && command.kind !== 'shutdown' && !cleanup) {
-      const reservation = { state, bytes: byteCount }
+      const reservation = { state, bytes: byteCount, feed }
       this.waiting.add(reservation)
       this.bytes += byteCount
       const release = (): void => {
@@ -138,6 +146,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
       this.pending.set(id, {
         state,
         command: snapshot,
+        feed,
         bytes: byteCount,
         sent: false,
         cancelled: false,
@@ -318,7 +327,12 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
     }
     if (!item.cancelled) {
       if (message.ok) item.complete(message.value)
-      else item.fail(new Error('native-operation-failed'))
+      else
+        item.fail(
+          message.error === 'native-admission-bound'
+            ? new NativeTerminalAdmissionError()
+            : new Error('native-operation-failed'),
+        )
     }
     this.finish(message.id)
   }

@@ -4,6 +4,8 @@ import resource from '@hvir/native-terminal/resource'
 import type { Frame, Status } from '@hvir/native-terminal/engine'
 import {
   NATIVE_TERMINAL_LIMITS as limits,
+  NativeTerminalAdmissionError,
+  validNativeTerminalExtent,
   type NativeTerminalCommand,
   type NativeTerminalHostMessage,
   type NativeTerminalWorkerOptions,
@@ -119,7 +121,11 @@ export function runNativeTerminalHost(
           }
         } catch (error) {
           if (id) {
-            requireOk(await invoke(id, 'destroy', [id]))
+            const destroyed = await invoke(id, 'destroy', [id])
+            if (destroyed.result) {
+              fatal()
+              throw new Error('native-create-cleanup-failed', { cause: error })
+            }
             states.delete(id)
           }
           throw error
@@ -159,7 +165,11 @@ export function runNativeTerminalHost(
         if (!frame) throw new Error('native-frame-missing')
         frames.set(state, frame)
         if (cancelled()) {
-          await invoke(state, 'release', [state, frame.lease.toString()])
+          const released = await invoke(state, 'release', [state, frame.lease.toString()])
+          if (released.result !== 0 && released.result !== 9) {
+            fatal()
+            throw new Error('native-frame-cleanup-failed')
+          }
           frames.delete(state)
           throw new Error('cancelled')
         }
@@ -217,7 +227,8 @@ export function runNativeTerminalHost(
       id: number
       command: NativeTerminalCommand
     }
-    if (value.epoch !== options.epoch || !Number.isSafeInteger(value.id)) return
+    if (value.epoch !== options.epoch) return
+    if (!Number.isSafeInteger(value.id) || value.id <= 0) return fatal()
     if (value.kind === 'cancel') {
       const request = requests.get(value.id)
       if (request) request.cancelled = true
@@ -243,13 +254,17 @@ export function runNativeTerminalHost(
             ok: true,
             value: result,
           }),
-        () =>
+        (error: unknown) =>
           port.postMessage({
             kind: 'result',
             epoch: options.epoch,
             id: value.id,
             ok: false,
-            error: pending.cancelled ? 'cancelled' : 'native-operation-failed',
+            error: pending.cancelled
+              ? 'cancelled'
+              : error instanceof NativeTerminalAdmissionError
+                ? 'native-admission-bound'
+                : 'native-operation-failed',
           }),
       )
       .finally(() => requests.delete(value.id))
@@ -272,14 +287,19 @@ function plain(value: unknown): unknown {
 }
 function validCommand(value: NativeTerminalCommand): boolean {
   if (!value || typeof value !== 'object') return false
-  if ('state' in value && !/^[1-9][0-9]{0,19}$/.test(value.state)) return false
+  if (
+    value.kind !== 'create' &&
+    value.kind !== 'shutdown' &&
+    (!('state' in value) ||
+      typeof value.state !== 'string' ||
+      !/^[1-9][0-9]{0,19}$/.test(value.state))
+  )
+    return false
   switch (value.kind) {
     case 'create':
     case 'resize':
       return (
-        [value.width, value.height].every(
-          (n) => Number.isInteger(n) && n >= 32 && n <= 8192,
-        ) &&
+        validNativeTerminalExtent(value.width, value.height) &&
         (value.kind === 'create' ||
           (Number.isSafeInteger(value.serial) && value.serial > 0))
       )
@@ -299,15 +319,16 @@ function validCommand(value: NativeTerminalCommand): boolean {
     case 'destroy':
       return true
     case 'frame':
-      return typeof value.ticket === 'string' && value.ticket.length <= 128
+      return typeof value.ticket === 'string' && /^[\x21-\x7e]{1,128}$/.test(value.ticket)
     case 'transfer':
       return (
         typeof value.ticket === 'string' &&
-        value.ticket.length <= 128 &&
+        /^[\x21-\x7e]{1,128}$/.test(value.ticket) &&
+        typeof value.lease === 'string' &&
         /^[1-9][0-9]{0,19}$/.test(value.lease)
       )
     case 'release':
-      return /^[1-9][0-9]{0,19}$/.test(value.lease)
+      return typeof value.lease === 'string' && /^[1-9][0-9]{0,19}$/.test(value.lease)
     default:
       return false
   }

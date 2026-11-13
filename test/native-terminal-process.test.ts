@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NativeTerminalProcess } from '../src/main/terminal/native-terminal-process'
 import {
   NATIVE_TERMINAL_LIMITS,
+  NativeTerminalAdmissionError,
   type NativeTerminalCommand,
 } from '../src/shared/native-terminal'
 
@@ -449,4 +450,55 @@ it('bounds and snapshots next-generation work while idle teardown is pending', a
   if (command.kind === 'feed') expect(command.bytes[0]).toBe(7)
   for (const request of fresh.requests()) reply(fresh, request, { result: 0 })
   await Promise.all(queued)
+})
+
+it('reserves producer progress when unrelated controls fill their global allowance', async () => {
+  const process = owner()
+  const controls = Array.from({ length: 32 }, (_, index) =>
+    call(process, { kind: 'inspect', state: String(index + 1) }),
+  )
+  const child = await ready(process)
+  await expect(call(process, { kind: 'read', state: '33' })).rejects.toThrow('bound')
+  const feeds = Array.from({ length: 32 }, (_, index) =>
+    call(process, {
+      kind: 'feed',
+      state: String(index + 1),
+      sequence: 1,
+      bytes: new Uint8Array(16384),
+    }),
+  )
+  await flush()
+  expect(child.requests()).toHaveLength(64)
+  expect(process.available).toBe(true)
+  for (const request of child.requests()) reply(child, request, { result: 0 })
+  await Promise.all([...controls, ...feeds])
+})
+
+it('retains one producer slot per state and rehydrates proven-unsent utility refusal', async () => {
+  const process = owner()
+  const controls = Array.from({ length: 7 }, () =>
+    call(process, { kind: 'inspect', state: '1' }),
+  )
+  const child = await ready(process)
+  await expect(call(process, { kind: 'read', state: '1' })).rejects.toThrow('bound')
+  const feed = call(process, {
+    kind: 'feed',
+    state: '1',
+    sequence: 1,
+    bytes: new Uint8Array([1]),
+  })
+  await flush()
+  const request = last(child)
+  expect(request.command.kind).toBe('feed')
+  child.emit('message', {
+    kind: 'result',
+    epoch: request.epoch,
+    id: request.id,
+    ok: false,
+    error: 'native-admission-bound',
+  })
+  await expect(feed).rejects.toBeInstanceOf(NativeTerminalAdmissionError)
+  for (const request of child.requests().slice(0, 7)) reply(child, request, { result: 0 })
+  await Promise.all(controls)
+  expect(process.available).toBe(true)
 })

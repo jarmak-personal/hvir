@@ -715,6 +715,7 @@ export default tseslint.config(
       'scripts/native-terminal/build.mts',
       'scripts/native-terminal/bindings.mts',
       'scripts/native-terminal/resource-probe.mts',
+      'scripts/native-terminal/run-electron-probe.mts',
       'scripts/native-terminal/source.mts',
       'scripts/native-terminal/upgrade.mts',
       'scripts/assemble-agent-clients.mts',

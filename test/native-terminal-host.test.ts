@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { hostPath, LOCAL_HOST_ID } from '../src/shared/host-path'
-import type {
-  NativeTerminalCommand,
-  NativeTerminalSession,
-  NativeTerminalStatus,
+import {
+  NativeTerminalAdmissionError,
+  type NativeTerminalCommand,
+  type NativeTerminalSession,
+  type NativeTerminalStatus,
 } from '../src/shared/native-terminal'
 import { NativeTerminalHost } from '../src/main/terminal/native-terminal-host'
 
@@ -26,13 +27,13 @@ function status(serial = 1): NativeTerminalStatus {
     geometry: {
       serial,
       columns: 4,
-      rows: 2,
+      rows: 4,
       width: 32,
-      height: 16,
+      height: 32,
       cellWidth: 8,
       cellHeight: 8,
       contentWidth: 32,
-      contentHeight: 16,
+      contentHeight: 32,
       paddingLeft: 0,
       paddingTop: 0,
     },
@@ -64,7 +65,7 @@ function fixture() {
             geometrySerial: 1,
             kind: 1,
             width: 32,
-            height: 16,
+            height: 32,
             colorSpace: 2,
             origin: 1,
             premultiplied: true,
@@ -120,10 +121,10 @@ describe('native terminal main session authority', () => {
       return creation.promise.then(() => ({ state, status: status() }))
     })
     const first = f.session()
-    const pending = [f.host.prepare(first, 32, 16)]
-    await expect(f.host.prepare(first, 32, 16)).rejects.toThrow('native-state-bound')
-    for (let i = 1; i < 32; i++) pending.push(f.host.prepare(f.session(i), 32, 16))
-    await expect(f.host.prepare(f.session(32), 32, 16)).rejects.toThrow(
+    const pending = [f.host.prepare(first, 32, 32)]
+    await expect(f.host.prepare(first, 32, 32)).rejects.toThrow('native-state-bound')
+    for (let i = 1; i < 32; i++) pending.push(f.host.prepare(f.session(i), 32, 32))
+    await expect(f.host.prepare(f.session(32), 32, 32)).rejects.toThrow(
       'native-state-bound',
     )
     expect(f.request).toHaveBeenCalledTimes(32)
@@ -135,7 +136,7 @@ describe('native terminal main session authority', () => {
   it('feeds one immutable producer snapshot across renderer rollover and absent presentation', async () => {
     const f = fixture(),
       original = f.session()
-    const handle = await f.host.prepare(original, 32, 16)
+    const handle = await f.host.prepare(original, 32, 32)
     const attachment = f.host.attach(handle, original)
     f.host.detach(handle, 1, 1, attachment)
     const firstChunk = deferred<unknown>(),
@@ -176,7 +177,7 @@ describe('native terminal main session authority', () => {
   it('rejects overlapping delivery and retires the admitted state without merging output', async () => {
     const f = fixture(),
       current = f.session()
-    const handle = await f.host.prepare(current, 32, 16)
+    const handle = await f.host.prepare(current, 32, 32)
     const active = deferred<unknown>(),
       entered = deferred<void>()
     f.request.mockImplementation((command) => {
@@ -205,11 +206,11 @@ describe('native terminal main session authority', () => {
   it('rejects a detached presentation even when its former serial is guessed correctly', async () => {
     const f = fixture(),
       current = f.session()
-    const handle = await f.host.prepare(current, 32, 16)
+    const handle = await f.host.prepare(current, 32, 32)
     const serial = f.host.attach(handle, current)
     f.host.detach(handle, 1, 1, serial)
     const before = f.request.mock.calls.length
-    await expect(f.host.resize(handle, 1, 1, serial, 2, 32, 16)).rejects.toThrow(
+    await expect(f.host.resize(handle, 1, 1, serial, 2, 32, 32)).rejects.toThrow(
       'native-attachment-stale',
     )
     await expect(f.host.takeFrame(handle, 1, 1, serial)).rejects.toThrow(
@@ -221,7 +222,7 @@ describe('native terminal main session authority', () => {
   it('invalidates a held frame on a newer equal-size request before its acknowledgement', async () => {
     const f = fixture(),
       current = f.session()
-    const handle = await f.host.prepare(current, 32, 16)
+    const handle = await f.host.prepare(current, 32, 32)
     const attachment = f.host.attach(handle, current)
     const frame = await f.host.takeFrame(handle, 1, 1, attachment)
     expect(frame).toBeDefined()
@@ -235,7 +236,7 @@ describe('native terminal main session authority', () => {
       if (command.kind === 'inspect') return Promise.resolve(f.live.status)
       return Promise.resolve(undefined)
     })
-    const resizing = f.host.resize(handle, 1, 1, attachment, 2, 32, 16)
+    const resizing = f.host.resize(handle, 1, 1, attachment, 2, 32, 32)
     await entered.promise
     expect(() => frame!.assertCurrent()).toThrow('native-frame-stale')
     f.live.status = status(2)
@@ -247,7 +248,7 @@ describe('native terminal main session authority', () => {
   it('retains parser identity through authorized renderer reattachment and rejects the old owner', async () => {
     const f = fixture(),
       previous = f.session()
-    const handle = await f.host.prepare(previous, 32, 16)
+    const handle = await f.host.prepare(previous, 32, 32)
     const first = f.host.attach(handle, previous)
     f.live.owner = 2
     f.live.generation = 2
@@ -265,10 +266,10 @@ describe('native terminal main session authority', () => {
   it('stops the shared process when a malformed completion can conceal a real lease', async () => {
     const f = fixture(),
       current = f.session()
-    const handle = await f.host.prepare(current, 32, 16)
+    const handle = await f.host.prepare(current, 32, 32)
     const attachment = f.host.attach(handle, current)
     const sibling = f.session(1)
-    const other = await f.host.prepare(sibling, 32, 16)
+    const other = await f.host.prepare(sibling, 32, 32)
     f.request.mockImplementation((command) =>
       Promise.resolve(command.kind === 'frame' ? { lease: 'malformed' } : undefined),
     )
@@ -284,7 +285,7 @@ describe('native terminal main session authority', () => {
   it('settles a held frame after trusted lifetime end once even after renderer revocation', async () => {
     const f = fixture(),
       current = f.session()
-    const handle = await f.host.prepare(current, 32, 16)
+    const handle = await f.host.prepare(current, 32, 32)
     const attachment = f.host.attach(handle, current)
     const frame = await f.host.takeFrame(handle, 1, 1, attachment)
     expect(frame).toBeDefined()
@@ -299,3 +300,86 @@ describe('native terminal main session authority', () => {
     expect(commands.filter((kind) => kind === 'destroy')).toHaveLength(2)
   })
 })
+
+it('preserves parser and stream sequence on a proven-unsent first chunk refusal', async () => {
+  const f = fixture(),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  let refuse = true
+  const ordinary = f.request.getMockImplementation()!
+  f.request.mockImplementation((command, signal) => {
+    if (command.kind === 'feed' && refuse) {
+      refuse = false
+      return Promise.reject(new NativeTerminalAdmissionError())
+    }
+    return ordinary(command, signal)
+  })
+  await expect(
+    f.host.feed(handle, session.instanceId, new Uint8Array([1, 2])),
+  ).rejects.toBeInstanceOf(NativeTerminalAdmissionError)
+  await f.host.feed(handle, session.instanceId, new Uint8Array([1, 2]))
+  const feeds = f.request.mock.calls
+    .map(([command]) => command)
+    .filter((command) => command.kind === 'feed')
+  expect(feeds.map((command) => command.sequence)).toEqual([1, 1])
+  expect(f.request.mock.calls.some(([command]) => command.kind === 'destroy')).toBe(false)
+  expect(f.process.available).toBe(true)
+})
+
+it('reports a non-retriable stream failure after an accepted partial whole delivery', async () => {
+  const f = fixture(),
+    session = f.session(),
+    sibling = f.session(1)
+  const handle = await f.host.prepare(session, 32, 32)
+  const other = await f.host.prepare(sibling, 32, 32)
+  const ordinary = f.request.getMockImplementation()!
+  f.request.mockImplementation((command, signal) =>
+    command.kind === 'feed' && command.state === '1' && command.sequence === 2
+      ? Promise.reject(new NativeTerminalAdmissionError())
+      : ordinary(command, signal),
+  )
+  const failed = f.host.feed(handle, session.instanceId, new Uint8Array(16385))
+  await expect(failed).rejects.toThrow('native-stream-failed')
+  await expect(failed).rejects.not.toBeInstanceOf(NativeTerminalAdmissionError)
+  await expect(
+    f.host.feed(handle, session.instanceId, new Uint8Array([1])),
+  ).rejects.toThrow('revoked')
+  await f.host.feed(other, sibling.instanceId, new Uint8Array([2]))
+  expect(f.process.available).toBe(true)
+})
+
+it.each([
+  [0, 32],
+  [31, 32],
+  [8193, 32],
+  [32.5, 32],
+  [32, 0],
+  [32, 8193],
+  [NaN, 32],
+])(
+  'refuses invalid extent %s x %s before preparation or admitted geometry changes',
+  async (width, height) => {
+    const f = fixture(),
+      session = f.session()
+    await expect(f.host.prepare(session, width, height)).rejects.toThrow('extent-invalid')
+    expect(f.request).not.toHaveBeenCalled()
+    const handle = await f.host.prepare(session, 32, 32)
+    const attachment = f.host.attach(handle, session)
+    const frame = await f.host.takeFrame(
+      handle,
+      session.ownerId,
+      session.ownerGeneration,
+      attachment,
+    )
+    const before = f.request.mock.calls.length
+    await expect(
+      f.host.resize(handle, 1, 1, attachment, 2, width, height),
+    ).rejects.toThrow('extent-invalid')
+    expect(f.request).toHaveBeenCalledTimes(before)
+    expect(() => frame!.assertCurrent()).not.toThrow()
+    expect(f.process.available).toBe(true)
+    await frame!.release()
+    f.live.status = status(2)
+    await f.host.resize(handle, 1, 1, attachment, 2, 32, 32)
+  },
+)

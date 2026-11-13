@@ -9,6 +9,8 @@ on:
       - src/main/terminal/native-terminal-*
       - src/workers/native-terminal-*
       - src/shared/native-terminal.ts
+      - src/shared/ui-responsiveness-budget.ts
+      - src/main/worker-host.ts
       - src/preload/native-terminal-probe.ts
       - electron.vite.config.ts
       - package-lock.json
@@ -79,14 +81,42 @@ jobs:
       - name: Prove actual utility and Electron boundary on macOS
         if: runner.os == 'macOS'
         run: |
-          npx electron out/main/native-terminal-probe.js --library="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/electron-proof.jsonl"
+          node scripts/native-terminal/run-electron-probe.mts --library="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/electron-proof.jsonl"
       - name: Prove Linux utility and resource mechanics with explicit hardware gate
         if: runner.os == 'Linux'
         run: |
-          xvfb-run -a npx electron out/main/native-terminal-probe.js --library="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/electron-proof.jsonl"
+          xvfb-run -a node scripts/native-terminal/run-electron-probe.mts --library="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/electron-proof.jsonl"
       - name: Require the completed Electron proof receipt
         run: |
-          node -e 'const fs = require("node:fs"); const assert = require("node:assert/strict"); const records = fs.readFileSync(process.argv[1], "utf8").split("\n").filter(line => line.startsWith("{" )).map(line => JSON.parse(line)).filter(value => value.nativeUtilityBoundary === "passed"); assert.equal(records.length, 1, "completed native Electron proof receipt required"); assert.equal(records[0].hardwareGpuQualified, false); assert.equal(records[0].receiverSandboxed, true); assert.equal(records[0].receiverContextIsolated, true);' "$RUNNER_TEMP/hvir-native-bindings/electron-proof.jsonl"
+          node - "$RUNNER_TEMP/hvir-native-bindings/electron-proof.jsonl" <<'NODE'
+          const fs = require('node:fs');
+          const assert = require('node:assert/strict');
+          const records = fs.readFileSync(process.argv[2], 'utf8').split('\n')
+            .filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+            .filter(value => value.nativeUtilityBoundary === 'passed');
+          assert.equal(records.length, 1, 'completed native Electron proof receipt required');
+          const proof = records[0];
+          assert.equal(proof.hardwareGpuQualified, false);
+          assert.equal(proof.receiverSandboxed, true);
+          assert.equal(proof.receiverContextIsolated, true);
+          assert(proof.mainBeats > 0 && proof.rendererBeats > 0);
+          assert.equal(proof.responsivenessExcludesFaultPhases, true);
+          assert.deepEqual(proof.responsivenessPolicy, {
+            p99ExclusiveMs: 100, maximumInclusiveMs: 500, minimumSamplesPerLoop: 2,
+          });
+          assert.deepEqual(proof.responsiveness.map(value => value.phase), ['native', 'transfer']);
+          for (const phase of proof.responsiveness) for (const loop of [phase.main, phase.renderer]) {
+            assert(Number.isInteger(loop.samples) && loop.samples >= 2);
+            assert(Number.isFinite(loop.p99Ms) && loop.p99Ms >= 0 && loop.p99Ms < 100);
+            assert(Number.isFinite(loop.maxMs) && loop.maxMs >= loop.p99Ms && loop.maxMs <= 500);
+          }
+          assert.equal(proof.mainImportMaximumInclusiveMs, 500);
+          assert(Array.isArray(proof.importTimesMs));
+          if (proof.gpuImport === 'passed') assert(proof.importTimesMs.length > 0);
+          for (const value of proof.importTimesMs)
+            assert(Number.isFinite(value) && value >= 0 && value <= 500);
+          assert.equal(proof.mainImportMaxMs, Math.max(0, ...proof.importTimesMs));
+          NODE
       - name: Diagnose failed Linux library relocation
         if: failure() && runner.os == 'Linux'
         run: |

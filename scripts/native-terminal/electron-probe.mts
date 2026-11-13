@@ -11,6 +11,7 @@ import {
 } from '../../src/main/terminal/native-terminal-host'
 import { NativeTerminalFrameImports } from '../../src/main/terminal/native-terminal-import'
 import { NativeTerminalProcess } from '../../src/main/terminal/native-terminal-process'
+import { UI_RESPONSIVENESS_BUDGET as budgets } from '../../src/shared/ui-responsiveness-budget'
 
 const library = process.argv
   .find((arg) => arg.startsWith('--library='))
@@ -31,7 +32,23 @@ void app
   .then(async () => {
     let mainBeats = 0,
       rendererBeats = 0
-    const heartbeat = setInterval(() => mainBeats++, 5)
+    const phases: {
+      id: number
+      name: 'native' | 'transfer'
+      main: number[]
+      renderer: number[]
+    }[] = []
+    let measuring: (typeof phases)[number] | undefined
+    let lastMainBeat = performance.now()
+    const heartbeat = setInterval(() => {
+      mainBeats++
+      const now = performance.now()
+      if (measuring) {
+        assert(measuring.main.length < 12000)
+        measuring.main.push(now - lastMainBeat)
+      }
+      lastMainBeat = now
+    }, 5)
     window = new BrowserWindow({
       show: false,
       width: 640,
@@ -71,9 +88,48 @@ void app
         }
       },
     )
-    ipcMain.on('native-probe-heartbeat', (event) => {
-      if (event.sender === target.webContents) rendererBeats++
-    })
+    ipcMain.on(
+      'native-probe-heartbeat',
+      (event, value: { phase?: number; gapMs: number }) => {
+        if (event.sender !== target.webContents) return
+        rendererBeats++
+        const phase = phases.find((entry) => entry.id === value.phase)
+        if (phase) {
+          assert(Number.isFinite(value.gapMs) && value.gapMs >= 0)
+          assert(phase.renderer.length < 12000)
+          phase.renderer.push(value.gapMs)
+        }
+      },
+    )
+    let phaseId = 0
+    const measure = async (name?: 'native' | 'transfer'): Promise<void> => {
+      if (measuring) {
+        await until(
+          () =>
+            !!measuring && measuring.main.length >= 2 && measuring.renderer.length >= 2,
+        )
+        measuring.main.push(performance.now() - lastMainBeat)
+        measuring = undefined
+      }
+      const id = ++phaseId
+      const next = name
+        ? { id, name, main: [] as number[], renderer: [] as number[] }
+        : undefined
+      if (next) phases.push(next)
+      const acknowledged = new Promise<void>((resolve) => {
+        const done = (event: Electron.IpcMainEvent, value: { id: number }): void => {
+          if (event.sender === target.webContents && value.id === id) {
+            ipcMain.removeListener('native-probe-phase-ready', done)
+            resolve()
+          }
+        }
+        ipcMain.on('native-probe-phase-ready', done)
+      })
+      target.webContents.send('native-probe-phase', { id, name })
+      await acknowledged
+      measuring = next
+      lastMainBeat = performance.now()
+    }
     ipcMain.on(
       'native-probe-frame',
       (
@@ -90,6 +146,8 @@ void app
       'data:text/html,<meta http-equiv="Content-Security-Policy" content="default-src %27none%27"><title>Native boundary probe</title>',
     )
     await receiverReady
+    phase('prepare')
+    await measure('native')
     const sessions = new Map<string, NativeTerminalSession>()
     const session = (id: string): NativeTerminalSession => ({
       sessionId: id,
@@ -132,15 +190,13 @@ void app
     ])
     await host.inspect(a, first.ownerId, 1)
     await host.inspect(b, second.ownerId, 1)
-    let frame: NativeTerminalAcquiredFrame | undefined
-    for (let i = 0; i < 100 && !frame; i++) {
-      frame = await host.takeFrame(a, first.ownerId, 1, attachA)
-      if (!frame) await new Promise<void>((resolve) => setTimeout(resolve, 10))
-    }
-    assert(frame)
+    const frame = await completedFrame(host, a, first, attachA, 1)
     const kind = frame.metadata.kind
     const importTimes: number[] = []
-    const textures = new NativeTerminalFrameImports(processPort, {
+    const measuredTextures: Pick<
+      Electron.SharedTexture,
+      'importSharedTexture' | 'sendSharedTexture'
+    > = {
       importSharedTexture: (options) => {
         const start = performance.now()
         const result = sharedTexture.importSharedTexture(options)
@@ -148,7 +204,10 @@ void app
         return result
       },
       sendSharedTexture: (...args) => sharedTexture.sendSharedTexture(...args),
-    })
+    }
+    const textures = new NativeTerminalFrameImports(processPort, measuredTextures)
+    phase('import')
+    await measure('transfer')
     if (kind === 1 || kind === 2) {
       assert.equal(frame.metadata.streamSequence, 1)
       const readback = Buffer.from(await host.read(a, first.ownerId, 1)).toString('utf8')
@@ -170,6 +229,7 @@ void app
       assert.equal(process.platform, 'linux')
       await frame.release()
     }
+    await measure()
     // A retained second state remains independent; clean final-state shutdown is reusable.
     await host.resize(b, second.ownerId, 1, attachB, 2, 720, 384)
     await host.end(a, first.instanceId)
@@ -188,8 +248,8 @@ void app
       )
       await host.inspect(c, first.ownerId, 1)
       await armHold(target)
-      const source = await completedFrame(host, c, first, attachment)
-      const importer = new NativeTerminalFrameImports(processPort, sharedTexture)
+      const source = await completedFrame(host, c, first, attachment, 1)
+      const importer = new NativeTerminalFrameImports(processPort, measuredTextures)
       const held = await importer.acquire(source, {
         frame: target.webContents.mainFrame,
         ready: true,
@@ -200,6 +260,7 @@ void app
       await until(() => received.length > prior)
       const crashedPid = processPort.pid
       assert(crashedPid)
+      phase('producer-death')
       process.kill(crashedPid, 'SIGKILL')
       await until(() => !processPort?.available)
       const checked = new Promise<{ redPixels: number }>((resolve) =>
@@ -218,6 +279,7 @@ void app
     } else {
       const crashedPid = processPort.pid
       assert(crashedPid)
+      phase('producer-death')
       process.kill(crashedPid, 'SIGKILL')
       await until(() => !processPort?.available)
     }
@@ -243,8 +305,8 @@ void app
       await host.feed(d, first.instanceId, Buffer.from('consumer crash fixture\r\n'))
       await host.inspect(d, first.ownerId, 1)
       await armHold(target)
-      const consumerSource = await completedFrame(host, d, first, attachment)
-      const importer = new NativeTerminalFrameImports(processPort, sharedTexture)
+      const consumerSource = await completedFrame(host, d, first, attachment, 1)
+      const importer = new NativeTerminalFrameImports(processPort, measuredTextures)
       const retained = await importer.acquire(consumerSource, {
         frame: target.webContents.mainFrame,
         ready: true,
@@ -256,6 +318,7 @@ void app
       const crashed = new Promise<void>((resolve) =>
         target.webContents.once('render-process-gone', () => resolve()),
       )
+      phase('consumer-crash')
       target.webContents.forcefullyCrashRenderer()
       await crashed
       await retained.released
@@ -276,15 +339,16 @@ void app
       )
       const acknowledged = await host.inspect(d, first.ownerId, rendererGeneration)
       assert.equal(acknowledged.appliedSequence, 2)
-      const recovered = await completedFrame(host, d, renewed, renewedAttachment)
+      const recovered = await completedFrame(host, d, renewed, renewedAttachment, 2)
       await recovered.release()
       consumerDeathHeld = 'passed-real-renderer-crash-and-source-pool-recovery'
-      const delayed = await completedFrame(host, d, renewed, renewedAttachment)
+      const delayed = await completedFrame(host, d, renewed, renewedAttachment, 2)
       const held = await importer.acquire(delayed, {
         frame: target.webContents.mainFrame,
         ready: true,
         isCurrent: () => !target.isDestroyed(),
       })
+      phase('quarantine')
       const blocking = new Promise<void>((resolve) =>
         ipcMain.once('native-probe-block-started', () => resolve()),
       )
@@ -299,14 +363,36 @@ void app
       await new Promise<void>((resolve) => setTimeout(resolve, 1000))
       assert.equal(physicallyReleased, false, 'late consumer cannot bypass quarantine')
       target.destroy()
+      phase('quarantine-target-destroyed')
       await held.released
       timeoutQuarantine = 'passed-real-electron-timeout-and-late-consumer'
     }
+    phase('final-idle')
     await host.end(d, first.instanceId)
 
     clearInterval(heartbeat)
     assert(mainBeats > 0)
     assert(rendererBeats > 0)
+    const responsiveness = phases.map((phase) => ({
+      phase: phase.name,
+      main: gapSummary(phase.main),
+      renderer: gapSummary(phase.renderer),
+    }))
+    assert.equal(responsiveness.length, 2)
+    for (const phase of responsiveness)
+      for (const loop of [phase.main, phase.renderer]) {
+        assert(loop.samples >= 2)
+        assert(loop.p99Ms < budgets.responsivenessP99Ms, 'native-probe-heartbeat-p99')
+        assert(
+          loop.maxMs <= budgets.responsivenessMaxMs,
+          'native-probe-heartbeat-maximum',
+        )
+      }
+    const importMaxMs = importTimes.length ? Math.max(...importTimes) : 0
+    if (kind === 1 || kind === 2) assert(importTimes.length > 0)
+    assert(importTimes.every((value) => Number.isFinite(value) && value >= 0))
+    assert(importMaxMs <= budgets.responsivenessMaxMs, 'native-probe-main-import-maximum')
+    phase('receipt-flush')
     const receipt = JSON.stringify({
       nativeUtilityBoundary: 'passed',
       platform: process.platform,
@@ -334,6 +420,15 @@ void app
       mainBeats,
       rendererBeats,
       importTimesMs: importTimes,
+      responsiveness,
+      responsivenessPolicy: {
+        p99ExclusiveMs: budgets.responsivenessP99Ms,
+        maximumInclusiveMs: budgets.responsivenessMaxMs,
+        minimumSamplesPerLoop: 2,
+      },
+      mainImportMaxMs: importMaxMs,
+      mainImportMaximumInclusiveMs: budgets.responsivenessMaxMs,
+      responsivenessExcludesFaultPhases: true,
       frames: received,
     })
     await new Promise<void>((resolve, reject) => {
@@ -342,12 +437,15 @@ void app
         else resolve()
       })
     })
+    phase('receipt-flushed')
     host.dispose()
     if (!target.isDestroyed()) target.destroy()
     clearTimeout(timeout)
+    phase('exit')
     app.exit(0)
   })
   .catch((error: unknown) => {
+    phase('failure')
     console.error(error)
     host?.dispose()
     processPort?.dispose()
@@ -376,16 +474,48 @@ async function completedFrame(
   handle: string,
   session: NativeTerminalSession,
   attachment: number,
+  expectedStream: number,
 ): Promise<NativeTerminalAcquiredFrame> {
-  for (let i = 0; i < 100; i++) {
+  const expected = (await host.inspect(handle, session.ownerId, session.ownerGeneration))
+    .geometry
+  const deadline = Date.now() + 10000
+  while (Date.now() < deadline) {
     const frame = await host.takeFrame(
       handle,
       session.ownerId,
       session.ownerGeneration,
       attachment,
     )
-    if (frame) return frame
+    if (frame) {
+      if (
+        frame.metadata.streamSequence === expectedStream &&
+        frame.metadata.geometrySerial === expected.serial &&
+        frame.metadata.width === expected.width &&
+        frame.metadata.height === expected.height
+      )
+        return frame
+      await frame.release()
+      assert(
+        frame.metadata.streamSequence <= expectedStream,
+        'native-probe-unexpected-future-frame',
+      )
+    }
     await new Promise<void>((resolve) => setTimeout(resolve, 10))
   }
   throw new Error('native-probe-frame-timeout')
+}
+function gapSummary(values: number[]): { samples: number; p99Ms: number; maxMs: number } {
+  assert(
+    values.length >= 2 && values.every((value) => Number.isFinite(value) && value >= 0),
+  )
+  const sorted = [...values].sort((a, b) => a - b)
+  return {
+    samples: sorted.length,
+    p99Ms: sorted[Math.ceil(sorted.length * 0.99) - 1]!,
+    maxMs: sorted[sorted.length - 1]!,
+  }
+}
+
+function phase(name: string): void {
+  console.error(`native-probe:phase ${name}`)
 }

@@ -1,11 +1,12 @@
+import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
+
 export const CAPACITY_PERFORMANCE_GATE_ENV = 'HVIR_CAPACITY_PERFORMANCE_GATE'
 
 export const CAPACITY_PERFORMANCE_BUDGETS = {
   idleRendererPlusGpuRatio: 1.5,
   terminalReadinessP95Ratio: 2,
   terminalReadinessMaxMs: 1_000,
-  responsivenessP99Ms: 100,
-  responsivenessMaxMs: 500,
+  ...UI_RESPONSIVENESS_BUDGET,
   workingSetGrowthKiB: 256 * 1024,
 } as const
 

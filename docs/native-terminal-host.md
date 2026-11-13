@@ -22,6 +22,13 @@ are copied and split into ordered 16 KiB chunks. A concurrent delivery to the
 same state is explicitly rejected and retires that state; callers must await the
 previous delivery rather than drop or interleave producer bytes.
 
+Main control admission is capped at 32 global commands and seven per state,
+leaving producer credit for one chunk per bound state. A proven-unsent refusal of
+the first feed chunk preserves the parser and stream sequence for explicit retry
+or backpressure. A bound/failure after accepted partial delivery, or an
+indeterminate submitted operation, retires that state; no partial delivery is
+silently replayed.
+
 Logical cancellation retains physical command credit until completion. A late
 successful creation is destroyed; a late acquired frame is released against its
 original state. Invalid or unprovable cleanup retires the host. Releasing a lease
@@ -91,7 +98,30 @@ readback, stream sequence and renderer pixels. It also checks independent states
 main/renderer progress, idle restart, native host loss, initialization failure,
 pre-initialization shutdown, producer death while a renderer holds a frame,
 renderer-process death with a held lease, and the real Electron transfer timeout.
-A measured main import is one observation, not the performance gauntlet.
+It measures main heartbeat gaps at a nominal 5 ms and renderer gaps at 10 ms,
+using each loop's own monotonic clock. Acknowledged `native` and `transfer` phases
+cover initialization, concurrent parser/render work, resource transfer and the
+first real import/readback. Each phase requires at least two gaps from each loop.
+Nearest-rank p99 must be **less than 100 ms**, and every gap must be **at most
+500 ms**, reusing `CAPACITY_PERFORMANCE_BUDGETS` from the existing capacity owner.
+Phase termination also records the final partial interval so a stall at the end
+cannot disappear from the evidence. Deliberate producer/renderer crash, reload,
+and the injected renderer stall are outside these measurement phases.
+
+Every synchronous `importSharedTexture` call is separately timed on main and
+must complete within that same **500 ms absolute maximum**. A GPU-import receipt
+requires at least one measured import; owned-pixel Linux fallback reports no
+import samples instead of a successful import claim. The JSON receipt records
+phase sample counts, p99 and maximum gaps, all import durations and their maximum,
+plus the exact policy bounds. Native CI reasserts the receipt's policy and measured
+values. The consuming run supplies actual observed durations; these enforced
+limits do not claim a measured value for an unrun platform, full-app latency, or
+performance-gauntlet qualification.
+
+Completed-frame fixture waits release legitimate older initial frames (including
+stream zero) and wait within a fixed deadline for the fixture's expected stream
+and acknowledged geometry. That is qualification-fixture correlation, not a
+production requirement to import only the latest parser stream.
 
 Linux software CI may return owned pixels rather than a DMA-BUF. Its receipt
 reports `unavailable-owned-pixels`; synthetic SCM_RIGHTS success does not qualify
@@ -104,3 +134,9 @@ interpretation before production presentation.
 Linux native GPU presentation remains blocked
 on that hardware evidence in #1113. No software-only result authorizes production
 GPU presentation.
+
+The disposable Electron qualification is externally bounded to 75 seconds by its
+Node launcher. It captures both output streams and content-free phase markers,
+requires actual exit zero plus one completed receipt, and cleans only its own
+detached process group. A receipt followed by a stuck process or inherited pipe
+is a failure; a timeout never becomes acceptance.

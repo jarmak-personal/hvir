@@ -68,3 +68,16 @@ export interface NativeTerminalWorkerOptions {
   readonly resourceAddress: string
   readonly mainPid: number
 }
+
+/** The requested operation never reached its native caller; retry needs no replay. */
+export class NativeTerminalAdmissionError extends Error {
+  constructor(message = 'native-admission-bound') {
+    super(message)
+    this.name = 'NativeTerminalAdmissionError'
+  }
+}
+export function validNativeTerminalExtent(width: number, height: number): boolean {
+  return [width, height].every(
+    (value) => Number.isInteger(value) && value >= 32 && value <= 8192,
+  )
+}
