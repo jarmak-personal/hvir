@@ -118,3 +118,12 @@ the full dependency-cache license/copyright files; build
 provenance remains immutable when later packaging signs outputs. Packaging must record signed
 final-byte integrity separately, following the existing agent-client convention. M14 owns final
 package contents, supported ABI/sandbox inspection, signing, relocation and installed acceptance.
+
+
+The private ABI also builds the [native facade](native-terminal-facade.md). Matching-target
+builds run real pthread state/geometry/reply/metadata and completed-frame lease probes,
+including producer progress and retirement. Linux builds install Mesa's software renderer
+for this owner-level test; software output is explicitly not hardware GPU qualification.
+`facade-proof.json` records the actual resource kind, and `frame-metadata-proof.json`
+records invalid/partial descriptor cleanup. Only the info-only loader may unload its library;
+the initialized facade keeps Ghostty mapped until its native process exits.

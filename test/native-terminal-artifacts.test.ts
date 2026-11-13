@@ -21,6 +21,11 @@ beforeEach(async () => {
     'loader-probe',
     'hvir_ghostty_embed.h',
     'ghostty.h',
+    'terminal.h',
+    'facade-probe',
+    'facade-proof.json',
+    'frame-metadata-probe',
+    'frame-metadata-proof.json',
   ]) {
     await writeFile(join(root, name), `artifact ${name}`)
     files.push({
@@ -62,6 +67,21 @@ describe('native artifact admission before loader execution', () => {
   ] as const)('rejects mismatched %s', async (field) => {
     await save({ ...manifest, [field]: field === 'embedAbi' ? 999 : 'wrong' })
     await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow('identity mismatch')
+  })
+  it.each([
+    'terminal.h',
+    'facade-probe',
+    'facade-proof.json',
+    'frame-metadata-probe',
+    'frame-metadata-proof.json',
+  ])('rejects incomplete facade input %s before loading', async (name) => {
+    await save({
+      ...manifest,
+      files: manifest.files.filter((file) => file.path !== name),
+    })
+    await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow(
+      'missing required file',
+    )
   })
   it('rejects changed artifact bytes', async () => {
     await writeFile(join(root, 'libghostty.dylib'), 'corrupt library')
