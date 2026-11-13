@@ -21,8 +21,8 @@ export class PtyTerminalOutputBudget {
 }
 
 /** One source-owned ingress: active output plus one coalesced pending text batch.
- * Renderer replay/listeners never drive native parsing. Physical pause cannot
- * promise exit-tail delivery beyond node-pty's own socket-close deadline. */
+ * Renderer replay/listeners never drive native parsing. Transport close must
+ * preserve paused unread output before this owner settles its admitted tail. */
 export class PtyTerminalOutput {
   private accepting = true
   private failed = false

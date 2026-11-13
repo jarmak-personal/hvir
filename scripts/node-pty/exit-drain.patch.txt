@@ -1,0 +1,140 @@
+--- a/src/unixTerminal.ts
++++ b/src/unixTerminal.ts
+@@ -35,6 +35,7 @@
+ 
+   private _boundClose: boolean = false;
+   private _emittedClose: boolean = false;
++  private _exited: boolean = false;
+ 
+   private _writeStream: CustomWriteStream;
+ 
+@@ -76,6 +77,7 @@
+     const encoding = (opt.encoding === undefined ? 'utf8' : opt.encoding);
+ 
+     const onexit = (code: number, signal: number): void => {
++      this._exited = true;
+       // XXX Sometimes a data event is emitted after exit. Wait til socket is
+       // destroyed.
+       if (!this._emittedClose) {
+@@ -86,17 +88,32 @@
+         // From macOS High Sierra 10.13.2 sometimes the socket never gets
+         // closed. A timeout is applied here to avoid the terminal never being
+         // destroyed when this occurs.
+-        let timeout: NodeJS.Timeout | null = setTimeout(() => {
++        let timeout: NodeJS.Timeout | null = null;
++        const socket = this._socket;
++        const clearGuard = (): void => {
++          if (timeout !== null) clearTimeout(timeout);
+           timeout = null;
+-          // Destroying the socket now will cause the close event to fire
+-          this._socket.destroy();
+-        }, DESTROY_SOCKET_TIMEOUT_MS);
+-        this.once('close', () => {
+-          if (timeout !== null) {
+-            clearTimeout(timeout);
++        };
++        const armGuard = (): void => {
++          clearGuard();
++          if (!socket.isPaused()) {
++            timeout = setTimeout(() => {
++              timeout = null;
++              if (!socket.isPaused()) socket.destroy();
++            }, DESTROY_SOCKET_TIMEOUT_MS);
+           }
++        };
++        socket.on('pause', clearGuard);
++        socket.on('resume', armGuard);
++        socket.on('data', armGuard);
++        this.once('close', () => {
++          clearGuard();
++          socket.removeListener('pause', clearGuard);
++          socket.removeListener('resume', armGuard);
++          socket.removeListener('data', armGuard);
+           this.emit('exit', code, signal);
+         });
++        armGuard();
+         return;
+       }
+       this.emit('exit', code, signal);
+@@ -247,6 +264,11 @@
+   }
+ 
+   public kill(signal?: string): void {
++    if (this._exited) {
++      this._socket.destroy();
++      this._writeStream.dispose();
++      return;
++    }
+     try {
+       process.kill(this.pid, signal || 'SIGHUP');
+     } catch (e) { /* swallow */ }
+--- a/lib/unixTerminal.js
++++ b/lib/unixTerminal.js
+@@ -40,6 +40,7 @@
+         var _this = _super.call(this, opt) || this;
+         _this._boundClose = false;
+         _this._emittedClose = false;
++        _this._exited = false;
+         if (typeof args === 'string') {
+             throw new Error('args as a string is not supported on unix.');
+         }
+@@ -63,6 +64,7 @@
+         var parsedEnv = _this._parseEnv(env);
+         var encoding = (opt.encoding === undefined ? 'utf8' : opt.encoding);
+         var onexit = function (code, signal) {
++            _this._exited = true;
+             // XXX Sometimes a data event is emitted after exit. Wait til socket is
+             // destroyed.
+             if (!_this._emittedClose) {
+@@ -73,17 +75,32 @@
+                 // From macOS High Sierra 10.13.2 sometimes the socket never gets
+                 // closed. A timeout is applied here to avoid the terminal never being
+                 // destroyed when this occurs.
+-                var timeout_1 = setTimeout(function () {
++                var timeout_1 = null;
++                var socket = _this._socket;
++                var clearGuard = function () {
++                    if (timeout_1 !== null) clearTimeout(timeout_1);
+                     timeout_1 = null;
+-                    // Destroying the socket now will cause the close event to fire
+-                    _this._socket.destroy();
+-                }, DESTROY_SOCKET_TIMEOUT_MS);
+-                _this.once('close', function () {
+-                    if (timeout_1 !== null) {
+-                        clearTimeout(timeout_1);
++                };
++                var armGuard = function () {
++                    clearGuard();
++                    if (!socket.isPaused()) {
++                        timeout_1 = setTimeout(function () {
++                            timeout_1 = null;
++                            if (!socket.isPaused()) socket.destroy();
++                        }, DESTROY_SOCKET_TIMEOUT_MS);
+                     }
++                };
++                socket.on('pause', clearGuard);
++                socket.on('resume', armGuard);
++                socket.on('data', armGuard);
++                _this.once('close', function () {
++                    clearGuard();
++                    socket.removeListener('pause', clearGuard);
++                    socket.removeListener('resume', armGuard);
++                    socket.removeListener('data', armGuard);
+                     _this.emit('exit', code, signal);
+                 });
++                armGuard();
+                 return;
+             }
+             _this.emit('exit', code, signal);
+@@ -224,6 +241,11 @@
+         this._writeStream.dispose();
+     };
+     UnixTerminal.prototype.kill = function (signal) {
++        if (this._exited) {
++            this._socket.destroy();
++            this._writeStream.dispose();
++            return;
++        }
+         try {
+             process.kill(this.pid, signal || 'SIGHUP');
+         }

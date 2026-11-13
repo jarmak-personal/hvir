@@ -127,27 +127,31 @@ describe('resolved adapter for existing dependency direction policy', () => {
       )
     }
   })
-  it.each([
-    "import { verifyArtifact } from '../../../scripts/native-terminal/artifacts.mts'",
-    "import type { NativeArtifact } from '../../../scripts/native-terminal/artifacts.mts'",
-    "type Build = import('../../../scripts/native-terminal/artifacts.mts').NativeArtifact",
-    "void import('../../../scripts/native-terminal/artifacts.mts')",
-  ])('keeps native build tooling out of application imports: %s', async (source) => {
-    const violations = await checkModuleDirections(
-      graph(
-        'src/main/terminal/runtime.ts',
-        'scripts/native-terminal/artifacts.mts',
-        source,
-      ),
-      root,
+  for (const target of [
+    'scripts/native-terminal/artifacts.mts',
+    'scripts/node-pty/apply.mjs',
+  ]) {
+    it.each([
+      `import { value } from '../../../${target}'`,
+      `import type { Value } from '../../../${target}'`,
+      `type Value = import('../../../${target}').Value`,
+      `void import('../../../${target}')`,
+    ])(
+      `keeps contributor tooling ${target} out of application imports: %s`,
+      async (source) => {
+        const violations = await checkModuleDirections(
+          graph('src/main/terminal/runtime.ts', target, source),
+          root,
+        )
+        expect(violations).toContainEqual(
+          expect.objectContaining({
+            rule: 'no-restricted-syntax',
+            to: target,
+          }),
+        )
+      },
     )
-    expect(violations).toContainEqual(
-      expect.objectContaining({
-        rule: 'no-restricted-syntax',
-        to: 'scripts/native-terminal/artifacts.mts',
-      }),
-    )
-  })
+  }
 
   it.each([
     [

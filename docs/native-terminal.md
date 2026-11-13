@@ -266,13 +266,15 @@ Native output consumes the existing decoded ProjectHost strings independently of
 stream listeners. A source-owned ingress pauses the transport while bounded admitted work
 settles (128 KiB per session, 1 MiB aggregate); the native session encodes UTF-8 and feeds
 16 KiB pieces, draining terminal replies between pieces. Reply writes retain exact bytes
-and do not trigger user-input observation. Transport pause cannot guarantee delivery of
-bytes the transport never emitted, including node-pty's own socket-close deadline on exit.
-The retained-tail contract covers already admitted output. M13 must qualify the pinned
-node-pty 200 ms socket-close deadline with real delayed-feed/paused-source/exit stress:
-unemitted tail loss is an explicit cutover blocker or a separately accepted decision,
-not established lossless parity from this preview. Overflow or indeterminate feed
-failure makes native presentation unavailable while preserving the supervised PTY; it does
+and do not trigger user-input observation. The pinned node-pty Unix dependency includes
+a guarded, reproduced exit-drain correction: its existing 200 ms idle workaround does not destroy deliberately
+paused reads, and observed physical exit forbids signalling a reaped PID. Public
+exit follows stream drain; the supervisor then settles its admitted native tail.
+Real transport regression covers exact small and >1 MiB streams with a 500 ms
+consumer delay. Wider delayed-feed/exit stress and capacity remain M13 gates;
+the earlier demonstrated paused-tail loss is corrected, not accepted as a waiver.
+Overflow or indeterminate feed failure makes native presentation unavailable while
+preserving the supervised PTY; it does
 not replay, restart, or switch engines.
 
 The designated native caller drains and discards unsupported effect metadata after each

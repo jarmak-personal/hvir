@@ -28,7 +28,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "postinstall": "npm run install:runtime",
-    "install:runtime": "install-electron --no && node-gyp rebuild --directory node_modules/@hvir/rename-noreplace && node-gyp rebuild --directory node_modules/@hvir/extension-storage && electron-rebuild -f -o node-pty",
+    "install:runtime": "node scripts/node-pty/apply.mjs && install-electron --no && node-gyp rebuild --directory node_modules/@hvir/rename-noreplace && node-gyp rebuild --directory node_modules/@hvir/extension-storage && electron-rebuild -f -o node-pty",
     "prebuild": "node scripts/check-terminal-runtime.mts",
     "predev": "node scripts/check-terminal-runtime.mts",
     "dev": "electron-vite dev",
@@ -109,7 +109,7 @@
     "markdown-it": "^15.0.3",
     "markdown-it-task-lists": "^2.1.1",
     "mermaid": "^12.3.0",
-    "node-pty": "^1.1.0",
+    "node-pty": "1.1.0",
     "plist": "^3.1.1",
     "shiki": "^4.6.0",
     "ssh-config": "^5.3.0",

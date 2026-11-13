@@ -54,9 +54,9 @@ const EXTENSION_PACKAGE_IMPORT_BAN = {
 
 const NATIVE_BUILD_TOOL_IMPORT_BAN = {
   selector:
-    "ImportDeclaration[source.value=/scripts\\/native-terminal(\\/|$)/], ExportNamedDeclaration[source.value=/scripts\\/native-terminal(\\/|$)/], ExportAllDeclaration[source.value=/scripts\\/native-terminal(\\/|$)/], ImportExpression[source.value=/scripts\\/native-terminal(\\/|$)/], TSImportType[source.value=/scripts\\/native-terminal(\\/|$)/], CallExpression[callee.name='require'] > Literal.arguments[value=/scripts\\/native-terminal(\\/|$)/]",
+    "ImportDeclaration[source.value=/scripts\\/(native-terminal|node-pty)(\\/|$)/], ExportNamedDeclaration[source.value=/scripts\\/(native-terminal|node-pty)(\\/|$)/], ExportAllDeclaration[source.value=/scripts\\/(native-terminal|node-pty)(\\/|$)/], ImportExpression[source.value=/scripts\\/(native-terminal|node-pty)(\\/|$)/], TSImportType[source.value=/scripts\\/(native-terminal|node-pty)(\\/|$)/], CallExpression[callee.name='require'] > Literal.arguments[value=/scripts\\/(native-terminal|node-pty)(\\/|$)/]",
   message:
-    'Native terminal build tools are contributor-only; application source depends on runtime contracts and artifacts.',
+    'Native terminal build and dependency patch tools are contributor-only; application source depends on runtime contracts and artifacts.',
 }
 
 const NATIVE_EXTENSION_IMPORT_BAN = {
@@ -713,6 +713,7 @@ export default tseslint.config(
       'scripts/installed-startup-probe.mts',
       'scripts/agent-installed-reference-probe.mts',
       'scripts/build-agent-client.mts',
+      'scripts/node-pty/apply.mjs',
       'scripts/native-terminal/artifacts.mts',
       'scripts/native-terminal/build.mts',
       'scripts/native-terminal/bindings.mts',
