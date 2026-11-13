@@ -1,7 +1,7 @@
 import { hostPathEquals, type HostConnectionState, type HostPath } from '../../../shared'
 import { writeClipboardFromOsc } from './terminal-clipboard-write'
 import type { TerminalEventRouter } from './terminal-event-router'
-import type { TerminalPane } from './terminal-pane'
+import { isNativeTerminalPane, type TerminalRuntimePane } from './terminal-pane'
 import { createTerminalRuntimePane } from './terminal-pane-factory'
 import {
   applyLivePaneOptions,
@@ -10,7 +10,7 @@ import {
 } from './terminal-runtime-live-settings'
 import {
   pendingForkExitStatus,
-  terminalRecoveryFailureEquals,
+  terminalRuntimeSnapshotEquals,
   terminalStartFailureSnapshot,
   terminalUnavailablePresentation,
   type TerminalRuntimeSnapshot,
@@ -23,7 +23,13 @@ import type {
   SessionsTerminalSurfaceRevocationReason,
 } from '../sessions/sessions-terminal-surface'
 import { TerminalSessionsSurfaceOwner } from './terminal-sessions-surface-owner'
-import { terminalStartedStatus, terminalStartRequest } from './terminal-runtime-launch'
+import {
+  bindStartedTerminalPane,
+  publishTerminalIdentity,
+  publishTerminalStarted,
+  terminalStartedStatus,
+  terminalStartRequest,
+} from './terminal-runtime-launch'
 
 const PTY_RESIZE_DEBOUNCE_MS = 75
 
@@ -32,7 +38,7 @@ export class TerminalRuntime {
   private currentSnapshot: TerminalRuntimeSnapshot
   private readonly listeners = new Set<() => void>()
   private readonly surface = new TerminalSurfaceAttachment()
-  private pane?: TerminalPane
+  private pane?: TerminalRuntimePane
   private paneDisposers: Array<() => void | Promise<void>> = []
   private eventRoute?: ReturnType<TerminalEventRouter['register']>
   private resizeTimer?: number
@@ -98,7 +104,9 @@ export class TerminalRuntime {
     return this.options.workspaceRoot
   }
 
-  get live(): boolean { return !this.disposed && this.started && Boolean(this.activePtyId) }
+  get live(): boolean {
+    return !this.disposed && this.started && Boolean(this.activePtyId)
+  }
   snapshot = (): TerminalRuntimeSnapshot => this.currentSnapshot
 
   subscribe = (listener: () => void): (() => void) => {
@@ -116,7 +124,7 @@ export class TerminalRuntime {
     }
     const typographyChanged = applyLivePaneOptions(this.pane, this.options, options)
     if (!hostPathEquals(options.workspaceRoot, this.options.workspaceRoot)) {
-      this.revokeSessionsSurface('workspace-unavailable')
+      this.sessionsSurface.revoke('workspace-unavailable')
     }
     this.options = options
     this.interactions.updateAvailability(runtimeCanInteract(options))
@@ -137,7 +145,7 @@ export class TerminalRuntime {
       }
       return
     }
-    this.revokeSessionsSurface('connection-unavailable')
+    this.sessionsSurface.revoke('connection-unavailable')
     this.disconnected = true
     if (this.started && connectionState !== 'disconnected') return
     this.releaseSurface(this.starting)
@@ -325,7 +333,7 @@ export class TerminalRuntime {
       synchronizePanePresentationOptions(pane, this.options)
       this.installPaneListeners(pane)
       this.surface.mountPane(pane, container)
-      pane.redraw()
+      if (!isNativeTerminalPane(pane)) pane.redraw()
       this.installPtyListeners(sessionId, pane)
       this.surface.synchronize(this.options.presentation)
       const resume =
@@ -342,7 +350,9 @@ export class TerminalRuntime {
           replacement,
           this.terminalSize,
           this.currentSnapshot.title,
-          resume, !manualRestart && !reconnect && !this.hasStarted,
+          resume,
+          !manualRestart && !reconnect && !this.hasStarted,
+          isNativeTerminalPane(pane) ? pane.viewport() : undefined,
         ),
       )
       if (!this.isCurrent(generation)) {
@@ -360,7 +370,9 @@ export class TerminalRuntime {
       this.hasStarted = true
       this.activePtyId = result.id
       this.activePtyInstanceId = result.instanceId
-      this.interactions.bind(pane, result.id)
+      await bindStartedTerminalPane(pane, result.id, this.interactions)
+      if (!this.isCurrent(generation) || !this.started || this.activePtyId !== result.id)
+        return
       const status = terminalStartedStatus(result, {
         replacement,
         fork: Boolean(fork),
@@ -383,22 +395,8 @@ export class TerminalRuntime {
       if (replacement) {
         this.pendingReplacementId = undefined
         this.replaceSessionId(replacement.replacesSessionId, result.id, this)
-        this.options.onFreshStarted({
-          sessionId: result.id,
-          status,
-          harnessSessionId: result.harnessSessionId,
-          identityStatus: result.identityStatus,
-          capabilities: result.capabilities,
-        })
-      } else {
-        this.publishIdentity(
-          result.harnessSessionId,
-          result.identityStatus,
-          result.identityDiverged,
-        )
-        this.options.onCapabilities(result.capabilities)
-        this.options.onStarted()
       }
+      publishTerminalStarted(this.options, result, status, Boolean(replacement))
       if (this.options.active) this.focus()
     } catch (error) {
       if (this.isCurrent(generation)) {
@@ -417,7 +415,13 @@ export class TerminalRuntime {
     }
   }
 
-  private installPaneListeners(pane: TerminalPane): void {
+  private installPaneListeners(pane: TerminalRuntimePane): void {
+    if (isNativeTerminalPane(pane)) {
+      this.paneDisposers = [
+        pane.onInput((text) => this.surface.canFocus() && this.options.onInput(text)),
+      ]
+      return
+    }
     this.paneDisposers = [
       pane.events.onData((data, source) => {
         if (this.pane !== pane) return
@@ -479,17 +483,18 @@ export class TerminalRuntime {
     ]
   }
 
-  private installPtyListeners(sessionId: string, pane: TerminalPane): void {
+  private installPtyListeners(sessionId: string, pane: TerminalRuntimePane): void {
     this.eventRoute = this.terminalEvents().register(
       sessionId,
       this.surface.presentation,
       {
         onData: (data) => {
           this.options.onOutput()
-          pane.write(data)
+          if (!isNativeTerminalPane(pane)) pane.write(data)
         },
         onExit: (exitCode) => {
-          this.revokeSessionsSurface('terminal-unavailable')
+          if (isNativeTerminalPane(pane)) pane.setReadonly()
+          this.sessionsSurface.revoke('terminal-unavailable')
           this.started = false
           this.activePtyId = undefined
           this.activePtyInstanceId = undefined
@@ -507,7 +512,12 @@ export class TerminalRuntime {
         },
         onTelemetry: (telemetry) => this.options.onTelemetry(telemetry),
         onIdentity: (harnessSessionId, identityStatus, identityDiverged) =>
-          this.publishIdentity(harnessSessionId, identityStatus, identityDiverged),
+          publishTerminalIdentity(
+            this.options,
+            harnessSessionId,
+            identityStatus,
+            identityDiverged,
+          ),
       },
     )
     this.surface.installRoute(this.eventRoute)
@@ -517,7 +527,8 @@ export class TerminalRuntime {
     kill: boolean,
     revocationReason: SessionsTerminalSurfaceRevocationReason = 'terminal-unavailable',
   ): void {
-    this.revokeSessionsSurface(revocationReason)
+    this.sessionsSurface.revoke(revocationReason)
+    const native = this.pane && isNativeTerminalPane(this.pane)
     const wasStarting = this.starting
     this.startController?.abort()
     this.startController = undefined
@@ -535,7 +546,7 @@ export class TerminalRuntime {
     this.pane?.dispose()
     this.pane = undefined
     this.surface.releaseResources()
-    if (kill && (this.started || wasStarting)) {
+    if (kill && (this.started || wasStarting || native)) {
       window.hvir.send('pty:kill', {
         id: this.activePtyId ?? this.pendingReplacementId ?? this.options.sessionId,
       })
@@ -545,39 +556,21 @@ export class TerminalRuntime {
     this.activePtyInstanceId = undefined
   }
 
-  private revokeSessionsSurface(reason: SessionsTerminalSurfaceRevocationReason): void {
-    this.sessionsSurface.revoke(reason)
-  }
-
   private failStart(
     status: string,
     recoveryFailure?: TerminalRuntimeSnapshot['recoveryFailure'],
   ): void {
-    this.updateSnapshot(terminalStartFailureSnapshot(this.currentSnapshot, status, recoveryFailure))
+    const failed = terminalStartFailureSnapshot(
+      this.currentSnapshot,
+      status,
+      recoveryFailure,
+    )
+    this.updateSnapshot({ ...failed, exited: !this.started })
     if (this.options.forkRequest) this.options.onStartFailed?.(status)
   }
 
-  private publishIdentity(
-    harnessSessionId: string | undefined,
-    identityStatus: Parameters<TerminalRuntimeOptions['onIdentity']>[1],
-    identityDiverged?: true,
-  ): void {
-    if (identityDiverged) this.options.onIdentity(harnessSessionId, identityStatus, true)
-    else this.options.onIdentity(harnessSessionId, identityStatus)
-  }
-
   private updateSnapshot(snapshot: TerminalRuntimeSnapshot): void {
-    if (
-      snapshot.title === this.currentSnapshot.title &&
-      snapshot.status === this.currentSnapshot.status &&
-      snapshot.exited === this.currentSnapshot.exited &&
-      terminalRecoveryFailureEquals(
-        snapshot.recoveryFailure,
-        this.currentSnapshot.recoveryFailure,
-      )
-    ) {
-      return
-    }
+    if (terminalRuntimeSnapshotEquals(snapshot, this.currentSnapshot)) return
     this.currentSnapshot = snapshot
     this.options.onStatus(snapshot.status)
     for (const listener of this.listeners) listener()

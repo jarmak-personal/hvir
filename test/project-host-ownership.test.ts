@@ -148,3 +148,29 @@ describe('registry host-facade seam backstop', () => {
     )
   })
 })
+
+describe('private SSH PTY adapter boundary', () => {
+  it('admits the channel adapter but rejects independent clients and public factories', () => {
+    source('main/project-registry.ts', 'export class ProjectRegistry {}')
+    source('main/project-host/index.ts')
+    const adapter = 'main/project-host/ssh-pty-process.ts'
+    source(adapter, "import type { ClientChannel } from 'ssh2'")
+    const run = () => spawnSync('bash', [script], { cwd: root, encoding: 'utf8' })
+    expect(run().status).toBe(0)
+    source(adapter, 'new Client()')
+    const independent = run()
+    expect(independent.status).toBe(1)
+    expect(independent.stdout).toContain(
+      'SSH collaborators do not create independent clients',
+    )
+    source(adapter)
+    source(
+      'main/project-host/index.ts',
+      "export { createSshPtyProcess } from './ssh-pty-process'",
+    )
+    const facade = run()
+    expect(facade.status).toBe(1)
+    expect(facade.stdout).toContain('only SshHost is exported as the remote host façade')
+    source('main/project-host/index.ts')
+  })
+})

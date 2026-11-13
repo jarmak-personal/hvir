@@ -237,3 +237,67 @@ input/effects first, settles PTY and native jobs, cancels queries, releases atta
 leases, then frees native state. A live lease may need to outlast its UI owner until physical
 release; logical revocation never proves OS cleanup. App shutdown awaits bounded cleanup and
 reports any failed stage without terminal contents, private paths, or credentials.
+
+## Development workbench runtime
+
+The macOS development runtime is opt-in through the main-process environment:
+`HVIR_NATIVE_TERMINAL_LIBRARY=/absolute/path/to/libghostty.dylib npm run dev`.
+Build matching contributor bindings first with
+`npm run native:bindings -- macos-arm64 ARTIFACT_DIR NEW_SCRATCH_DIR --development`.
+The artifact must come from the maintained native build owner; development provenance
+remains explicit. Packaged applications ignore this development selector. An absent
+selector uses the existing web pane; a selected native failure never silently starts
+another parser or shell. Main rejects an omitted initial viewport before dispatch when
+native is selected; a renderer cannot downgrade that engine selection. The preview requires
+a mounted, measurable pane. Background/no-pane starts and zero-size deferred/bulk restoration
+are not yet qualified native capabilities; M13 must qualify their admission/materialization
+behavior. Do not invent dimensions to make them appear supported. Catalog discovery itself
+continues to allocate no native state.
+
+The supervisor reserves the existing immutable PTY instance before native preparation.
+It waits for applied native geometry, then uses those cells for the provider launch and
+ProjectHost spawn. Later fitting has one serial owner in the presenter; only its latest
+acknowledged geometry notifies the supervisor. The retained Workspace/Sessions surface
+keeps one current input owner. Shell exit makes the native state read-only after admitted
+output settles; explicit removal closes it. Renderer replacement renews attachment
+ownership without reconstructing a live parser from renderer replay.
+
+Native output consumes the existing decoded ProjectHost strings independently of renderer
+stream listeners. A source-owned ingress pauses the transport while bounded admitted work
+settles (128 KiB per session, 1 MiB aggregate); the native session encodes UTF-8 and feeds
+16 KiB pieces, draining terminal replies between pieces. Reply writes retain exact bytes
+and do not trigger user-input observation. The pinned node-pty Unix dependency includes
+a guarded, reproduced exit-drain correction: its existing 200 ms idle workaround
+does not destroy deliberately paused reads. Observed physical exit prevents
+signalling a reaped PID. Public exit follows stream drain; the supervisor then settles its admitted native tail.
+Real transport regression covers exact small and >1 MiB streams with a 500 ms
+consumer delay. Wider delayed-feed/exit stress and capacity remain M13 gates;
+the earlier demonstrated paused-tail loss is corrected, not accepted as a waiver.
+SSH also separates remote exit status from drained output: known input termination
+stops native replies immediately, while the public PTY exit waits for buffered
+readable output and the UTF-8 decoder to finish. Readable EOF alone remains an
+output half-close and does not revoke still-valid input. Real loopback protocol
+tests cover fast and delayed small/streamed output; these tests simulate the remote
+producer and native consumer, and do not qualify a remote operating system or GPU.
+Overflow or indeterminate feed failure makes native presentation unavailable while
+preserving the supervised PTY; it does not replay, restart, or switch engines.
+
+The designated native caller drains and discards unsupported effect metadata after each
+feed segment, within the existing 128-record mailbox plus two latest-value slots.
+This prevents accumulation across normal feeds; it never clears a native failure or
+undoes an overflow within one feed. Title, cwd, bell, semantic and clipboard effects
+remain unsupported: no UI action or clipboard authorization is performed. M11 must
+replace this single consumption seam with policy routing, rather than adding a
+competing mailbox consumer. This housekeeping is not feature compatibility.
+
+This slice deliberately exposes unfinished native capabilities in the pane: richer input,
+IME, clipboard, scrolling, selection, search, semantic navigation and live settings are
+not represented by successful no-op implementations. The native pane has a distinct
+capability contract within the existing TerminalPane/runtime boundary. Basic development
+keyboard input uses the authoritative native encoder and exact byte writes.
+
+With the same environment selector, `npm run smoke:native-terminal` exercises the ordinary
+workbench renderer, IPC, supervisor, ProjectHost and native presenter with the production
+sandbox selection. Its disposable observer checks native marker pixels, keyboard encoding,
+acknowledged resize reaching the real shell, and retained exit output. It is separate from
+controlled M15 capacity/performance and Linux hardware qualification.

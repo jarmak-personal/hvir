@@ -37,7 +37,7 @@ export class TerminalRuntimeInteractions {
   }
 
   synchronizeAvailability(): void {
-    this.search.setAvailable(this.selected && this.canFocus())
+    this.search.setAvailable(Boolean(this.pane) && this.selected && this.canFocus())
   }
 
   attachSurface(container: HTMLElement): void {

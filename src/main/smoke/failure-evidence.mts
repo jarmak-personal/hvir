@@ -267,3 +267,27 @@ export function smokeCleanupResource(name: string): SmokeCleanupResource | null 
     ? (name as SmokeCleanupResource)
     : null
 }
+
+export function smokeOwnedResourceEvidence(
+  win:
+    { isDestroyed(): boolean; readonly webContents: { readonly id: number } } | undefined,
+  supervisor: { list(): readonly unknown[] } | undefined,
+  watcherActive: boolean,
+  rendererResources: { currentOwner(id: number): { generation: number } },
+): SmokeOwnedResourceEvidence {
+  let rendererGeneration: number | null = null
+  if (win && !win.isDestroyed()) {
+    try {
+      rendererGeneration = rendererResources.currentOwner(win.webContents.id).generation
+    } catch {
+      // A revoked owner is represented by the closed null/false fields below.
+    }
+  }
+  return {
+    windowCount: win && !win.isDestroyed() ? 1 : 0,
+    ptyCount: supervisor?.list().length ?? 0,
+    watcherActive,
+    rendererOwnerActive: rendererGeneration !== null,
+    rendererGeneration,
+  }
+}

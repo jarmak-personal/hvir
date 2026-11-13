@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   claudeCodeProvider,
+  codexProvider,
   plainShellProvider,
 } from '../src/main/harness/harness-provider'
 import {
@@ -245,6 +246,48 @@ describe('PtySupervisor', () => {
     supervisor.resize(info.id, OWNER_ID, 120, 40)
     expect(pty.write).toHaveBeenCalledWith('input')
     expect(pty.resize).toHaveBeenCalledWith(120, 40)
+  })
+
+  it('forwards exact byte spans only for the current owner and generation', async () => {
+    const { supervisor, pty, spawn } = fixture({ provider: plainShellProvider })
+    const info = await spawn({ ownerGeneration: 7 })
+    const view = Uint8Array.of(99, 0, 128, 255, 77).subarray(1, 4)
+    expect(() => supervisor.write(info.id, OWNER_ID + 1, view, 7)).toThrow()
+    expect(() => supervisor.write(info.id, OWNER_ID, view, 6)).toThrow()
+    await expect(supervisor.writeConfirmed(info.id, OWNER_ID, view, 6)).rejects.toThrow()
+    expect(pty.write).not.toHaveBeenCalled()
+    expect(pty.writeConfirmed).not.toHaveBeenCalled()
+    supervisor.write(info.id, OWNER_ID, view, 7)
+    await supervisor.writeConfirmed(info.id, OWNER_ID, view, 7)
+    expect(pty.write).toHaveBeenCalledExactlyOnceWith(view)
+    expect(pty.writeConfirmed).toHaveBeenCalledExactlyOnceWith(view)
+  })
+
+  it('does not treat native terminal responses as user-input discovery retries', async () => {
+    const identify = vi.fn().mockResolvedValue({ status: 'unavailable' })
+    const provider = {
+      ...codexProvider,
+      telemetry: undefined,
+      sessionDiscovery: { snapshot: () => Promise.resolve([]), identify },
+    }
+    const { supervisor, pty, spawn } = fixture({ provider })
+    const info = await spawn({
+      launchSpec: { file: 'codex-fixture', args: [] },
+      ownerGeneration: 7,
+    })
+    await vi.waitFor(() =>
+      expect(supervisor.get(info.id)?.identityStatus).toBe('unavailable'),
+    )
+    expect(identify).toHaveBeenCalledOnce()
+    const response = Uint8Array.of(0, 128, 255)
+    supervisor.write(info.id, OWNER_ID, response, 7, 'terminal-response')
+    await supervisor.writeConfirmed(info.id, OWNER_ID, response, 7, 'terminal-response')
+    expect(identify).toHaveBeenCalledOnce()
+    expect(supervisor.get(info.id)?.identityStatus).toBe('unavailable')
+    expect(pty.write).toHaveBeenCalledExactlyOnceWith(response)
+    expect(pty.writeConfirmed).toHaveBeenCalledExactlyOnceWith(response)
+    supervisor.write(info.id, OWNER_ID, 'human input', 7)
+    expect(identify).toHaveBeenCalledTimes(2)
   })
 
   it('confirms exactly one complete write at the owned PTY boundary', async () => {

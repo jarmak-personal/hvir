@@ -4,6 +4,7 @@ import resource, { type Endpoint, type Receipt } from '@hvir/native-terminal/res
 import {
   NATIVE_TERMINAL_LIMITS as limits,
   NativeTerminalAdmissionError,
+  nativeTerminalCommandBytes,
   type NativeTerminalCommand,
   type NativeTerminalHostMessage,
 } from '../../shared/native-terminal'
@@ -101,7 +102,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
     const feed = command.kind === 'feed'
     const admitted = [...this.pending.values(), ...this.waiting]
     const controls = admitted.filter((item) => !item.feed)
-    const byteCount = command.kind === 'feed' ? command.bytes.byteLength : 0
+    const byteCount = nativeTerminalCommandBytes(command)
     const same = admitted.filter((p) => p.state === state)
     if (
       this.pending.size + this.waiting.size >=

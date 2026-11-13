@@ -19,7 +19,6 @@ import {
 import {
   assertLoopbackEndpoint,
   MAX_EXEC_STREAM_WRITE_BYTES,
-  PtyWriteIndeterminateError,
   type Disposer,
   type ExecOptions,
   type ExecStreamHandle,
@@ -45,6 +44,8 @@ import { SshWatchService } from './ssh-watch-service'
 import { startBufferedSshExec } from './ssh-buffered-exec'
 import { remoteCommand } from './ssh-command'
 import { SshStreamLocalOwner } from './ssh-stream-local'
+import { createSshPtyProcess, type SshPtyProcess } from './ssh-pty-process'
+export { SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS } from './ssh-pty-process'
 
 export {
   SSH_CONTROL_CHANNEL_BUDGET,
@@ -57,7 +58,6 @@ export {
 
 export const SSH_DEFAULT_MAX_CONCURRENT_EXECS = 4
 export const SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS = 4
-export const SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS = 5_000
 
 interface SshCredentialAttempt {
   password?: string
@@ -445,79 +445,17 @@ export class SshHost implements ProjectHost {
   }
 
   async spawnPty(opts: SpawnPtyOptions): Promise<PtyProcess> {
-    const channel = await this.openTerminalPtyChannel(opts)
-    const data = new Set<(v: string) => void>(),
-      exits = new Set<(v: { exitCode: number; signal: number | undefined }) => void>()
-    const decoder = new StringDecoder('utf8')
-    let exited = false
-    const reportExit = (exitCode: number): void => {
-      if (exited) return
-      exited = true
-      for (const cb of exits) cb({ exitCode, signal: undefined })
-    }
-    const transportFailure = (): void => reportExit(255)
-    const stopTransportFailure = this.transportPool.onChannelTransportFailure(
-      channel,
-      transportFailure,
+    let process: SshPtyProcess | undefined
+    const channel = await this.openTerminalPtyChannel(opts, (opened) => {
+      process = createSshPtyProcess(opened, nextRemotePid--)
+    })
+    if (!process) throw new Error('SSH PTY adapter was not initialized')
+    process.bindTransportFailure((callback) =>
+      this.transportPool.onChannelTransportFailure(channel, callback),
     )
-    channel.on('data', (b: Buffer) => {
-      const value = decoder.write(b)
-      if (value) for (const cb of data) cb(value)
-    })
-    channel.on('exit', (code: number | null) => {
-      reportExit(code ?? 0)
-    })
-    channel.on('close', () => {
-      void stopTransportFailure()
-      const final = decoder.end()
-      if (final) for (const cb of data) cb(final)
-      // Some SSH servers close a PTY channel without sending exit-status.
-      // The supervisor still needs one terminal lifecycle event, exactly once.
-      reportExit(255)
-    })
-    return {
-      pid: nextRemotePid--,
-      onData: (cb) => subscribe(data, cb),
-      onExit: (cb) => subscribe(exits, cb),
-      write: (v) => channel.write(v),
-      writeConfirmed: (value) => {
-        if (exited) return Promise.reject(new Error('SSH PTY already exited'))
-        return new Promise<void>((resolve, reject) => {
-          let settled = false
-          let timer: ReturnType<typeof setTimeout> | undefined
-          let stopExit: Disposer = () => undefined
-          const finish = (error?: Error): void => {
-            if (settled) return
-            settled = true
-            if (timer) clearTimeout(timer)
-            timer = undefined
-            void stopExit()
-            if (error) reject(error)
-            else resolve()
-          }
-          stopExit = subscribe(exits, () =>
-            finish(
-              new PtyWriteIndeterminateError('SSH PTY exited before write completion'),
-            ),
-          )
-          timer = setTimeout(
-            () =>
-              finish(
-                new PtyWriteIndeterminateError('SSH PTY write completion timed out'),
-              ),
-            SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS,
-          )
-          try {
-            channel.write(value, (error?: Error | null) => finish(error ?? undefined))
-          } catch (error) {
-            finish(asError(error))
-          }
-        })
-      },
-      resize: (cols, rows) => channel.setWindow(rows, cols, 0, 0),
-      kill: () => channel.close(),
-    }
+    return process
   }
+
   async readFile(path: HostPath, opts: ReadFileOptions = {}): Promise<Buffer> {
     return this.files.readFile(path, opts)
   }
@@ -855,7 +793,10 @@ export class SshHost implements ProjectHost {
     return { channel }
   }
 
-  private async openTerminalPtyChannel(opts: SpawnPtyOptions): Promise<ClientChannel> {
+  private async openTerminalPtyChannel(
+    opts: SpawnPtyOptions,
+    opened: (channel: ClientChannel) => void,
+  ): Promise<ClientChannel> {
     return this.transportPool.openChannel(
       'terminal',
       (client) =>
@@ -875,7 +816,19 @@ export class SshHost implements ProjectHost {
                   rows: opts.rows ?? 24,
                 },
               },
-              (error, stream) => (error ? reject(error) : resolve(stream)),
+              (error, stream) => {
+                if (error) {
+                  reject(error)
+                  return
+                }
+                try {
+                  opened(stream)
+                  resolve(stream)
+                } catch (reason) {
+                  stream.close()
+                  reject(asError(reason))
+                }
+              },
             )
           } catch (error) {
             reject(asError(error))

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { webInvoke } from './fixtures/ghostty-lifecycle-runtime-options'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -120,7 +121,9 @@ vi.mock('../src/renderer/src/terminal/ghostty-terminal-pane', () => ({
 }))
 
 describe('terminal resume unavailable state', () => {
-  let invoke: ReturnType<typeof vi.fn>
+  let invoke: ReturnType<
+    typeof vi.fn<(channel: string, request: unknown) => Promise<unknown>>
+  >
   let send: ReturnType<typeof vi.fn>
   let registry: TerminalRuntimeRegistry
 
@@ -136,7 +139,7 @@ describe('terminal resume unavailable state', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke,
+        invoke: webInvoke(invoke),
         send,
         on: vi.fn(() => () => undefined),
       },
@@ -164,7 +167,12 @@ describe('terminal resume unavailable state', () => {
     const runtime = registry.acquire(runtimeOptions)
     runtime.attach(document.createElement('div'))
 
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    await vi.waitFor(() =>
+      expect(runtime.snapshot().status).toBe(
+        'Launch unavailable · session recovery baseline could not be read',
+      ),
+    )
+    expect(invoke).toHaveBeenCalledOnce()
     expect(runtime.snapshot()).toEqual({
       title: 'Claude Code · repo',
       status: 'Launch unavailable · session recovery baseline could not be read',
@@ -191,7 +199,8 @@ describe('terminal resume unavailable state', () => {
     }
     const runtime = registry.acquire(runtimeOptions)
     runtime.attach(document.createElement('div'))
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(runtimeOptions.onStarted).toHaveBeenCalledOnce())
+    expect(invoke).toHaveBeenCalledOnce()
 
     paneState.instances[0]?.emitClipboardPaste('\x16')
 
@@ -213,7 +222,8 @@ describe('terminal resume unavailable state', () => {
       resumeOnStart: false,
     })
     runtime.attach(document.createElement('div'))
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(runtime.snapshot().status).toBe('pid 4321'))
+    expect(invoke).toHaveBeenCalledOnce()
     send.mockClear()
 
     paneState.instances[0]?.emitEvent({

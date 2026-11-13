@@ -36,6 +36,14 @@ import { createTestSshHost } from './ssh-host-test-fixture'
 const HARNESS_SESSION_ID = '05ea41ff-026f-4ab6-b930-64eb3b497806'
 
 describe('terminal IPC launch probe binding', () => {
+  it('rejects an omitted viewport before dispatch when main selected the native engine', async () => {
+    const f = launchProbeFixture('', undefined, 'plain-shell', undefined, true)
+    await expect(f.start(f.request, f.context)).rejects.toThrow(
+      'requires an initial viewport',
+    )
+    expect(f.spawn).not.toHaveBeenCalled()
+  })
+
   it('persists ordinary shell identity and recovery never repeats command-once bytes', async () => {
     let admission!: TerminalCommandRequest
     const handoffs = new TerminalCommandHandoffOwner((_owner, request) => {
@@ -265,6 +273,7 @@ function launchProbeFixture(
   suppliedHost?: ProjectHost,
   providerId = 'codex',
   terminalHandoffs?: TerminalCommandHandoffOwner,
+  nativeEnabled = false,
 ) {
   const root = hostPath(suppliedHost?.hostId ?? LOCAL_HOST_ID, '/repo')
   const profile = {
@@ -371,6 +380,7 @@ function launchProbeFixture(
   const lease = { dispose: vi.fn(() => Promise.resolve()), release: vi.fn() }
   const recordSpawn = vi.fn<TerminalSessionStore['recordSpawn']>(() => Promise.resolve())
   registerTerminalIpc(ipc, {
+    nativeTerminals: nativeEnabled ? {} : undefined,
     terminalHandoffs,
     getHost: () => host,
     terminalSessions: {

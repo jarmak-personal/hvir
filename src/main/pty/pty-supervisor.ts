@@ -3,6 +3,7 @@
  * Only this facade may call ProjectHost.spawnPty.
  */
 import { randomUUID } from 'node:crypto'
+import type { TerminalInputSource } from '../../shared/terminal-input'
 import {
   hostPathEquals,
   LOCAL_HOST_ID,
@@ -15,6 +16,7 @@ import {
   type Disposer,
   type PtyExit,
   type PtyProcess,
+  type PtyWriteData,
 } from '../project-host/project-host'
 import { harnessProviderCapabilities } from '../harness/harness-provider-capabilities'
 import { harnessShellCommandArgs } from '../harness/harness-shell-environment'
@@ -22,6 +24,7 @@ import { AGENT_TERMINAL_ENVIRONMENT } from '../harness/protected-terminal-enviro
 import {
   PtyStartUnavailableError,
   type PtySpawnRequest,
+  type PtyPreparedTerminal,
   type ManagedPty,
   type ObservedManagedPty,
   type HarnessSessionIdentityStatus,
@@ -31,6 +34,7 @@ import {
   type PtyAgentEnvironmentProvider,
 } from './pty-contract'
 import { PtyLaunchAdmission } from './pty-launch-admission'
+import { PtyTerminalOutput, PtyTerminalOutputBudget } from './pty-terminal-output'
 import { PtyStreamAttachment } from './pty-stream-attachment'
 import { PtySessionObservation } from './pty-session-observation'
 import { PtySessionLifetime, type PendingPtyExit } from './pty-session-lifetime'
@@ -42,6 +46,7 @@ interface Entry {
   readonly lifetime: PtySessionLifetime
   readonly stream: PtyStreamAttachment
   readonly observation: PtySessionObservation
+  readonly terminal?: PtyTerminalOutput
   rendererReattachPending: boolean
 }
 
@@ -54,6 +59,7 @@ export class PtySupervisor {
         this.agentTargetEnvironment = undefined
     }
   }
+  private readonly terminalOutputBudget = new PtyTerminalOutputBudget()
   private readonly entries = new Map<string, Entry>()
   private readonly globalExitListeners = new Set<
     (info: ManagedPty, exit: PtyExit) => void
@@ -132,6 +138,9 @@ export class PtySupervisor {
     let releaseDiscoveryLaunch: Disposer | undefined
     let releaseStartAdmission: Disposer | undefined
     let pty: PtyProcess
+    let prepared: PtyPreparedTerminal | undefined
+    let columns = req.cols,
+      rows = req.rows
     let launchedAtMs: number
     try {
       if (req.admission === 'bulk') {
@@ -157,17 +166,43 @@ export class PtySupervisor {
       pending.assertCurrent()
       const defaultShell = await req.host.defaultShell()
       pending.assertCurrent()
+      if (req.prepareTerminal) {
+        prepared = await req.prepareTerminal(
+          {
+            sessionId,
+            instanceId,
+            ownerId: req.ownerId,
+            ownerGeneration: req.ownerGeneration ?? 0,
+            workspaceRoot: req.workspaceRoot ?? req.cwd,
+          },
+          pending.signal,
+        )
+        pending.assertCurrent()
+        if (
+          ![prepared.columns, prepared.rows].every(
+            (n) => Number.isInteger(n) && n > 0 && n <= 65535,
+          )
+        )
+          throw new Error('pty-native-initial-geometry-invalid')
+        columns = prepared.columns
+        rows = prepared.rows
+      }
       const ctx = {
         sessionId: harnessSessionId ?? sessionId,
         cwd: req.cwd,
-        cols: req.cols,
-        rows: req.rows,
+        cols: columns,
+        rows,
         defaultShell,
         composerSubmitMode: req.composerSubmitMode,
         effectiveCapabilities,
         parentSessionId: req.parentHarnessSessionId,
       }
+      const resolved = req.resolveLaunchSpec
+        ? await req.resolveLaunchSpec({ cols: columns ?? 80, rows: rows ?? 24 })
+        : undefined
+      pending.assertCurrent()
       const spec =
+        resolved ??
         req.launchSpec ??
         (launchMode === 'resume'
           ? req.provider.resume(ctx)
@@ -207,19 +242,21 @@ export class PtySupervisor {
           TERM_PROGRAM: 'hvir',
           ...agent?.env,
         },
-        unsetEnv: [
-          ...(req.unsetEnvironment ?? []),
-          ...AGENT_TERMINAL_ENVIRONMENT,
-        ],
+        unsetEnv: [...(req.unsetEnvironment ?? []), ...AGENT_TERMINAL_ENVIRONMENT],
         pathPrefix: agent?.pathPrefix,
-        cols: req.cols,
-        rows: req.rows,
+        cols: columns,
+        rows,
       })
       // Keep same-provider baselines ordered through PTY creation, but never
       // hold a later terminal behind the bounded post-launch identity scan.
       void releaseDiscoveryLaunch?.()
       releaseDiscoveryLaunch = undefined
     } catch (error) {
+      try {
+        await prepared?.dispose()
+      } catch {
+        /* Preserve the launch failure. */
+      }
       void releaseDiscoveryLaunch?.()
       if (!(error instanceof PtyStartUnavailableError) && !pending.cancelled) {
         this.reportDiagnostic({ kind: 'pty-spawn-failed', ...diagnosticContext })
@@ -232,6 +269,11 @@ export class PtySupervisor {
 
     if (pending.cancelled) {
       pty.kill()
+      try {
+        await prepared?.dispose()
+      } catch {
+        /* Preserve cancellation. */
+      }
       throw new Error(`PTY session '${sessionId}' was cancelled before it started`)
     }
 
@@ -264,6 +306,7 @@ export class PtySupervisor {
     const stream = new PtyStreamAttachment()
     const isCurrent = (): boolean =>
       lifetime.current && this.entries.get(sessionId) === entry
+    const canReply = (): boolean => isCurrent() && pty.inputClosed !== true
     const identityChanged = (): void => {
       if (!isCurrent()) return
       for (const cb of this.identityListeners) cb(entry.info)
@@ -315,11 +358,25 @@ export class PtySupervisor {
         },
       },
     )
+    let terminal: PtyTerminalOutput | undefined
+    try {
+      if (prepared)
+        terminal = new PtyTerminalOutput(pty, prepared, this.terminalOutputBudget)
+    } catch (error) {
+      pty.kill()
+      try {
+        await prepared?.dispose()
+      } catch {
+        /* Preserve flow-control failure. */
+      }
+      throw error
+    }
     const entry: Entry = {
       info,
       lifetime,
       stream,
       observation,
+      terminal,
       rendererReattachPending: false,
     }
 
@@ -328,31 +385,57 @@ export class PtySupervisor {
     lifetime.own(() => stream.dispose())
     lifetime.own(() => observation.dispose())
     lifetime.own(() => this.cancelPendingIdentity(sessionId))
-    stream.start(pty, (data) => lifetime.recordLaunchOutput(data))
-    lifetime.start(
-      (exit, launchOutput) => {
-        if (classifiedEarlyExit(exit, launchOutput, Date.now() - info.startedAt)) {
-          req.onClassifiedLaunchFailure?.()
-        }
-        this.reportDiagnostic({
-          kind: 'pty-exited',
-          ...diagnosticContext,
-          exitKind:
-            exit.signal !== undefined
-              ? 'signal'
-              : exit.exitCode === 0
-                ? 'clean'
-                : 'error',
-          lifetime: lifetimeBucket(Date.now() - info.startedAt),
-        })
-        stream.publishExit(exit)
-        for (const cb of this.globalExitListeners) cb(entry.info, exit)
-      },
-      () => {
-        if (this.entries.get(sessionId) === entry) this.entries.delete(sessionId)
-        this.publishObservation()
-      },
-    )
+    try {
+      prepared?.connect({
+        get live() {
+          return canReply()
+        },
+        writeReply: async (bytes) => {
+          if (!canReply()) return
+          try {
+            // Native replies belong to this PTY lifetime, not a renderer lease.
+            await entry.lifetime.writeConfirmed(bytes)
+          } catch (error) {
+            // Known input closure or revocation stops replies while admitted output
+            // still drains; only a live transport failure is fatal.
+            if (canReply()) throw error
+          }
+        },
+      })
+      stream.start(
+        pty,
+        (data) => lifetime.recordLaunchOutput(data),
+        terminal ? (data) => terminal.output(data) : undefined,
+      )
+      lifetime.start(
+        (exit, launchOutput) => {
+          if (classifiedEarlyExit(exit, launchOutput, Date.now() - info.startedAt)) {
+            req.onClassifiedLaunchFailure?.()
+          }
+          this.reportDiagnostic({
+            kind: 'pty-exited',
+            ...diagnosticContext,
+            exitKind:
+              exit.signal !== undefined
+                ? 'signal'
+                : exit.exitCode === 0
+                  ? 'clean'
+                  : 'error',
+            lifetime: lifetimeBucket(Date.now() - info.startedAt),
+          })
+          void terminal?.exited(exit)
+          stream.publishExit(exit)
+          for (const cb of this.globalExitListeners) cb(entry.info, exit)
+        },
+        () => {
+          if (this.entries.get(sessionId) === entry) this.entries.delete(sessionId)
+          this.publishObservation()
+        },
+      )
+    } catch (error) {
+      this.disposeEntry(sessionId, entry)
+      throw error
+    }
 
     if (discovery && discoveryReady) {
       observation.discover(
@@ -429,18 +512,25 @@ export class PtySupervisor {
     )
   }
 
-  write(id: string, ownerId: number, data: string, ownerGeneration?: number): void {
+  write(
+    id: string,
+    ownerId: number,
+    data: PtyWriteData,
+    ownerGeneration?: number,
+    source: TerminalInputSource = 'user',
+  ): void {
     const entry = this.requireOwned(id, ownerId, ownerGeneration)
     entry.lifetime.write(data)
-    entry.observation.retryAfterInput()
+    if (source === 'user') entry.observation.retryAfterInput()
   }
 
   /** Confirm one complete write at the immediate PTY transport boundary. */
   async writeConfirmed(
     id: string,
     ownerId: number,
-    data: string,
+    data: PtyWriteData,
     ownerGeneration?: number,
+    source: TerminalInputSource = 'user',
   ): Promise<void> {
     const entry = this.requireOwned(id, ownerId, ownerGeneration)
     await entry.lifetime.writeConfirmed(data)
@@ -454,7 +544,7 @@ export class PtySupervisor {
         `PTY session '${id}' exited before write completion`,
       )
     }
-    entry.observation.retryAfterInput()
+    if (source === 'user') entry.observation.retryAfterInput()
   }
 
   resize(
@@ -606,6 +696,7 @@ export class PtySupervisor {
     const pendingExits: PendingPtyExit[] = []
     for (const entry of this.entries.values()) {
       const pending = entry.lifetime.terminate(waitForExit)
+      void entry.terminal?.dispose().catch(() => undefined)
       if (pending) pendingExits.push(pending)
     }
     this.entries.clear()
@@ -674,6 +765,7 @@ export class PtySupervisor {
 
   private disposeEntry(id: string, entry: Entry): boolean {
     entry.lifetime.terminate()
+    void entry.terminal?.dispose().catch(() => undefined)
     if (this.entries.get(id) !== entry) return false
     this.entries.delete(id)
     return true

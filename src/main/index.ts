@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, shell } from 'electron'
+import { installTerminalApplication } from './terminal/terminal-application'
 import { registerIpcHandlers } from './ipc'
 import { createProjectCommands } from './ipc/project-commands'
 import { GitMutationCoordinator } from './git/mutation-coordinator'
@@ -11,7 +12,7 @@ import { ProjectFolderPickerCoordinator as FolderPicker } from './project-folder
 import { electronReveal } from './project-host/electron-project-reveal'
 import { ProjectRegistry } from './project-registry'
 import { ProjectCoordinator } from './project-coordinator'
-import { PtySupervisor } from './pty/pty-supervisor'
+import type { PtySupervisor } from './pty/pty-supervisor'
 import { AttentionBadge } from './attention-badge'
 import { HarnessProfileStore } from './harness/harness-profile-store'
 import { HarnessProbeManager } from './harness/harness-probe'
@@ -231,17 +232,13 @@ function createWorkbenchEntry(): void {
       createProjectFileOperationCoordinator(registry, hostCatalog, rendererScopes),
       (operations) => operations.dispose(),
     )
-    ptySupervisor = runtime.own(
-      'PTY supervisor',
-      new PtySupervisor({
-        onDiagnostic: (event) => diagnostics.recordPty(event),
-        registerSessionIdentity: (terminalId, harnessSessionId) =>
-          terminalSessionRegistry!.recordIdentity(terminalId, harnessSessionId),
-        cancelSessionIdentityRegistration: (terminalId) =>
-          terminalSessionRegistry!.cancelIdentityRegistration(terminalId),
-      }),
-      (supervisor) => supervisor.disposeAllAndWait(),
+    const terminals = await installTerminalApplication(
+      runtime,
+      diagnostics,
+      terminalSessionRegistry,
+      rendererScopes,
     )
+    ptySupervisor = terminals.ptySupervisor
     const sessionsPorts = installApplicationSessionsObservation(
       runtime,
       projectRegistry,
@@ -358,6 +355,7 @@ function createWorkbenchEntry(): void {
       'IPC authority router',
       registerIpcHandlers({
         ...surfaces,
+        ...terminals,
         echoWorker,
         gitWorker,
         filenameSearch,
@@ -384,7 +382,6 @@ function createWorkbenchEntry(): void {
         recordIpcContractDiagnostic: (event) => diagnostics.recordIpcContract(event),
         recordRenderContainment: (owner, batch) =>
           diagnostics.recordRenderContainment(owner, batch),
-        ptySupervisor,
         terminalSessions: terminalSessionRegistry,
         sessionsObservation: sessionsPorts.observation,
         terminalMoves,

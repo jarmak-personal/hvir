@@ -1,16 +1,10 @@
-/**
- * `TerminalPane` — the terminal seam (ADR-003).
- *
- * The terminal is a swappable pane, never the foundation. Everything above this
- * interface is engine-agnostic; the concrete implementation (ghostty-web, then
- * native libghostty) lands in Phase 2. Because ghostty-web is xterm.js-API
- * compatible, this shape stays close to that mental model.
- *
- * Concrete engines implement this interface; the Phase 2 spike uses
- * ghostty-web in `ghostty-terminal-pane.ts`.
+/** Legacy renderer-parsed terminal API. Native state and presentation use the
+ * narrow runtime variant below instead of emulating synchronous parser methods.
+ * Product consumers retain the engine-neutral surface and explicit capability seams.
  */
 
 import type { Disposer } from '../../../shared'
+import type { TerminalInputSource } from '../../../shared/terminal-input'
 
 export interface TerminalSize {
   readonly cols: number
@@ -59,7 +53,7 @@ export interface TerminalCursorDefaults {
 export type TerminalPresentation = 'visible' | 'hidden'
 
 /** Why the terminal engine produced bytes for its PTY-facing data channel. */
-export type TerminalPaneDataSource = 'user' | 'terminal-response'
+export type TerminalPaneDataSource = TerminalInputSource
 
 export type TerminalEventScreen = 'normal' | 'alternate'
 
@@ -274,4 +268,25 @@ export interface TerminalPane {
   reset(): void
   focus(): void
   readonly events: TerminalPaneEvents
+}
+
+/** Development native slice. Unsupported transcript/settings operations are absent,
+ * rather than pretending to implement the legacy synchronous parser contract. */
+export interface NativeTerminalPanePort {
+  readonly engine: 'native'
+  mount(container: HTMLElement): void
+  reparent(container: HTMLElement): void
+  setPresentation(presentation: TerminalPresentation): void
+  focus(): void
+  dispose(): void
+  viewport(): { width: number; height: number; backingScale: number }
+  bind(sessionId: string): Promise<void>
+  setReadonly(): void
+  onInput(listener: (text: string) => void): Disposer
+}
+export type TerminalRuntimePane = TerminalPane | NativeTerminalPanePort
+export function isNativeTerminalPane(
+  pane: TerminalRuntimePane,
+): pane is NativeTerminalPanePort {
+  return 'engine' in pane && pane.engine === 'native'
 }

@@ -12,6 +12,7 @@ export type {
   ProjectHost,
   PtyExit,
   PtyProcess,
+  PtyWriteData,
   ReadFileOptions,
   RemoveFileOptions,
   SpawnPtyOptions,

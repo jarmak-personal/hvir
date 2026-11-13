@@ -20,6 +20,7 @@ import type { IpcDeps } from '../deps'
 import { operationResult } from '../operation-result'
 type TerminalIpcDeps = Pick<
   IpcDeps,
+  | 'nativeTerminals'
   | 'getHost'
   | 'emit'
   | 'terminalSessions'
@@ -127,10 +128,23 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     })
     await deps.terminalSessions.updateLayout(root, sessions)
   })
-  ipc.handle('terminal:forget', async (req) => {
+  ipc.handle('terminal:forget', async (req, context) => {
     const root = ipc.authority.workspaceRoot(req.root)
     if (!isTerminalId(req.id)) throw new Error('Invalid terminal session id')
+    const owner = context.owner()
+    const native = deps.nativeTerminals?.sessions.get(req.id)
+    if (
+      native &&
+      (native.session.ownerId !== owner.id ||
+        native.session.ownerGeneration !== owner.generation ||
+        !hostPathEquals(native.session.workspaceRoot, root))
+    )
+      throw new Error('Native terminal removal is not authorized')
     await deps.terminalSessions.forget(root, req.id)
+    if (native) {
+      await deps.rendererResources.disposeResource(owner, 'pty-session', req.id)
+      await deps.nativeTerminals!.remove(req.id, native.session.instanceId)
+    }
   })
   ipc.handle('terminal:plan-move', (req, context) =>
     operationResult(() => Promise.resolve(deps.terminalMoves.plan(req, context.owner()))),
@@ -195,6 +209,10 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
     }
     const host = deps.getHost(root.hostId)
     if (!host) throw new Error('Terminal launch host is unavailable')
+    if (req.nativeViewport && !deps.nativeTerminals)
+      throw new Error('Native development runtime is not selected')
+    if (deps.nativeTerminals && !req.nativeViewport)
+      throw new Error('Native development runtime requires an initial viewport')
     const cols = terminalDimension(req.cols)
     const rows = terminalDimension(req.rows)
     const profile = deps.harnessProfiles.get(req.profileId)
@@ -379,27 +397,29 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       }
       const defaultShell = await host.defaultShell()
       handoff?.current()
-      const resolved = await resolveHarnessLaunch({
-        profile,
-        expectedLaunchRevision: req.launchRevision,
-        projectRoot,
-        workspaceRoot: cwd,
-        host,
-        store: deps.harnessProfiles,
-        mode: requestedMode,
-        context: {
-          sessionId: requestedMode === 'resume' ? req.harnessSessionId! : req.sessionId,
-          parentSessionId:
-            requestedMode === 'fork' ? req.parentHarnessSessionId : undefined,
-          cwd,
-          cols,
-          rows,
-          defaultShell,
-          composerSubmitMode: req.composerSubmitMode,
-          effectiveCapabilities,
-          ...(handoff ? { commandOnce: handoff.command } : {}),
-        },
-      })
+      const resolveForSize = (cols: number, rows: number) =>
+        resolveHarnessLaunch({
+          profile,
+          expectedLaunchRevision: req.launchRevision,
+          projectRoot,
+          workspaceRoot: cwd,
+          host,
+          store: deps.harnessProfiles,
+          mode: requestedMode,
+          context: {
+            sessionId: requestedMode === 'resume' ? req.harnessSessionId! : req.sessionId,
+            parentSessionId:
+              requestedMode === 'fork' ? req.parentHarnessSessionId : undefined,
+            cwd,
+            cols,
+            rows,
+            defaultShell,
+            composerSubmitMode: req.composerSubmitMode,
+            effectiveCapabilities,
+            ...(handoff ? { commandOnce: handoff.command } : {}),
+          },
+        })
+      const resolved = await resolveForSize(cols, rows)
       handoff?.current()
       const launchDecision = await selectHarnessLaunch(
         host,
@@ -421,6 +441,20 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
       const launchMode = launchDecision.mode
       const refreshAfterClassifiedLaunchFailure = (): void =>
         deps.harnessProbes.refreshProfile(availabilityRequest, profile)
+      const previousNative = deps.nativeTerminals?.sessions.get(req.sessionId)
+      if (req.nativeViewport && previousNative?.readonly) {
+        if (
+          previousNative.session.ownerId !== owner.id ||
+          previousNative.session.ownerGeneration !== owner.generation ||
+          !hostPathEquals(previousNative.session.workspaceRoot, root)
+        )
+          throw new Error('Native terminal restart is not authorized')
+        await deps.rendererResources.disposeResource(owner, 'pty-session', req.sessionId)
+        await deps.nativeTerminals!.remove(
+          req.sessionId,
+          previousNative.session.instanceId,
+        )
+      }
       const ptyLease = registerRendererPty(deps, owner, root, req.sessionId)
       let managed
       try {
@@ -430,6 +464,12 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
           signal: handoff?.signal,
           beforeDispatch: handoff?.prepareDispatch,
           onDispatch: handoff?.dispatched,
+          prepareTerminal: req.nativeViewport
+            ? deps.nativeTerminals!.preparation(req.nativeViewport)
+            : undefined,
+          resolveLaunchSpec: req.nativeViewport
+            ? async (size) => (await resolveForSize(size.cols, size.rows)).spec
+            : undefined,
           launchSpec: resolved.spec,
           unsetEnvironment: resolved.unsetEnvironment,
           artifact: resolved.artifact,
@@ -520,12 +560,14 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
 
   ipc.handleSend('pty:write', ({ id, data }, context) => {
     const owner = context.owner()
+    if (deps.nativeTerminals?.sessions.get(id)) return
     if (deps.ptySupervisor.isOwnedBy(id, owner.id, owner.generation)) {
       deps.ptySupervisor.write(id, owner.id, data, owner.generation)
     }
   })
   ipc.handleSend('pty:resize', ({ id, cols, rows }, context) => {
     const owner = context.owner()
+    if (deps.nativeTerminals?.sessions.get(id)) return
     if (deps.ptySupervisor.isOwnedBy(id, owner.id, owner.generation)) {
       deps.ptySupervisor.resize(
         id,
@@ -538,6 +580,17 @@ export function registerTerminalIpc(ipc: IpcRegistrar, deps: TerminalIpcDeps): v
   })
   ipc.handleSend('pty:kill', ({ id }, context) => {
     const owner = context.owner()
+    const native = deps.nativeTerminals?.sessions.get(id)
+    if (
+      native &&
+      native.session.ownerId === owner.id &&
+      native.session.ownerGeneration === owner.generation
+    ) {
+      void deps.rendererResources
+        .disposeResource(owner, 'pty-session', id)
+        .finally(() => deps.nativeTerminals!.remove(id, native.session.instanceId))
+        .catch(() => undefined)
+    }
     if (deps.ptySupervisor.isOwnedBy(id, owner.id, owner.generation)) {
       deps.ptySupervisor.kill(id, owner.id, undefined, owner.generation)
     }

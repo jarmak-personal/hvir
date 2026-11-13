@@ -166,7 +166,23 @@ describe('native utility owner', () => {
     )
   })
 
+  it('runs the native key encoder on the caller worker and returns exact bytes', async () => {
+    await create()
+    port.send(2, { kind: 'key', state: '7', key: 22, modifiers: 2, action: 1, text: 'c' })
+    expect(last()).toMatchObject({ operation: 'key', args: ['7', 22, 2, 1, 'c'] })
+    await complete({ result: 0, data: new Uint8Array([0, 128, 255]) })
+    expect(port.result(2)).toMatchObject({
+      ok: true,
+      value: new Uint8Array([0, 128, 255]),
+    })
+  })
+
   it.each([
+    { kind: 'key', state: '7', key: 176, modifiers: 0, action: 1, text: '' },
+    { kind: 'key', state: '7', key: 0, modifiers: 1024, action: 1, text: '' },
+    { kind: 'key', state: '7', key: 0, modifiers: 0, action: 3, text: '' },
+    { kind: 'key', state: '7', key: 0, modifiers: 0, action: 1, text: '\0' },
+    { kind: 'key', state: '7', key: 0, modifiers: 0, action: 1, text: 'é'.repeat(2049) },
     { kind: 'read' },
     { kind: 'read', state: 7 },
     { kind: 'read', state: '0' },

@@ -16,7 +16,10 @@ import {
   asSessionsWorkspaceRuntimeId,
   hostPath,
 } from '../src/shared'
-import { ghosttyLifecycleRuntimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
+import {
+  ghosttyLifecycleRuntimeOptions,
+  webInvoke,
+} from './fixtures/ghostty-lifecycle-runtime-options'
 import { ghosttyState } from './fixtures/ghostty-terminal-pane-mock'
 import { createTestSshHost } from './ssh-host-test-fixture'
 
@@ -89,45 +92,47 @@ describe('Sessions terminal detail over deterministic SSH', () => {
       for (const listener of rendererEvents.get(channelName) ?? []) listener(event)
     }
     let detachStream: (() => void | Promise<void>) | undefined
-    const invoke = vi.fn(async (channelName: string, request: Record<string, unknown>) => {
-      if (channelName !== 'pty:start') throw new Error(`Unexpected ${channelName}`)
-      const info = await supervisor.spawn({
-        host,
-        provider: plainShellProvider,
-        cwd: request.cwd as ReturnType<typeof hostPath>,
-        workspaceRoot: request.workspaceRoot as ReturnType<typeof hostPath>,
-        ownerId: 7,
-        ownerGeneration: 2,
-        sessionId: String(request.sessionId),
-        cols: Number(request.cols),
-        rows: Number(request.rows),
-      })
-      detachStream = supervisor.attach(
-        info.id,
-        7,
-        {
-          onData: (data) => publish('pty:data', { id: info.id, data }),
-          onExit: (exit) =>
-            publish('pty:exit', {
-              id: info.id,
-              exitCode: exit.exitCode,
-              signal: exit.signal,
-            }),
-        },
-        2,
-      )
-      return {
-        outcome: 'started' as const,
-        id: info.id,
-        instanceId: info.instanceId,
-        pid: info.pid,
-        resumed: info.resumed,
-        reattached: false,
-        harnessSessionId: info.harnessSessionId,
-        identityStatus: info.identityStatus,
-        capabilities: info.capabilities,
-      }
-    })
+    const invoke = vi.fn(
+      async (channelName: string, request: Record<string, unknown>) => {
+        if (channelName !== 'pty:start') throw new Error(`Unexpected ${channelName}`)
+        const info = await supervisor.spawn({
+          host,
+          provider: plainShellProvider,
+          cwd: request.cwd as ReturnType<typeof hostPath>,
+          workspaceRoot: request.workspaceRoot as ReturnType<typeof hostPath>,
+          ownerId: 7,
+          ownerGeneration: 2,
+          sessionId: String(request.sessionId),
+          cols: Number(request.cols),
+          rows: Number(request.rows),
+        })
+        detachStream = supervisor.attach(
+          info.id,
+          7,
+          {
+            onData: (data) => publish('pty:data', { id: info.id, data }),
+            onExit: (exit) =>
+              publish('pty:exit', {
+                id: info.id,
+                exitCode: exit.exitCode,
+                signal: exit.signal,
+              }),
+          },
+          2,
+        )
+        return {
+          outcome: 'started' as const,
+          id: info.id,
+          instanceId: info.instanceId,
+          pid: info.pid,
+          resumed: info.resumed,
+          reattached: false,
+          harnessSessionId: info.harnessSessionId,
+          identityStatus: info.identityStatus,
+          capabilities: info.capabilities,
+        }
+      },
+    )
     const send = vi.fn((channelName: string, request: Record<string, unknown>) => {
       if (channelName === 'pty:write') {
         supervisor.write(String(request.id), 7, String(request.data), 2)
@@ -146,7 +151,9 @@ describe('Sessions terminal detail over deterministic SSH', () => {
     Object.defineProperty(window, 'hvir', {
       configurable: true,
       value: {
-        invoke,
+        invoke: webInvoke((channel, request) =>
+          invoke(channel, request as Record<string, unknown>),
+        ),
         send,
         on: (channelName: string, listener: (event: unknown) => void) => {
           const listeners = rendererEvents.get(channelName) ?? new Set()
@@ -173,7 +180,8 @@ describe('Sessions terminal detail over deterministic SSH', () => {
     const detail = document.createElement('div')
     document.body.append(workspace, detail)
     runtime.attach(workspace)
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(supervisor.get('terminal-1')).toBeDefined())
+    expect(invoke).toHaveBeenCalledOnce()
 
     const instanceId = supervisor.get('terminal-1')!.instanceId
     const surface = workspace.querySelector('.terminal-engine-host')

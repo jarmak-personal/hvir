@@ -13,7 +13,7 @@ interface SessionsSurfaceRuntimeContext {
   readonly sessionId: string
   readonly started: boolean
   readonly ptyInstanceId?: string
-  readonly pane?: TerminalPane
+  readonly pane?: Pick<TerminalPane, 'focus'>
   readonly connected: boolean
   readonly focused: () => void
 }

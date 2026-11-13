@@ -54,9 +54,9 @@ const EXTENSION_PACKAGE_IMPORT_BAN = {
 
 const NATIVE_BUILD_TOOL_IMPORT_BAN = {
   selector:
-    "ImportDeclaration[source.value=/scripts\\/native-terminal(\\/|$)/], ExportNamedDeclaration[source.value=/scripts\\/native-terminal(\\/|$)/], ExportAllDeclaration[source.value=/scripts\\/native-terminal(\\/|$)/], ImportExpression[source.value=/scripts\\/native-terminal(\\/|$)/], TSImportType[source.value=/scripts\\/native-terminal(\\/|$)/], CallExpression[callee.name='require'] > Literal.arguments[value=/scripts\\/native-terminal(\\/|$)/]",
+    "ImportDeclaration[source.value=/scripts\\/(native-terminal|node-pty)(\\/|$)/], ExportNamedDeclaration[source.value=/scripts\\/(native-terminal|node-pty)(\\/|$)/], ExportAllDeclaration[source.value=/scripts\\/(native-terminal|node-pty)(\\/|$)/], ImportExpression[source.value=/scripts\\/(native-terminal|node-pty)(\\/|$)/], TSImportType[source.value=/scripts\\/(native-terminal|node-pty)(\\/|$)/], CallExpression[callee.name='require'] > Literal.arguments[value=/scripts\\/(native-terminal|node-pty)(\\/|$)/]",
   message:
-    'Native terminal build tools are contributor-only; application source depends on runtime contracts and artifacts.',
+    'Native terminal build and dependency patch tools are contributor-only; application source depends on runtime contracts and artifacts.',
 }
 
 const NATIVE_EXTENSION_IMPORT_BAN = {
@@ -134,6 +134,11 @@ function dependencyDirectionRules(
     ],
   }
 }
+
+const PTY_PREPARATION_DIRECTIONS = dependencyDirectionRules(
+  '(^|/)terminal/native-terminal[^/]*(\\.[cm]?[jt]sx?)?$',
+  'The PTY supervisor consumes neutral preparation contracts, never concrete native terminal owners.',
+)
 
 export default tseslint.config(
   {
@@ -662,17 +667,14 @@ export default tseslint.config(
     },
   },
 
-  // Seam exemption: only the supervisor may call host.spawnPty().
+  // Only the supervisor may spawn PTYs, through injected preparation contracts.
   {
     files: ['src/main/pty/pty-supervisor.ts'],
     rules: {
-      'no-restricted-syntax': [
-        'error',
-        EXTENSION_PACKAGE_IMPORT_BAN,
-        NATIVE_BUILD_TOOL_IMPORT_BAN,
-        NATIVE_EXTENSION_IMPORT_BAN,
-        ...DYNAMIC_HOST_IMPORT_BANS,
-      ],
+      ...PTY_PREPARATION_DIRECTIONS,
+      'no-restricted-syntax': PTY_PREPARATION_DIRECTIONS['no-restricted-syntax'].filter(
+        (restriction) => restriction !== SPAWN_PTY_BAN,
+      ),
     },
   },
 
@@ -711,6 +713,7 @@ export default tseslint.config(
       'scripts/installed-startup-probe.mts',
       'scripts/agent-installed-reference-probe.mts',
       'scripts/build-agent-client.mts',
+      'scripts/node-pty/apply.mjs',
       'scripts/native-terminal/artifacts.mts',
       'scripts/native-terminal/build.mts',
       'scripts/native-terminal/bindings.mts',

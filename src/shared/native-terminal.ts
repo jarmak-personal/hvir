@@ -45,6 +45,28 @@ export interface NativeTerminalStatus {
   readonly geometryFailureSerial: number
   readonly geometry: NativeTerminalGeometry
 }
+export interface NativeTerminalKeyInput {
+  readonly key: number
+  readonly modifiers: number
+  readonly action: number
+  readonly text: string
+}
+/** Pinned ABI4 ghostty_input_key_e ends at GHOSTTY_KEY_PASTE=175. */
+export function validNativeTerminalKeyInput(value: NativeTerminalKeyInput): boolean {
+  return (
+    Number.isInteger(value.key) &&
+    value.key >= 0 &&
+    value.key <= 175 &&
+    Number.isInteger(value.modifiers) &&
+    value.modifiers >= 0 &&
+    value.modifiers <= 1023 &&
+    [0, 1, 2].includes(value.action) &&
+    typeof value.text === 'string' &&
+    value.text.length <= 4096 &&
+    !value.text.includes('\0') &&
+    new TextEncoder().encode(value.text).byteLength <= 4096
+  )
+}
 /** Private process metadata. Platform resources travel only through the OS edge. */
 export type NativeTerminalCommand =
   | { kind: 'shutdown' }
@@ -58,12 +80,31 @@ export type NativeTerminalCommand =
       height: number
       backingScale?: number
     }
+  | {
+      kind: 'key'
+      state: string
+      key: number
+      modifiers: number
+      action: number
+      text: string
+    }
   | { kind: 'visibility'; state: string; visible: boolean }
   | { kind: 'pixels'; state: string; lease: string }
-  | { kind: 'inspect' | 'read' | 'drain' | 'event' | 'destroy'; state: string }
+  | {
+      kind: 'inspect' | 'read' | 'drain' | 'event' | 'discard-events' | 'destroy'
+      state: string
+    }
   | { kind: 'frame'; state: string; ticket: string }
   | { kind: 'transfer'; state: string; lease: string; ticket: string }
   | { kind: 'release'; state: string; lease: string }
+/** Count both producer and encoder payloads in the existing physical credits. */
+export function nativeTerminalCommandBytes(command: NativeTerminalCommand): number {
+  return command.kind === 'feed'
+    ? command.bytes.byteLength
+    : command.kind === 'key'
+      ? new TextEncoder().encode(command.text).byteLength
+      : 0
+}
 export interface NativeTerminalRequest {
   readonly kind: 'request'
   readonly epoch: string

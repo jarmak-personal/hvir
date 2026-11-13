@@ -67,6 +67,19 @@ async function originalMessages(owner: string, source: string) {
 }
 
 describe('resolved adapter for existing dependency direction policy', () => {
+  it.each([
+    "import { NativeTerminalHost } from '../terminal/native-terminal-host'",
+    "import type { NativeTerminalSessions } from '../terminal/native-terminal-sessions'",
+    "type Owner = import('../terminal/native-terminal-application').NativeTerminalApplication",
+    "void import('../terminal/native-terminal-process')",
+  ])(
+    'keeps supervisor preparation independent of concrete native owners: %s',
+    async (source) => {
+      const messages = await originalMessages('src/main/pty/pty-supervisor.ts', source)
+      expect(messages.some((message) => message.severity === 2)).toBe(true)
+    },
+  )
+
   it('anchors native ownership to the repository when an ancestor is named src', async () => {
     const cwd = join(root, 'src', 'hvir')
     const nested = new Linter({ cwd })
@@ -114,27 +127,31 @@ describe('resolved adapter for existing dependency direction policy', () => {
       )
     }
   })
-  it.each([
-    "import { verifyArtifact } from '../../../scripts/native-terminal/artifacts.mts'",
-    "import type { NativeArtifact } from '../../../scripts/native-terminal/artifacts.mts'",
-    "type Build = import('../../../scripts/native-terminal/artifacts.mts').NativeArtifact",
-    "void import('../../../scripts/native-terminal/artifacts.mts')",
-  ])('keeps native build tooling out of application imports: %s', async (source) => {
-    const violations = await checkModuleDirections(
-      graph(
-        'src/main/terminal/runtime.ts',
-        'scripts/native-terminal/artifacts.mts',
-        source,
-      ),
-      root,
+  for (const target of [
+    'scripts/native-terminal/artifacts.mts',
+    'scripts/node-pty/apply.mjs',
+  ]) {
+    it.each([
+      `import { value } from '../../../${target}'`,
+      `import type { Value } from '../../../${target}'`,
+      `type Value = import('../../../${target}').Value`,
+      `void import('../../../${target}')`,
+    ])(
+      `keeps contributor tooling ${target} out of application imports: %s`,
+      async (source) => {
+        const violations = await checkModuleDirections(
+          graph('src/main/terminal/runtime.ts', target, source),
+          root,
+        )
+        expect(violations).toContainEqual(
+          expect.objectContaining({
+            rule: 'no-restricted-syntax',
+            to: target,
+          }),
+        )
+      },
     )
-    expect(violations).toContainEqual(
-      expect.objectContaining({
-        rule: 'no-restricted-syntax',
-        to: 'scripts/native-terminal/artifacts.mts',
-      }),
-    )
-  })
+  }
 
   it.each([
     [

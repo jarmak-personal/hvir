@@ -1,3 +1,4 @@
+import { createNativeWorkbench } from './native-terminal-workbench'
 import { createSmokeWindow } from './window-lifetime'
 import { prepareAgentSmoke, verifyAgentWorkbench } from './agent-workbench'
 import { createSshHostChooserSmoke, verifySshHostChooserSmoke } from './ssh-host-chooser'
@@ -40,7 +41,6 @@ import {
 } from '../harness/harness-provider'
 import { sendRendererEvent } from '../renderer-event-delivery'
 import { registerIpcHandlers } from '../ipc'
-import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { PtySupervisor } from '../pty/pty-supervisor'
 import { SessionsObservationPort } from '../sessions/sessions-observation-port'
 import { createWorkerClient, workerPath } from '../worker-host'
@@ -48,10 +48,10 @@ import { createWorkspaceCleanup } from '../workspace-cleanup'
 import { SmokeCleanup } from './cleanup'
 import {
   reportSmokeFailureEvidence,
+  smokeOwnedResourceEvidence,
   smokeCleanupResource,
   type SmokeFailureCheckpoint,
   type SmokeFailurePhase,
-  type SmokeOwnedResourceEvidence,
 } from './failure-evidence.mts'
 import { recordRendererIsolationSelection } from './renderer-isolation'
 import { createSmokeImagePasteFallback } from './image-paste-fallback'
@@ -191,6 +191,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     cleanup.defer('filename search', () => filenameSearch.dispose())
     const externalMoveSmoke = createExternalMoveSmokeControl()
     const supervisor = new PtySupervisor()
+    const native = await createNativeWorkbench(dependencies, supervisor, cleanup)
     smokeSupervisor = supervisor
     cleanup.defer('supervised terminals', () => supervisor.disposeAllAndWait())
     const smokeCloseableRoot = joinHostPath(smokeRoot, '.hvir-smoke-closed-project')
@@ -365,6 +366,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     const readiness = new SmokeRendererReadiness()
     const ipcRouter = registerIpcHandlers({
       ...dependencies,
+      ...native.ipc,
       echoWorker: worker,
       gitWorker: git,
       filenameSearch,
@@ -660,6 +662,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       console.log('HVIR_SMOKE_OK')
       return 0
     }
+    if (await native.run(win)) return 0
     if (mode === 'terminal-lifecycle') {
       await verifyTerminalLifecycleScenario({
         win,
@@ -759,28 +762,5 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         throw cleanupError
       }
     }
-  }
-}
-
-function smokeOwnedResourceEvidence(
-  win: BrowserWindow | undefined,
-  supervisor: PtySupervisor | undefined,
-  watcherActive: boolean,
-  rendererResources: RendererResourceScopes,
-): SmokeOwnedResourceEvidence {
-  let rendererGeneration: number | null = null
-  if (win && !win.isDestroyed()) {
-    try {
-      rendererGeneration = rendererResources.currentOwner(win.webContents.id).generation
-    } catch {
-      // A revoked owner is represented by the closed null/false fields below.
-    }
-  }
-  return {
-    windowCount: win && !win.isDestroyed() ? 1 : 0,
-    ptyCount: supervisor?.list().length ?? 0,
-    watcherActive,
-    rendererOwnerActive: rendererGeneration !== null,
-    rendererGeneration,
   }
 }

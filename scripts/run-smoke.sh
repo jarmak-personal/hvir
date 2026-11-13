@@ -117,13 +117,18 @@ if [[ "${HVIR_SMOKE_SCENARIO}" == 'development-performance' ]]; then
     exit 1
   fi
 else
+  # Native runtime qualification exercises the production OS sandbox selection.
+  smoke_sandbox_args=(--no-sandbox)
+  if [[ "${HVIR_SMOKE_SCENARIO}" == 'native-terminal-workbench' ]]; then
+    smoke_sandbox_args=()
+  fi
   HVIR_SMOKE=1 \
     HVIR_SMOKE_SOURCE_COMMIT="$source_commit" \
     HVIR_SMOKE_SOURCE_DIRTY="$source_dirty" \
     HVIR_SMOKE_SCENARIO="${HVIR_SMOKE_SCENARIO}" \
     "$source_checkout/node_modules/.bin/electron" "$source_checkout" \
     --project-root="$project_root" \
-    --no-sandbox \
+    ${smoke_sandbox_args[@]+"${smoke_sandbox_args[@]}"} \
     --user-data-dir="$user_data_root" &
   smoke_pid=$!
   wait "$smoke_pid"

@@ -305,7 +305,7 @@ not launch Electron, require a display, or access the network.
 `terminal-move`, `workbench-layout`, `terminal-split`, `app-settings`, and `harness-profiles` groups in separate Electron processes with fresh project and user-data roots, then
 reports a result for every scheduled group. Direct single-process invocations require
 `HVIR_SMOKE_SCENARIO`; missing and invalid names fail with a selection diagnostic. Select one group locally with
-`npm run smoke:scenario -- <name>`; the complete name set is `pty-native`, `viewer-position`, `viewer-content`,
+`npm run smoke:scenario -- <name>`; the complete name set is `pty-native`, `native-terminal-workbench`, `viewer-position`, `viewer-content`,
 `git-workflow`, `workspace-remote`, `web-pane`, `extensions`, `agent-workbench`, `renderer-authority`, `platform-contracts`,
 `diagnostic-report-restart`, `renderer-recovery`, `sessions-projection`, `document-review`, `development-performance`,
 `terminal-presentation`, `terminal-lifecycle`, `native-host-worker`, `workbench-health`,
@@ -316,6 +316,14 @@ smoke:development-performance`; the restart scenario is reserved for the package
 fixture. `npm run smoke:macos` runs the focused PTY, viewer, Git, workspace/remote, web-pane,
 renderer-authority, platform-contract, renderer-recovery, terminal-presentation, and
 document-review, terminal-presentation, and terminal-lifecycle correctness groups.
+
+The macOS-only `native-terminal-workbench` group is explicit and stays outside the default
+smoke groups. After building the native bindings against the selected library, run
+`HVIR_NATIVE_TERMINAL_LIBRARY=/absolute/path/to/libghostty.dylib npm run smoke:native-terminal`.
+It exercises the ordinary workbench's native terminal through the sandboxed renderer, existing
+PTY supervisor and ProjectHost: ANSI presentation, encoded keyboard input, acknowledged resize
+checked with `stty`, and retained output after exit. This development qualification does not
+establish Linux GPU or hardware performance acceptance.
 
 Viewer and Git evidence follows the same ownership rule. `viewer-position` proves CodeMirror
 virtualization, source/rendered/diff anchors, remounts, pending and empty diffs, scoped commands,

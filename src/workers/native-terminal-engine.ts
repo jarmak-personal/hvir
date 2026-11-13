@@ -1,3 +1,4 @@
+import { discardNativeTerminalEffects } from './native-terminal-effects'
 /** One real caller thread. This entry never imports Electron or project capabilities. */
 import { parentPort, workerData } from 'node:worker_threads'
 import engine, { type Host } from '@hvir/native-terminal/engine'
@@ -36,6 +37,17 @@ parentPort.on(
             args[4] === undefined ? 1 : Number(args[4]),
           )
           break
+        case 'key':
+          value = engine.key(
+            host,
+            BigInt(String(args[0])),
+            Number(args[1]),
+            Number(args[2]),
+            Number(args[3]),
+            String(args[4]),
+            65536,
+          )
+          break
         case 'visibility':
           value = engine.visibility(host, BigInt(String(args[0])), args[1] === true)
           break
@@ -60,6 +72,11 @@ parentPort.on(
           break
         case 'drain':
           value = engine.drain(host, BigInt(String(args[0])), 65536)
+          break
+        case 'discard-events':
+          value = discardNativeTerminalEffects(() =>
+            engine.event(host, BigInt(String(args[0]))),
+          )
           break
         case 'event':
           value = engine.event(host, BigInt(String(args[0])))

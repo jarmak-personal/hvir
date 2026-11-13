@@ -266,17 +266,25 @@ export function isPtyWriteIndeterminateError(
   return value instanceof PtyWriteIndeterminateError
 }
 
+/** Writes preserve text callers and exact native-encoded bytes; output stays decoded text. */
+export type PtyWriteData = string | Uint8Array
+
 /** A live pseudo-terminal. Produced only via the PTY supervisor (ADR-006). */
 export interface PtyProcess {
   readonly pid: number
+  /** Known input termination can precede drained output/public exit. EOF alone is not input closure. */
+  readonly inputClosed?: boolean
   onData(cb: (data: string) => void): Disposer
   onExit(cb: (e: PtyExit) => void): Disposer
-  write(data: string): void
+  write(data: PtyWriteData): void
   /**
    * Resolves only when the immediate PTY transport accepts the complete write.
    * An adapter rejects with `PtyWriteIndeterminateError` when it cannot decide.
    */
-  writeConfirmed(data: string): Promise<void>
+  writeConfirmed(data: PtyWriteData): Promise<void>
+  /** Prepared native output requires physical transport flow control. */
+  pause?(): void
+  resume?(): void
   resize(cols: number, rows: number): void
   kill(signal?: string): void
 }

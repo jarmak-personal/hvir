@@ -39,6 +39,11 @@ export interface StartPtyRequest {
   readonly cwd: HostPath
   readonly cols: number
   readonly rows: number
+  readonly nativeViewport?: {
+    readonly width: number
+    readonly height: number
+    readonly backingScale: number
+  }
   readonly title: string
   readonly position: number
   readonly active: boolean
@@ -214,6 +219,24 @@ export const terminalIpc = {
     'terminal:resolve-file-clipboard': invoke<
       Record<string, never>,
       string | undefined
+    >(),
+    'native-terminal:enabled': invoke<Record<string, never>, boolean>(),
+    'native-terminal:attach': invoke<{ id: string }, { viewId: string }>(),
+    'native-terminal:update': invoke<
+      {
+        viewId: string
+        width: number
+        height: number
+        backingScale: number
+        visible: boolean
+      },
+      void
+    >(),
+    'native-terminal:demand': invoke<{ viewId: string }, boolean>(),
+    'native-terminal:detach': invoke<{ viewId: string }, void>(),
+    'native-terminal:key': invoke<
+      { viewId: string; key: number; modifiers: number; action: number; text: string },
+      void
     >(),
     'pty:start': invoke<StartPtyRequest, StartPtyResponse>(),
   },

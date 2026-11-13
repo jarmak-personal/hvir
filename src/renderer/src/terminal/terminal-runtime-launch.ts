@@ -1,5 +1,58 @@
 import type { StartPtyRequest, StartPtyResponse } from '../../../shared'
 import type { TerminalRuntimeOptions } from './terminal-runtime-options'
+import { isNativeTerminalPane, type TerminalRuntimePane } from './terminal-pane'
+import type { TerminalRuntimeInteractions } from './terminal-runtime-interactions'
+
+/** Select the actual started-pane capability; the runtime retains all async
+ * generation and live-instance checks around this operation. */
+export async function bindStartedTerminalPane(
+  pane: TerminalRuntimePane,
+  ptyId: string,
+  interactions: Pick<TerminalRuntimeInteractions, 'bind'>,
+): Promise<void> {
+  if (isNativeTerminalPane(pane)) await pane.bind(ptyId)
+  else interactions.bind(pane, ptyId)
+}
+
+export function publishTerminalIdentity(
+  options: Pick<TerminalRuntimeOptions, 'onIdentity'>,
+  harnessSessionId: string | undefined,
+  status: Parameters<TerminalRuntimeOptions['onIdentity']>[1],
+  identityDiverged?: true,
+): void {
+  if (identityDiverged) options.onIdentity(harnessSessionId, status, true)
+  else options.onIdentity(harnessSessionId, status)
+}
+
+/** Emit the existing provider-neutral launch result only after runtime admission. */
+export function publishTerminalStarted(
+  options: Pick<
+    TerminalRuntimeOptions,
+    'onFreshStarted' | 'onIdentity' | 'onCapabilities' | 'onStarted'
+  >,
+  result: Extract<StartPtyResponse, { outcome: 'started' }>,
+  status: string,
+  replacement: boolean,
+): void {
+  if (replacement) {
+    options.onFreshStarted({
+      sessionId: result.id,
+      status,
+      harnessSessionId: result.harnessSessionId,
+      identityStatus: result.identityStatus,
+      capabilities: result.capabilities,
+    })
+  } else {
+    publishTerminalIdentity(
+      options,
+      result.harnessSessionId,
+      result.identityStatus,
+      result.identityDiverged,
+    )
+    options.onCapabilities(result.capabilities)
+    options.onStarted()
+  }
+}
 
 interface TerminalReplacement {
   readonly sessionId: string
@@ -22,10 +75,12 @@ export function terminalStartRequest(
   title: string,
   resume: boolean,
   firstStart = true,
+  nativeViewport?: StartPtyRequest['nativeViewport'],
 ): StartPtyRequest {
   const fork = !replacement && !resume ? options.forkRequest : undefined
   return {
     sessionId,
+    ...(nativeViewport ? { nativeViewport } : {}),
     ...(firstStart && !replacement && !resume && !fork
       ? {
           commandTicket: options.commandTicket,
