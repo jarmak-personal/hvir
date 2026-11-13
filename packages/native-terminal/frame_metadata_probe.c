@@ -81,6 +81,18 @@ static bool return_text(ghostty_surface_t surface, uint8_t *out, size_t capacity
 static void idle_tick(ghostty_app_t app) { (void)app; }
 static bool reject_rearm(ghostty_surface_t surface) { (void)surface; return false; }
 
+static uint64_t pending_geometry;
+static ghostty_surface_t begin_native_create(ghostty_app_t app, void *display,
+    const hvir_ghostty_external_config *config, uint32_t width, uint32_t height) {
+  (void)app; (void)display; (void)width; (void)height;
+  return (ghostty_surface_t)config->userdata;
+}
+static void pending_resize(ghostty_surface_t surface, uint32_t width, uint32_t height,
+                            uint64_t serial) {
+  (void)surface; (void)width; (void)height;
+  pending_geometry = serial;
+}
+static void drop_surface(ghostty_surface_t surface) { (void)surface; }
 static bool partial_frame_accepted;
 static ghostty_surface_t reject_native_create(ghostty_app_t app, void *display,
     const hvir_ghostty_external_config *config, uint32_t width, uint32_t height) {
@@ -126,6 +138,24 @@ int main(void) {
           partial_frame_accepted && !unpublished_id && !host.states &&
           !live_allocations && descriptor_count() == baseline,
           "partial-native-create-releases-state-and-early-frame-copy");
+  host.external_new = begin_native_create;
+  host.external_resize = pending_resize;
+  host.surface_free = drop_surface;
+  host.app_tick = idle_tick;
+  REQUIRE(hvir_terminal_create_begin(&host, 640, 480, &unpublished_id) == HVIR_OK &&
+          unpublished_id && host.states && host.states->geometry.serial == 0 &&
+          pending_geometry == 1 && live_allocations == 1,
+          "create-begin-publishes-owned-state-without-waiting-for-geometry");
+  hvir_terminal_status pending_status;
+  REQUIRE(hvir_terminal_inspect(&host, unpublished_id, &pending_status) == HVIR_OK &&
+          pending_status.geometry.serial == 0 && !pending_status.failure,
+          "pending-initial-geometry-can-be-polled-without-blocking");
+  applied(host.states, 1, 80, 24, 640, 480, 8, 16, 640, 384, 0, 0);
+  REQUIRE(hvir_terminal_inspect(&host, unpublished_id, &pending_status) == HVIR_OK &&
+          pending_status.geometry.serial == 1 &&
+          hvir_terminal_destroy(&host, unpublished_id) == HVIR_OK &&
+          !host.states && !live_allocations && descriptor_count() == baseline,
+          "create-begin-acknowledges-and-cleans-the-same-owned-state");
   state.id = 900;
   state.requested_geometry = 7;
   state.geometry.serial = 6;

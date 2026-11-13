@@ -6,8 +6,18 @@ on:
     paths:
       - scripts/native-terminal/**
       - packages/native-terminal/**
+      - src/main/terminal/native-terminal-*
+      - src/workers/native-terminal-*
+      - src/shared/native-terminal.ts
+      - src/preload/native-terminal-probe.ts
+      - electron.vite.config.ts
+      - package-lock.json
       - .github/workflows/native-terminal.yml
   workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
 
 permissions:
   contents: read
@@ -44,7 +54,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes pkg-config libegl-dev libgl1-mesa-dri gdb
+          sudo apt-get install --yes pkg-config libegl-dev libgl1-mesa-dri gdb xvfb
           dpkg-query -W pkg-config libegl-dev libegl1 libgl1-mesa-dri gdb
       - name: Require macOS shader compiler
         if: runner.os == 'macOS'
@@ -58,6 +68,25 @@ jobs:
         run: |
           node scripts/native-terminal/build.mts "$TARGET" "$RUNNER_TEMP/hvir-native-build"
           node scripts/native-terminal/check.mts "$TARGET" "$RUNNER_TEMP/hvir-native-build/artifact"
+      - name: Install pinned Electron and build binding snapshots
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          npm ci
+          node scripts/native-terminal/bindings.mts "$TARGET" "$RUNNER_TEMP/hvir-native-build/artifact" "$RUNNER_TEMP/hvir-native-bindings"
+          node scripts/native-terminal/resource-probe.mts packages/native-terminal/build/Release/resource-probe 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/resource-proof.jsonl"
+          npx electron-vite build --mode native-terminal-probe
+      - name: Prove actual utility and Electron boundary on macOS
+        if: runner.os == 'macOS'
+        run: |
+          npx electron out/main/native-terminal-probe.js --library="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/electron-proof.jsonl"
+      - name: Prove Linux utility and resource mechanics with explicit hardware gate
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a npx electron out/main/native-terminal-probe.js --library="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" 2>&1 | tee "$RUNNER_TEMP/hvir-native-bindings/electron-proof.jsonl"
+      - name: Require the completed Electron proof receipt
+        run: |
+          node -e 'const fs = require("node:fs"); const assert = require("node:assert/strict"); const records = fs.readFileSync(process.argv[1], "utf8").split("\n").filter(line => line.startsWith("{" )).map(line => JSON.parse(line)).filter(value => value.nativeUtilityBoundary === "passed"); assert.equal(records.length, 1, "completed native Electron proof receipt required"); assert.equal(records[0].hardwareGpuQualified, false); assert.equal(records[0].receiverSandboxed, true); assert.equal(records[0].receiverContextIsolated, true);' "$RUNNER_TEMP/hvir-native-bindings/electron-proof.jsonl"
       - name: Diagnose failed Linux library relocation
         if: failure() && runner.os == 'Linux'
         run: |
@@ -82,6 +111,16 @@ jobs:
           path: ${{ runner.temp }}/hvir-native-build/facade-*.log
           if-no-files-found: ignore
           retention-days: 7
+      - name: Retain binding and Electron failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-terminal-host-diagnostics-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/hvir-native-bindings/*.jsonl
+            packages/native-terminal/build/Release/bindings.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Preserve modes and prove archive round trip
         env:
           TARGET: ${{ matrix.target }}
@@ -90,6 +129,17 @@ jobs:
           mkdir "$RUNNER_TEMP/native-terminal-received"
           tar -xf "$RUNNER_TEMP/native-terminal-${TARGET}.tar.gz" -C "$RUNNER_TEMP/native-terminal-received"
           node scripts/native-terminal/check.mts "$TARGET" "$RUNNER_TEMP/native-terminal-received/artifact"
+      - name: Archive binding modes and exact proof receipts
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          tar -czf "$RUNNER_TEMP/native-terminal-bindings-${TARGET}.tar.gz" -C packages/native-terminal/build Release -C "$RUNNER_TEMP/hvir-native-bindings" resource-proof.jsonl electron-proof.jsonl
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-terminal-bindings-${{ matrix.target }}
+          path: ${{ runner.temp }}/native-terminal-bindings-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
       - uses: actions/upload-artifact@v7
         with:
           name: native-terminal-${{ matrix.target }}

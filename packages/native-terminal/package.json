@@ -1,0 +1,16 @@
+{
+  "name": "@hvir/native-terminal",
+  "version": "0.0.0",
+  "private": true,
+  "gypfile": false,
+  "exports": {
+    "./engine": {
+      "types": "./engine.d.ts",
+      "default": "./engine.js"
+    },
+    "./resource": {
+      "types": "./resource.d.ts",
+      "default": "./resource.js"
+    }
+  }
+}

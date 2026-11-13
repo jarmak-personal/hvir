@@ -71,6 +71,7 @@ export async function checkModuleDirections(
             'no-restricted-imports',
             'no-restricted-syntax',
             'smoke-ownership/inward',
+            'native-terminal-ownership/inward',
           ].includes(name),
         ),
       )

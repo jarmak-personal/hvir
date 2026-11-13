@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "napiVersion": 8,
+  "electron": {
+    "version": "43.8.1",
+    "url": "https://www.electronjs.org/headers/v43.8.1/node-v43.8.1-headers.tar.gz",
+    "sha256": "f58c89ed15655b3abb9af6077df5534999d707cc1c9de4cd92b1c4ff20e57632"
+  }
+}

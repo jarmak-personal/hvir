@@ -3,6 +3,7 @@ import tseslint from 'typescript-eslint'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import prettier from 'eslint-config-prettier'
+import { nativeTerminalImportBoundary } from './scripts/native-terminal-import-boundary.mjs'
 import { smokeImportBoundary } from './scripts/smoke-import-boundary.mjs'
 
 // --- Seam enforcement (AGENTS.md "Respect the seams") ---------------------
@@ -150,8 +151,14 @@ export default tseslint.config(
   js.configs.recommended,
   {
     files: ['src/**/*.{ts,tsx,mts,cts}', 'packages/**/*.{ts,tsx,mts,cts}'],
-    plugins: { 'smoke-ownership': { rules: { inward: smokeImportBoundary } } },
-    rules: { 'smoke-ownership/inward': 'error' },
+    plugins: {
+      'smoke-ownership': { rules: { inward: smokeImportBoundary } },
+      'native-terminal-ownership': { rules: { inward: nativeTerminalImportBoundary } },
+    },
+    rules: {
+      'smoke-ownership/inward': 'error',
+      'native-terminal-ownership/inward': 'error',
+    },
   },
 
   // Type-aware linting for all TypeScript source.
@@ -706,6 +713,8 @@ export default tseslint.config(
       'scripts/build-agent-client.mts',
       'scripts/native-terminal/artifacts.mts',
       'scripts/native-terminal/build.mts',
+      'scripts/native-terminal/bindings.mts',
+      'scripts/native-terminal/resource-probe.mts',
       'scripts/native-terminal/source.mts',
       'scripts/native-terminal/upgrade.mts',
       'scripts/assemble-agent-clients.mts',

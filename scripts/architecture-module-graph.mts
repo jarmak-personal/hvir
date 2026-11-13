@@ -174,6 +174,40 @@ export function collectModuleGraph(
       }
       if (!target) {
         target = resolver.asset(from, ref.specifier)
+        const nativeTerminalInputs =
+          from === 'packages/native-terminal/engine.js' &&
+          target === 'packages/native-terminal/build/Release/native_terminal_engine.node'
+            ? [
+                'host_binding.c',
+                'terminal.c',
+                'terminal.h',
+                'hvir_ghostty_embed.h',
+                'engine.d.ts',
+              ]
+            : from === 'packages/native-terminal/resource.js' &&
+                target ===
+                  'packages/native-terminal/build/Release/native_terminal_resource.node'
+              ? [
+                  'resource_binding.c',
+                  'resource_edge.h',
+                  'resource_macos.c',
+                  'resource_linux.c',
+                  'resource.d.ts',
+                ]
+              : undefined
+        if (nativeTerminalInputs) {
+          for (const input of [
+            ...nativeTerminalInputs.map((name) => `packages/native-terminal/${name}`),
+            'scripts/native-terminal/bindings.mts',
+            'scripts/native-terminal/bindings-pin.json',
+            'packages/native-terminal/package.json',
+          ]) {
+            if (!existsSync(resolve(root, input)))
+              throw new Error(`Missing required native build input: ${input}`)
+          }
+          loading.push({ ...ref, from, target, disposition: 'native-build-output' })
+          continue
+        }
         if (
           (from === 'packages/rename-noreplace/index.js' &&
             target === 'packages/rename-noreplace/build/Release/rename_noreplace.node') ||

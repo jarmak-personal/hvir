@@ -58,6 +58,10 @@ typedef struct {
  * is process-local, borrowed, configured before any surface, and outlives the host. */
 hvir_terminal_result hvir_terminal_open(const char *library, void *display,
                                         hvir_terminal_host **out);
+/* Starts construction and initial geometry without waiting for its acknowledgement.
+ * The caller owns the returned state immediately and polls inspect before PTY spawn. */
+hvir_terminal_result hvir_terminal_create_begin(hvir_terminal_host *, uint32_t width,
+                                                uint32_t height, hvir_terminal_id *out);
 hvir_terminal_result hvir_terminal_create(hvir_terminal_host *, uint32_t width, uint32_t height,
                                           hvir_terminal_id *out);
 hvir_terminal_result hvir_terminal_feed(hvir_terminal_host *, hvir_terminal_id, uint64_t sequence,

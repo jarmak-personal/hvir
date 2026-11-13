@@ -2,8 +2,12 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "composite": false,
-    "lib": ["ES2023"],
-    "types": ["node"]
+    "lib": [
+      "ES2023"
+    ],
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "src/agent-cli/**/*.ts",
@@ -17,6 +21,7 @@
     "scripts/project-management/**/*.ts",
     "test/**/*.ts",
     "electron.vite.config.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "packages/native-terminal/*.d.ts"
   ]
 }

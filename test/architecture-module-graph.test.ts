@@ -74,6 +74,42 @@ describe('maintained module graph', () => {
     repo.remove('packages/extension-storage/extension_storage.c')
     expect(() => repo.graph()).toThrow('Missing required native build input')
   })
+  it('requires the exact native terminal addon inputs and authenticated build owner', () => {
+    const repo = fixture()
+    repo.write(
+      'packages/native-terminal/engine.js',
+      "module.exports = require('./build/Release/native_terminal_engine.node')",
+    )
+    const inputs = [
+      'packages/native-terminal/host_binding.c',
+      'packages/native-terminal/terminal.c',
+      'packages/native-terminal/terminal.h',
+      'packages/native-terminal/hvir_ghostty_embed.h',
+      'packages/native-terminal/engine.d.ts',
+      'packages/native-terminal/package.json',
+      'scripts/native-terminal/bindings.mts',
+      'scripts/native-terminal/bindings-pin.json',
+    ]
+    for (const path of inputs) repo.write(path, path.endsWith('.json') ? '{}' : '')
+    expect(repo.graph().loading).toContainEqual(
+      expect.objectContaining({
+        target: 'packages/native-terminal/build/Release/native_terminal_engine.node',
+        disposition: 'native-build-output',
+      }),
+    )
+    for (const path of inputs) {
+      repo.remove(path)
+      expect(() => repo.graph()).toThrow('Missing required native build input')
+      repo.write(path, path.endsWith('.json') ? '{}' : '')
+    }
+    repo.write(
+      'packages/native-terminal/engine.js',
+      "module.exports = require('./build/Release/other.node')",
+    )
+    expect(repo.graph().violations).toContainEqual(
+      expect.objectContaining({ rule: 'unresolved-internal' }),
+    )
+  })
   it('includes every maintained TS/JS and declaration suffix', () => {
     const repo = fixture()
     repo.write('src/leaf.ts', 'export const value = 1')

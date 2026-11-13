@@ -134,3 +134,8 @@ content-free phase markers. After a failed Linux invocation, CI additionally rec
 batch-gdb reproduction with all-thread backtraces. That diagnostic does not change the
 original failed acceptance result. CI retains the diagnostic logs; local native builds do
 not require gdb.
+
+The consuming Node-API bindings and actual utility/OS-right/Electron qualification
+are described in [native terminal host](native-terminal-host.md). Their receipt
+records both the trusted producer revision and the consuming binding revision;
+reusing an accepted native library does not imply it was built from the consumer.
