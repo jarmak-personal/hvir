@@ -58,6 +58,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes pkg-config libegl-dev libgl1-mesa-dri gdb xvfb
           dpkg-query -W pkg-config libegl-dev libegl1 libgl1-mesa-dri gdb
+          gdb --version
+          if test -r /proc/sys/kernel/yama/ptrace_scope; then
+            echo "Linux ptrace_scope (read-only diagnostic prerequisite):"
+            cat /proc/sys/kernel/yama/ptrace_scope
+          fi
       - name: Require macOS shader compiler
         if: runner.os == 'macOS'
         run: |
@@ -99,6 +104,11 @@ jobs:
           assert.equal(proof.hardwareGpuQualified, false);
           assert.equal(proof.receiverSandboxed, true);
           assert.equal(proof.receiverContextIsolated, true);
+          assert(Array.isArray(proof.frames));
+          for (const frame of proof.frames) {
+            assert.equal(frame.readbackWorker, true);
+            assert.equal(frame.cloneClosedBeforeReply, true);
+          }
           assert(proof.mainBeats > 0 && proof.rendererBeats > 0);
           assert.equal(proof.responsivenessExcludesFaultPhases, true);
           assert.deepEqual(proof.responsivenessPolicy, {

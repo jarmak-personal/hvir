@@ -42,6 +42,12 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
   constructor(
     private readonly library: string,
     private readonly outputDirectory?: string,
+    private readonly observe?: (event: {
+      kind: 'spawn' | 'exit'
+      epoch: string
+      pid?: number
+      code?: number
+    }) => void,
   ) {}
   get epoch(): string {
     return this.generation
@@ -263,14 +269,21 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
           'hvir-native-terminal',
         )
         this.child = child
-        child.once('spawn', () =>
+        let spawnedPid: number | undefined
+        child.once('spawn', () => {
+          spawnedPid = child.pid
+          try {
+            this.observe?.({ kind: 'spawn', epoch, pid: child.pid })
+          } catch {
+            /* Diagnostics never own native progress. */
+          }
           child.postMessage({
             epoch: this.epoch,
             library: this.library,
             resourceAddress: this.resourceAddress,
             mainPid: process.pid,
-          }),
-        )
+          })
+        })
         child.on('message', (message: unknown) => {
           if (this.child === child) this.message(message)
         })
@@ -278,7 +291,12 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
           clearTimeout(timer)
           if (this.child === child) this.lose(new Error('native-host-error'))
         })
-        child.once('exit', () => {
+        child.once('exit', (code) => {
+          try {
+            this.observe?.({ kind: 'exit', epoch, pid: spawnedPid, code })
+          } catch {
+            /* Diagnostics never own native progress. */
+          }
           clearTimeout(timer)
           if (this.child === child) {
             this.exitedEpoch = epoch

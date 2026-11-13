@@ -158,8 +158,22 @@ and import credit settle using that exit fact. Merely unavailable transport is
 insufficient; unknown cleanup waits for confirmed termination within its bound
 or remains quarantined. The lost generation never supplies another parser or frame.
 
-The qualification observer copies fixture pixels only to verify content. Its
-hash/red-pixel scan yields every 64 KiB so that instrumentation does not
-monopolize the renderer. Bounded phase statistics and readback/scan timing are
-printed before the unchanged responsiveness assertions, including on failure.
-These diagnostics distinguish observer cost from the native transfer path.
+The qualification observer transfers a clone of each fixture VideoFrame to a
+dedicated Web Worker for GPU-to-CPU copying and pixel hashing. It admits one
+observation at a time, bounds its completion, and closes the worker-owned clone
+before replying. The original frame stays with the preload for held-consumer
+proofs. Only the disposable probe allows Blob workers; normal preload and
+production presentation are unaffected. Main and renderer heartbeat measurements
+include the first readback end to end. Bounded phase statistics and readback/scan
+timing are printed before the unchanged responsiveness assertions, including on
+failure. These diagnostics distinguish observer cost from the native transfer path.
+
+If a Linux CI probe's owned main process is still alive after 65 seconds, the
+external launcher requests a bounded function-only native stack before its
+independent 75-second rejection and process-group cleanup. A denied unprivileged
+attach is recorded; CI may attempt the same fixed diagnostic through noninteractive
+sudo without changing ptrace policy. Diagnostic output, subprocess lifetime and
+fallback are bounded, and no diagnostic result can turn a timed-out probe into a
+pass. Utility spawn/exit markers retain the captured native epoch and PID,
+including initialization failures; public app quit and return markers locate the
+shutdown stage without claiming a cause from an alive-process snapshot alone.

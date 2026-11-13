@@ -63,6 +63,30 @@ export async function runNativeElectronProbe(
           ]
         : []
     })
+    const identities = members.length
+      ? (spawnSync(
+          'ps',
+          ['-p', members.map((member) => member.pid).join(','), '-o', 'pid=,args='],
+          {
+            encoding: 'utf8',
+            timeout: 1000,
+            maxBuffer: 1024 * 1024,
+          },
+        ).stdout ?? '')
+      : ''
+    const types = identities.split('\n').flatMap((line) => {
+      const match = /^\s*(\d+)\s+(.*)$/.exec(line)
+      if (!match || !members.some((member) => member.pid === Number(match[1]))) return []
+      return [
+        {
+          pid: Number(match[1]),
+          type: /(?:^|\s)--type=([a-z-]+)(?:\s|$)/.exec(match[2]!)?.[1] ?? 'browser',
+          utilitySubtype: /(?:^|\s)--utility-sub-type=([A-Za-z0-9._-]+)(?:\s|$)/.exec(
+            match[2]!,
+          )?.[1],
+        },
+      ]
+    })
     console.error(
       'native-probe:owned-group',
       JSON.stringify({
@@ -70,10 +94,92 @@ export async function runNativeElectronProbe(
         exitCode: child.exitCode,
         signal: child.signalCode,
         members,
+        types,
         snapshotError: snapshot.error?.message,
       }),
     )
   }
+  // Failure-only Linux CI evidence. This timer cannot extend the acceptance deadline.
+  let debuggerChild: ReturnType<typeof spawn> | undefined
+  let diagnosticsClosed = false
+  const stackTimer =
+    !launch && process.platform === 'linux' && process.env.CI && pid
+      ? setTimeout(() => {
+          if (child.exitCode !== null || child.signalCode !== null) return
+          const capture = (elevated: boolean): void => {
+            const arguments_ = [
+              '--nx',
+              '-iex',
+              'set auto-load off',
+              '--batch',
+              '-ex',
+              'set pagination off',
+              '-ex',
+              'set print frame-arguments none',
+              '-ex',
+              'set print entry-values no',
+              '-ex',
+              'thread apply all bt',
+              '-p',
+              String(pid),
+            ]
+            const diagnostic = spawn(
+              elevated ? 'sudo' : 'gdb',
+              elevated ? ['-n', 'gdb', ...arguments_] : arguments_,
+              { detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
+            )
+            debuggerChild = diagnostic
+            const chunks: Buffer[] = []
+            let bytes = 0
+            const stop = (): void => {
+              if (!diagnostic.pid) return
+              try {
+                process.kill(-diagnostic.pid, 'SIGKILL')
+              } catch {
+                /* Already exited. */
+              }
+            }
+            const timer = setTimeout(stop, 3000)
+            const collect = (data: Buffer): void => {
+              if (bytes + data.length > 64 * 1024) {
+                stop()
+                return
+              }
+              bytes += data.length
+              chunks.push(data)
+            }
+            diagnostic.stdout?.on('data', collect)
+            diagnostic.stderr?.on('data', collect)
+            diagnostic.once('error', (error) => collect(Buffer.from(error.message)))
+            diagnostic.once('close', (code, signal) => {
+              clearTimeout(timer)
+              const output = Buffer.concat(chunks).toString('utf8')
+              try {
+                console.error(
+                  'native-probe:owned-main-stack',
+                  JSON.stringify({
+                    pid,
+                    elevated,
+                    code,
+                    signal,
+                    output,
+                  }),
+                )
+              } catch {
+                /* Diagnostic sinks cannot own acceptance. */
+              }
+              if (
+                !diagnosticsClosed &&
+                !expired &&
+                !elevated &&
+                /ptrace|operation not permitted/i.test(output)
+              )
+                capture(true)
+            })
+          }
+          capture(false)
+        }, 65000)
+      : undefined
   let watchdog: NodeJS.Timeout | undefined
   let interrupt: ((signal: NodeJS.Signals) => void) | undefined
   const sigint = (): void => interrupt?.('SIGINT')
@@ -164,6 +270,18 @@ export async function runNativeElectronProbe(
   } finally {
     process.off('SIGINT', sigint)
     process.off('SIGTERM', sigterm)
+    diagnosticsClosed = true
+    if (stackTimer) clearTimeout(stackTimer)
+    if (debuggerChild?.pid) {
+      try {
+        process.kill(-debuggerChild.pid, 'SIGKILL')
+      } catch {
+        /* Diagnostic exited. */
+      }
+    }
+    debuggerChild?.stdout?.destroy()
+    debuggerChild?.stderr?.destroy()
+    debuggerChild?.unref()
     if (watchdog) clearTimeout(watchdog)
     killOwnedGroup()
     child.stdout?.destroy()

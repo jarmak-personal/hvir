@@ -1,5 +1,6 @@
 /** Standalone native-boundary qualification; never loaded by the workbench. */
 import { ipcRenderer, sharedTexture } from 'electron'
+import { nativeProbeReadbackWorker } from './native-terminal-probe-readback'
 
 let beats = 0
 let phase: number | undefined
@@ -20,6 +21,7 @@ ipcRenderer.on('native-probe-phase', (_event, value: { id: number; name?: string
   ipcRenderer.send('native-probe-phase-ready', { id: value.id })
 })
 interface ProbeFrame {
+  clone(): ProbeFrame
   allocationSize(options: { format: string }): number
   copyTo(bytes: Uint8Array, options: { format: string }): Promise<unknown>
   close(): void
@@ -27,44 +29,109 @@ interface ProbeFrame {
 type Held = { frame: ProbeFrame; texture: Electron.SharedTextureImported }
 const held = new Set<Held>()
 let hold = false
-async function readFrame(frame: ProbeFrame) {
-  const length = frame.allocationSize({ format: 'RGBA' })
-  if (length <= 0 || length > 8192 * 8192 * 4) throw new Error('native-probe-frame-bound')
-  const bytes = new Uint8Array(length)
-  const readbackStarted = performance.now()
-  await frame.copyTo(bytes, { format: 'RGBA' })
-  const readbackMs = performance.now() - readbackStarted
-  let sliceStarted = performance.now()
-  let hashMaxSliceMs = 0
-  let hash = 2166136261
-  let different = false
-  let redPixels = 0
-  for (let i = 0; i < bytes.length; i++) {
-    if (i && i % 65536 === 0) {
-      hashMaxSliceMs = Math.max(hashMaxSliceMs, performance.now() - sliceStarted)
-      await new Promise<void>((resolve) => setTimeout(resolve, 0))
-      sliceStarted = performance.now()
+interface Readback {
+  bytes: number
+  hash: number
+  different: boolean
+  redPixels: number
+  readbackMs: number
+  hashMaxSliceMs: number
+  readbackWorker: true
+  cloneClosedBeforeReply: true
+}
+interface Observer {
+  postMessage(message: unknown, transfer: unknown[]): void
+  terminate(): void
+  onmessage: ((event: { data: unknown }) => void) | null
+  onerror: (() => void) | null
+  onmessageerror: (() => void) | null
+}
+let observer: Observer | undefined
+let observerId = 0
+let stopped = false
+let active:
+  | {
+      id: number
+      reject(error: Error): void
+      resolve(value: Readback): void
+      timeout: ReturnType<typeof setTimeout>
     }
-    const value = bytes[i] ?? 0
-    if (
-      i % 4 === 0 &&
-      value > 150 &&
-      (bytes[i + 1] ?? 255) < 100 &&
-      (bytes[i + 2] ?? 255) < 100
-    )
-      redPixels++
-    hash = Math.imul(hash ^ value, 16777619)
-    if (i >= 4 && value !== bytes[i % 4]) different = true
+  | undefined
+function stopObserver(): void {
+  stopped = true
+  observer?.terminate()
+  observer = undefined
+  if (active) {
+    clearTimeout(active.timeout)
+    active.reject(new Error('native-probe-observer-stopped'))
+    active = undefined
   }
-  hashMaxSliceMs = Math.max(hashMaxSliceMs, performance.now() - sliceStarted)
-  return {
-    bytes: length,
-    hash: hash >>> 0,
-    different,
-    redPixels,
-    readbackMs,
-    hashMaxSliceMs,
+}
+function readFrame(frame: ProbeFrame): Promise<Readback> {
+  if (stopped || active) return Promise.reject(new Error('native-probe-observer-bound'))
+  if (!observer) {
+    const source = `(${nativeProbeReadbackWorker.toString()})()`
+    const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }))
+    try {
+      const Worker = (globalThis as unknown as { Worker: new (url: string) => Observer })
+        .Worker
+      observer = new Worker(url)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+    observer.onerror = stopObserver
+    observer.onmessageerror = stopObserver
+    observer.onmessage = ({ data }) => {
+      const value = data as {
+        id?: number
+        result?: Partial<Readback> & { error?: string }
+        cloneClosedBeforeReply?: boolean
+      }
+      const result = value?.result
+      if (
+        !active ||
+        value?.id !== active.id ||
+        value.cloneClosedBeforeReply !== true ||
+        !result ||
+        result.error ||
+        result.readbackWorker !== true ||
+        !Number.isInteger(result.bytes) ||
+        !result.bytes ||
+        result.bytes > 8192 * 8192 * 4 ||
+        !Number.isInteger(result.hash) ||
+        typeof result.different !== 'boolean' ||
+        !Number.isInteger(result.redPixels) ||
+        ![result.readbackMs, result.hashMaxSliceMs].every(
+          (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0,
+        )
+      ) {
+        stopObserver()
+        return
+      }
+      const completed = active
+      active = undefined
+      clearTimeout(completed.timeout)
+      completed.resolve({ ...result, cloneClosedBeforeReply: true } as Readback)
+    }
   }
+  const target = observer
+  let clone: ProbeFrame
+  try {
+    clone = frame.clone()
+  } catch (error) {
+    stopObserver()
+    throw error
+  }
+  return new Promise((resolve, reject) => {
+    const id = ++observerId
+    active = { id, resolve, reject, timeout: setTimeout(stopObserver, 10000) }
+    try {
+      target.postMessage({ id, frame: clone }, [clone])
+    } catch {
+      clone.close()
+      stopObserver()
+    }
+  })
 }
 sharedTexture.setSharedTextureReceiver(
   async ({ importedSharedTexture: texture }, metadata: unknown) => {
@@ -114,7 +181,11 @@ ipcRenderer.on('native-probe-release-held', () => {
   }
   held.clear()
 })
-ipcRenderer.once('native-probe-stop', () => clearInterval(timer))
+ipcRenderer.once('native-probe-stop', () => {
+  clearInterval(timer)
+  stopped = true
+  stopObserver()
+})
 ipcRenderer.send('native-probe-ready', {
   sandboxed: process.sandboxed,
   contextIsolated: process.contextIsolated,

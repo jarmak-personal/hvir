@@ -643,3 +643,24 @@ it('reserves one per-state cleanup slot while ordinary controls and feed are sat
   await Promise.all([...controls, feed, destroy])
   expect(process.available).toBe(true)
 })
+
+it('keeps lifecycle progress authoritative when a diagnostic observer throws', async () => {
+  const observe = vi.fn(() => {
+    throw new Error('diagnostic-sink-failed')
+  })
+  const process = new NativeTerminalProcess('/trusted/libghostty', undefined, observe)
+  owners.push(process)
+  const epoch = process.epoch
+  const pending = call(process, { kind: 'inspect', state: '1' })
+  const child = await ready(process)
+  expect(child.messages[0]).toMatchObject({ epoch, mainPid: globalThis.process.pid })
+  reply(child, last(child), { result: 0 })
+  await expect(pending).resolves.toEqual({ result: 0 })
+  child.emit('exit', 0)
+  expect(process.hasExited(epoch)).toBe(true)
+  expect(process.available).toBe(false)
+  expect(observe.mock.calls).toEqual([
+    [{ kind: 'spawn', epoch, pid: child.pid }],
+    [{ kind: 'exit', epoch, pid: child.pid, code: 0 }],
+  ])
+})

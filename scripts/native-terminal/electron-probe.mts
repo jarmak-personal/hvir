@@ -20,6 +20,8 @@ if (!library) throw new Error('native-probe requires --library=ABSOLUTE_TRUSTED_
 let window: BrowserWindow | undefined
 let processPort: NativeTerminalProcess | undefined
 let host: NativeTerminalHost | undefined
+app.on('will-quit', () => phase('will-quit'))
+app.on('quit', (_event, code) => phase(`quit code=${code}`))
 app.on('window-all-closed', () => {
   /* Qualification owns its asynchronous final cleanup. */
 })
@@ -69,6 +71,8 @@ void app
       redPixels: number
       readbackMs: number
       hashMaxSliceMs: number
+      readbackWorker: true
+      cloneClosedBeforeReply: true
     }[] = []
     let receiverSandboxed = false
     let receiverContextIsolated = false
@@ -143,6 +147,8 @@ void app
           redPixels: number
           readbackMs: number
           hashMaxSliceMs: number
+          readbackWorker: true
+          cloneClosedBeforeReply: true
         },
       ) => {
         if (event.sender === target.webContents) received.push(value)
@@ -152,7 +158,7 @@ void app
       throw new Error('native-probe-renderer-readback')
     })
     await target.loadURL(
-      'data:text/html,<meta http-equiv="Content-Security-Policy" content="default-src %27none%27"><title>Native boundary probe</title>',
+      'data:text/html,<meta http-equiv="Content-Security-Policy" content="default-src %27none%27; worker-src blob:"><title>Native boundary probe</title>',
     )
     await receiverReady
     phase('prepare')
@@ -165,7 +171,7 @@ void app
       ownerGeneration: 1,
       workspaceRoot: localPath('/native-probe'),
     })
-    processPort = new NativeTerminalProcess(library, __dirname)
+    processPort = nativeProcess(library)
     let rendererGeneration = 1
     const authority: NativeTerminalAuthority = {
       resolve: (id) => sessions.get(id),
@@ -343,15 +349,15 @@ void app
     )
     assert.equal(sessions.get(first.sessionId)?.instanceId, first.instanceId)
     host.dispose()
-    const invalid = new NativeTerminalProcess(`${library}.missing`, __dirname)
+    const invalid = nativeProcess(`${library}.missing`)
     await assert.rejects(invalid.request({ kind: 'create', width: 640, height: 384 }))
     invalid.dispose()
-    const shutdown = new NativeTerminalProcess(library, __dirname)
+    const shutdown = nativeProcess(library)
     const pending = shutdown.request({ kind: 'create', width: 640, height: 384 })
     shutdown.dispose()
     await assert.rejects(pending)
     let timeoutQuarantine: string = 'not-applicable-owned-pixels'
-    processPort = new NativeTerminalProcess(library, __dirname)
+    processPort = nativeProcess(library)
     host = new NativeTerminalHost(processPort, authority)
     const d = await host.prepare(first, 640, 384)
     phase(`utility-ready pid=${String(processPort.pid)}`)
@@ -387,7 +393,7 @@ void app
       sessions.set(first.sessionId, renewed)
       const priorReady = readyCount
       await target.webContents.loadURL(
-        'data:text/html,<meta http-equiv="Content-Security-Policy" content="default-src %27none%27">',
+        'data:text/html,<meta http-equiv="Content-Security-Policy" content="default-src %27none%27; worker-src blob:">',
       )
       await until(() => readyCount > priorReady)
       const renewedAttachment = host.attach(d, renewed)
@@ -461,6 +467,10 @@ void app
     clearInterval(heartbeat)
     assert(mainBeats > 0)
     assert(rendererBeats > 0)
+    for (const readback of received) {
+      assert.equal(readback.readbackWorker, true)
+      assert.equal(readback.cloneClosedBeforeReply, true)
+    }
     const responsiveness = phases.map((phase) => ({
       phase: phase.name,
       main: gapSummary(phase.main),
@@ -543,6 +553,7 @@ void app
     clearTimeout(timeout)
     phase('exit')
     app.exit(0)
+    phase('app-exit-returned')
   })
   .catch((error: unknown) => {
     phase('failure')
@@ -618,4 +629,10 @@ function gapSummary(values: number[]): { samples: number; p99Ms: number; maxMs: 
 
 function phase(name: string): void {
   console.error(`native-probe:phase ${name}`)
+}
+
+function nativeProcess(path: string): NativeTerminalProcess {
+  return new NativeTerminalProcess(path, __dirname, (event) => {
+    console.error('native-probe:utility-lifecycle', JSON.stringify(event))
+  })
 }
