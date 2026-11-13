@@ -337,3 +337,36 @@ describe('native terminal main imports', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 })
+
+it('quarantines import credit when producer cleanup is not acknowledged', async () => {
+  const f = fixture()
+  for (let i = 0; i < 3; i++) {
+    const native = source()
+    native.release.mockRejectedValueOnce(new Error('native-cleanup-unconfirmed'))
+    const frame = await f.owner.acquire(native, f.target)
+    frame.release()
+    f.options[i]!.allReferencesReleased?.()
+    await expect(frame.released).rejects.toThrow('native-cleanup-unconfirmed')
+  }
+  const refused = source()
+  await expect(f.owner.acquire(refused, f.target)).rejects.toThrow('native-import-bound')
+  expect(f.edge.receive).toHaveBeenCalledTimes(3)
+  expect(refused.release).toHaveBeenCalledOnce()
+})
+
+it('admits a fresh source only after the previous physical owner settles', async () => {
+  const f = fixture(),
+    completion = deferred<void>()
+  const old = source()
+  old.release.mockReturnValue(completion.promise)
+  const first = await f.owner.acquire(old, f.target)
+  const second = await f.owner.acquire(source(), f.target)
+  const third = await f.owner.acquire(source(), f.target)
+  f.options[0]!.allReferencesReleased?.()
+  await expect(f.owner.acquire(source(), f.target)).rejects.toThrow('native-import-bound')
+  completion.resolve()
+  await first.released
+  const fresh = await f.owner.acquire(source(), f.target)
+  for (const options of f.options.slice(1)) options.allReferencesReleased?.()
+  await Promise.all([second.released, third.released, fresh.released])
+})

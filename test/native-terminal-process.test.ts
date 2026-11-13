@@ -209,6 +209,10 @@ describe('native process cancelled acquisition ownership', () => {
       (await Promise.allSettled(pending)).every((result) => result.status === 'rejected'),
     ).toBe(true)
     await expect(call(process, { kind: 'inspect', state: '99' })).rejects.toThrow('bound')
+    await expect(
+      call(process, { kind: 'release', state: '1', lease: '11' }),
+    ).rejects.toThrow('bound')
+    await expect(call(process, { kind: 'destroy', state: '1' })).rejects.toThrow('bound')
     expect(child.requests()).toHaveLength(64)
     reply(child, sent[0]!, undefined, false)
     await flush()
@@ -388,6 +392,30 @@ describe('native process failure containment', () => {
   })
 })
 
+it.each(['transport', 'deadline', 'dispose'] as const)(
+  'requires an observed child exit after %s before confirming epoch death',
+  async (reason) => {
+    const process = owner()
+    const pending = call(process, { kind: 'inspect', state: '1' })
+    const child = await ready(process)
+    const epoch = process.epoch
+    child.kill.mockImplementation(() => true)
+    expect(process.hasExited(epoch)).toBe(false)
+    if (reason === 'transport') child.emit('error', new Error('transport lost'))
+    else if (reason === 'dispose') process.dispose()
+    else await vi.advanceTimersByTimeAsync(NATIVE_TERMINAL_LIMITS.requestMs)
+    await expect(pending).rejects.toThrow()
+    expect(process.available).toBe(false)
+    expect(child.kill).toHaveBeenCalledOnce()
+    expect(process.hasExited(epoch)).toBe(false)
+    expect(process.hasExited('foreign')).toBe(false)
+    child.emit('exit', 1)
+    expect(process.hasExited(epoch)).toBe(true)
+    expect(process.hasExited('foreign')).toBe(false)
+    expect(process.hasExited(epoch + '-new')).toBe(false)
+  },
+)
+
 it('settles idle on the caller thread, then creates a fresh utility and ignores retired callbacks', async () => {
   const process = owner()
   const first = call(process, { kind: 'inspect', state: '1' })
@@ -395,6 +423,7 @@ it('settles idle on the caller thread, then creates a fresh utility and ignores 
   reply(child, last(child), { result: 0 })
   await first
   const oldEpoch = process.epoch
+  child.kill.mockImplementation(() => true)
   let close!: () => void
   mocks.closeEndpoint.mockImplementationOnce(
     () =>
@@ -421,6 +450,8 @@ it('settles idle on the caller thread, then creates a fresh utility and ignores 
   child.emit('message', { kind: 'result', epoch: oldEpoch, id: 999, ok: true, value: {} })
   child.emit('error', new Error('retired transport'))
   child.emit('exit', 1)
+  expect(process.hasExited(process.epoch)).toBe(false)
+  expect(process.hasExited(oldEpoch)).toBe(false)
   expect(process.available).toBe(true)
   expect(fresh.kill).not.toHaveBeenCalled()
   reply(fresh, last(fresh), { result: 0 })
@@ -452,9 +483,9 @@ it('bounds and snapshots next-generation work while idle teardown is pending', a
   await Promise.all(queued)
 })
 
-it('reserves producer progress when unrelated controls fill their global allowance', async () => {
+it('reserves producer and cleanup progress when controls fill their global allowance', async () => {
   const process = owner()
-  const controls = Array.from({ length: 32 }, (_, index) =>
+  const controls = Array.from({ length: 31 }, (_, index) =>
     call(process, { kind: 'inspect', state: String(index + 1) }),
   )
   const child = await ready(process)
@@ -468,15 +499,28 @@ it('reserves producer progress when unrelated controls fill their global allowan
     }),
   )
   await flush()
+  expect(child.requests()).toHaveLength(63)
+  const release = call(process, { kind: 'release', state: '1', lease: '11' })
+  await flush()
   expect(child.requests()).toHaveLength(64)
+  expect(last(child).command.kind).toBe('release')
+  await expect(call(process, { kind: 'destroy', state: '1' })).rejects.toThrow('bound')
+  reply(child, last(child), { result: 9 })
+  await expect(release).resolves.toEqual({ result: 9 })
+  const destroy = call(process, { kind: 'destroy', state: '1' })
+  await flush()
+  expect(last(child).command.kind).toBe('destroy')
   expect(process.available).toBe(true)
-  for (const request of child.requests()) reply(child, request, { result: 0 })
-  await Promise.all([...controls, ...feeds])
+  for (const request of child
+    .requests()
+    .filter((request) => request.command.kind !== 'release'))
+    reply(child, request, { result: 0 })
+  await Promise.all([...controls, ...feeds, destroy])
 })
 
 it('retains one producer slot per state and rehydrates proven-unsent utility refusal', async () => {
   const process = owner()
-  const controls = Array.from({ length: 7 }, () =>
+  const controls = Array.from({ length: 6 }, () =>
     call(process, { kind: 'inspect', state: '1' }),
   )
   const child = await ready(process)
@@ -498,7 +542,40 @@ it('retains one producer slot per state and rehydrates proven-unsent utility ref
     error: 'native-admission-bound',
   })
   await expect(feed).rejects.toBeInstanceOf(NativeTerminalAdmissionError)
-  for (const request of child.requests().slice(0, 7)) reply(child, request, { result: 0 })
+  for (const request of child.requests().slice(0, 6)) reply(child, request, { result: 0 })
   await Promise.all(controls)
+  expect(process.available).toBe(true)
+})
+
+it('reserves one per-state cleanup slot while ordinary controls and feed are saturated', async () => {
+  const process = owner()
+  const controls = Array.from({ length: 6 }, () =>
+    call(process, { kind: 'inspect', state: '1' }),
+  )
+  const child = await ready(process)
+  await expect(call(process, { kind: 'read', state: '1' })).rejects.toThrow('bound')
+  const feed = call(process, {
+    kind: 'feed',
+    state: '1',
+    sequence: 1,
+    bytes: Uint8Array.of(1),
+  })
+  const release = call(process, { kind: 'release', state: '1', lease: '11' })
+  await flush()
+  expect(child.requests()).toHaveLength(8)
+  expect(last(child).command.kind).toBe('release')
+  await expect(call(process, { kind: 'destroy', state: '1' })).rejects.toThrow('bound')
+  reply(child, last(child), { result: 0 })
+  await release
+  const destroy = call(process, { kind: 'destroy', state: '1' })
+  await flush()
+  expect(child.requests()).toHaveLength(9)
+  expect(last(child).command.kind).toBe('destroy')
+  await expect(call(process, { kind: 'inspect', state: '1' })).rejects.toThrow('bound')
+  for (const request of child
+    .requests()
+    .filter((request) => request.command.kind !== 'release'))
+    reply(child, request, { result: 0 })
+  await Promise.all([...controls, feed, destroy])
   expect(process.available).toBe(true)
 })

@@ -67,6 +67,8 @@ void app
       hash: number
       different: boolean
       redPixels: number
+      readbackMs: number
+      hashMaxSliceMs: number
     }[] = []
     let receiverSandboxed = false
     let receiverContextIsolated = false
@@ -134,7 +136,14 @@ void app
       'native-probe-frame',
       (
         event,
-        value: { bytes: number; hash: number; different: boolean; redPixels: number },
+        value: {
+          bytes: number
+          hash: number
+          different: boolean
+          redPixels: number
+          readbackMs: number
+          hashMaxSliceMs: number
+        },
       ) => {
         if (event.sender === target.webContents) received.push(value)
       },
@@ -205,7 +214,18 @@ void app
       },
       sendSharedTexture: (...args) => sharedTexture.sendSharedTexture(...args),
     }
-    const textures = new NativeTerminalFrameImports(processPort, measuredTextures)
+    let releasedReceipts = 0
+    const resources = (port: NativeTerminalProcess) => ({
+      receive: (ticket: string) => port.receive(ticket),
+      release: (receipt: Parameters<NativeTerminalProcess['release']>[0]): void => {
+        port.release(receipt)
+        releasedReceipts++
+      },
+    })
+    const textures = new NativeTerminalFrameImports(
+      resources(processPort),
+      measuredTextures,
+    )
     phase('import')
     await measure('transfer')
     if (kind === 1 || kind === 2) {
@@ -249,7 +269,10 @@ void app
       await host.inspect(c, first.ownerId, 1)
       await armHold(target)
       const source = await completedFrame(host, c, first, attachment, 1)
-      const importer = new NativeTerminalFrameImports(processPort, measuredTextures)
+      const importer = new NativeTerminalFrameImports(
+        resources(processPort),
+        measuredTextures,
+      )
       const held = await importer.acquire(source, {
         frame: target.webContents.mainFrame,
         ready: true,
@@ -273,9 +296,22 @@ void app
         (await checked).redPixels > 100,
         'receiver retains real pixels after producer death',
       )
+      const beforeRelease = releasedReceipts
       target.webContents.send('native-probe-release-held')
       await held.released
-      producerDeathHeld = 'passed-real-held-video-frame-survives-producer-death'
+      assert.equal(
+        processPort.hasExited(processPort.epoch),
+        true,
+        'owned producer exit confirmed for this epoch',
+      )
+      assert.equal(
+        releasedReceipts,
+        beforeRelease + 1,
+        'main OS receipt released after final consumer and confirmed producer death',
+      )
+      assert.equal(processPort.available, false)
+      producerDeathHeld =
+        'passed-held-pixels-and-reclamation-after-confirmed-producer-exit'
     } else {
       const crashedPid = processPort.pid
       assert(crashedPid)
@@ -306,7 +342,10 @@ void app
       await host.inspect(d, first.ownerId, 1)
       await armHold(target)
       const consumerSource = await completedFrame(host, d, first, attachment, 1)
-      const importer = new NativeTerminalFrameImports(processPort, measuredTextures)
+      const importer = new NativeTerminalFrameImports(
+        resources(processPort),
+        measuredTextures,
+      )
       const retained = await importer.acquire(consumerSource, {
         frame: target.webContents.mainFrame,
         ready: true,
@@ -349,6 +388,7 @@ void app
         isCurrent: () => !target.isDestroyed(),
       })
       phase('quarantine')
+      const beforeLateFrame = received.length
       const blocking = new Promise<void>((resolve) =>
         ipcMain.once('native-probe-block-started', () => resolve()),
       )
@@ -360,7 +400,7 @@ void app
         physicallyReleased = true
       })
       held.release()
-      await new Promise<void>((resolve) => setTimeout(resolve, 1000))
+      await until(() => received.length > beforeLateFrame)
       assert.equal(physicallyReleased, false, 'late consumer cannot bypass quarantine')
       target.destroy()
       phase('quarantine-target-destroyed')
@@ -378,6 +418,17 @@ void app
       main: gapSummary(phase.main),
       renderer: gapSummary(phase.renderer),
     }))
+    console.error(
+      'native-probe:responsiveness',
+      JSON.stringify({
+        responsiveness,
+        importTimesMs: importTimes,
+        readbacks: received.map(({ readbackMs, hashMaxSliceMs }) => ({
+          readbackMs,
+          hashMaxSliceMs,
+        })),
+      }),
+    )
     assert.equal(responsiveness.length, 2)
     for (const phase of responsiveness)
       for (const loop of [phase.main, phase.renderer]) {
@@ -413,6 +464,7 @@ void app
       initFailure: true,
       shutdownBeforeInitialization: true,
       producerDeathHeld,
+      releasedReceipts,
       consumerDeathHeld,
       timeoutQuarantine,
       utilityPid,

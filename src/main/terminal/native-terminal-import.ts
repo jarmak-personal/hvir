@@ -103,12 +103,15 @@ export class NativeTerminalFrameImports {
           .then(() => source.release())
           .then(
             () => {
-              this.outstanding--
               if (releaseError) rejectReleased(releaseError)
-              else resolveReleased()
+              else {
+                this.outstanding--
+                resolveReleased()
+              }
             },
             (error: unknown) => {
-              this.outstanding--
+              // An unconfirmed producer release retains this import's credit.
+              // The failed native generation must not silently reuse its pool.
               rejectReleased(error)
             },
           )

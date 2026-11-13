@@ -22,7 +22,7 @@ are copied and split into ordered 16 KiB chunks. A concurrent delivery to the
 same state is explicitly rejected and retires that state; callers must await the
 previous delivery rather than drop or interleave producer bytes.
 
-Main control admission is capped at 32 global commands and seven per state,
+Main ordinary control admission is capped at 31 global commands and six per state,
 leaving producer credit for one chunk per bound state. A proven-unsent refusal of
 the first feed chunk preserves the parser and stream sequence for explicit retry
 or backpressure. A bound/failure after accepted partial delivery, or an
@@ -140,3 +140,26 @@ Node launcher. It captures both output streams and content-free phase markers,
 requires actual exit zero plus one completed receipt, and cleans only its own
 detached process group. A receipt followed by a stuck process or inherited pipe
 is a failure; a timeout never becomes acceptance.
+
+Release and destroy use reserved cleanup admission inside the same 64/8 command
+bounds. Contending cleanup intents coalesce per state or lease and yield before
+retrying proven-unsent admission pressure, with a 15-second admission deadline. After an unprovable operation, the failed
+producer has a separate bounded 15-second termination-confirmation interval.
+Lease/state ownership stays recorded until the native acknowledgement; destroy
+BUSY retains the C record until a later release and final destroy. Unconfirmed
+cleanup fails the native host and quarantines import credit rather than reporting
+physical release. Renderer revocation does not revoke this cleanup authority.
+
+In the producer-death fault, a retained receiver frame remains readable and the
+main OS receipt is released. The dead producer cannot acknowledge its C lease
+release. An observed exit of the owned utility for that exact native epoch is
+separate physical evidence: after Electron's final consumer release, references
+and import credit settle using that exit fact. Merely unavailable transport is
+insufficient; unknown cleanup waits for confirmed termination within its bound
+or remains quarantined. The lost generation never supplies another parser or frame.
+
+The qualification observer copies fixture pixels only to verify content. Its
+hash/red-pixel scan yields every 64 KiB so that instrumentation does not
+monopolize the renderer. Bounded phase statistics and readback/scan timing are
+printed before the unchanged responsiveness assertions, including on failure.
+These diagnostics distinguish observer cost from the native transfer path.

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { hostPath, LOCAL_HOST_ID } from '../src/shared/host-path'
 import {
   NativeTerminalAdmissionError,
@@ -10,10 +10,12 @@ import { NativeTerminalHost } from '../src/main/terminal/native-terminal-host'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((yes) => {
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((yes, no) => {
     resolve = yes
+    reject = no
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 function status(serial = 1): NativeTerminalStatus {
   return {
@@ -39,7 +41,7 @@ function status(serial = 1): NativeTerminalStatus {
     },
   }
 }
-function fixture() {
+function fixture(exitEvidence?: (epoch: string) => boolean) {
   const sessions = new Map<string, NativeTerminalSession>()
   const live = {
     renderer: true,
@@ -49,6 +51,8 @@ function fixture() {
     status: status(),
   }
   let nextState = 0
+  let nextLease = 0
+  const held = new Set<string>()
   const request = vi.fn(
     (command: NativeTerminalCommand, _signal?: AbortSignal): Promise<unknown> => {
       switch (command.kind) {
@@ -59,8 +63,9 @@ function fixture() {
         case 'read':
           return Promise.resolve(new Uint8Array([1]))
         case 'frame':
+          held.add(command.state)
           return Promise.resolve({
-            lease: '1',
+            lease: String(++nextLease),
             streamSequence: 0,
             geometrySerial: 1,
             kind: 1,
@@ -70,17 +75,24 @@ function fixture() {
             origin: 1,
             premultiplied: true,
           })
+        case 'release':
+          held.delete(command.state)
+          return Promise.resolve({ result: 0 })
+        case 'destroy':
+          return Promise.resolve({ result: held.has(command.state) ? 6 : 0 })
         default:
-          return Promise.resolve(undefined)
+          return Promise.resolve({ result: 0 })
       }
     },
   )
   const process = {
     epoch: 'host-1',
+    ...(exitEvidence ? { hasExited: vi.fn(exitEvidence) } : {}),
     get available() {
       return live.available
     },
     request,
+    idle: vi.fn(() => Promise.resolve()),
     dispose: vi.fn(() => {
       live.available = false
     }),
@@ -110,6 +122,8 @@ function fixture() {
     session,
   }
 }
+
+afterEach(() => vi.useRealTimers())
 
 describe('native terminal main session authority', () => {
   it('reserves duplicate and global state capacity while preparation is still pending', async () => {
@@ -146,7 +160,7 @@ describe('native terminal main session authority', () => {
         entered.resolve()
         return firstChunk.promise
       }
-      return Promise.resolve(undefined)
+      return Promise.resolve({ result: 0 })
     })
     const bytes = new Uint8Array(16385).fill(7)
     const feeding = f.host.feed(handle, original.instanceId, bytes)
@@ -185,7 +199,7 @@ describe('native terminal main session authority', () => {
         entered.resolve()
         return active.promise
       }
-      return Promise.resolve(undefined)
+      return Promise.resolve({ result: 0 })
     })
     const first = f.host.feed(handle, current.instanceId, new Uint8Array(16385))
     const rejected = expect(first).rejects.toThrow('native-producer-revoked')
@@ -234,7 +248,7 @@ describe('native terminal main session authority', () => {
         return resized.promise
       }
       if (command.kind === 'inspect') return Promise.resolve(f.live.status)
-      return Promise.resolve(undefined)
+      return Promise.resolve({ result: 0 })
     })
     const resizing = f.host.resize(handle, 1, 1, attachment, 2, 32, 32)
     await entered.promise
@@ -271,7 +285,7 @@ describe('native terminal main session authority', () => {
     const sibling = f.session(1)
     const other = await f.host.prepare(sibling, 32, 32)
     f.request.mockImplementation((command) =>
-      Promise.resolve(command.kind === 'frame' ? { lease: 'malformed' } : undefined),
+      Promise.resolve(command.kind === 'frame' ? { lease: 'malformed' } : { result: 0 }),
     )
     await expect(f.host.takeFrame(handle, 1, 1, attachment)).rejects.toThrow(
       'native-frame-invalid',
@@ -383,3 +397,295 @@ it.each([
     await f.host.resize(handle, 1, 1, attachment, 2, 32, 32)
   },
 )
+
+it.each([0, 9])(
+  'retains and coalesces a safely refused release until native acknowledgement %s',
+  async (result) => {
+    vi.useFakeTimers()
+    const f = fixture(),
+      session = f.session()
+    const handle = await f.host.prepare(session, 32, 32)
+    const attachment = f.host.attach(handle, session)
+    const frame = await f.host.takeFrame(handle, 1, 1, attachment)
+    expect(frame).toBeDefined()
+    const ordinary = f.request.getMockImplementation()!
+    const acknowledged = deferred<void>()
+    let attempts = 0
+    f.request.mockImplementation((command, signal) => {
+      if (command.kind !== 'release') return ordinary(command, signal)
+      if (++attempts === 1) return Promise.reject(new NativeTerminalAdmissionError())
+      return acknowledged.promise.then(async () => {
+        await ordinary(command, signal)
+        return { result }
+      })
+    })
+    let released = false
+    const first = frame!.release().then(() => {
+      released = true
+    })
+    const duplicate = frame!.release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(attempts).toBe(1)
+    expect(released).toBe(false)
+    await expect(f.host.takeFrame(handle, 1, 1, attachment)).rejects.toThrow(
+      'native-frame-bound',
+    )
+    expect(f.process.idle).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(16)
+    expect(attempts).toBe(2)
+    expect(released).toBe(false)
+    acknowledged.resolve()
+    await Promise.all([first, duplicate])
+    expect(released).toBe(true)
+    expect(attempts).toBe(2)
+    const replacement = await f.host.takeFrame(handle, 1, 1, attachment)
+    expect(replacement).toBeDefined()
+    // Subsequent cleanup uses the immediate native dependency again.
+    f.request.mockImplementation(ordinary)
+    await replacement!.release()
+    await f.host.end(handle, session.instanceId)
+    expect(f.process.idle).toHaveBeenCalledTimes(1)
+    expect(f.process.dispose).not.toHaveBeenCalled()
+  },
+)
+
+it('retains a retiring state through unsent destroy pressure and a pending C acknowledgement', async () => {
+  vi.useFakeTimers()
+  const f = fixture(),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const ordinary = f.request.getMockImplementation()!
+  const acknowledgement = deferred<unknown>()
+  let attempts = 0
+  f.request.mockImplementation((command, signal) => {
+    if (command.kind !== 'destroy') return ordinary(command, signal)
+    return ++attempts === 1
+      ? Promise.reject(new NativeTerminalAdmissionError())
+      : acknowledgement.promise
+  })
+  let ended = false
+  const ending = f.host.end(handle, session.instanceId).then(() => {
+    ended = true
+  })
+  const repeated = f.host.end(handle, session.instanceId)
+  await vi.advanceTimersByTimeAsync(16)
+  expect(attempts).toBe(2)
+  expect(ended).toBe(false)
+  expect(f.process.idle).not.toHaveBeenCalled()
+  await expect(f.host.prepare(session, 32, 32)).rejects.toThrow('native-state-bound')
+  acknowledgement.resolve({ result: 0 })
+  await Promise.all([ending, repeated])
+  expect(f.process.idle).toHaveBeenCalledTimes(1)
+  expect(attempts).toBe(2)
+  f.request.mockImplementation(ordinary)
+  expect(await f.host.prepare(session, 32, 32)).toBeTypeOf('string')
+})
+
+it('never reports successful release after a native resource failure', async () => {
+  const f = fixture(),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  const frame = await f.host.takeFrame(handle, 1, 1, attachment)
+  const ordinary = f.request.getMockImplementation()!
+  f.request.mockImplementation((command, signal) =>
+    command.kind === 'release'
+      ? Promise.resolve({ result: 5 })
+      : ordinary(command, signal),
+  )
+  await expect(frame!.release()).rejects.toThrow('native-cleanup')
+  await expect(frame!.release()).rejects.toThrow('native-cleanup')
+  expect(
+    f.request.mock.calls.filter(([command]) => command.kind === 'release'),
+  ).toHaveLength(1)
+  expect(f.process.dispose).toHaveBeenCalledTimes(1)
+  expect(f.process.idle).not.toHaveBeenCalled()
+  expect(f.process.available).toBe(false)
+})
+
+it('bounds repeated unsent cleanup pressure with fake time and fails explicitly without an idle claim', async () => {
+  vi.useFakeTimers()
+  const f = fixture(),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  const frame = await f.host.takeFrame(handle, 1, 1, attachment)
+  const ordinary = f.request.getMockImplementation()!
+  f.request.mockImplementation((command, signal) =>
+    command.kind === 'release'
+      ? Promise.reject(new NativeTerminalAdmissionError())
+      : ordinary(command, signal),
+  )
+  const rejected = expect(frame!.release()).rejects.toThrow('native-cleanup')
+  await vi.advanceTimersByTimeAsync(15016)
+  await rejected
+  expect(
+    f.request.mock.calls.filter(([command]) => command.kind === 'release').length,
+  ).toBeGreaterThan(1)
+  expect(f.process.dispose).toHaveBeenCalledTimes(1)
+  expect(f.process.idle).not.toHaveBeenCalled()
+})
+
+it('keeps cancelled physical frame cleanup owned through BUSY until final destroy while another state progresses', async () => {
+  vi.useFakeTimers()
+  const f = fixture(),
+    session = f.session(),
+    sibling = f.session(1)
+  const handle = await f.host.prepare(session, 32, 32)
+  const other = await f.host.prepare(sibling, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  const physical = deferred<unknown>(),
+    entered = deferred<void>()
+  const ordinary = f.request.getMockImplementation()!
+  const destroys: number[] = []
+  let latePhysicalCleanupComplete = false
+  f.request.mockImplementation((command, signal) => {
+    if (command.kind === 'frame' && command.state === '1') {
+      entered.resolve()
+      return physical.promise
+    }
+    if (command.kind === 'destroy' && command.state === '1') {
+      const result = latePhysicalCleanupComplete ? 0 : 6
+      destroys.push(result)
+      return Promise.resolve({ result })
+    }
+    return ordinary(command, signal)
+  })
+  const controller = new AbortController()
+  const pending = f.host.takeFrame(handle, 1, 1, attachment, controller.signal)
+  const cancelled = expect(pending).rejects.toThrow('frame-cancelled')
+  await entered.promise
+  let ended = false
+  const ending = f.host.end(handle, session.instanceId).then(() => {
+    ended = true
+  })
+  controller.abort()
+  physical.reject(new Error('frame-cancelled'))
+  await cancelled
+  await vi.advanceTimersByTimeAsync(16)
+  expect(destroys).toContain(6)
+  expect(ended).toBe(false)
+  expect(f.process.idle).not.toHaveBeenCalled()
+  await expect(f.host.prepare(session, 32, 32)).rejects.toThrow('native-state-bound')
+  await f.host.feed(other, sibling.instanceId, new Uint8Array([7]))
+  // The immediate process port's late-acquisition cleanup has now received its
+  // release acknowledgement. Main still requires a fresh final destroy ack.
+  latePhysicalCleanupComplete = true
+  await vi.advanceTimersByTimeAsync(16)
+  await ending
+  expect(destroys.at(-1)).toBe(0)
+  expect(f.process.dispose).not.toHaveBeenCalled()
+  expect(f.process.idle).not.toHaveBeenCalled()
+  await f.host.end(other, sibling.instanceId)
+  expect(f.process.idle).toHaveBeenCalledTimes(1)
+})
+
+it('retains a transport-failed lease until the captured epoch has physically exited', async () => {
+  vi.useFakeTimers()
+  const exited = new Set<string>()
+  const f = fixture((epoch) => exited.has(epoch)),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  const frame = await f.host.takeFrame(handle, 1, 1, attachment)
+  f.live.available = false
+  const ordinary = f.request.getMockImplementation()!
+  f.request.mockImplementation((command, signal) =>
+    command.kind === 'release'
+      ? Promise.reject(new Error('transport-unavailable'))
+      : ordinary(command, signal),
+  )
+  let released = false
+  const releasing = frame!.release().then(() => {
+    released = true
+  })
+  await vi.advanceTimersByTimeAsync(160)
+  expect(released).toBe(false)
+  expect(f.process.dispose).toHaveBeenCalledTimes(1)
+  expect(f.process.idle).not.toHaveBeenCalled()
+  await expect(f.host.prepare(session, 32, 32)).rejects.toThrow('native-state-bound')
+  exited.add('host-0')
+  await vi.advanceTimersByTimeAsync(160)
+  expect(released).toBe(false)
+  exited.add('host-1')
+  await vi.advanceTimersByTimeAsync(16)
+  await releasing
+  expect(released).toBe(true)
+  expect(f.process.hasExited).toHaveBeenCalledWith('host-1')
+  // The state remains explicitly owned until trusted lifetime end, even though
+  // its final consumer has now settled the epoch-qualified dead source lease.
+  await f.host.end(handle, session.instanceId)
+  expect(f.process.idle).toHaveBeenCalledTimes(1)
+})
+
+it('keeps a confirmed dead source record until its final consumer releases, then admits a fresh generation', async () => {
+  vi.useFakeTimers()
+  const exited = new Set<string>()
+  const f = fixture((epoch) => exited.has(epoch)),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  const frame = await f.host.takeFrame(handle, 1, 1, attachment)
+  const ordinary = f.request.getMockImplementation()!
+  f.live.available = false
+  f.request.mockImplementation(() => Promise.reject(new Error('transport-unavailable')))
+  let ended = false
+  const ending = f.host.end(handle, session.instanceId).then(() => {
+    ended = true
+  })
+  await vi.advanceTimersByTimeAsync(32)
+  expect(ended).toBe(false)
+  exited.add('host-1')
+  await vi.advanceTimersByTimeAsync(16)
+  await ending
+  expect(f.process.idle).not.toHaveBeenCalled()
+  await expect(f.host.prepare(session, 32, 32)).rejects.toThrow('native-state-bound')
+  const before = f.request.mock.calls.length
+  await frame!.release()
+  expect(f.request.mock.calls).toHaveLength(before)
+  expect(f.process.idle).toHaveBeenCalledTimes(1)
+  f.process.epoch = 'host-2'
+  f.live.available = true
+  f.request.mockImplementation(ordinary)
+  const fresh = await f.host.prepare(session, 32, 32)
+  const nextAttachment = f.host.attach(fresh, session)
+  const nextFrame = await f.host.takeFrame(fresh, 1, 1, nextAttachment)
+  const acknowledgement = deferred<unknown>()
+  f.request.mockImplementation((command, signal) =>
+    command.kind === 'release' ? acknowledgement.promise : ordinary(command, signal),
+  )
+  let released = false
+  const releasing = nextFrame!.release().then(() => {
+    released = true
+  })
+  await vi.advanceTimersByTimeAsync(32)
+  expect(released).toBe(false)
+  expect(f.process.hasExited).toHaveBeenLastCalledWith('host-2')
+  expect(exited.has('host-2')).toBe(false)
+  // Old host-1 exit evidence cannot substitute for a fresh host-2 C reply.
+  acknowledgement.resolve({ result: 0 })
+  await releasing
+  expect(released).toBe(true)
+})
+
+it('rejects cleanup after a bounded wait when process exit remains unconfirmed', async () => {
+  vi.useFakeTimers()
+  const f = fixture(() => false),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  const frame = await f.host.takeFrame(handle, 1, 1, attachment)
+  f.live.available = false
+  f.request.mockImplementation(() => Promise.reject(new Error('transport-unavailable')))
+  let released = false
+  const releasing = frame!.release().then(() => {
+    released = true
+  })
+  const rejected = expect(releasing).rejects.toThrow('native-cleanup-failed')
+  await vi.advanceTimersByTimeAsync(15016)
+  await rejected
+  expect(released).toBe(false)
+  expect(f.process.idle).not.toHaveBeenCalled()
+  expect(f.process.dispose).toHaveBeenCalledTimes(1)
+  expect(f.process.hasExited).toHaveBeenCalledWith('host-1')
+})

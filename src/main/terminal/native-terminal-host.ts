@@ -15,6 +15,8 @@ export interface NativeTerminalProcessPort {
   readonly available: boolean
   dispose(): void
   idle?(): Promise<void>
+  /** Observed exit of the owned utility for this exact native generation. */
+  hasExited?(epoch: string): boolean
 }
 export interface NativeTerminalAuthority {
   resolve(sessionId: string): NativeTerminalSession | undefined
@@ -33,6 +35,9 @@ interface Binding {
   feeding: boolean
   frameHeld: boolean
   closing: boolean
+  nativeDestroyed: boolean
+  retiring?: Promise<void>
+  finishing?: Promise<void>
 }
 export interface NativeTerminalFrameMetadata {
   readonly lease: string
@@ -106,9 +111,7 @@ export class NativeTerminalHost {
       if (this.disposed || !this.process.available || this.process.epoch !== epoch)
         throw new Error('native-host-lost')
     } catch (error) {
-      await this.process
-        .request({ kind: 'destroy', state: prepared.state })
-        .catch(() => undefined)
+      await this.cleanup({ kind: 'destroy', state: prepared.state }, epoch, () => false)
       this.preparing.delete(session.instanceId)
       await this.idle()
       throw error
@@ -126,6 +129,7 @@ export class NativeTerminalHost {
       feeding: false,
       frameHeld: false,
       closing: false,
+      nativeDestroyed: false,
     })
     this.preparing.delete(session.instanceId)
     return handle
@@ -291,6 +295,7 @@ export class NativeTerminalHost {
       ) {
         unacquired = true
         binding.frameHeld = false
+        if (binding.closing) await this.finishRetirement(handle, binding)
         if (value.unavailable === 6 || value.unavailable === 9) return undefined
         await this.retireBinding(binding)
         throw new Error('native-frame-state-unavailable')
@@ -301,6 +306,8 @@ export class NativeTerminalHost {
       if (unacquired) throw error
       if (signal?.aborted) {
         binding.frameHeld = false
+        if (binding.closing)
+          void this.finishRetirement(handle, binding).catch(() => undefined)
         throw error
       }
       await this.retireBinding(binding)
@@ -310,26 +317,27 @@ export class NativeTerminalHost {
       throw error
     }
     let released = false
-    const release = async (): Promise<void> => {
-      if (released) return
-      released = true
-      binding.frameHeld = false
-      await this.process
-        .request({ kind: 'release', state: binding.state, lease: metadata.lease })
-        .catch(() => undefined)
-      if (binding.closing) {
-        await this.process
-          .request({ kind: 'destroy', state: binding.state })
-          .catch(() => undefined)
-        this.bindings.delete(handle)
-        await this.idle()
-      }
+    let releasing: Promise<void> | undefined
+    const release = (): Promise<void> => {
+      if (releasing) return releasing
+      releasing = (async () => {
+        await this.cleanup(
+          { kind: 'release', state: binding.state, lease: metadata.lease },
+          binding.epoch,
+          () => false,
+        )
+        released = true
+        binding.frameHeld = false
+        if (binding.closing) await this.finishRetirement(handle, binding)
+      })()
+      return releasing
     }
     const assertCurrent = (): void => {
       signal?.throwIfAborted()
       this.requireAttachment(handle, ownerId, generation, attachment)
       if (
         released ||
+        releasing ||
         metadata.geometrySerial !== binding.requestedGeometry ||
         metadata.geometrySerial !== binding.status.geometry.serial ||
         metadata.width !== binding.status.geometry.width ||
@@ -362,10 +370,7 @@ export class NativeTerminalHost {
     if (!this.bindings.has(handle)) return
     const binding = this.require(handle, ownerId, generation)
     await this.retireBinding(binding)
-    if (!binding.frameHeld) {
-      this.bindings.delete(handle)
-      await this.idle()
-    }
+    if (!binding.frameHeld) await this.finishRetirement(handle, binding)
   }
   /** Trusted PTY-lifetime cleanup remains valid after renderer or PTY revocation. */
   async end(handle: string, instanceId: string): Promise<void> {
@@ -373,10 +378,7 @@ export class NativeTerminalHost {
     if (!binding) return
     if (binding.session.instanceId !== instanceId) throw new Error('native-state-foreign')
     await this.retireBinding(binding)
-    if (!binding.frameHeld) {
-      this.bindings.delete(handle)
-      await this.idle()
-    }
+    if (!binding.frameHeld) await this.finishRetirement(handle, binding)
   }
   dispose(): void {
     if (this.disposed) return
@@ -392,13 +394,91 @@ export class NativeTerminalHost {
     if (!this.disposed && !this.bindings.size && !this.preparing.size)
       await this.process.idle?.()
   }
-  private async retireBinding(binding: Binding): Promise<void> {
-    if (binding.closing) return
+  private retireBinding(binding: Binding): Promise<void> {
+    if (binding.retiring) return binding.retiring
     binding.closing = true
     binding.abort.abort()
-    await this.process
-      .request({ kind: 'destroy', state: binding.state })
-      .catch(() => undefined)
+    binding.retiring = this.cleanup(
+      { kind: 'destroy', state: binding.state },
+      binding.epoch,
+      () => binding.frameHeld,
+    ).then((result) => {
+      binding.nativeDestroyed = result === 'complete'
+    })
+    return binding.retiring
+  }
+  private finishRetirement(handle: string, binding: Binding): Promise<void> {
+    if (binding.finishing) return binding.finishing
+    binding.finishing = (async () => {
+      await this.retireBinding(binding)
+      if (binding.frameHeld) return
+      if (!binding.nativeDestroyed) {
+        await this.cleanup(
+          { kind: 'destroy', state: binding.state },
+          binding.epoch,
+          () => false,
+        )
+        binding.nativeDestroyed = true
+      }
+      this.bindings.delete(handle)
+      await this.idle()
+    })()
+    return binding.finishing
+  }
+  /** Ownership-affecting work is coalesced per state/lease, never forgotten on
+   * proven-unsent pressure. The process reserves cleanup credit within 64/8;
+   * remaining contenders yield with bounded admission time before host failure. */
+  private async cleanup(
+    command:
+      | { kind: 'destroy'; state: string }
+      | { kind: 'release'; state: string; lease: string },
+    epoch: string,
+    mayKeepHeldRecord: () => boolean,
+  ): Promise<'complete' | 'held'> {
+    const deadline = Date.now() + limits.requestMs
+    let failure: unknown
+    let terminationDeadline = deadline
+    for (;;) {
+      // An owned, epoch-qualified OS exit is physical evidence, not a C reply.
+      if (this.process.hasExited?.(epoch)) return 'complete'
+      if (failure) {
+        if (Date.now() >= terminationDeadline)
+          throw new Error('native-cleanup-failed', { cause: failure })
+        await new Promise<void>((resolve) => setTimeout(resolve, 16))
+        continue
+      }
+      try {
+        const value = await this.process.request(command)
+        if (!value || typeof value !== 'object' || !('result' in value))
+          throw new Error('native-cleanup-invalid')
+        if (value.result === 0 || (command.kind === 'release' && value.result === 9))
+          return 'complete'
+        if (command.kind === 'destroy' && value.result === 6) {
+          if (mayKeepHeldRecord()) return 'held'
+          if (Date.now() < deadline) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 16))
+            continue
+          }
+        }
+        throw new Error('native-cleanup-unconfirmed')
+      } catch (error) {
+        if (
+          error instanceof NativeTerminalAdmissionError &&
+          this.process.available &&
+          Date.now() < deadline
+        ) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 16))
+          continue
+        }
+        this.process.dispose()
+        if (this.process.hasExited) {
+          failure = error
+          terminationDeadline = Date.now() + limits.requestMs
+          continue
+        }
+        throw new Error('native-cleanup-failed', { cause: error })
+      }
+    }
   }
   private require(handle: string, ownerId: number, generation: number): Binding {
     const binding = this.bindings.get(handle)

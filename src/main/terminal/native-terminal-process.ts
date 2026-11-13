@@ -32,6 +32,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
   private readonly waiting = new Set<{ state: string; bytes: number; feed: boolean }>()
   private disposed = false
   private failure?: Error
+  private exitedEpoch?: string
   private nextId = 0
   private readonly pending = new Map<number, Pending>()
   private bytes = 0
@@ -52,6 +53,9 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
   get available(): boolean {
     return !this.disposed && !this.failure
   }
+  hasExited(epoch: string): boolean {
+    return this.exitedEpoch === epoch
+  }
   get pid(): number | undefined {
     return this.child?.pid
   }
@@ -65,7 +69,11 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
     resource.release(receipt)
   }
   request(command: NativeTerminalCommand, signal?: AbortSignal): Promise<unknown> {
-    return this.submit(command, signal, false)
+    return this.submit(
+      command,
+      signal,
+      command.kind === 'release' || command.kind === 'destroy',
+    )
   }
   private submit(
     command: NativeTerminalCommand,
@@ -94,8 +102,8 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
       (!feed &&
         !cleanup &&
         command.kind !== 'shutdown' &&
-        (controls.length >= limits.commands - limits.states ||
-          same.filter((item) => !item.feed).length >= limits.commandsPerState - 1)) ||
+        (controls.length >= limits.commands - limits.states - 1 ||
+          same.filter((item) => !item.feed).length >= limits.commandsPerState - 2)) ||
       this.bytes + byteCount > limits.queuedBytes ||
       same.reduce((n, p) => n + p.bytes, 0) + byteCount > limits.queuedBytesPerState
     )
@@ -230,6 +238,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
           () => this.lose(new Error('native-startup-timeout')),
           limits.requestMs,
         )
+        const epoch = this.epoch
         const child = spawnUtilityWorker(
           workerPath('native-terminal-worker.js', this.outputDirectory),
           'hvir-native-terminal',
@@ -252,8 +261,10 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
         })
         child.once('exit', () => {
           clearTimeout(timer)
-          if (!this.disposed && this.child === child)
-            this.lose(new Error('native-host-lost'))
+          if (this.child === child) {
+            this.exitedEpoch = epoch
+            if (!this.disposed) this.lose(new Error('native-host-lost'))
+          }
         })
         const complete = this.ready
         this.ready = () => {

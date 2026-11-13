@@ -31,11 +31,20 @@ async function readFrame(frame: ProbeFrame) {
   const length = frame.allocationSize({ format: 'RGBA' })
   if (length <= 0 || length > 8192 * 8192 * 4) throw new Error('native-probe-frame-bound')
   const bytes = new Uint8Array(length)
+  const readbackStarted = performance.now()
   await frame.copyTo(bytes, { format: 'RGBA' })
+  const readbackMs = performance.now() - readbackStarted
+  let sliceStarted = performance.now()
+  let hashMaxSliceMs = 0
   let hash = 2166136261
   let different = false
   let redPixels = 0
   for (let i = 0; i < bytes.length; i++) {
+    if (i && i % 65536 === 0) {
+      hashMaxSliceMs = Math.max(hashMaxSliceMs, performance.now() - sliceStarted)
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+      sliceStarted = performance.now()
+    }
     const value = bytes[i] ?? 0
     if (
       i % 4 === 0 &&
@@ -47,7 +56,15 @@ async function readFrame(frame: ProbeFrame) {
     hash = Math.imul(hash ^ value, 16777619)
     if (i >= 4 && value !== bytes[i % 4]) different = true
   }
-  return { bytes: length, hash: hash >>> 0, different, redPixels }
+  hashMaxSliceMs = Math.max(hashMaxSliceMs, performance.now() - sliceStarted)
+  return {
+    bytes: length,
+    hash: hash >>> 0,
+    different,
+    redPixels,
+    readbackMs,
+    hashMaxSliceMs,
+  }
 }
 sharedTexture.setSharedTextureReceiver(
   async ({ importedSharedTexture: texture }, metadata: unknown) => {
