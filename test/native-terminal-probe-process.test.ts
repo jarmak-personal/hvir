@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runNativeElectronProbe } from '../scripts/native-terminal/run-electron-probe.mts'
 
 const directories: string[] = []
@@ -52,12 +52,32 @@ function killFixtureGroup(pid: number): void {
     if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
   }
 }
+const diagnostics: unknown[][] = []
+beforeEach(() => {
+  diagnostics.length = 0
+  vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
+    diagnostics.push(values)
+  })
+})
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(
     directories
       .splice(0)
       .map((directory) => rm(directory, { recursive: true, force: true })),
   )
+  for (const [name, value] of diagnostics) {
+    expect(['native-probe:owned-group', 'native-probe:process-exit']).toContain(name)
+    const record = JSON.parse(String(value)) as {
+      leader?: number
+      pid?: number
+      members?: { group: number }[]
+    }
+    if (name === 'native-probe:owned-group') {
+      expect(record.leader).toBeGreaterThan(0)
+      expect(record.members?.every((member) => member.group === record.leader)).toBe(true)
+    } else expect(record.pid).toBeGreaterThan(0)
+  }
 })
 describe('native Electron probe process containment', () => {
   it.each(['hang', 'orphan'])(
@@ -194,4 +214,27 @@ try {
       ).rejects.toThrow()
     },
   )
+})
+
+it('preserves deadline cleanup when the diagnostic sink throws', async () => {
+  const files = await fixture('hang')
+  vi.mocked(console.error).mockImplementation(() => {
+    throw new Error('diagnostic-sink-failed')
+  })
+  await expect(
+    runNativeElectronProbe(files.library, {
+      binary: process.execPath,
+      entry: files.entry,
+      timeoutMs: 500,
+    }),
+  ).rejects.toThrow('deadline')
+  const pids = JSON.parse(await readFile(files.pids, 'utf8')) as {
+    parent: number
+    child: number
+  }
+  const deadline = performance.now() + 2000
+  while ((alive(pids.parent) || alive(pids.child)) && performance.now() < deadline)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  expect(alive(pids.parent)).toBe(false)
+  expect(alive(pids.child)).toBe(false)
 })

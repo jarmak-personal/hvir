@@ -187,6 +187,7 @@ void app
     const epoch = processPort.epoch,
       utilityPid = processPort.pid
     assert(utilityPid && utilityPid !== process.pid)
+    phase(`utility-ready pid=${utilityPid}`)
     const attachA = host.attach(a, first),
       attachB = host.attach(b, second)
     await Promise.all([
@@ -202,15 +203,30 @@ void app
     const frame = await completedFrame(host, a, first, attachA, 1)
     const kind = frame.metadata.kind
     const importTimes: number[] = []
+    let importOrdinal = 0
     const measuredTextures: Pick<
       Electron.SharedTexture,
       'importSharedTexture' | 'sendSharedTexture'
     > = {
       importSharedTexture: (options) => {
         const start = performance.now()
-        const result = sharedTexture.importSharedTexture(options)
+        const ordinal = ++importOrdinal
+        const result = sharedTexture.importSharedTexture({
+          ...options,
+          allReferencesReleased: () => {
+            phase(`import-${ordinal}-all-references-released`)
+            options.allReferencesReleased?.()
+          },
+        })
         importTimes.push(performance.now() - start)
-        return result
+        return {
+          ...result,
+          release: () => {
+            phase(`import-${ordinal}-main-release-enter`)
+            result.release()
+            phase(`import-${ordinal}-main-release-return`)
+          },
+        }
       },
       sendSharedTexture: (...args) => sharedTexture.sendSharedTexture(...args),
     }
@@ -218,8 +234,10 @@ void app
     const resources = (port: NativeTerminalProcess) => ({
       receive: (ticket: string) => port.receive(ticket),
       release: (receipt: Parameters<NativeTerminalProcess['release']>[0]): void => {
+        phase('receipt-release-enter')
         port.release(receipt)
         releasedReceipts++
+        phase('receipt-release-return')
       },
     })
     const textures = new NativeTerminalFrameImports(
@@ -258,6 +276,7 @@ void app
     assert.notEqual(processPort.epoch, epoch)
     const c = await host.prepare(first, 640, 384)
     assert(processPort.pid && processPort.pid !== utilityPid)
+    phase(`utility-ready pid=${String(processPort.pid)}`)
     let producerDeathHeld = 'not-applicable-owned-pixels'
     if (kind === 1 || kind === 2) {
       const attachment = host.attach(c, first)
@@ -335,6 +354,7 @@ void app
     processPort = new NativeTerminalProcess(library, __dirname)
     host = new NativeTerminalHost(processPort, authority)
     const d = await host.prepare(first, 640, 384)
+    phase(`utility-ready pid=${String(processPort.pid)}`)
     let consumerDeathHeld = 'not-applicable-owned-pixels'
     if (kind === 1 || kind === 2) {
       const attachment = host.attach(d, first)
@@ -382,7 +402,21 @@ void app
       await recovered.release()
       consumerDeathHeld = 'passed-real-renderer-crash-and-source-pool-recovery'
       const delayed = await completedFrame(host, d, renewed, renewedAttachment, 2)
-      const held = await importer.acquire(delayed, {
+      const receiverFrame = target.webContents.mainFrame
+      const observedSource: NativeTerminalAcquiredFrame = {
+        ...delayed,
+        retire: async () => {
+          phase('quarantine-source-retire-enter')
+          await delayed.retire()
+          phase('quarantine-source-retire-settled')
+        },
+        release: async () => {
+          phase('quarantine-source-release-enter')
+          await delayed.release()
+          phase('quarantine-source-release-settled')
+        },
+      }
+      const held = await importer.acquire(observedSource, {
         frame: target.webContents.mainFrame,
         ready: true,
         isCurrent: () => !target.isDestroyed(),
@@ -404,6 +438,20 @@ void app
       assert.equal(physicallyReleased, false, 'late consumer cannot bypass quarantine')
       target.destroy()
       phase('quarantine-target-destroyed')
+      let frameDestroyed: boolean
+      try {
+        frameDestroyed = receiverFrame.isDestroyed()
+      } catch {
+        frameDestroyed = true
+      }
+      console.error(
+        'native-probe:quarantine-target',
+        JSON.stringify({
+          windowDestroyed: target.isDestroyed(),
+          frameDestroyed,
+          producerExited: processPort.hasExited(processPort.epoch),
+        }),
+      )
       await held.released
       timeoutQuarantine = 'passed-real-electron-timeout-and-late-consumer'
     }

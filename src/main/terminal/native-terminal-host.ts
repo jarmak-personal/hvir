@@ -91,7 +91,7 @@ export class NativeTerminalHost {
       value = await this.process.request({ kind: 'create', width, height }, signal)
     } catch (error) {
       this.preparing.delete(session.instanceId)
-      void this.idle()
+      void this.idle().catch(() => undefined)
       throw error
     }
     const epoch = this.process.epoch

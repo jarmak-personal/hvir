@@ -33,6 +33,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
   private disposed = false
   private failure?: Error
   private exitedEpoch?: string
+  private stoppingChild?: UtilityProcess
   private nextId = 0
   private readonly pending = new Map<number, Pending>()
   private bytes = 0
@@ -197,9 +198,24 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
           this.settled = resolve
         })
       await this.request({ kind: 'shutdown' })
+      if (!this.available) throw this.failure ?? new Error('native-host-closed')
       const child = this.child
+      if (child && !this.hasExited(this.epoch)) {
+        this.stoppingChild = child
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            child.off('exit', exited)
+            reject(new Error('native-stop-timeout'))
+          }, limits.requestMs)
+          const exited = (): void => {
+            clearTimeout(timer)
+            resolve()
+          }
+          child.once('exit', exited)
+          child.kill()
+        })
+      }
       this.child = undefined
-      child?.kill()
       const endpoint = this.endpoint
       this.endpoint = undefined
       if (endpoint) await resource.closeEndpoint(endpoint)
@@ -208,10 +224,13 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
       this.generation = randomUUID()
     })()
       .catch((error: unknown) => {
-        this.lose(error instanceof Error ? error : new Error('native-idle-failed'))
+        const failure = error instanceof Error ? error : new Error('native-idle-failed')
+        this.lose(failure)
+        throw failure
       })
       .finally(() => {
         this.stopping = undefined
+        this.stoppingChild = undefined
       })
     return this.stopping
   }
@@ -263,7 +282,8 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
           clearTimeout(timer)
           if (this.child === child) {
             this.exitedEpoch = epoch
-            if (!this.disposed) this.lose(new Error('native-host-lost'))
+            if (!this.disposed && this.stoppingChild !== child)
+              this.lose(new Error('native-host-lost'))
           }
         })
         const complete = this.ready

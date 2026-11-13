@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module'
 import { isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { repository } from './artifacts.mts'
 
 interface ProbeLaunch {
@@ -42,6 +42,38 @@ export async function runNativeElectronProbe(
       if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
     }
   }
+  const dumpOwnedGroup = (): void => {
+    if (!pid) return
+    const snapshot = spawnSync('ps', ['-axo', 'pid=,ppid=,pgid=,stat=,comm='], {
+      encoding: 'utf8',
+      timeout: 1000,
+      maxBuffer: 1024 * 1024,
+    })
+    const members = (snapshot.stdout ?? '').split('\n').flatMap((line) => {
+      const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(line)
+      return match && Number(match[3]) === pid
+        ? [
+            {
+              pid: Number(match[1]),
+              parent: Number(match[2]),
+              group: Number(match[3]),
+              state: match[4],
+              command: match[5],
+            },
+          ]
+        : []
+    })
+    console.error(
+      'native-probe:owned-group',
+      JSON.stringify({
+        leader: pid,
+        exitCode: child.exitCode,
+        signal: child.signalCode,
+        members,
+        snapshotError: snapshot.error?.message,
+      }),
+    )
+  }
   let watchdog: NodeJS.Timeout | undefined
   let interrupt: ((signal: NodeJS.Signals) => void) | undefined
   const sigint = (): void => interrupt?.('SIGINT')
@@ -72,6 +104,13 @@ export async function runNativeElectronProbe(
     child.stdout?.on('data', (data: Buffer) => capture(data, process.stdout, true))
     child.stderr?.on('data', (data: Buffer) => capture(data, process.stderr, false))
     child.once('error', fail)
+    child.once('exit', (code, signal) => {
+      try {
+        console.error('native-probe:process-exit', JSON.stringify({ pid, code, signal }))
+      } catch {
+        /* Diagnostics never own process settlement. */
+      }
+    })
     child.once('close', (code, signal) => {
       if (settled) return
       if (code !== 0 || signal) {
@@ -85,7 +124,13 @@ export async function runNativeElectronProbe(
     // still belong to utility descendants in this same owned process group.
     watchdog = setTimeout(() => {
       expired = true
-      fail(new Error('native-electron-probe: deadline exceeded'))
+      try {
+        dumpOwnedGroup()
+      } catch {
+        /* Preserve the deadline even if its diagnostic sink fails. */
+      } finally {
+        fail(new Error('native-electron-probe: deadline exceeded'))
+      }
     }, timeoutMs)
   })
   try {
