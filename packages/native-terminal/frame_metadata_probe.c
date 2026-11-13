@@ -231,6 +231,51 @@ int main(void) {
   clear_frame(&state);
   REQUIRE(descriptor_count() == baseline && fcntl(fd, F_GETFD) >= 0,
           "repeated-clear-has-no-descriptor-effect");
+  const uint8_t opaque = 42;
+  for (unsigned i = 0; i < 128; i++) {
+    const uint8_t item = (uint8_t)i;
+    REQUIRE(effect(&state, 9, &item, 1), "fill-noncoalescible-fifo");
+  }
+  for (unsigned i = 0; i < 300; i++) renderer_health(&state, i % 2);
+  renderer_health(&state, 1);
+  REQUIRE(hvir_terminal_inspect(&host, state.id, &acquisition_status) == HVIR_OK &&
+          !acquisition_status.failure && acquisition_status.renderer_health == 1 &&
+          state.event_count == 128, "health-flapping-does-not-consume-full-event-fifo");
+  state.applied_sequence = 0;
+  REQUIRE(hvir_terminal_feed(&host, state.id, 1, (const uint8_t *)"ok", 2) == HVIR_OK &&
+          hvir_terminal_read(&host, state.id, readable, sizeof(readable), &readable_size) == HVIR_OK &&
+          readable_size == 2 && !memcmp(readable, "ok", 2),
+          "renderer-health-preserves-parser-owner-ports-with-full-fifo");
+  uint8_t cwd[4097];
+  for (size_t i = 0; i < sizeof(cwd); i++) cwd[i] = i % 128 ? 'b' : '/';
+  hvir_terminal_event event;
+  REQUIRE(effect(&state, 2, cwd, 4096) &&
+          hvir_terminal_next_event(&host, state.id, &event) == HVIR_OK &&
+          event.kind == 2 && event.length == 4096 && !event.truncated &&
+          !memcmp(event.data, cwd, 4096), "full-bound-cwd-retained-exactly");
+  for (unsigned i = 0; i < 300; i++) {
+    cwd[1] = (uint8_t)('a' + i % 26);
+    REQUIRE(effect(&state, 2, cwd, sizeof(cwd)) &&
+            effect(&state, 1, &cwd[1], 1), "replace-bounded-latest-metadata-with-full-fifo");
+  }
+  REQUIRE(state.event_count == 128 && !state.failure && !live_allocations &&
+          hvir_terminal_next_event(&host, state.id, &event) == HVIR_OK &&
+          event.kind == 1 && event.length == 1 && !event.truncated &&
+          event.data[0] == cwd[1], "title-replacements-retain-only-latest-value");
+  REQUIRE(hvir_terminal_next_event(&host, state.id, &event) == HVIR_OK &&
+          event.kind == 2 && event.length == 4096 && event.truncated &&
+          !memcmp(event.data, cwd, 4096), "oversized-cwd-truncation-is-explicit");
+  for (unsigned i = 0; i < 128; i++)
+    REQUIRE(hvir_terminal_next_event(&host, state.id, &event) == HVIR_OK &&
+            event.kind == 9 && event.length == 1 && !event.truncated &&
+            event.data[0] == (uint8_t)i, "noncoalescible-fifo-remains-ordered-and-intact");
+  REQUIRE(hvir_terminal_next_event(&host, state.id, &event) == HVIR_BUSY,
+          "coalesced-metadata-and-fifo-drain-exactly");
+  for (unsigned i = 0; i < 128; i++)
+    REQUIRE(effect(&state, 9, &opaque, 1), "refill-noncoalescible-fifo");
+  REQUIRE(!effect(&state, 9, &opaque, 1) && state.failure && state.event_count == 128 &&
+          hvir_terminal_feed(&host, state.id, 2, (const uint8_t *)"ok", 2) == HVIR_FAILED,
+          "noncoalescible-overflow-remains-bounded-explicit-failure");
   result = 0;
 cleanup:
   clear_frame(&state);

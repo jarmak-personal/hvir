@@ -31,7 +31,9 @@ Unimplemented native application actions are metadata, never permission to execu
 
 ## State operations
 
-Create returns an opaque monotonically allocated state identity only after initial
+Create fails with `HVIR_FAILED` if native engine/context setup cannot complete, or
+`HVIR_TIMEOUT` if initial geometry does not complete within its bound. It does not
+publish a state on these failures. A successful create returns an opaque monotonically allocated state identity only after initial
 geometry serial 1 applies to the parser. Feed admits the next exact sequence and up to
 65,536 bytes synchronously; it neither queues an unbounded backlog nor silently truncates
 accepted output. Invalid sequences and over-limit calls fail explicitly. The host must
@@ -43,18 +45,22 @@ Input encoding reads the same parser's current modes. Encoded user bytes and nat
 replies remain byte spans. Do not round-trip them through UTF-8 strings: legacy mouse
 and other protocol bytes need the main-owned PTY adapter's exact byte-write path.
 
-The reply FIFO holds at most 65,536 bytes. Metadata holds at most 128 copied events,
-with at most 1,024 bytes each. Overflow permanently marks the state failed and revokes
-further feed/input. Inspect and drains remain available for truthful failure reporting,
-then destroy releases the state. Parser replies do not depend on App pumping; external
-metadata bypasses the caller's own App mailbox. Native IO mailbox saturation releases
-the parser mutex before waiting, allowing lock-taking IO handlers to drain it. Native
-notification failures become observable failures rather than logged successful drops.
+The reply FIFO holds at most 65,536 bytes. Title and working-directory updates each
+have one latest-value slot, carrying up to 4,096 bytes and an explicit `truncated` flag.
+A burst replaces the pending value instead of filling the FIFO. Other metadata holds
+at most 128 copied events, with at most 1,024 bytes each. Overflow of noncoalescible
+records permanently marks the state failed and revokes further feed/input. Inspect
+and drains remain available for truthful failure reporting, then destroy releases the
+state. Parser replies do not depend on App pumping; external metadata bypasses the
+caller's own App mailbox. Native IO mailbox saturation releases the parser mutex before
+waiting, allowing lock-taking IO handlers to drain it. Native notification failures become
+observable failures rather than logged successful drops.
 
-Metadata exposes raw title (kind 1), working-directory (2), bell (3), and renderer-health
-transitions (4, one byte: 0 healthy, 1 unhealthy). Health does not invalidate parser state;
-the presenter owns recovery policy. Other actions
-are explicitly unsupported records. Product interpretation, protocol provenance,
+Metadata exposes raw title (kind 1), working-directory (2), and bell (3). Renderer
+health is an independent coalesced `renderer_health` status field (0 healthy, 1 unhealthy),
+never a FIFO entry or parser failure. Its initial healthy value follows upstream defaults;
+it does not prove a frame has completed. The presenter owns recovery policy. Other actions
+are unsupported metadata records. Product interpretation, protocol provenance,
 clipboard/link authority and attention belong to the effect integration child.
 
 Readback formats the active retained screen as plain, soft-wrap-unwrapped text, with
@@ -90,6 +96,10 @@ available. Taking a missing frame reports `HVIR_PRESENTATION` while that error r
 a later valid acquired frame clears it. The
 platform presenter children own the production three-copy export pool.
 
+Take returns `HVIR_BUSY` while no completed resource is ready and `HVIR_PRESENTATION`
+for an observed export/rearm error. There is no separate unsupported-capability result:
+context setup failure is a create failure. Resource kind identifies the actual IOSurface,
+DMA-BUF, or owned-pixel path; detailed platform selection belongs to the presenters.
 Take rejects obsolete geometry. A lease remains immutable until explicit release;
 a send timeout is not release. Duplicate valid release is harmless, while a foreign
 lease cannot release another state. Never serialize pointer bytes or descriptor integers

@@ -14,8 +14,9 @@ and provenance. It creates no terminal, PTY, provider, renderer attachment or ap
 Use Node 24+, a native C compiler, tar, patch, and a matching native host. Supported targets are
 `macos-arm64`, `linux-x64`, and `linux-arm64`. Linux release builds use the existing Ubuntu 22.04
 native runner baseline; package and hardware acceptance remain separate.
-Linux builds require `pkg-config` and EGL development files (`sudo apt-get install pkg-config
-libegl-dev` on Ubuntu 22.04). The native library uses the system EGL dispatch runtime
+Linux builds require `pkg-config`, EGL development files and Mesa software drivers for the
+software-owner probe (`sudo apt-get install pkg-config libegl-dev libgl1-mesa-dri` on
+Ubuntu 22.04). The native library uses the system EGL dispatch runtime
 (`libEGL.so.1`, Ubuntu package `libegl1`); a usable GPU driver remains separate acceptance.
 The builder checks this prerequisite before downloading inputs, preserves pkg-config's system
 library search flags for the explicit target, and records the pkg-config/EGL identities and
@@ -127,3 +128,9 @@ for this owner-level test; software output is explicitly not hardware GPU qualif
 `facade-proof.json` records the actual resource kind, and `frame-metadata-proof.json`
 records invalid/partial descriptor cleanup. Only the info-only loader may unload its library;
 the initialized facade keeps Ghostty mapped until its native process exits.
+
+The normal facade probe runs directly with C debug symbols/frame pointers and
+content-free phase markers. After a failed Linux invocation, CI additionally records a
+batch-gdb reproduction with all-thread backtraces. That diagnostic does not change the
+original failed acceptance result. CI retains the diagnostic logs; local native builds do
+not require gdb.

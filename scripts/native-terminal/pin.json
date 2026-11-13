@@ -7,7 +7,7 @@
     "sha256": "2c276d3e62cb15fb38f0d7f621f199029d1d4df86538096c6bec2a107cad7159",
     "applicationVersion": "1.4.1-dev",
     "vtVersion": "1.0.1",
-    "embedAbi": 2
+    "embedAbi": 3
   },
   "zig": {
     "version": "0.17.0",
@@ -38,7 +38,7 @@
     },
     {
       "file": "patches/0002-external-engine.patch.txt",
-      "sha256": "9038e6c5eeda65200f56280cd2b90da41b1fc5bcb87c7426f91b0634388c507c",
+      "sha256": "0bb98b22f562b0cd33cf2e43cf80d3719bf275174a5702605477ec9824adb15d",
       "purpose": "Generic external transport without Exec/PTY; same-state feed/encoding/geometry/metadata hooks, windowless Metal/EGL surfaces and immutable completed-resource quiescence. Hvir admission, identities, queues and resource ownership remain maintained C."
     }
   ],

@@ -17,6 +17,11 @@
 /* One application host caller; IO/render callbacks use only events, never caller
  * admission locks. The byte FIFO is bounded independently of native mailboxes. */
 typedef struct terminal_state terminal_state;
+typedef struct {
+  uint32_t kind;
+  size_t length;
+  uint8_t data[1024];
+} queued_effect;
 struct terminal_state {
   terminal_state *next;
   struct hvir_terminal_host *host;
@@ -25,9 +30,11 @@ struct terminal_state {
   hvir_terminal_geometry geometry;
   uint8_t replies[HVIR_TERMINAL_REPLY_MAX];
   size_t reply_start, reply_count;
-  uint32_t failure, presentation_failure;
+  uint32_t failure, presentation_failure, renderer_health;
   bool closing;
-  hvir_terminal_event events[128];
+  queued_effect events[128];
+  hvir_terminal_event latest[2];
+  bool latest_pending[2];
   size_t event_start, event_count;
   hvir_terminal_frame frame;
   bool frame_available, frame_taken;
@@ -145,20 +152,40 @@ static bool reply(void *userdata, const uint8_t *bytes, size_t length) {
   pthread_mutex_unlock(&h->events);
   return accepted;
 }
+static void renderer_health(void *userdata, uint32_t health) {
+  terminal_state *s = userdata;
+  pthread_mutex_lock(&s->host->events);
+  if (!s->closing)
+    s->renderer_health = health;
+  pthread_cond_broadcast(&s->host->changed);
+  pthread_mutex_unlock(&s->host->events);
+}
 static bool effect(void *userdata, uint32_t kind, const uint8_t *bytes, size_t length) {
   terminal_state *s = userdata;
   hvir_terminal_host *h = s->host;
   pthread_mutex_lock(&h->events);
-  bool accepted = !s->closing && !s->failure && length <= 1024 && s->event_count < 128;
-  if (accepted) {
-    hvir_terminal_event *event = &s->events[(s->event_start + s->event_count) % 128];
+  bool accepted = !s->closing && !s->failure;
+  if (accepted && (kind == 1 || kind == 2)) {
+    const size_t slot = kind - 1;
+    hvir_terminal_event *event = &s->latest[slot];
+    event->kind = kind;
+    event->truncated = length > sizeof(event->data);
+    event->length = length < sizeof(event->data) ? length : sizeof(event->data);
+    if (event->length)
+      memcpy(event->data, bytes, event->length);
+    s->latest_pending[slot] = true;
+  } else if (accepted && length <= 1024 && s->event_count < 128) {
+    queued_effect *event = &s->events[(s->event_start + s->event_count) % 128];
     event->kind = kind;
     event->length = length;
     if (length)
       memcpy(event->data, bytes, length);
     s->event_count++;
-  } else if (!s->closing && !s->failure)
-    s->failure = 3;
+  } else {
+    accepted = false;
+    if (!s->closing && !s->failure)
+      s->failure = 3;
+  }
   pthread_cond_broadcast(&h->changed);
   pthread_mutex_unlock(&h->events);
   return accepted;
@@ -407,6 +434,7 @@ hvir_terminal_result hvir_terminal_create(hvir_terminal_host *h, uint32_t width,
                                             .failed = failed,
                                             .scrollback_limit = 10000000,
                                             .effect = effect,
+                                            .health = renderer_health,
                                             .frame = frame_ready};
   s->surface = h->external_new(h->app, h->states ? NULL : h->display, &callbacks, width, height);
   if (!s->surface) {
@@ -484,11 +512,24 @@ hvir_terminal_result hvir_terminal_next_event(hvir_terminal_host *h, hvir_termin
   if (!out)
     return HVIR_INVALID;
   pthread_mutex_lock(&h->events);
+  for (size_t i = 0; i < 2; i++) {
+    if (!s->latest_pending[i])
+      continue;
+    *out = s->latest[i];
+    s->latest_pending[i] = false;
+    pthread_mutex_unlock(&h->events);
+    return HVIR_OK;
+  }
   if (!s->event_count) {
     pthread_mutex_unlock(&h->events);
     return HVIR_BUSY;
   }
-  *out = s->events[s->event_start];
+  const queued_effect *event = &s->events[s->event_start];
+  out->kind = event->kind;
+  out->length = event->length;
+  out->truncated = 0;
+  if (event->length)
+    memcpy(out->data, event->data, event->length);
   s->event_start = (s->event_start + 1) % 128;
   s->event_count--;
   pthread_mutex_unlock(&h->events);
@@ -533,9 +574,14 @@ hvir_terminal_result hvir_terminal_inspect(hvir_terminal_host *h, hvir_terminal_
     return HVIR_INVALID;
   h->app_tick(h->app);
   pthread_mutex_lock(&h->events);
-  *out = (hvir_terminal_status){s->applied_sequence, s->reply_sequence, s->reply_count,
-                                s->failure,          s->closing,        s->presentation_failure,
-                                s->geometry};
+  *out = (hvir_terminal_status){.applied_sequence = s->applied_sequence,
+                                .reply_sequence = s->reply_sequence,
+                                .queued_reply_bytes = s->reply_count,
+                                .failure = s->failure,
+                                .closing = s->closing,
+                                .renderer_health = s->renderer_health,
+                                .presentation_failure = s->presentation_failure,
+                                .geometry = s->geometry};
   pthread_mutex_unlock(&h->events);
   return HVIR_OK;
 }

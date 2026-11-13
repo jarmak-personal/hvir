@@ -197,6 +197,8 @@ await run(
     '-Wextra',
     '-Werror',
     ...nativeIncludes,
+    '-g',
+    '-fno-omit-frame-pointer',
     join(repository, 'packages/native-terminal/terminal.c'),
     join(repository, 'packages/native-terminal/facade_probe.c'),
     '-pthread',
@@ -206,11 +208,22 @@ await run(
   ],
   repository,
 )
-const facade = await execute(
-  join(output, 'facade-probe'),
-  [join(output, selected.library), '--frames'],
-  { timeout: 120_000 },
-)
+const diagnostics = join(work, 'facade-diagnostics.log')
+let facade: { stdout: string; stderr: string }
+try {
+  facade = await execute(
+    join(output, 'facade-probe'),
+    [join(output, selected.library), '--frames'],
+    { timeout: 120_000 },
+  )
+} catch (error) {
+  const failure = error as { stdout?: unknown; stderr?: unknown }
+  await writeFile(
+    diagnostics,
+    [failure.stdout, failure.stderr].filter((v) => typeof v === 'string').join('\n'),
+  )
+  throw error
+}
 const facadeResult = JSON.parse(facade.stdout) as {
   nativeFacade?: unknown
   frameRequested?: unknown

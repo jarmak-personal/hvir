@@ -14,7 +14,6 @@ typedef enum {
   HVIR_FAILED,
   HVIR_BOUND,
   HVIR_BUSY,
-  HVIR_UNSUPPORTED,
   HVIR_NOMEM,
   HVIR_TIMEOUT,
   HVIR_PRESENTATION
@@ -25,7 +24,8 @@ typedef enum {
 typedef struct {
   uint32_t kind;
   size_t length;
-  uint8_t data[1024];
+  uint32_t truncated; /* latest-value payload exceeded the returned 4096-byte bound */
+  uint8_t data[4096];
 } hvir_terminal_event;
 /* width/height are physical pixels; native metrics determine columns/rows. */
 typedef struct {
@@ -37,6 +37,7 @@ typedef struct {
   uint64_t applied_sequence, reply_sequence;
   size_t queued_reply_bytes;
   uint32_t failure, closing;
+  uint32_t renderer_health;      /* upstream state: 0 healthy, 1 unhealthy; not frame proof */
   uint32_t presentation_failure; /* acquisition error; parser remains usable */
   hvir_terminal_geometry geometry;
 } hvir_terminal_status;

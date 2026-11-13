@@ -268,8 +268,10 @@ static void *run_probe(void *context) {
   p->result = 1;
   REQUIRE(!pthread_equal(pthread_self(), p->main_thread), "native-owner-thread");
   REQUIRE(initial_children <= 0, "no-initial-children");
+  fputs("native-facade-probe: phase open\n", stderr);
   REQUIRE(hvir_terminal_open(p->library, NULL, &host) == HVIR_OK && host,
           "open-on-worker");
+  fputs("native-facade-probe: phase create\n", stderr);
   REQUIRE(hvir_terminal_create(host, 1000, 600, &a) == HVIR_OK && a,
           "create-first-state");
   REQUIRE(hvir_terminal_create(host, 1000, 600, &b) == HVIR_OK && b && a != b,
@@ -291,6 +293,7 @@ static void *run_probe(void *context) {
           status.applied_sequence == 0 && text_is(host, a, ""),
           "wrong-thread-has-no-effect");
 
+  fputs("native-facade-probe: phase feed\n", stderr);
   REQUIRE(feed(host, a, &sequence_a, "alpha:", 6), "feed-first-prefix");
   const uint8_t utf8_head[] = {0xf0, 0x9f}, utf8_tail[] = {0x99, 0x82};
   REQUIRE(feed(host, a, &sequence_a, utf8_head, sizeof(utf8_head)), "feed-split-utf8-head");
@@ -336,6 +339,7 @@ static void *run_probe(void *context) {
           status.applied_sequence == sequence_a && !status.failure &&
           text_is(host, a, normal), "rejected-feed-has-no-effect");
 
+  fputs("native-facade-probe: phase geometry\n", stderr);
   REQUIRE(hvir_terminal_resize(host, a, 2, 1000, 600) == HVIR_OK &&
           geometry(host, a, 2, 1000, 600, &status), "same-size-serial-two");
   REQUIRE(hvir_terminal_resize(host, a, 3, 1000, 600) == HVIR_OK &&
@@ -356,6 +360,7 @@ static void *run_probe(void *context) {
           "parser-reports-applied-geometry");
 
   if (p->frames) {
+    fputs("native-facade-probe: phase frames\n", stderr);
     const uint64_t deadline = now_ms() + 10000;
     hvir_terminal_result result;
     do {
@@ -371,7 +376,7 @@ static void *run_probe(void *context) {
       if (result != HVIR_BUSY) break;
       yield_owner();
     } while (now_ms() < deadline);
-    REQUIRE(result == HVIR_OK || result == HVIR_UNSUPPORTED, "explicit-frame-capability");
+    REQUIRE(result == HVIR_OK, "completed-frame-capability");
     if (result == HVIR_OK) {
       p->frame_kind = held.kind;
       REQUIRE(frame_valid(&held) && held.geometry_serial == 5 &&
@@ -423,6 +428,7 @@ static void *run_probe(void *context) {
       const uint64_t lease = held.lease;
       REQUIRE(stale(hvir_terminal_release_frame(host, b, lease)),
               "foreign-state-cannot-release-frame");
+      fputs("native-facade-probe: phase frame-retirement\n", stderr);
       REQUIRE(hvir_terminal_destroy(host, a) == HVIR_BUSY &&
               hvir_terminal_inspect(host, a, &status) == HVIR_OK && status.closing,
               "held-frame-defers-destruction-and-revokes-admission");
@@ -447,6 +453,7 @@ static void *run_probe(void *context) {
     }
   }
 
+  fputs("native-facade-probe: phase replies\n", stderr);
   REQUIRE(feed(host, a, &sequence_a, "\x1b[H", 3), "position-cursor-for-report-burst");
   requests = malloc(256 * 4); expected = malloc(256 * 6);
   REQUIRE(requests && expected, "allocate-report-burst-fixture");
@@ -461,6 +468,7 @@ static void *run_probe(void *context) {
           "report-burst-route-isolation");
   free(requests); requests = NULL; free(expected); expected = NULL;
 
+  fputs("native-facade-probe: phase large-output\n", stderr);
   REQUIRE(hvir_terminal_create(host, 1000, 600, &large) == HVIR_OK,
           "create-large-output-state");
   requests = malloc(5000 * 96);
@@ -498,6 +506,7 @@ static void *run_probe(void *context) {
   large = 0;
   free(requests); requests = NULL; free(expected); expected = NULL;
 
+  fputs("native-facade-probe: phase synchronized-output\n", stderr);
   REQUIRE(hvir_terminal_create(host, 1000, 600, &large) == HVIR_OK,
           "create-synchronized-output-state");
   uint64_t synchronized_sequence = 0;
@@ -559,6 +568,7 @@ static void *run_probe(void *context) {
   REQUIRE(stale(hvir_terminal_inspect(host, resized_then_destroyed, &status)) &&
           text_is(host, b, "beta-only"), "pending-resize-cannot-revive-destroyed-state");
 
+  fputs("native-facade-probe: phase metadata\n", stderr);
   REQUIRE(hvir_terminal_create(host, 1000, 600, &events) == HVIR_OK,
           "create-metadata-state");
   requests = malloc(200 * 32);
@@ -572,35 +582,47 @@ static void *run_probe(void *context) {
   }
   REQUIRE(hvir_terminal_feed(host, events, 1, requests, request_length) == HVIR_OK,
           "feed-more-than-64-metadata-events");
-  for (unsigned i = 0; i < 80; i++) {
-    hvir_terminal_event event;
-    char title[32];
-    const int length = snprintf(title, sizeof(title), "title-%03u", i);
-    REQUIRE(hvir_terminal_next_event(host, events, &event) == HVIR_OK &&
-            event.kind == 1 && event.length == (size_t)length &&
-            !memcmp(event.data, title, (size_t)length), "ordered-copied-title-event");
-  }
   hvir_terminal_event event;
+  REQUIRE(hvir_terminal_next_event(host, events, &event) == HVIR_OK &&
+          event.kind == 1 && !event.truncated && event.length == 9 &&
+          !memcmp(event.data, "title-079", 9), "title-burst-retains-latest-value-once");
   REQUIRE(hvir_terminal_next_event(host, events, &event) == HVIR_BUSY &&
           hvir_terminal_next_event(host, b, &event) == HVIR_BUSY,
           "metadata-drain-and-route-isolation");
   request_length = 0;
   for (unsigned i = 0; i < 200; i++) {
-    const char title[] = "\x1b]2;saturated\x07";
-    memcpy(requests + request_length, title, sizeof(title) - 1);
-    request_length += sizeof(title) - 1;
+    const int size = snprintf((char *)requests + request_length,
+      200 * 32 - request_length, "\x1b]2;title-%03u\x07", i);
+    REQUIRE(size > 0 && size < 32, "bounded-replacement-title-fixture");
+    request_length += (size_t)size;
   }
-  const hvir_terminal_result metadata_result = hvir_terminal_feed(
-    host, events, 2, requests, request_length);
-  REQUIRE(metadata_result == HVIR_OK || metadata_result == HVIR_BOUND ||
-          metadata_result == HVIR_FAILED, "metadata-saturation-explicit-outcome");
-  REQUIRE(hvir_terminal_inspect(host, events, &status) == HVIR_OK && status.failure,
-          "metadata-saturation-visible-failure");
+  REQUIRE(hvir_terminal_feed(host, events, 2, requests, request_length) == HVIR_OK &&
+          hvir_terminal_inspect(host, events, &status) == HVIR_OK && !status.failure &&
+          hvir_terminal_next_event(host, events, &event) == HVIR_OK &&
+          event.kind == 1 && !event.truncated && event.length == 9 &&
+          !memcmp(event.data, "title-199", 9) &&
+          hvir_terminal_next_event(host, events, &event) == HVIR_BUSY,
+          "title-pressure-coalesces-without-parser-failure");
+  char cwd[1537];
+  for (size_t i = 0; i < sizeof(cwd) - 1; i++) cwd[i] = i % 128 ? 'a' : '/';
+  cwd[sizeof(cwd) - 1] = 0;
+  const int cwd_bytes = snprintf((char *)requests, 200 * 32,
+    "\x1b]7;file://localhost%s\x07", cwd);
+  REQUIRE(cwd_bytes > 0 && cwd_bytes < 200 * 32 &&
+          hvir_terminal_feed(host, events, 3, requests, (size_t)cwd_bytes) == HVIR_OK &&
+          hvir_terminal_next_event(host, events, &event) == HVIR_OK &&
+          event.kind == 2 && !event.truncated && event.length == sizeof(cwd) - 1 &&
+          !memcmp(event.data, cwd, sizeof(cwd) - 1), "long-osc7-cwd-remains-exact");
+  REQUIRE(hvir_terminal_feed(host, events, 4,
+          (const uint8_t *)"metadata-still-usable", 21) == HVIR_OK &&
+          text_is(host, events, "metadata-still-usable"),
+          "coalesced-metadata-preserves-feed-and-read");
   REQUIRE(hvir_terminal_destroy(host, events) == HVIR_OK,
-          "destroy-metadata-saturated-state");
+          "destroy-coalesced-metadata-state");
   events = 0;
   free(requests); requests = NULL;
 
+  fputs("native-facade-probe: phase destruction-and-saturation\n", stderr);
   if (p->os_children_checked) REQUIRE(child_count() == 0, "no-native-child-process");
   if (p->os_ptys_checked) REQUIRE(pty_count() == initial_ptys, "no-native-pty");
   REQUIRE(hvir_terminal_destroy(host, a) == HVIR_OK, "destroy-first-state");

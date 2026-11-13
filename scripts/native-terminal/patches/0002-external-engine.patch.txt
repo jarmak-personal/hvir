@@ -285,7 +285,7 @@
  export fn hvir_ghostty_embed_abi() u32 {
 -    return 1;
 -}
-+    return 2;
++    return 3;
 +}
 --- a/src/renderer/Metal.zig
 +++ b/src/renderer/Metal.zig
@@ -513,7 +513,7 @@
              // If our health value hasn't changed, then we do nothing. We don't
              // do a cmpxchg here because strict atomicity isn't important.
              if (self.health.load(.seq_cst) != health) {
-@@ -2054,10 +2095,23 @@
+@@ -2054,10 +2095,22 @@
  
                  // Our health value changed, so we notify the surface so that it
                  // can do something about it.
@@ -524,8 +524,7 @@
 +                if (self.externalTransport()) |external| {
 +                    // Presentation health is metadata, not parser failure. Never
 +                    // block a completed GPU frame on the caller's App mailbox.
-+                    const data = [1]u8{@intCast(@intFromEnum(health))};
-+                    if (!external.config.effect(external.config.userdata, 4, &data, data.len)) external.fail(3);
++                    external.config.health(external.config.userdata, @intCast(@intFromEnum(health)));
 +                } else {
 +                    _ = self.surface_mailbox.push(.{
 +                        .renderer_health = health,
@@ -609,7 +608,7 @@
          // Notify the surface that it should redraw
 --- /dev/null
 +++ b/src/termio/External.zig
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,116 @@
 +//! Externally owned terminal transport; never allocates a PTY or child.
 +const External = @This();
 +const std = @import("std");
@@ -642,6 +641,7 @@
 +    failed: *const fn (?*anyopaque, u32) callconv(.c) void,
 +    scrollback_limit: usize,
 +    effect: *const fn (?*anyopaque, u32, [*]const u8, usize) callconv(.c) bool,
++    health: *const fn (?*anyopaque, u32) callconv(.c) void,
 +    frame: *const fn (?*anyopaque, *const Frame) callconv(.c) bool,
 +};
 +config: Config,
