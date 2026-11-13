@@ -600,6 +600,55 @@ export async function verifyNativeTerminalInput(
   }
 }
 
+interface ReadonlyRendererProbe {
+  ok: boolean
+  phase: 'bounds' | 'wheel'
+  bounds?: { x: number; y: number; width: number; height: number }
+  error?: { name: string; message: string; stack: string }
+  census: Record<string, unknown>
+}
+
+/** Fixed qualification script: report its own errors without losing renderer context. */
+export function nativeReadonlyProbeScript(phase: 'bounds' | 'wheel', deltaY = 0): string {
+  if (!Number.isFinite(deltaY)) throw new Error('native-readonly-wheel-delta')
+  return String.raw`(() => {
+    const phase=${JSON.stringify(phase)}, selector='[id^="native-terminal-"] canvas';
+    const finite=r=>[r.x,r.y,r.width,r.height].every(Number.isFinite)?{x:Math.ceil(r.x),y:Math.ceil(r.y),width:Math.floor(r.width),height:Math.floor(r.height)}:null;
+    const census=()=>{const canvas=document.querySelector(selector),pane=document.querySelector('.native-terminal-pane');let bounds=null;try{if(canvas)bounds=finite(canvas.getBoundingClientRect());}catch{}return{canvasCount:document.querySelectorAll(selector).length,paneCount:document.querySelectorAll('.native-terminal-pane').length,surfaceCount:document.querySelectorAll('[id^="native-terminal-"]').length,canvasConnected:canvas?.isConnected??false,paneConnected:pane?.isConnected??false,paneReadonly:pane?.getAttribute('aria-readonly')==='true',paneHidden:pane?.hidden??false,canvasHidden:canvas?.hidden??false,bounds,statusModes:(Array.isArray(window.nativeQualificationModes)?window.nativeQualificationModes:[]).filter(mode=>['native-gpu','native-pixels','unavailable'].includes(mode)).slice(-8)};};
+    const clean=(value,max)=>String(value??'').replace(/[a-z][a-z0-9+.-]*:\/\/[^\s)]+/gi,'[url]').slice(0,max);
+    try{const canvas=document.querySelector(selector);if(!canvas)throw new Error('native canvas missing');const r=canvas.getBoundingClientRect(),bounds=finite(r);if(!bounds)throw new Error('native canvas nonfinite bounds');if(phase==='wheel')canvas.dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:r.left+8,clientY:r.top+8,deltaMode:0,deltaY:${deltaY}}));return{ok:true,phase,bounds,census:census()};}
+    catch(error){return{ok:false,phase,error:{name:clean(error?.name,64),message:clean(error?.message,256),stack:clean(error?.stack,512)},census:census()};}
+  })()`
+}
+
+async function observeReadonlyRenderer(
+  win: BrowserWindow,
+  phase: 'bounds' | 'wheel',
+  deltaY = 0,
+): Promise<ReadonlyRendererProbe> {
+  let result: ReadonlyRendererProbe
+  try {
+    result = (await win.webContents.executeJavaScript(
+      nativeReadonlyProbeScript(phase, deltaY),
+    )) as ReadonlyRendererProbe
+  } catch (error) {
+    console.log(
+      'HVIR_NATIVE_READONLY_SCRIPT_FAILURE ' +
+        JSON.stringify({
+          phase,
+          kind: 'execution-context',
+          windowDestroyed: win.isDestroyed(),
+          webContentsDestroyed: win.webContents.isDestroyed(),
+        }),
+    )
+    throw new Error('native-readonly-script-context-' + phase, { cause: error })
+  }
+  console.log('HVIR_NATIVE_READONLY_SCRIPT_OBSERVATION ' + JSON.stringify(result))
+  if (!result.ok)
+    throw new Error('native-readonly-script-' + phase + '-' + result.error?.name)
+  return result
+}
+
 /** Finished native history remains scrollable after the physical PTY is gone. */
 export async function verifyNativeReadonlyInput(
   win: BrowserWindow,
@@ -610,13 +659,15 @@ export async function verifyNativeReadonlyInput(
   if (!native.sessions.get(managed.id)?.readonly)
     throw new Error('native-input-not-readonly')
   const geometry = (await native.inspectRetained(managed.id, owner)).geometry
-  const bounds = (await win.webContents.executeJavaScript(
-    `(() => {const canvas=document.querySelector('[id^="native-terminal-"] canvas');if(!canvas)throw new Error('native canvas missing');const r=canvas.getBoundingClientRect();return{x:Math.ceil(r.x),y:Math.ceil(r.y),width:Math.floor(r.width),height:Math.floor(r.height)};})()`,
-  )) as { x: number; y: number; width: number; height: number }
+  console.log('[native-workbench] readonly-bounds')
+  const observation = await observeReadonlyRenderer(win, 'bounds')
+  const bounds = observation.bounds
+  if (!bounds) throw new Error('native-readonly-bounds-missing')
   const hash = async () =>
     createHash('sha256')
       .update((await win.webContents.capturePage(bounds)).toBitmap())
       .digest('hex')
+  console.log('[native-workbench] readonly-baseline')
   let baseline = await hash()
   await waitFor(async () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 50))
@@ -626,8 +677,11 @@ export async function verifyNativeReadonlyInput(
     return stable
   }, 'readonly-baseline')
   const before = (await native.inspectRetained(managed.id, owner)).ioAppliedMutation
-  await win.webContents.executeJavaScript(
-    `(() => {const canvas=document.querySelector('[id^="native-terminal-"] canvas');if(!canvas)throw new Error('native canvas missing');const r=canvas.getBoundingClientRect();canvas.dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:r.left+8,clientY:r.top+8,deltaMode:0,deltaY:${(-8 * geometry.cellHeight) / geometry.backingScale}}));return true;})()`,
+  console.log('[native-workbench] readonly-wheel')
+  await observeReadonlyRenderer(
+    win,
+    'wheel',
+    (-8 * geometry.cellHeight) / geometry.backingScale,
   )
   await waitFor(
     async () =>

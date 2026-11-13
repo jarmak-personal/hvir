@@ -2,7 +2,10 @@ import { runInNewContext } from 'node:vm'
 import { EventEmitter } from 'node:events'
 import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { nativeTerminalInputProbeSource } from '../src/main/smoke/native-terminal-input'
+import {
+  nativeTerminalInputProbeSource,
+  nativeReadonlyProbeScript,
+} from '../src/main/smoke/native-terminal-input'
 
 /** The recorder protocol, not a native encoder or real TTY/GPU fixture. */
 function recorder(blockProducer = false) {
@@ -165,5 +168,95 @@ describe('same-PTY native input recorder', () => {
     expect(f.exit).toHaveBeenCalledExactlyOnceWith(2)
     f.command('quit')
     expect(f.exit).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('readonly renderer qualification diagnostics', () => {
+  function observe(phase: 'bounds' | 'wheel', fault?: 'missing' | 'rect' | 'wheel') {
+    const dispatch = vi.fn()
+    const canvas = {
+      isConnected: true,
+      hidden: false,
+      getBoundingClientRect: () => {
+        if (fault === 'rect') throw new TypeError('original rectangle error')
+        return { x: 1.2, y: 2.3, width: 640.9, height: 480.9, left: 1.2, top: 2.3 }
+      },
+      dispatchEvent: dispatch,
+    }
+    const pane = { isConnected: true, hidden: false, getAttribute: () => 'true' }
+    class Wheel {
+      constructor(
+        readonly type: string,
+        readonly options: Record<string, unknown>,
+      ) {
+        if (fault === 'wheel')
+          throw new RangeError('original wheel error https://private.invalid/path')
+      }
+    }
+    const result = runInNewContext(nativeReadonlyProbeScript(phase, -120), {
+      document: {
+        querySelector: (selector: string) =>
+          selector.includes(' canvas') ? (fault === 'missing' ? null : canvas) : pane,
+        querySelectorAll: (selector: string) => ({
+          length: selector.includes(' canvas') && fault === 'missing' ? 0 : 1,
+        }),
+      },
+      window: {
+        nativeQualificationModes: [
+          'secret-payload',
+          ...Array<string>(12).fill('native-pixels'),
+        ],
+      },
+      WheelEvent: Wheel,
+    }) as {
+      ok: boolean
+      phase: string
+      bounds?: { x: number; y: number; width: number; height: number }
+      error?: { name: string; message: string; stack: string }
+      census: {
+        canvasCount: number
+        paneReadonly: boolean
+        statusModes: string[]
+        bounds: unknown
+      }
+    }
+    return { result, dispatch }
+  }
+  it('retains normal finite bounds and dispatches the original single wheel', () => {
+    const bounds = observe('bounds')
+    expect(bounds.result.ok).toBe(true)
+    expect(bounds.result.bounds).toEqual({ x: 2, y: 3, width: 640, height: 480 })
+    expect(bounds.dispatch).not.toHaveBeenCalled()
+    const wheel = observe('wheel')
+    expect(wheel.result.ok).toBe(true)
+    expect(wheel.dispatch).toHaveBeenCalledTimes(1)
+    expect(wheel.dispatch.mock.calls[0]?.[0]).toMatchObject({
+      type: 'wheel',
+      options: { deltaY: -120, deltaMode: 0, clientX: 9.2, clientY: 10.3 },
+    })
+  })
+  it('distinguishes missing canvas from original rectangle and WheelEvent failures', () => {
+    const missing = observe('bounds', 'missing').result
+    expect(missing.ok).toBe(false)
+    expect(missing.error?.message).toBe('native canvas missing')
+    expect(missing.census.canvasCount).toBe(0)
+    const rect = observe('bounds', 'rect').result
+    expect(rect.error).toMatchObject({
+      name: 'TypeError',
+      message: 'original rectangle error',
+    })
+    expect(rect.census.bounds).toBeNull()
+    const wheel = observe('wheel', 'wheel').result
+    expect(wheel.phase).toBe('wheel')
+    expect(wheel.error).toMatchObject({
+      name: 'RangeError',
+      message: 'original wheel error [url]',
+    })
+    expect(wheel.error?.stack).toContain('original wheel error')
+    expect(wheel.error?.stack.length).toBeLessThanOrEqual(512)
+    expect(JSON.stringify(wheel)).not.toContain('private.invalid')
+    expect(wheel.census.statusModes).toEqual(Array<string>(8).fill('native-pixels'))
+    expect(wheel.census.paneReadonly).toBe(true)
+    expect(JSON.stringify(wheel)).not.toContain('secret-payload')
   })
 })
