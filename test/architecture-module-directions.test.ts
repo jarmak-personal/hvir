@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { ESLint, Linter } from 'eslint'
 import ts from 'typescript'
 import tseslint from 'typescript-eslint'
@@ -56,6 +57,7 @@ async function originalMessages(owner: string, source: string) {
             'no-restricted-imports',
             'no-restricted-syntax',
             'smoke-ownership/inward',
+            'native-terminal-ownership/inward',
           ].includes(name),
         ),
       ),
@@ -65,6 +67,53 @@ async function originalMessages(owner: string, source: string) {
 }
 
 describe('resolved adapter for existing dependency direction policy', () => {
+  it('anchors native ownership to the repository when an ancestor is named src', async () => {
+    const cwd = join(root, 'src', 'hvir')
+    const nested = new Linter({ cwd })
+    const config = (await eslint.calculateConfigForFile(
+      'src/main/terminal/native-terminal-host.ts',
+    )) as Linter.Config
+    const check = (owner: string, source: string) =>
+      nested.verify(
+        source,
+        {
+          files: ['**/*.ts'],
+          languageOptions: { parser: tseslint.parser },
+          plugins: config.plugins,
+          rules: { 'native-terminal-ownership/inward': 'error' },
+        },
+        { filename: join(cwd, owner) },
+      )
+    expect(
+      check(
+        'packages/native-terminal/resource.d.ts',
+        "import type { Frame } from './engine'",
+      ),
+    ).toEqual([])
+    expect(
+      check('src/main/other.ts', "import binding from '@hvir/native-terminal/engine'"),
+    ).toContainEqual(
+      expect.objectContaining({ ruleId: 'native-terminal-ownership/inward' }),
+    )
+  })
+  it.each([
+    ['src/main/terminal/other.ts', '@hvir/native-terminal/engine'],
+    ['src/renderer/src/terminal/other.ts', '@hvir/native-terminal/resource'],
+    ['src/workers/native-terminal-runtime.ts', '@hvir/native-terminal/engine'],
+    ['src/main/terminal/native-terminal-process.ts', '@hvir/native-terminal/engine'],
+  ])('keeps native loading behind its exact process owner: %s', async (owner, target) => {
+    for (const source of [
+      `import binding from '${target}'`,
+      `void import('${target}')`,
+      `require('${target}')`,
+    ]) {
+      expect(
+        await checkModuleDirections(graph(owner, undefined, source), root),
+      ).toContainEqual(
+        expect.objectContaining({ rule: 'native-terminal-ownership/inward' }),
+      )
+    }
+  })
   it.each([
     "import { verifyArtifact } from '../../../scripts/native-terminal/artifacts.mts'",
     "import type { NativeArtifact } from '../../../scripts/native-terminal/artifacts.mts'",

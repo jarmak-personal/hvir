@@ -414,8 +414,8 @@ failed_app:
 static bool dimensions(uint32_t width, uint32_t height) {
   return width >= 32 && height >= 32 && width <= 8192 && height <= 8192;
 }
-hvir_terminal_result hvir_terminal_create(hvir_terminal_host *h, uint32_t width, uint32_t height,
-                                          hvir_terminal_id *out) {
+hvir_terminal_result hvir_terminal_create_begin(hvir_terminal_host *h, uint32_t width,
+                                                uint32_t height, hvir_terminal_id *out) {
   hvir_terminal_result r = owner(h);
   if (r)
     return r;
@@ -447,6 +447,16 @@ hvir_terminal_result hvir_terminal_create(hvir_terminal_host *h, uint32_t width,
   s->next = h->states;
   h->states = s;
   h->external_resize(s->surface, width, height, 1);
+  *out = s->id;
+  return HVIR_OK;
+}
+hvir_terminal_result hvir_terminal_create(hvir_terminal_host *h, uint32_t width, uint32_t height,
+                                          hvir_terminal_id *out) {
+  hvir_terminal_result result = hvir_terminal_create_begin(h, width, height, out);
+  if (result != HVIR_OK)
+    return result;
+  terminal_state *s = lookup(h, *out);
+  *out = 0;
   struct timespec deadline;
   clock_gettime(CLOCK_REALTIME, &deadline);
   deadline.tv_sec += 10;

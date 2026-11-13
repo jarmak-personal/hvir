@@ -51,18 +51,45 @@ function excludeSmokeRuntimeFromProduction(smokeBuild: boolean): Plugin {
   }
 }
 
+function excludeNativeProbeFromProduction(probeBuild: boolean): Plugin {
+  return {
+    name: 'exclude-native-terminal-probe-from-production',
+    apply: 'build',
+    generateBundle(_options, bundle): void {
+      if (probeBuild) return
+      for (const output of Object.values(bundle)) {
+        if (
+          output.type === 'chunk' &&
+          Object.keys(output.modules).some((moduleId) =>
+            moduleId
+              .replaceAll('\\', '/')
+              .match(
+                /\/(native-terminal-probe\.ts|native-terminal\/electron-probe\.mts)$/,
+              ),
+          )
+        )
+          this.error(
+            `Production chunk ${output.fileName} retained the native terminal fault probe`,
+          )
+      }
+    },
+  }
+}
+
 // Three build targets. `externalizeDepsPlugin` keeps `dependencies` (node-pty,
 // chokidar) out of the main/preload bundles so native modules load from
 // node_modules at runtime instead of being bundled.
 const baseConfig: UserConfig = {
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ include: ['@hvir/native-terminal'] })],
     build: {
       rollupOptions: {
         input: {
           index: resolve('src/main/index.ts'),
           // Utility-process workers are built as sibling entries so the main
           // process can `utilityProcess.fork` their compiled output.
+          'native-terminal-worker': resolve('src/workers/native-terminal-worker.ts'),
+          'native-terminal-engine': resolve('src/workers/native-terminal-engine.ts'),
           'echo-worker': resolve('src/workers/echo-worker.ts'),
           'git-worker': resolve('src/workers/git-worker.ts'),
           'document-worker': resolve('src/workers/document-worker.ts'),
@@ -72,7 +99,7 @@ const baseConfig: UserConfig = {
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ include: ['@hvir/native-terminal'] })],
     build: {
       rollupOptions: {
         input: {
@@ -121,6 +148,7 @@ const baseConfig: UserConfig = {
 
 export default defineConfig(({ mode }) => {
   const smokeBuild = mode === 'smoke'
+  const nativeProbe = mode === 'native-terminal-probe'
   const buildChannel: ApplicationBuildChannel = smokeBuild
     ? 'smoke'
     : mode === 'ssh-acceptance'
@@ -132,14 +160,57 @@ export default defineConfig(({ mode }) => {
     ...baseConfig,
     main: {
       ...baseConfig.main,
+      build: {
+        ...baseConfig.main?.build,
+        rollupOptions: {
+          ...baseConfig.main?.build?.rollupOptions,
+          input: {
+            ...(baseConfig.main?.build?.rollupOptions?.input as Record<string, string>),
+            ...(nativeProbe
+              ? {
+                  'native-terminal-probe': resolve(
+                    'scripts/native-terminal/electron-probe.mts',
+                  ),
+                }
+              : {}),
+          },
+        },
+      },
       plugins: [
         ...(baseConfig.main?.plugins ?? []),
         excludeSmokeRuntimeFromProduction(smokeBuild),
+        excludeNativeProbeFromProduction(nativeProbe),
       ],
       define: {
         ...baseConfig.main?.define,
         __HVIR_SMOKE_BUILD__: JSON.stringify(smokeBuild),
         __HVIR_BUILD_CHANNEL__: JSON.stringify(buildChannel),
+      },
+    },
+    preload: {
+      ...baseConfig.preload,
+      plugins: [
+        ...(baseConfig.preload?.plugins ?? []),
+        excludeNativeProbeFromProduction(nativeProbe),
+      ],
+      build: {
+        ...baseConfig.preload?.build,
+        rollupOptions: {
+          ...baseConfig.preload?.build?.rollupOptions,
+          input: {
+            ...(baseConfig.preload?.build?.rollupOptions?.input as Record<
+              string,
+              string
+            >),
+            ...(nativeProbe
+              ? {
+                  'native-terminal-probe': resolve(
+                    'src/preload/native-terminal-probe.ts',
+                  ),
+                }
+              : {}),
+          },
+        },
       },
     },
   }

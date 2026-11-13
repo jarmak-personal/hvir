@@ -88,6 +88,9 @@
     "extension:ui:tokens": "node scripts/prepare-extension-ui.mts --tokens",
     "extension:skillager": "node scripts/prepare-skillager-extension.mts",
     "probe:extension:skillager": "npm run build:smoke && node scripts/probe-skillager-extension.mts",
+    "native:bindings": "node scripts/native-terminal/bindings.mts",
+    "native:resource-probe": "node scripts/native-terminal/resource-probe.mts",
+    "native:host-probe": "node scripts/native-terminal/run-electron-probe.mts",
     "native:build": "node scripts/native-terminal/build.mts",
     "native:check": "node scripts/native-terminal/check.mts",
     "native:upgrade": "node scripts/native-terminal/upgrade.mts"
@@ -154,6 +157,7 @@
   },
   "optionalDependencies": {
     "@hvir/rename-noreplace": "file:packages/rename-noreplace",
-    "@hvir/extension-storage": "file:packages/extension-storage"
+    "@hvir/extension-storage": "file:packages/extension-storage",
+    "@hvir/native-terminal": "file:packages/native-terminal"
   }
 }

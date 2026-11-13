@@ -9,7 +9,7 @@
  */
 
 import { join } from 'node:path'
-import { utilityProcess, type UtilityProcess } from 'electron'
+import { app, utilityProcess, type UtilityProcess } from 'electron'
 
 import type {
   WorkerHostCall,
@@ -39,8 +39,19 @@ interface Pending {
 }
 
 /** Absolute path to a built worker entry (they sit beside the main bundle). */
-export function workerPath(entryFile: string): string {
-  return join(__dirname, entryFile)
+export function workerPath(
+  entryFile: string,
+  outputDirectory = join(app.getAppPath(), 'out/main'),
+): string {
+  return join(outputDirectory, entryFile)
+}
+
+/** Shared launch mechanics; each domain retains its own admission and loss policy. */
+export function spawnUtilityWorker(
+  entryPath: string,
+  serviceName: string,
+): UtilityProcess {
+  return utilityProcess.fork(entryPath, [], { serviceName, stdio: 'inherit' })
 }
 
 export function createWorkerClient<P extends ProtocolShape<P>>(
@@ -48,10 +59,7 @@ export function createWorkerClient<P extends ProtocolShape<P>>(
   serviceName?: string,
   onHostCall?: (call: WorkerHostCall) => Promise<WorkerHostValue>,
 ): WorkerClient<P> {
-  const proc: UtilityProcess = utilityProcess.fork(entryPath, [], {
-    serviceName: serviceName ?? 'hvir-worker',
-    stdio: 'inherit',
-  })
+  const proc = spawnUtilityWorker(entryPath, serviceName ?? 'hvir-worker')
 
   const pending = new Map<number, Pending>()
   let nextId = 1
