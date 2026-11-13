@@ -16,6 +16,13 @@ import type { SmokeCleanup } from './cleanup'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
 
+/** Format the qualification receipt; the runner keeps stdout separate from diagnostics. */
+export function nativeWorkbenchReceiptLine(
+  receipt: Readonly<Record<string, unknown>>,
+): string {
+  return 'HVIR_NATIVE_WORKBENCH_OK ' + JSON.stringify(receipt)
+}
+
 /** Composition and dispatch for this opt-in scenario stay with its native owner. */
 export async function createNativeWorkbench(
   {
@@ -192,39 +199,38 @@ export async function verifyNativeTerminalWorkbench(
   await native.remove(managed.id, managed.instanceId)
   if (native.sessions.get(managed.id)) throw new Error('native-workbench-removed-state')
   console.log(
-    'HVIR_NATIVE_WORKBENCH_OK ' +
-      JSON.stringify({
-        platform: process.platform,
-        arch: process.arch,
-        actualWorkbench: true,
-        sourceCommit: process.env['HVIR_SMOKE_SOURCE_COMMIT'] ?? null,
-        sourceDirty: process.env['HVIR_SMOKE_SOURCE_DIRTY'] === '1',
-        rendererSandboxed: true,
-        rendererContextIsolated: true,
-        supervisorSpawns: 1,
-        nativeInstanceMatched: true,
-        parserMarker: true,
-        retainedExitTail: true,
-        rendererCanvas: true,
-        capturedAnsiRedPixels: redPixels,
-        nativeEncodedKeyboard: true,
-        nativeInput,
-        largePaste,
-        readonlyInput,
-        resizeControl: 'terminal-rail',
-        resizeAcknowledgedByStty: { rows: geometry.rows, columns: geometry.columns },
-        development: true,
-        hardwareQualified: false,
-        stack,
-        requestedPresentation: linuxOptions?.presentationMode ?? 'auto',
-        selectedDevice: linuxOptions?.device ?? null,
-        nativeRenderer,
-        producerCompletion:
-          process.platform === 'linux'
-            ? 'gl-finish-before-export'
-            : 'metal-command-buffer-completed',
-        backingScale: geometry.backingScale,
-        observedModes,
-      }),
+    nativeWorkbenchReceiptLine({
+      platform: process.platform,
+      arch: process.arch,
+      actualWorkbench: true,
+      sourceCommit: process.env['HVIR_SMOKE_SOURCE_COMMIT'] ?? null,
+      sourceDirty: process.env['HVIR_SMOKE_SOURCE_DIRTY'] === '1',
+      rendererSandboxed: true,
+      rendererContextIsolated: true,
+      supervisorSpawns: 1,
+      nativeInstanceMatched: true,
+      parserMarker: true,
+      retainedExitTail: true,
+      rendererCanvas: true,
+      capturedAnsiRedPixels: redPixels,
+      nativeEncodedKeyboard: true,
+      nativeInput,
+      largePaste,
+      readonlyInput,
+      resizeControl: 'terminal-rail',
+      resizeAcknowledgedByStty: { rows: geometry.rows, columns: geometry.columns },
+      development: true,
+      hardwareQualified: false,
+      stack,
+      requestedPresentation: linuxOptions?.presentationMode ?? 'auto',
+      selectedDevice: linuxOptions?.device ?? null,
+      nativeRenderer,
+      producerCompletion:
+        process.platform === 'linux'
+          ? 'gl-finish-before-export'
+          : 'metal-command-buffer-completed',
+      backingScale: geometry.backingScale,
+      observedModes,
+    }),
   )
 }

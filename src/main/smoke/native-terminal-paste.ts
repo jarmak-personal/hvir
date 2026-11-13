@@ -24,6 +24,72 @@ const CASES = [
   },
 ] as const
 
+interface PasteProcessMemory {
+  pid: number
+  type: string
+  workingSetSize: number
+  peakWorkingSetSize: number
+}
+
+/** Qualification-only streaming observations; raw samples never enter the OK receipt. */
+export class NativePasteMemoryObservation {
+  private count = 0
+  private readonly processes = new Map<
+    number,
+    {
+      pid: number
+      type: string
+      samples: number
+      baselineKiB: number
+      lastKiB: number
+      minKiB: number
+      maxKiB: number
+      reportedPeakMaxKiB: number
+    }
+  >()
+  constructor(
+    private readonly name: string,
+    private readonly emit: (line: string) => void,
+  ) {}
+  record(atMs: number, processes: readonly PasteProcessMemory[]): void {
+    const index = this.count++
+    for (const memory of processes) {
+      this.emit(
+        'HVIR_NATIVE_PASTE_MEMORY_SAMPLE ' +
+          JSON.stringify({ case: this.name, index, atMs, ...memory }),
+      )
+      const previous = this.processes.get(memory.pid)
+      if (previous) {
+        previous.samples++
+        previous.lastKiB = memory.workingSetSize
+        previous.minKiB = Math.min(previous.minKiB, memory.workingSetSize)
+        previous.maxKiB = Math.max(previous.maxKiB, memory.workingSetSize)
+        previous.reportedPeakMaxKiB = Math.max(
+          previous.reportedPeakMaxKiB,
+          memory.peakWorkingSetSize,
+        )
+      } else
+        this.processes.set(memory.pid, {
+          pid: memory.pid,
+          type: memory.type,
+          samples: 1,
+          baselineKiB: memory.workingSetSize,
+          lastKiB: memory.workingSetSize,
+          minKiB: memory.workingSetSize,
+          maxKiB: memory.workingSetSize,
+          reportedPeakMaxKiB: memory.peakWorkingSetSize,
+        })
+    }
+  }
+  summary() {
+    return {
+      sampleCount: this.count,
+      unit: 'KiB' as const,
+      processes: [...this.processes.values()].map((value) => ({ ...value })),
+    }
+  }
+}
+
 /** Fixed fixtures hash incrementally; neither recorder nor main retains the body. */
 export function nativePasteExpectations() {
   return CASES.map((fixture) => {
@@ -118,26 +184,20 @@ export async function verifyNativeTerminalPaste(
         if (confirmedWrites.length > 2) throw new Error('native-large-paste-write-bound')
       }
     })
-  const samples: Array<{
-    atMs: number
-    processes: Array<{
-      pid: number
-      type: string
-      workingSetSize: number
-      peakWorkingSetSize: number
-    }>
-  }> = []
+  let memory: NativePasteMemoryObservation | undefined
+  let sampleCount = 0
   const sample = () => {
-    if (samples.length >= 1024) return
-    samples.push({
-      atMs: performance.now(),
-      processes: app.getAppMetrics().map(({ pid, type, memory }) => ({
+    if (!memory || sampleCount >= 1024) return
+    sampleCount++
+    memory.record(
+      performance.now(),
+      app.getAppMetrics().map(({ pid, type, memory }) => ({
         pid,
         type,
         workingSetSize: memory.workingSetSize,
         peakWorkingSetSize: memory.peakWorkingSetSize,
       })),
-    })
+    )
   }
   const results: Array<{
     name: string
@@ -148,6 +208,7 @@ export async function verifyNativeTerminalPaste(
     elapsedMs: number
     confirmedWriteMs: number
     recorderAcknowledgedMs: number
+    memory: ReturnType<NativePasteMemoryObservation['summary']>
     paint: { frames: number; maxGapMs: number; heapBefore?: number; heapAfter?: number }
   }> = []
   let sampleTimer: ReturnType<typeof setInterval> | undefined
@@ -179,6 +240,7 @@ export async function verifyNativeTerminalPaste(
       completions.length = 0
       confirmedWrites.length = 0
       current = true
+      memory = new NativePasteMemoryObservation(fixture.name, (line) => console.log(line))
       sample()
       sampleTimer = setInterval(sample, 100)
       const started = performance.now()
@@ -244,6 +306,7 @@ export async function verifyNativeTerminalPaste(
         confirmedWriteMs: confirmedAt - started,
         recorderAcknowledgedMs: recorderAcknowledgedAt - started,
         paint,
+        memory: memory.summary(),
       })
       current = false
     }
@@ -260,7 +323,7 @@ export async function verifyNativeTerminalPaste(
       largeAdmissionQualified: true,
       systemClipboardQualified: false,
       physicalPeakMemoryQualified: false,
-      samplesKiB: samples,
+      memorySampleRecords: sampleCount,
       cases: results,
     }
   } finally {

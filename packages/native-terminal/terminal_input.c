@@ -39,6 +39,10 @@ void hvir_terminal_input_result_free(hvir_terminal_input_result *result) {
   *result = (hvir_terminal_input_result){0};
 }
 static bool coordinate(double value) { return isfinite(value) && fabs(value) <= 32768; }
+static bool valid_input_text(const hvir_terminal_input_event *event) {
+  return event->text_length <= 4096 &&
+    (!event->text_length || !memchr(event->text, 0, event->text_length));
+}
 static bool valid_event(const hvir_terminal_input_event *event) {
   if (!event || event->kind < HVIR_INPUT_KEY || event->kind > HVIR_INPUT_CARET ||
       event->modifiers > 1023 || event->consumed_modifiers > 1023 ||
@@ -47,10 +51,9 @@ static bool valid_event(const hvir_terminal_input_event *event) {
     case HVIR_INPUT_KEY:
       if (event->key > 175 || event->action > 2 || event->option_as_alt > 3 || event->encoding_fallback > 2 ||
           event->unshifted_codepoint > 0x10ffff) return false;
-      /* Fall through to the shared key/preedit text contract. */
+      return valid_input_text(event);
     case HVIR_INPUT_PREEDIT:
-      return event->text_length <= 4096 &&
-        (!event->text_length || !memchr(event->text, 0, event->text_length));
+      return valid_input_text(event);
     case HVIR_INPUT_POINTER:
       return coordinate(event->x) && coordinate(event->y) &&
         (!event->has_button || (event->button >= 1 && event->button <= 11 && event->action <= 1));

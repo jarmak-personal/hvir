@@ -3,9 +3,11 @@ import { EventEmitter } from 'node:events'
 import { runInNewContext } from 'node:vm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  NativePasteMemoryObservation,
   nativePasteExpectations,
   nativePasteRecorderSource,
 } from '../src/main/smoke/native-terminal-paste'
+import { nativeWorkbenchReceiptLine } from '../src/main/smoke/native-terminal-workbench'
 
 function recorder() {
   const stdin = Object.assign(new EventEmitter(), {
@@ -96,5 +98,70 @@ describe('large-paste recorder protocol (not a native encoder proof)', () => {
     await vi.advanceTimersByTimeAsync(100000)
     expect(f.exit).toHaveBeenCalledExactlyOnceWith(2)
     expect(f.text()).toContain('\x1b[20l\x1b[?2004l')
+  })
+})
+
+describe('native workbench memory record flow', () => {
+  it('streams bounded raw records and keeps representative long-running summaries parseable below the stdout boundary', () => {
+    const cases = []
+    let emitted = 0
+    for (const name of ['unicode', 'lnm']) {
+      const observation = new NativePasteMemoryObservation(name, (line) => {
+        expect(Buffer.byteLength(line)).toBeLessThan(512)
+        const record = JSON.parse(
+          line.slice('HVIR_NATIVE_PASTE_MEMORY_SAMPLE '.length),
+        ) as { case: string; pid: number; workingSetSize: number }
+        expect(record.case).toBe(name)
+        expect(record.pid).toBeGreaterThan(0)
+        expect(record.workingSetSize).toBeGreaterThan(0)
+        emitted++
+      })
+      for (let index = 0; index < 1024; index++)
+        observation.record(
+          index * 100,
+          Array.from({ length: 32 }, (_, pid) => ({
+            pid: pid + 1,
+            type: 'Utility',
+            workingSetSize: 100000 + index,
+            peakWorkingSetSize: 200000 + index,
+          })),
+        )
+      const summary = observation.summary()
+      expect(summary.sampleCount).toBe(1024)
+      expect(summary.processes[0]).toEqual({
+        pid: 1,
+        type: 'Utility',
+        samples: 1024,
+        baselineKiB: 100000,
+        lastKiB: 101023,
+        minKiB: 100000,
+        maxKiB: 101023,
+        reportedPeakMaxKiB: 201023,
+      })
+      cases.push({
+        name,
+        sourceBytes: name === 'unicode' ? 17 * 1024 * 1024 : 33 * 1024 * 1024,
+        wireBytes: name === 'unicode' ? 17 * 1024 * 1024 + 12 : 66 * 1024 * 1024,
+        wireSha256: 'a'.repeat(64),
+        memory: summary,
+        paint: { frames: 400, maxGapMs: 20 },
+      })
+    }
+    const receipt = {
+      platform: 'darwin',
+      arch: 'arm64',
+      nativeInput: { phases: 16, mutationFences: 16 },
+      largePaste: { cases, memorySampleRecords: 2048 },
+      nativeRenderer: {
+        lastFrame: {
+          resource: { fourcc: 1, modifier: '18446744073709551615', planes: [] },
+        },
+      },
+    }
+    const line = nativeWorkbenchReceiptLine(receipt)
+    expect(Buffer.byteLength(line)).toBeLessThan(32 * 1024)
+    expect(JSON.parse(line.slice('HVIR_NATIVE_WORKBENCH_OK '.length))).toEqual(receipt)
+    expect(emitted).toBe(2 * 1024 * 32)
+    expect(line).not.toContain('samplesKiB')
   })
 })

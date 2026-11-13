@@ -233,13 +233,14 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
         run: |
           npm run build:smoke
+          # Keep diagnostic stderr out of the machine-readable proof stream.
           if [[ "$RUNNER_OS" == Linux ]]; then
             HVIR_NATIVE_TERMINAL_OZONE=x11 HVIR_NATIVE_TERMINAL_LIBRARY="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" \
-              xvfb-run -a node scripts/run-smoke-scenarios.mts native-terminal-workbench 2>&1 \
+              xvfb-run -a node scripts/run-smoke-scenarios.mts native-terminal-workbench \
               | tee "$RUNNER_TEMP/hvir-native-bindings/workbench-proof.jsonl"
           else
             HVIR_NATIVE_TERMINAL_LIBRARY="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" \
-              node scripts/run-smoke-scenarios.mts native-terminal-workbench 2>&1 \
+              node scripts/run-smoke-scenarios.mts native-terminal-workbench \
               | tee "$RUNNER_TEMP/hvir-native-bindings/workbench-proof.jsonl"
           fi
           node - "$RUNNER_TEMP/hvir-native-bindings/workbench-proof.jsonl" <<'NODE'
