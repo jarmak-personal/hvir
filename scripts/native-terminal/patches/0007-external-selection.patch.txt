@@ -737,7 +737,7 @@
 +const Screen = @import("Screen.zig");
 +const PageList = @import("PageList.zig");
 +const Selection = @import("Selection.zig");
-+const Formatter = @import("Formatter.zig");
++const Formatter = @import("formatter.zig");
 +const Tracker = @import("TextReadTracker.zig");
 +const Row = @import("page.zig").Row;
 +alloc: Allocator,

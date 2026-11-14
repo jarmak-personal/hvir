@@ -137,6 +137,40 @@ describe('same-PTY native selection qualification protocol', () => {
     })
     expect(JSON.stringify(value)).not.toContain('private')
   })
+  it('retains numeric viewport, pane, canvas and backing metrics without terminal content', () => {
+    const canvas = {
+      width: 1600,
+      height: 600,
+      getBoundingClientRect: () => ({ x: 2, y: 3, width: 800, height: 300 }),
+    }
+    const pane = {
+      hidden: false,
+      getAttribute: () => null,
+      querySelector: () => canvas,
+      querySelectorAll: () => [],
+      contains: () => false,
+      getBoundingClientRect: () => ({ x: 2, y: 3, width: 800, height: 300 }),
+    }
+    const panel = { hidden: false, getAttribute: () => 's', querySelector: () => pane }
+    const document = {
+      querySelectorAll: (selector: string) =>
+        selector === '.terminal-surface' ? [panel] : [],
+      elementsFromPoint: () => [],
+      activeElement: null,
+    }
+    const value: unknown = runInNewContext(nativeSelectionHitCensusScript('s', 0, 0), {
+      document,
+      innerWidth: 1000,
+      innerHeight: 500,
+      devicePixelRatio: 2,
+    })
+    expect(value).toMatchObject({
+      viewport: { width: 1000, height: 500, dpr: 2 },
+      canvasBacking: { width: 1600, height: 600 },
+      canvasBounds: { width: 800, height: 300 },
+      paneBounds: { width: 800, height: 300 },
+    })
+  })
   it('records only closed pointer/link completion metadata, excluding arbitrary payload fields', () => {
     const observation = nativeSelectionPointerObservation(
       { kind: 'pointer', x: 12, y: 34, button: 1, action: 0, modifiers: 2 },

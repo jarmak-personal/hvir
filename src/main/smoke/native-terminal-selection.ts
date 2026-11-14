@@ -95,8 +95,8 @@ export function nativeSelectionHitCensusScript(
 ): string {
   return `(()=>{const panel=[...document.querySelectorAll('.terminal-surface')].find(n=>n.getAttribute('data-terminal-session')===${JSON.stringify(session)}),pane=panel?.querySelector('.native-terminal-pane');
 const describe=n=>({tag:n?.tagName??null,role:n?.getAttribute('role')?.slice(0,32)??null,classes:typeof n?.className==='string'?n.className.slice(0,128):null});
-const bounds=n=>{const r=n.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height};};
-const menus=[...document.querySelectorAll('.terminal-context-menu')];return{point:{x:${x},y:${y}},menus:menus.length,menuBounds:menus.slice(0,4).map(bounds),hits:document.elementsFromPoint(${x},${y}).slice(0,8).map(describe),active:describe(document.activeElement),pane:!!pane,readonly:pane?.getAttribute('aria-readonly')==='true',canvas:!!pane?.querySelector('canvas'),nativeHit:!!pane&&pane.contains(document.elementsFromPoint(${x},${y})[0]),statusCount:pane?.querySelectorAll('[role="status"]').length??0,hidden:panel?.hidden??null};})()`
+const bounds=n=>{if(!n)return null;const r=n.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height};};
+const menus=[...document.querySelectorAll('.terminal-context-menu')],canvas=pane?.querySelector('canvas');return{viewport:{width:globalThis.innerWidth??null,height:globalThis.innerHeight??null,dpr:globalThis.devicePixelRatio??null},paneBounds:bounds(pane),canvasBounds:bounds(canvas),canvasBacking:canvas?{width:canvas.width,height:canvas.height}:null,point:{x:${x},y:${y}},menus:menus.length,menuBounds:menus.slice(0,4).map(bounds),hits:document.elementsFromPoint(${x},${y}).slice(0,8).map(describe),active:describe(document.activeElement),pane:!!pane,readonly:pane?.getAttribute('aria-readonly')==='true',canvas:!!pane?.querySelector('canvas'),nativeHit:!!pane&&pane.contains(document.elementsFromPoint(${x},${y})[0]),statusCount:pane?.querySelectorAll('[role="status"]').length??0,hidden:panel?.hidden??null};})()`
 }
 
 function paneScript(session: string): string {
@@ -349,6 +349,7 @@ export async function verifyNativeTerminalSelection(
     httpContacts = 0,
     readRequests = 0
   const markers = new Set<string>()
+  let initialGrid: unknown
   let phase = 'setup'
   const stage = (name: string) => {
     phase = name
@@ -535,8 +536,18 @@ export async function verifyNativeTerminalSelection(
       throw new Error('native-selection-server-address')
     const loopback = `http://127.0.0.1:${address.port}/native-selection`
     const { geometry } = await browser.layout()
-    if (geometry.columns < 40 || geometry.rows < 20)
+    if (geometry.columns < 40 || geometry.rows < 20) {
+      initialGrid = {
+        geometry,
+        windowBounds: win.getBounds(),
+        contentBounds: win.getContentBounds(),
+        dom: (await win.webContents.executeJavaScript(
+          nativeSelectionHitCensusScript(managed.id, 0, 0),
+        )) as unknown,
+      }
+      console.log('HVIR_NATIVE_SELECTION_GRID ' + JSON.stringify(initialGrid))
       throw new Error('native-selection-fixture-grid')
+    }
     const fileUri = pathToFileURL(managed.workspaceRoot.path + '/package.json').href,
       fixture = nativeSelectionFixture(geometry.columns)
     await win.webContents.executeJavaScript(clipboardInstall(isolated))
@@ -876,6 +887,7 @@ export async function verifyNativeTerminalSelection(
         JSON.stringify({
           phase,
           recorderFailed: failed,
+          initialGrid,
           clicked: phase === 'link-external' ? { row: 17.5, column: 2.5 } : undefined,
           menuDismissals: browser.menuDismissals,
           hitObservations: browser.hitObservations,
@@ -895,6 +907,7 @@ export async function verifyNativeTerminalSelection(
                 inputFailure: status.inputFailure,
                 closing: status.closing,
                 geometrySerial: status.geometry.serial,
+                geometry: status.geometry,
                 appliedSequence: status.appliedSequence,
                 ioAppliedSequence: status.ioAppliedSequence,
               }
