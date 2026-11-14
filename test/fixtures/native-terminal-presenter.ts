@@ -74,6 +74,7 @@ export function nativeTerminalPresenterFixture(linuxMode?: 'auto' | 'pixels') {
       metadata: {
         lease: '1',
         snapshotMutation: 0,
+        screen: 0 as const,
         streamSequence: 1,
         geometrySerial: serial,
         kind: 1,

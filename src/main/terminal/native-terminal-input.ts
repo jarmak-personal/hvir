@@ -36,6 +36,7 @@ export interface NativeTerminalInputContext {
   readonly state: NativeTerminalInputState
   readonly readOnly: boolean
   readonly policy?: ProviderComposerKeyboardPolicy
+  readonly selectionContext?: import('../../shared/native-terminal-selection').NativeTerminalSelectionContext
   inputSettled(): Promise<void> | undefined
   retainInput(pending: Promise<unknown>): void
   assertCurrent(): void
@@ -244,6 +245,7 @@ export class NativeTerminalInput {
           prefix?.parsed,
           context.readOnly,
           options.fallback,
+          context.selectionContext,
         )
         break
       } catch (error) {
@@ -320,6 +322,15 @@ export class NativeTerminalInput {
       requestedMutation: result.requestedMutation,
       ...(caret ? { caret } : {}),
       ...(result.captured === undefined ? {} : { captured: result.captured }),
+      ...(result.hasSelection === undefined
+        ? {}
+        : { hasSelection: result.hasSelection, selectionSerial: result.selectionSerial }),
+      ...(result.selectionResult === undefined
+        ? {}
+        : { selectionResult: result.selectionResult }),
+      ...(result.linkCandidate === undefined
+        ? {}
+        : { linkCandidate: result.linkCandidate }),
     }
   }
   private async retryInspect(context: NativeTerminalInputContext, deadline: number) {

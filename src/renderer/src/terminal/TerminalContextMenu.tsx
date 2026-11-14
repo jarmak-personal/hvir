@@ -42,6 +42,7 @@ export function TerminalContextMenu({
   const { request } = controller
   const menuRef = useRef<HTMLDivElement>(null)
   const alive = useRef(true)
+  const operation = useRef<AbortController | undefined>(undefined)
   const currentRequest = useRef(request)
   const [pending, setPending] = useState<TerminalMenuAction>()
   const [feedback, setFeedback] = useState<string>()
@@ -51,6 +52,7 @@ export function TerminalContextMenu({
     alive.current = true
     return () => {
       alive.current = false
+      operation.current?.abort()
     }
   }, [])
 
@@ -61,6 +63,9 @@ export function TerminalContextMenu({
   }, [feedback])
 
   useLayoutEffect(() => {
+    const request = currentRequest.current
+    operation.current?.abort()
+    operation.current = undefined
     setPending(undefined)
     if (request) setFeedback(undefined)
     if (!request || !menuRef.current) return
@@ -75,7 +80,7 @@ export function TerminalContextMenu({
     menu.style.top = `${position.y}px`
     menu.style.visibility = 'visible'
     if (request.focusMenu) firstEnabledMenuItem(menu)?.focus()
-  }, [request])
+  }, [request?.id])
 
   useEffect(() => {
     if (!request) return
@@ -111,23 +116,24 @@ export function TerminalContextMenu({
   const copy = (): void => {
     if (!request || pending || !request.copyAvailable) return
     const actionRequest = request
-    const selection = actionRequest.target.getSelection()
-    if (selection === undefined) {
-      controller.dismiss()
-      return
-    }
+    const cancellation = new AbortController()
+    operation.current = cancellation
     setPending('copy')
-    void writeText(selection).then(
-      () => {
-        if (!acceptAsyncResult(actionRequest)) return
-        controller.dismiss(true)
-      },
-      () => {
-        if (!acceptAsyncResult(actionRequest)) return
-        setFeedback('Could not copy the selection to the clipboard.')
-        controller.dismiss(true)
-      },
-    )
+    void (async () => {
+      const selection = await actionRequest.target.getSelection(cancellation.signal)
+      if (cancellation.signal.aborted || !acceptAsyncResult(actionRequest)) return
+      if (selection === undefined) {
+        controller.dismiss()
+        return
+      }
+      // No await between the source/request fence and the clipboard invocation.
+      await writeText(selection)
+      if (acceptAsyncResult(actionRequest)) controller.dismiss(true)
+    })().catch(() => {
+      if (cancellation.signal.aborted || !acceptAsyncResult(actionRequest)) return
+      setFeedback('Could not copy the selection to the clipboard.')
+      controller.dismiss(true)
+    })
   }
 
   const paste = (): void => {
@@ -154,12 +160,27 @@ export function TerminalContextMenu({
 
   const act = (
     action: Exclude<TerminalMenuAction, 'copy' | 'paste'>,
-    invoke: (actionRequest: TerminalContextMenuRequest) => boolean,
+    invoke: (
+      actionRequest: TerminalContextMenuRequest,
+      signal: AbortSignal,
+    ) => Promise<boolean>,
   ): void => {
     if (!request || pending) return
+    const actionRequest = request,
+      cancellation = new AbortController()
+    operation.current = cancellation
     setPending(action)
-    if (invoke(request)) controller.dismiss(true)
-    else controller.dismiss()
+    void invoke(actionRequest, cancellation.signal).then(
+      (current) => {
+        if (!acceptAsyncResult(actionRequest)) return
+        controller.dismiss(current)
+      },
+      () => {
+        if (!acceptAsyncResult(actionRequest) || cancellation.signal.aborted) return
+        setFeedback('Could not complete the terminal action.')
+        controller.dismiss(true)
+      },
+    )
   }
 
   const runWorkspaceAction = (callback: () => void): void => {
@@ -218,7 +239,9 @@ export function TerminalContextMenu({
             role="menuitem"
             disabled={pending !== undefined}
             onPointerDown={retainTerminalFocus}
-            onClick={() => act('select-all', ({ target }) => target.selectAll())}
+            onClick={() =>
+              act('select-all', ({ target }, signal) => target.selectAll(signal))
+            }
             className="hvir-button"
           >
             Select All
@@ -229,7 +252,7 @@ export function TerminalContextMenu({
             role="menuitem"
             disabled={pending !== undefined}
             onPointerDown={retainTerminalFocus}
-            onClick={() => act('clear', ({ target }) => target.clear())}
+            onClick={() => act('clear', ({ target }, signal) => target.clear(signal))}
             className="hvir-button"
           >
             Clear Screen and Scrollback
@@ -239,7 +262,7 @@ export function TerminalContextMenu({
             role="menuitem"
             disabled={pending !== undefined}
             onPointerDown={retainTerminalFocus}
-            onClick={() => act('reset', ({ target }) => target.reset())}
+            onClick={() => act('reset', ({ target }, signal) => target.reset(signal))}
             className="hvir-button"
           >
             Reset Terminal

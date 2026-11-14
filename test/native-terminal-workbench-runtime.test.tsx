@@ -141,7 +141,7 @@ describe('native workbench runtime selection', () => {
       f.invoke.mock.calls.some(([channel]) => channel === 'native-terminal:update'),
     ).toBe(true)
     expect(f.send.mock.calls.some(([channel]) => channel === 'pty:resize')).toBe(false)
-    expect(f.runtime.interactions.contextMenuTarget()).toBeUndefined()
+    expect(f.runtime.interactions.contextMenuTarget()).toBeDefined()
     f.listeners.get('pty:exit')?.({ id: 'terminal-1', exitCode: 0 })
     expect(f.runtime.snapshot().exited).toBe(true)
     expect(f.container.querySelector('[aria-readonly="true"]')).not.toBeNull()

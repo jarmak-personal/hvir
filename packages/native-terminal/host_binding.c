@@ -39,7 +39,7 @@ typedef enum {
   PRESENTATION_MODE,
   RENDERER_INFO,
   INPUT,
-  LINK
+  LINK, SELECTION, EXTRACT_BEGIN, EXTRACT_NEXT, EXTRACT_FINISH, EXTRACT_CLOSE, LINK_CURRENT, LINK_ROW_BEGIN
 } operation;
 static bool checked(napi_env env, napi_status status) {
   if (status == napi_ok)
@@ -225,6 +225,7 @@ static napi_value frame_value(napi_env env, const hvir_terminal_frame *f) {
   FRAME_BIG("snapshotMutation", snapshot_mutation);
   FRAME_BIG("modifier", modifier);
   FRAME_NUMBER("kind", kind);
+  FRAME_NUMBER("screen", screen);
   FRAME_NUMBER("width", width);
   FRAME_NUMBER("height", height);
   FRAME_NUMBER("fourcc", fourcc);
@@ -391,8 +392,52 @@ static bool input_text(napi_env env, napi_value object, hvir_terminal_input_even
   event->text = data; event->text_length = length;
   return true;
 }
-static napi_value input_operation(napi_env env, binding_host *host, uint64_t id, napi_value value, bool read_only, uint32_t fallback) {
+static bool selection_context(napi_env env, napi_value value, hvir_terminal_selection_context *out) {
+  napi_value geometry;
+  if (!input_keys(env, value, "|screen|geometrySerial|") ||
+      !input_number(env, value, "screen", &out->screen) || out->screen > 1 ||
+      !(geometry = input_property(env, value, "geometrySerial")) ||
+      !u64(env, geometry, &out->geometry_serial) || !out->geometry_serial) {
+    bad_argument(env); return false;
+  }
+  return true;
+}
+static napi_value selection_value(napi_env env, hvir_terminal_result code,
+                                  const hvir_terminal_selection_result *out) {
+  napi_value value = outcome(env, code);
+  if (out->has_clicked_offset && !put(env, value, "clickedByteOffset", big(env, out->clicked_offset))) return NULL;
+  return put(env, value, "stale", boolean(env, out->stale)) &&
+    put(env, value, "hasSelection", boolean(env, out->has_selection)) &&
+    put(env, value, "selectionSerial", big(env, out->selection_serial)) &&
+    put(env, value, "screen", number(env, out->screen)) &&
+    put(env, value, "geometrySerial", big(env, out->geometry_serial)) &&
+    put(env, value, "requestedMutation", big(env, out->requested_mutation)) ? value : NULL;
+}
+static bool current_link_query(napi_env env, napi_value query, double *x, double *y,
+                                hvir_terminal_selection_context *context) {
+  napi_value geometry;
+  if (!input_keys(env, query, "|x|y|screen|geometrySerial|") ||
+      !input_coordinate(env, query, "x", x) || !input_coordinate(env, query, "y", y) ||
+      !input_number(env, query, "screen", &context->screen) || context->screen > 1 ||
+      !(geometry = input_property(env, query, "geometrySerial")) ||
+      !u64(env, geometry, &context->geometry_serial) || !context->geometry_serial) {
+    bad_argument(env); return false;
+  }
+  return true;
+}
+static bool put_link(napi_env env, napi_value result, const hvir_terminal_link_query *value,
+                      const uint8_t *uri, size_t length) {
+  napi_value link = object(env);
+  return put(env, link, "uri", bytes(env, uri, length)) &&
+    put(env, link, "row", number(env, value->row)) && put(env, link, "column", number(env, value->column)) &&
+    put(env, link, "screen", number(env, value->screen)) &&
+    put(env, link, "streamSequence", big(env, value->sequence)) &&
+    put(env, link, "snapshotMutation", big(env, value->mutation)) &&
+    put(env, link, "geometrySerial", big(env, value->geometry)) && put(env, result, "link", link);
+}
+static napi_value input_operation(napi_env env, binding_host *host, uint64_t id, napi_value value, bool read_only, uint32_t fallback, const hvir_terminal_selection_context *context) {
   hvir_terminal_input_event event = {.encoding_fallback = fallback};
+  if (context) { event.selection_enabled = true; event.selection_screen = context->screen; event.selection_geometry = context->geometry_serial; }
   char *kind = text(env, input_property(env, value, "kind"), 16);
   if (!kind) return NULL;
   const char *allowed = NULL;
@@ -459,6 +504,10 @@ static napi_value input_operation(napi_env env, binding_host *host, uint64_t id,
       !put(env, result, "source", source) || !put(env, result, "data", bytes(env, output.data, output.length))) goto output_failed;
   if ((event.kind == HVIR_INPUT_POINTER || event.kind == HVIR_INPUT_WHEEL) &&
       !put(env, result, "captured", boolean(env, output.captured))) goto output_failed;
+  if (event.selection_enabled && (!put(env, result, "hasSelection", boolean(env, output.has_selection)) ||
+      !put(env, result, "selectionSerial", big(env, output.selection_serial)) ||
+      !put(env, result, "selectionResult", number(env, output.selection_result)) ||
+      !put(env, result, "linkCandidate", boolean(env, output.link_candidate)))) goto output_failed;
   if (output.has_caret) {
     napi_value caret = object(env);
     if (!put(env, caret, "x", real(env, output.caret_x)) || !put(env, caret, "y", real(env, output.caret_y)) ||
@@ -476,14 +525,14 @@ failed:
 }
 
 static napi_value invoke(napi_env env, napi_callback_info info) {
-  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4, 3, 2, 3, 3};
+  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4, 3, 2, 3, 3, 4, 4, 3, 3, 3, 3, 3};
   size_t argc = 8;
   napi_value args[8];
   void *data;
   if (!checked(env, napi_get_cb_info(env, info, &argc, args, NULL, &data)))
     return NULL;
   operation op = (operation)(uintptr_t)data;
-  if (op == OPEN ? (argc != 1 && argc != 2) : op == RESIZE ? (argc != 5 && argc != 6) : op == INPUT ? (argc < 3 || argc > 5) : argc != counts[op]) {
+  if (op == OPEN ? (argc != 1 && argc != 2) : op == RESIZE ? (argc != 5 && argc != 6) : op == INPUT ? (argc < 3 || argc > 6) : argc != counts[op]) {
     bad_argument(env);
     return NULL;
   }
@@ -506,7 +555,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
       if (type != napi_undefined && napi_get_value_bool(env, args[3], &read_only) != napi_ok) { bad_argument(env); return NULL; }
     }
     uint32_t fallback = 0;
-    if (argc == 5) {
+    if (argc >= 5) {
       napi_valuetype type;
       if (napi_typeof(env, args[4], &type) != napi_ok) return NULL;
       if (type != napi_undefined) {
@@ -517,7 +566,16 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
         if (fallback == 3) { bad_argument(env); return NULL; }
       }
     }
-    return input_operation(env, h, id, args[2], read_only, fallback);
+    hvir_terminal_selection_context context = {0}, *selection = NULL;
+    if (argc == 6) {
+      napi_valuetype type;
+      if (napi_typeof(env, args[5], &type) != napi_ok) return NULL;
+      if (type != napi_undefined) {
+        if (!selection_context(env, args[5], &context)) return NULL;
+        selection = &context;
+      }
+    }
+    return input_operation(env, h, id, args[2], read_only, fallback, selection);
   }
   if (op == CREATE) {
     if (!u32(env, args[1], &width) || !u32(env, args[2], &height))
@@ -665,29 +723,109 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
       put(env, value, "extra", bytes(env, event.extra, event.extra_length)) &&
       put(env, result, "event", value) ? result : NULL;
   }
-  if (op == LINK) {
+  if (op == SELECTION || op == EXTRACT_BEGIN) {
+    hvir_terminal_selection_context context;
+    if (!selection_context(env, args[3], &context)) return NULL;
+    hvir_terminal_selection_result observed = {0};
+    hvir_terminal_result code;
+    if (op == SELECTION) {
+      char *action = text(env, args[2], 15);
+      if (!action) return NULL;
+      uint32_t selected = !strcmp(action, "state") ? HVIR_SELECTION_STATE :
+        !strcmp(action, "select-all") ? HVIR_SELECTION_ALL :
+        !strcmp(action, "selection-clear") ? HVIR_SELECTION_CLEAR :
+        !strcmp(action, "clear") ? HVIR_SELECTION_TERMINAL_CLEAR :
+        !strcmp(action, "reset") ? HVIR_SELECTION_RESET : UINT32_MAX;
+      free(action);
+      if (selected == UINT32_MAX) { bad_argument(env); return NULL; }
+      code = hvir_terminal_selection(h->native, id, selected, &context, &observed);
+    } else {
+      if (!u64(env, args[2], &serial)) return NULL;
+      code = hvir_terminal_extract_begin(h->native, id, serial, &context, &observed);
+    }
+    napi_value value = selection_value(env, code, &observed);
+    if (op == EXTRACT_BEGIN && !put(env, value, "cursor", big(env, observed.cursor))) value = NULL;
+    if (!value && observed.cursor) hvir_terminal_extract_close(h->native, id, observed.cursor);
+    return value;
+  }
+  if (op == EXTRACT_NEXT || op == EXTRACT_FINISH || op == EXTRACT_CLOSE) {
+    if (!u64(env, args[2], &serial)) return NULL;
+    if (op == EXTRACT_CLOSE) return outcome(env, hvir_terminal_extract_close(h->native, id, serial));
+    hvir_terminal_selection_result observed = {0};
+    if (op == EXTRACT_FINISH) {
+      hvir_terminal_result code = hvir_terminal_extract_finish(h->native, id, serial, &observed);
+      return selection_value(env, code, &observed);
+    }
+    uint8_t chunk[HVIR_TERMINAL_SELECTION_CHUNK];
+    hvir_terminal_result code = hvir_terminal_extract_next(h->native, id, serial, chunk, sizeof(chunk), &observed);
+    if (observed.length > sizeof(chunk) || observed.visited > HVIR_TERMINAL_SELECTION_VISITS ||
+        observed.work > HVIR_TERMINAL_SELECTION_VISITS) {
+      hvir_terminal_extract_close(h->native, id, serial);
+      napi_throw_error(env, NULL, "Invalid native selection chunk metadata"); return NULL;
+    }
+    napi_value value = outcome(env, code);
+    if (!put(env, value, "stale", boolean(env, observed.stale)) ||
+      !put(env, value, "cursor", big(env, observed.cursor)) ||
+      !put(env, value, "selectionSerial", big(env, observed.selection_serial)) ||
+      !put(env, value, "data", bytes(env, chunk, observed.length)) ||
+      !put(env, value, "done", boolean(env, observed.done)) ||
+      !put(env, value, "visited", number(env, (uint32_t)observed.visited)) ||
+      !put(env, value, "work", number(env, (uint32_t)observed.work))) {
+      hvir_terminal_extract_close(h->native, id, serial); return NULL;
+    }
+    if (observed.has_clicked_offset && !put(env, value, "clickedByteOffset", big(env, observed.clicked_offset))) {
+      hvir_terminal_extract_close(h->native, id, serial); return NULL;
+    }
+    return value;
+  }
+  if (op == LINK_ROW_BEGIN) {
+    hvir_terminal_selection_context context;
+    double x, y;
+    if (!current_link_query(env, args[2], &x, &y, &context)) return NULL;
+    uint8_t uri[65536]; size_t length = 0;
+    hvir_terminal_selection_result observed = {0};
+    hvir_terminal_link_query facts = {0};
+    hvir_terminal_result code = hvir_terminal_link_row_begin(h->native, id, x, y, &context,
+      &observed, &facts, uri, sizeof(uri), &length);
+    if (length > sizeof(uri)) {
+      if (observed.cursor) hvir_terminal_extract_close(h->native, id, observed.cursor);
+      napi_throw_error(env, NULL, "Invalid native link metadata"); return NULL;
+    }
+    napi_value value = selection_value(env, code, &observed);
+    if (!put(env, value, "cursor", big(env, observed.cursor)) ||
+        !put(env, value, "column", number(env, observed.column)) ||
+        (code == HVIR_OK && length && !put_link(env, value, &facts, uri, length))) {
+      if (observed.cursor) hvir_terminal_extract_close(h->native, id, observed.cursor);
+      return NULL;
+    }
+    return value;
+  }
+  if (op == LINK || op == LINK_CURRENT) {
     napi_value query = args[2], field;
     hvir_terminal_link_query value = {0};
-    if (!input_number(env, query, "row", &value.row) ||
-      !input_number(env, query, "column", &value.column) ||
-      !input_number(env, query, "screen", &value.screen)) return NULL;
-    if (!checked(env, napi_get_named_property(env, query, "expectedSequence", &field)) ||
-      !u64(env, field, &value.sequence) ||
-      !checked(env, napi_get_named_property(env, query, "expectedMutation", &field)) ||
-      !u64(env, field, &value.mutation) ||
-      !checked(env, napi_get_named_property(env, query, "expectedGeometrySerial", &field)) ||
-      !u64(env, field, &value.geometry)) return NULL;
     uint8_t uri[65536]; size_t length = 0;
-    hvir_terminal_result code = hvir_terminal_link(h->native, id, &value, uri, sizeof(uri), &length);
+    hvir_terminal_result code;
+    if (op == LINK_CURRENT) {
+      hvir_terminal_selection_context context;
+      double x, y;
+      if (!current_link_query(env, query, &x, &y, &context)) return NULL;
+      code = hvir_terminal_link_current(h->native, id, x, y, &context, &value, uri, sizeof(uri), &length);
+    } else {
+      if (!input_number(env, query, "row", &value.row) ||
+        !input_number(env, query, "column", &value.column) ||
+        !input_number(env, query, "screen", &value.screen)) return NULL;
+      if (!checked(env, napi_get_named_property(env, query, "expectedSequence", &field)) ||
+        !u64(env, field, &value.sequence) ||
+        !checked(env, napi_get_named_property(env, query, "expectedMutation", &field)) ||
+        !u64(env, field, &value.mutation) ||
+        !checked(env, napi_get_named_property(env, query, "expectedGeometrySerial", &field)) ||
+        !u64(env, field, &value.geometry)) return NULL;
+      code = hvir_terminal_link(h->native, id, &value, uri, sizeof(uri), &length);
+    }
+    if (length > sizeof(uri)) { napi_throw_error(env, NULL, "Invalid native link metadata"); return NULL; }
     napi_value result = outcome(env, code);
     if (code != HVIR_OK || !length) return result;
-    napi_value link = object(env);
-    return put(env, link, "uri", bytes(env, uri, length)) &&
-      put(env, link, "row", number(env, value.row)) && put(env, link, "column", number(env, value.column)) &&
-      put(env, link, "screen", number(env, value.screen)) &&
-      put(env, link, "streamSequence", big(env, value.sequence)) &&
-      put(env, link, "snapshotMutation", big(env, value.mutation)) &&
-      put(env, link, "geometrySerial", big(env, value.geometry)) && put(env, result, "link", link) ? result : NULL;
+    return put_link(env, result, &value, uri, length) ? result : NULL;
   }
   if (op == TAKE_FRAME) {
     hvir_terminal_frame frame;
@@ -731,7 +869,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
 static napi_value initialize(napi_env env, napi_value exports) {
   static const char *names[] = {"open",         "createBegin", "feed", "resize", "inspect",
                                 "read",         "drain",       "key",  "event",  "takeFrame",
-                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame", "presentationMode", "rendererInfo", "input", "link"};
+                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame", "presentationMode", "rendererInfo", "input", "link", "selection", "extractBegin", "extractNext", "extractFinish", "extractClose", "linkCurrent", "linkRowBegin"};
   for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
     napi_value function;
     if (!checked(env, napi_create_function(env, names[i], NAPI_AUTO_LENGTH, invoke,

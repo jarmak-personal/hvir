@@ -1,4 +1,10 @@
 import {
+  verifyNativeTerminalSelection,
+  verifyNativeReadonlySelection,
+  NATIVE_SELECTION_RETENTION_MARKER,
+  NATIVE_READONLY_SELECTION,
+} from './native-terminal-selection'
+import {
   NativeEffectsClipboardObservation,
   verifyNativeTerminalEffects,
 } from './native-terminal-effects'
@@ -166,6 +172,7 @@ export async function verifyNativeTerminalWorkbench(
     managed,
     clipboard,
   )
+  const nativeSelection = await verifyNativeTerminalSelection(win, ptys, native, managed)
   const largePaste = await verifyNativeTerminalPaste(win, ptys, native, managed)
   const initialGeometry = (await native.inspectRetained(managed.id, owner)).geometry
   await win.webContents.executeJavaScript(`(() => {
@@ -203,20 +210,24 @@ export async function verifyNativeTerminalWorkbench(
     'window.nativeQualificationModes',
   )
   const before = await text()
-  if (!before.includes('HVIR_NATIVE_WORKBENCH_READY'))
+  if (!before.includes(NATIVE_SELECTION_RETENTION_MARKER))
     throw new Error('native-workbench-marker')
   await ptys.writeConfirmed(
     managed.id,
     owner.id,
-    "printf '\\033[?25lHVIR_NATIVE_FINAL_TAIL\\n'; exit\r",
+    `hvir_native_row=0; while [ "$hvir_native_row" -lt 180 ]; do printf '\\033[44m native readonly row %s \\033[0m\\n' "$hvir_native_row"; hvir_native_row=$((hvir_native_row+1)); done; unset hvir_native_row; printf '\\033[?25lHVIR_NATIVE_FINAL_TAIL\\n\\033[H${NATIVE_READONLY_SELECTION}'; exit\r`,
     owner.generation,
   )
   await waitFor(() => Promise.resolve(native.sessions.get(managed.id)?.readonly === true))
-  if (!(await text()).includes('HVIR_NATIVE_FINAL_TAIL'))
+  if (
+    !(await text()).includes('HVIR_NATIVE_FINAL_TAIL') ||
+    !(await text()).includes(NATIVE_SELECTION_RETENTION_MARKER)
+  )
     throw new Error('native-workbench-exit-tail')
   if (ptys.list().length) throw new Error('native-workbench-exit-live-pty')
   console.log('[native-workbench] retained-exit-tail')
   const readonlyInput = await verifyNativeReadonlyInput(win, native, managed)
+  const readonlySelection = await verifyNativeReadonlySelection(win, native, managed)
   await native.remove(managed.id, managed.instanceId)
   if (native.sessions.get(managed.id)) throw new Error('native-workbench-removed-state')
   console.log(
@@ -237,6 +248,8 @@ export async function verifyNativeTerminalWorkbench(
       nativeEncodedKeyboard: true,
       nativeInput,
       nativeEffects,
+      nativeSelection,
+      readonlySelection,
       largePaste,
       readonlyInput,
       resizeControl: 'terminal-rail',

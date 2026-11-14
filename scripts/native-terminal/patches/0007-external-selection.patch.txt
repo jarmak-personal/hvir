@@ -1,0 +1,1357 @@
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -103,6 +103,8 @@
+ 
+ /// Mouse state.
+ mouse: Mouse,
++external_copy: ?*@import("terminal/SelectionRead.zig") = null,
++external_gesture_geometry: u64 = 0,
+ 
+ /// Keyboard input state.
+ keyboard: Keyboard,
+@@ -862,6 +864,7 @@
+     self.renderer_thread.deinit();
+     self.io_thread.deinit();
+     self.mouse.selection_gesture.deinit(&self.io.terminal);
++    if (self.external_copy) |copy| copy.deinit(&self.io.terminal);
+     self.io.deinit();
+ 
+     if (self.inspector) |v| {
+@@ -1007,27 +1010,289 @@
+     // IO reflow/coordinate clamping cannot invalidate the premutation bound.
+     return std.math.mul(usize, try std.math.add(usize, reports, 1), 2 * @sizeOf(termio.Message.WriteReq.Small.Array));
+ }
+-pub fn externalPointerCallback(self: *Surface, pos: apprt.CursorPos, mods: input.Mods, button: ?input.MouseButton, action: input.MouseButtonState, read_only: bool) !bool {
++/// Terminal-only state operations. Callers hold renderer_state.mutex.
++pub fn externalSelectionSnapshot(self: *Surface, out: *termio.External.SelectionResult) void {
++    const t = &self.io.terminal;
++    out.screen = if (t.screens.active_key == .alternate) 1 else 0;
++    out.geometry = self.renderer_state.external_geometry;
++    out.selection_serial = t.screens.active.selection_serial;
++    out.has_selection = if (t.screens.active.selection) |sel|
++        !sel.start().garbage and !sel.end().garbage
++    else
++        false;
++}
++pub fn externalSelectionMatches(self: *Surface, screen: u32, geometry: u64) bool {
++    return screen <= 1 and geometry != 0 and self.renderer_state.external_geometry == geometry and
++        screen == @as(u32, if (self.io.terminal.screens.active_key == .alternate) 1 else 0);
++}
++fn externalCancelGesture(self: *Surface) void {
++    const scrolling = self.mouse.selection_gesture.left_drag_autoscroll != .none or self.selection_scroll_active;
++    self.mouse.selection_gesture.reset(&self.io.terminal);
++    self.external_gesture_geometry = 0;
++    if (scrolling) self.queueIo(.{ .selection_scroll = false }, .locked);
++}
++pub fn externalSelectionAction(self: *Surface, action: u32, screen: u32, geometry: u64, serial: u64, out: *termio.External.SelectionResult) u32 {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    self.externalSelectionSnapshot(out);
++    if (!self.externalSelectionMatches(screen, geometry)) {
++        out.stale = true;
++        return 6;
++    }
++    const t = &self.io.terminal;
++    if (action == 0) return 0;
++    if (action > 4 or serial == 0) return 1;
++    self.externalCancelGesture();
++    var code: u32 = 0;
++    switch (action) {
++        1 => t.screens.active.select(t.screens.active.selectAll()) catch {
++            code = 7;
++        },
++        2 => t.screens.active.clearSelection(),
++        3 => {
++            t.screens.active.clearSelection();
++            t.scrollViewport(.bottom);
++            // Exactly the existing terminal clear sequence: CSI3J CSI2J CSI H.
++            t.eraseDisplay(.scrollback, false);
++            t.eraseDisplay(.complete, false);
++            t.setCursorPos(1, 1);
++        },
++        4 => t.fullReset(),
++        else => unreachable,
++    }
++    out.mutation = serial;
++    self.io.queueMessage(.{ .external_input = serial }, .locked);
++    self.externalSelectionSnapshot(out);
++    self.queueRender() catch return 9;
++    return code;
++}
++pub fn externalExtractBeginLocked(self: *Surface, selection_serial: u64, screen: u32, geometry: u64, cursor: u64, row: bool, pos: apprt.CursorPos, out: *termio.External.SelectionResult) u32 {
++    self.externalSelectionSnapshot(out);
++    if (!self.externalSelectionMatches(screen, geometry)) {
++        out.stale = true;
++        return 6;
++    }
++    if (self.external_copy != null) return 6;
++    const t = &self.io.terminal;
++    if (!row and selection_serial != t.screens.active.selection_serial) {
++        out.stale = true;
++        return 6;
++    }
++    var point: ?terminal.Pin = null;
++    const selection: terminal.Selection = if (row) selection: {
++        const vp = self.posToViewport(pos.x, pos.y);
++        var clicked = t.screens.active.pages.pin(.{ .viewport = .{ .x = vp.x, .y = vp.y } }) orelse return 1;
++        out.column = vp.x;
++        if (clicked.rowAndCell().cell.wide == .spacer_tail and clicked.x > 0) clicked.x -= 1;
++        point = clicked;
++        var left = clicked;
++        var right = clicked;
++        left.x = 0;
++        right.x = t.cols - 1;
++        break :selection terminal.Selection.init(left, right, false);
++    } else t.screens.active.selection orelse return 0;
++    const copy = @import("terminal/SelectionRead.zig").create(self.alloc, t, selection, cursor, geometry, row, point) catch |err| switch (err) {
++        error.OutOfMemory => return 7,
++        error.Busy => return 6,
++        error.Stale => {
++            out.stale = true;
++            return 6;
++        },
++    };
++    self.external_copy = copy;
++    out.cursor = cursor;
++    return 0;
++}
++fn externalReadCode(failure: @import("terminal/TextReadTracker.zig").Failure) u32 {
++    return switch (failure) {
++        .none => 0,
++        .invalid => 1,
++        .bound => 5,
++        .stale => 6,
++        .out_of_memory => 7,
++    };
++}
++pub fn externalExtractNext(self: *Surface, cursor: u64, bytes: []u8, budget: usize, out: *termio.External.SelectionResult) u32 {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    self.externalSelectionSnapshot(out);
++    const copy = self.external_copy orelse {
++        out.stale = true;
++        return 6;
++    };
++    if (copy.id != cursor) {
++        out.stale = true;
++        return 6;
++    }
++    const result = copy.next(&self.io.terminal, self.renderer_state.external_geometry, bytes, budget);
++    out.cursor = cursor;
++    out.selection_serial = copy.selection_serial;
++    out.stale = result.failure == .stale;
++    out.written = result.written;
++    out.visited = result.visited;
++    out.work = result.work;
++    out.done = result.done;
++    out.has_clicked_offset = result.point_offset != null;
++    out.clicked_offset = result.point_offset orelse 0;
++    return externalReadCode(result.failure);
++}
++pub fn externalExtractFinish(self: *Surface, cursor: u64, out: *termio.External.SelectionResult) u32 {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    self.externalSelectionSnapshot(out);
++    const copy = self.external_copy orelse {
++        out.stale = true;
++        return 6;
++    };
++    if (copy.id != cursor) {
++        out.stale = true;
++        return 6;
++    }
++    const code = externalReadCode(copy.finished(&self.io.terminal, self.renderer_state.external_geometry));
++    out.stale = code == 6;
++    if (copy.formatter) |formatter| {
++        out.has_clicked_offset = formatter.point_offset != null;
++        out.clicked_offset = formatter.point_offset orelse 0;
++    }
++    self.external_copy = null;
++    copy.deinit(&self.io.terminal);
++    return code;
++}
++pub fn externalExtractClose(self: *Surface, cursor: u64) void {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    const copy = self.external_copy orelse return;
++    if (copy.id != cursor) return;
++    self.external_copy = null;
++    copy.deinit(&self.io.terminal);
++}
++pub fn externalLinkLocked(self: *Surface, pos: apprt.CursorPos, screen: u32, geometry: u64, bytes: []u8, written: *usize, out: *termio.External.LinkCurrentResult, present: ?*bool) u32 {
++    written.* = 0;
++    if (!self.externalSelectionMatches(screen, geometry)) return 6;
++    const t = &self.io.terminal;
++    const vp = self.posToViewport(pos.x, pos.y);
++    var pin = t.screens.active.pages.pin(.{ .viewport = .{ .x = vp.x, .y = vp.y } }) orelse return 1;
++    out.* = .{ .screen = screen, .row = vp.y, .column = vp.x, .geometry = geometry, .sequence = self.renderer_state.external_stream, .mutation = self.renderer_state.external_mutation };
++    if (pin.rowAndCell().cell.wide == .spacer_tail and pin.x > 0) pin.x -= 1;
++    const page = pin.node.page();
++    const id = page.lookupHyperlink(pin.rowAndCell().cell) orelse return 0;
++    if (present) |value| value.* = true;
++    const entry = page.hyperlink_set.get(page.memory, id);
++    const uri = entry.uri.slice(page.memory);
++    if (uri.len > bytes.len) return 5;
++    if (!std.unicode.utf8ValidateSlice(uri)) return 0;
++    @memcpy(bytes[0..uri.len], uri);
++    written.* = uri.len;
++    return 0;
++}
++
++pub fn externalPointerCallback(self: *Surface, pos: apprt.CursorPos, mods: input.Mods, button: ?input.MouseButton, action: input.MouseButtonState, read_only: bool, event: *const termio.External.InputEvent, result: *termio.External.InputResult) !bool {
+     self.modsChanged(mods);
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     defer self.renderer_state.mutex.unlock(global.io());
++    const t = &self.io.terminal;
++    const was_pressed = if (button) |value| self.mouse.click_state[@intCast(@backingInt(value))] == .press else false;
+     if (button) |value| self.mouse.click_state[@intCast(@backingInt(value))] = action;
+-    if (read_only or !self.isMouseReporting()) return false;
+-    if (mods.shift and !self.mouseShiftCapture(button != null)) return false;
+-    const route: InputRoute = .{ .external = .{} };
++    // Reporting and shift override are authoritative native state. The mutex is
++    // already held: never ask mouseShiftCapture to acquire it recursively.
++    const reporting = !read_only and self.isMouseReporting() and
++        (!mods.shift or self.mouseShiftCapture(false));
++    if (reporting) {
++        self.externalCancelGesture();
++        const route: InputRoute = .{ .external = .{} };
++        if (button) |value| {
++            self.mouseReport(value, if (action == .press) .press else .release, mods, pos, route);
++        } else {
++            const held: ?input.MouseButton = held: for (self.mouse.click_state, 0..) |state, index| {
++                if (state == .press) break :held @fromBackingInt(@intCast(index));
++            } else null;
++            self.mouseReport(held, .motion, mods, pos, route);
++        }
++        if (self.externalInputFailed(route)) return error.ExternalInputFull;
++        return true;
++    }
++    if (event.selection_enabled == 0 or
++        !self.externalSelectionMatches(event.selection_screen, event.selection_geometry))
++    {
++        if (button == .left and action == .release) self.externalCancelGesture();
++        if (event.selection_enabled != 0) result.selection_result = 6;
++        return false;
++    }
++    const vp = self.posToViewport(pos.x, pos.y);
++    const pin = t.screens.active.pages.pin(.{ .viewport = .{ .x = vp.x, .y = vp.y } }) orelse return false;
++    var selection: ?terminal.Selection = null;
++    var apply = false;
+     if (button) |value| {
+-        self.mouseReport(value, if (action == .press) .press else .release, mods, pos, route);
+-    } else {
+-        const held: ?input.MouseButton = held: for (self.mouse.click_state, 0..) |state, index| {
+-            if (state == .press) break :held @fromBackingInt(@intCast(index));
+-        } else null;
+-        self.mouseReport(held, .motion, mods, pos, route);
+-    }
+-    if (self.externalInputFailed(route)) return error.ExternalInputFull;
+-    return true;
++        if (value != .left) return false;
++        if (action == .press) {
++            selection = self.mouse.selection_gesture.press(t, .{
++                .time = std.Io.Timestamp.now(global.io(), .awake),
++                .pin = pin,
++                .xpos = pos.x,
++                .ypos = pos.y,
++                .max_distance = @floatFromInt(self.size.cell.width),
++                .repeat_interval = self.config.mouse_interval,
++                .word_boundary_codepoints = self.config.selection_word_chars,
++                .behaviors = &.{ .cell, .word, .line },
++            }) catch {
++                self.externalCancelGesture();
++                self.mouse.click_state[@intCast(@backingInt(input.MouseButton.left))] = .release;
++                result.selection_result = 7;
++                return false;
++            };
++            self.external_gesture_geometry = event.selection_geometry;
++            apply = true;
++        } else {
++            if (self.external_gesture_geometry != event.selection_geometry) {
++                self.externalCancelGesture();
++                result.selection_result = 6;
++                return false;
++            }
++            const had_press = self.mouse.selection_gesture.left_click_count != 0;
++            self.mouse.selection_gesture.release(t, .{ .pin = pin });
++            const inside = pos.x >= @as(f64, @floatFromInt(self.size.padding.left)) and
++                pos.y >= @as(f64, @floatFromInt(self.size.padding.top)) and
++                pos.x < @as(f64, @floatFromInt(self.size.screen.width -| self.size.padding.right)) and
++                pos.y < @as(f64, @floatFromInt(self.size.screen.height -| self.size.padding.bottom));
++            result.link_candidate = had_press and was_pressed and inside and (mods.ctrl or mods.super) and !self.mouse.selection_gesture.left_click_dragged;
++            if (self.selection_scroll_active) self.queueIo(.{ .selection_scroll = false }, .locked);
++            return false;
++        }
++    } else if (event.kind == 5 and self.mouse.click_state[@intCast(@backingInt(input.MouseButton.left))] == .press and
++        self.mouse.selection_gesture.left_click_count != 0)
++    {
++        if (self.external_gesture_geometry != event.selection_geometry or self.mouse.selection_gesture.validatedLeftClickPin(&t.screens) == null) {
++            self.externalCancelGesture();
++            result.selection_result = 6;
++            return false;
++        }
++        selection = self.mouse.selection_gesture.drag(t, .{
++            .pin = pin,
++            .xpos = pos.x,
++            .ypos = pos.y,
++            .rectangle = SurfaceMouse.isRectangleSelectState(mods),
++            .word_boundary_codepoints = self.config.selection_word_chars,
++            .geometry = .{ .columns = @intCast(self.size.grid().columns), .cell_width = self.size.cell.width, .padding_left = self.size.padding.left, .screen_height = self.size.screen.height },
++        });
++        apply = true;
++    }
++    if (apply) {
++        t.screens.active.select(selection) catch {
++            self.externalCancelGesture();
++            result.selection_result = 7;
++            return false;
++        };
++        const scrolling = self.mouse.selection_gesture.left_drag_autoscroll != .none;
++        if (scrolling != self.selection_scroll_active)
++            self.queueIo(.{ .selection_scroll = scrolling }, .locked);
++        self.queueRender() catch {};
++        return true;
++    }
++    return false;
+ }
+ pub fn externalInputCallback(self: *Surface, event: *const termio.External.InputEvent, read_only: bool, result: *termio.External.InputResult) !void {
+     if (self.io.backend != .external) return error.NotExternal;
++    defer self.externalInputSelectionSnapshot(result);
+     const text = try externalInputText(event);
+     const mods: input.Mods = @bitCast(@as(input.Mods.Backing, @truncate(event.mods)));
+     switch (event.kind) {
+@@ -1063,7 +1328,7 @@
+             else
+                 null;
+             const action = std.enums.fromInt(input.MouseButtonState, event.action) orelse return error.InvalidInput;
+-            result.captured = try self.externalPointerCallback(pos, mods, button, action, read_only);
++            result.captured = try self.externalPointerCallback(pos, mods, button, action, read_only, event, result);
+             if (event.kind == 6) {
+                 const offsets = try self.externalOffsets(event);
+                 try self.externalScrollCallback(offsets.x, offsets.y, .{ .precision = event.precision != 0 }, read_only);
+@@ -1079,6 +1344,16 @@
+         },
+         else => return error.InvalidInput,
+     }
++}
++
++fn externalInputSelectionSnapshot(self: *Surface, result: *termio.External.InputResult) void {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    result.has_selection = if (self.io.terminal.screens.active.selection) |sel|
++        !sel.start().garbage and !sel.end().garbage
++    else
++        false;
++    result.selection_serial = self.io.terminal.screens.active.selection_serial;
++    self.renderer_state.mutex.unlock(global.io());
+ }
+ 
+ pub const ExternalInputRoute = struct {
+@@ -2658,7 +2933,7 @@
+ 
+     try self.io.terminal.screens.active.select(sel_);
+ 
+-    if (changed) {
++    if (changed and self.io.backend != .external) {
+         _ = self.rt_app.performAction(
+             .{ .surface = self },
+             .selection_changed,
+@@ -3683,6 +3958,7 @@
+     // Use the authoritative native button array; no local selection/link action.
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     defer self.renderer_state.mutex.unlock(global.io());
++    if (!focused) self.externalCancelGesture();
+     if (!focused) for (&self.mouse.click_state, 0..) |*state, index| {
+         if (state.* != .press) continue;
+         state.* = .release;
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1607,6 +1607,64 @@
+         return 0;
+     }
+ 
++    export fn ghostty_external_selection(surface: *Surface, action: u32, screen: u32, geometry: u64, serial: u64, out: *termio.External.SelectionResult) u32 {
++        out.* = .{};
++        if (surface.core_surface.io.backend != .external) return 1;
++        return surface.core_surface.externalSelectionAction(action, screen, geometry, serial, out);
++    }
++    export fn ghostty_external_extract_begin(surface: *Surface, selection_serial: u64, screen: u32, geometry: u64, cursor: u64, row: bool, x: f64, y: f64, out: *termio.External.SelectionResult) u32 {
++        out.* = .{};
++        const core = &surface.core_surface;
++        if (core.io.backend != .external or cursor == 0) return 1;
++        const pos = surface.cursorPosToPixels(.{ .x = @floatCast(x), .y = @floatCast(y) }) catch return 1;
++        core.renderer_state.mutex.lockUncancelable(global.io());
++        defer core.renderer_state.mutex.unlock(global.io());
++        return core.externalExtractBeginLocked(selection_serial, screen, geometry, cursor, row, pos, out);
++    }
++    export fn ghostty_external_extract_next(surface: *Surface, cursor: u64, bytes: [*]u8, capacity: usize, budget: usize, out: *termio.External.SelectionResult) u32 {
++        out.* = .{};
++        if (surface.core_surface.io.backend != .external or capacity < 4 or budget == 0) return 1;
++        return surface.core_surface.externalExtractNext(cursor, bytes[0..capacity], budget, out);
++    }
++    export fn ghostty_external_extract_finish(surface: *Surface, cursor: u64, out: *termio.External.SelectionResult) u32 {
++        out.* = .{};
++        if (surface.core_surface.io.backend != .external) return 1;
++        return surface.core_surface.externalExtractFinish(cursor, out);
++    }
++    export fn ghostty_external_extract_close(surface: *Surface, cursor: u64) void {
++        if (surface.core_surface.io.backend == .external) surface.core_surface.externalExtractClose(cursor);
++    }
++    export fn ghostty_external_link_current(surface: *Surface, x: f64, y: f64, screen: u32, geometry: u64, bytes: [*]u8, capacity: usize, written: *usize, out: *termio.External.LinkCurrentResult) u32 {
++        out.* = .{};
++        written.* = 0;
++        const core = &surface.core_surface;
++        if (core.io.backend != .external) return 1;
++        const pos = surface.cursorPosToPixels(.{ .x = @floatCast(x), .y = @floatCast(y) }) catch return 1;
++        core.renderer_state.mutex.lockUncancelable(global.io());
++        defer core.renderer_state.mutex.unlock(global.io());
++        return core.externalLinkLocked(pos, screen, geometry, bytes[0..capacity], written, out, null);
++    }
++    export fn ghostty_external_link_row_begin(surface: *Surface, x: f64, y: f64, screen: u32, geometry: u64, cursor: u64, out: *termio.External.SelectionResult, link: *termio.External.LinkCurrentResult, bytes: [*]u8, capacity: usize, written: *usize) u32 {
++        out.* = .{};
++        link.* = .{};
++        written.* = 0;
++        const core = &surface.core_surface;
++        if (core.io.backend != .external or cursor == 0) return 1;
++        const pos = surface.cursorPosToPixels(.{ .x = @floatCast(x), .y = @floatCast(y) }) catch return 1;
++        core.renderer_state.mutex.lockUncancelable(global.io());
++        defer core.renderer_state.mutex.unlock(global.io());
++        core.externalSelectionSnapshot(out);
++        var present = false;
++        const code = core.externalLinkLocked(pos, screen, geometry, bytes[0..capacity], written, link, &present);
++        if (code != 0) {
++            out.stale = code == 6;
++            return code;
++        }
++        out.column = link.column;
++        if (present) return 0;
++        return core.externalExtractBeginLocked(0, screen, geometry, cursor, true, pos, out);
++    }
++
+     export fn ghostty_external_read(surface: *Surface, out: [*]u8, capacity: usize, written: *usize) bool {
+         const core = &surface.core_surface;
+         core.renderer_state.mutex.lockUncancelable(global.io());
+--- a/src/main_c.zig
++++ b/src/main_c.zig
+@@ -266,5 +266,5 @@
+ 
+ // Version of the pinned upstream hooks consumed by hvir's maintained C facade.
+ export fn hvir_ghostty_embed_abi() u32 {
+-    return 7;
+-}
++    return 8;
++}
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -123,6 +123,7 @@
+         external_stream: u64 = 0,
+         external_geometry: u64 = 0,
+         external_mutation: u64 = 0,
++        external_screen: u32 = 0,
+         external_snapshot_valid: bool = false,
+ 
+         /// The latest exported frame ready to be consumed by an apprt
+@@ -1095,6 +1096,7 @@
+             frame.stream = self.external_stream;
+             frame.geometry = self.external_geometry;
+             frame.mutation = self.external_mutation;
++            frame.screen = self.external_screen;
+             if (!external.config.frame(external.config.userdata, &frame)) external.frame_held.store(false, .release);
+             return true;
+         }
+@@ -1447,6 +1449,7 @@
+                 external_stream: u64,
+                 external_geometry: u64,
+                 external_mutation: u64,
++                external_screen: u32,
+             };
+ 
+             // Update all our data as tightly as possible within the mutex.
+@@ -1605,6 +1608,7 @@
+                     .external_stream = state.external_stream,
+                     .external_geometry = state.external_geometry,
+                     .external_mutation = state.external_mutation,
++                    .external_screen = if (state.terminal.screens.active_key == .alternate) 1 else 0,
+                 };
+             };
+ 
+@@ -1757,6 +1761,7 @@
+                 self.external_stream = critical.external_stream;
+                 self.external_geometry = critical.external_geometry;
+                 self.external_mutation = critical.external_mutation;
++                self.external_screen = critical.external_screen;
+                 self.external_snapshot_valid = true;
+             }
+ 
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -101,10 +101,12 @@
+     /// you need access to the underlying memory. If you only need access to
+     /// metadata (row, col counts etc) then use the other metadata functions.
+     pub inline fn page(self: *Node) *Page {
+-        return switch (self.data) {
+-            .resident => |*page_| page_,
++        const result = switch (self.data) {
++            .resident => |*p| p,
+             .compressed => self.restore(.preserve),
+         };
++        result.read_generation = self.serial;
++        return result;
+     }
+ 
+     /// Return the terminal page only when its raw memory is resident.
+@@ -218,6 +220,7 @@
+     /// the page is resident. Prefer `page` unless the caller can establish
+     /// that invariant independently.
+     pub inline fn pageAssumeResident(self: *Node) *Page {
++        self.data.resident.read_generation = self.serial;
+         return &self.data.resident;
+     }
+ 
+@@ -403,6 +406,9 @@
+ 
+ /// The list of pages in the screen.
+ pages: List,
++
++/// Borrowed only for the lifetime of one caller-owned incremental text read.
++text_read: ?*@import("TextReadTracker.zig") = null,
+ 
+ /// The next globally unique reference generation for this PageList. A
+ /// generation is assigned whenever a page is allocated, reused as new, or
+@@ -976,6 +982,7 @@
+ 
+ /// Deinit the pagelist, freeing all page memory and the memory pool.
+ pub fn deinit(self: *PageList) void {
++    if (self.text_read) |read| read.fail(.stale);
+     // Verify integrity before cleanup
+     self.assertIntegrity();
+ 
+@@ -995,6 +1002,7 @@
+ /// This can't fail because we always retain at least enough allocated
+ /// memory to fit the active area.
+ pub fn reset(self: *PageList) void {
++    if (self.text_read) |read| read.fail(.stale);
+     defer self.assertIntegrity();
+ 
+     // Reset discards all scrollback, so there is nothing left to compress.
+@@ -3842,7 +3850,9 @@
+ /// compression. The surrounding operation remains responsible for all such
+ /// bookkeeping required by its layout change.
+ pub fn invalidateNodeLayout(self: *PageList, node: *List.Node) void {
++    self.noteTextRows(node, 0, node.capacity().rows);
+     node.serial = self.page_serial;
++    _ = node.page();
+     self.page_serial += 1;
+ }
+ 
+@@ -4341,6 +4351,7 @@
+         }
+ 
+         // Initialize our new page and reinsert it as the last
++        self.noteTextRows(first, 0, first.capacity().rows);
+         first.data = .{ .resident = .initBuf(.init(item), layout) };
+         const page = first.page();
+         page.size.rows = 1;
+@@ -4353,6 +4364,7 @@
+         // so older live successors may have lower generations. The epoch only
+         // advances when reset invalidates the entire list.
+         first.serial = self.page_serial;
++        _ = first.page();
+         self.page_serial += 1;
+ 
+         // We don't update page_size. A pool-owned page always counts as
+@@ -5304,6 +5316,7 @@
+         // pool item in page_size, so destroying the node and
+         // creating a new pooled one is a net zero.
+ 
++        self.noteTextRows(node, 0, node.capacity().rows);
+         node.* = .{
+             .data = .{ .resident = .initBuf(.init(item), layout) },
+             .serial = self.page_serial,
+@@ -5812,6 +5825,7 @@
+ /// responsible for accounting for the removed rows. This function only
+ /// updates `page_size` (byte accounting), not row accounting.
+ fn destroyNode(self: *PageList, node: *List.Node) void {
++    self.noteTextRows(node, 0, node.capacity().rows);
+     destroyNodeExt(&self.pool, node, &self.page_size, .reclaim);
+ }
+ 
+@@ -5917,6 +5931,7 @@
+     while (true) {
+         const cur_page = current.page();
+         const cur_rows = cur_page.rows.ptr(cur_page.memory.ptr);
++        self.noteTextRows(current, dst_y, dst_y + 1);
+         cur_page.cloneRowFrom(
+             src_page,
+             &cur_rows[dst_y],
+@@ -6483,6 +6498,26 @@
+ /// automatically updated as the pagelist is modified. If the point the
+ /// pin points to is removed completely, the tracked pin will be updated
+ /// to the top-left of the screen.
++/// Report actual text/wrap mutation independently of renderer-cleared dirty flags.
++pub inline fn noteTextWrite(self: *PageList, pin_: Pin) void {
++    if (self.text_read) |read| read.write(pin_.node.serial, pin_.y);
++}
++pub inline fn noteTextRow(self: *PageList, page: *Page, row: *const Row) void {
++    if (self.text_read) |read| {
++        const y = (@intFromPtr(row) - @intFromPtr(page.rows.ptr(page.memory.ptr))) / @sizeOf(Row);
++        read.write(page.read_generation, @intCast(y));
++    }
++}
++pub fn noteTextRows(self: *PageList, node: *List.Node, start: usize, end: usize) void {
++    if (self.text_read) |read| {
++        if (node.serial >= read.cutoff) return;
++        for (start..end) |y| {
++            read.write(node.serial, @intCast(y));
++            if (read.failure != .none) break;
++        }
++    }
++}
++
+ pub fn trackPin(self: *PageList, p: Pin) Allocator.Error!*Pin {
+     if (build_options.slow_runtime_safety) assert(self.pinIsValid(p));
+ 
+--- a/src/terminal/Screen.zig
++++ b/src/terminal/Screen.zig
+@@ -60,6 +60,8 @@
+ /// directly to set it, use the `select` function which will assert and
+ /// automatically setup tracking.
+ selection: ?Selection = null,
++/// Stable identity for explicit selection replacement, separate from row content.
++selection_serial: u64 = 0,
+ 
+ /// The charset state
+ charset: CharsetState = .{},
+@@ -782,6 +784,7 @@
+     while (true) {
+         const cur_page: *Page = current.page();
+         const cur_rows = cur_page.rows.ptr(cur_page.memory.ptr);
++        self.pages.noteTextRows(current, dst_y, dst_y + 1);
+         cur_page.clonePartialRowFrom(
+             src_page,
+             &cur_rows[dst_y],
+@@ -1108,6 +1111,7 @@
+         // state: from unused page capacity, a fresh page, or a recycled
+         // page that grow() zeroed. Marking it blank too, in the same
+         // write, lets printing into it skip checking its old cells.
++        self.pages.noteTextWrite(self.cursor.page_pin.*);
+         self.cursor.page_row.markCleared();
+ 
+         // Clear the new row so it gets our bg color. We only do this
+@@ -1682,11 +1686,13 @@
+     const page_row = self.cursor.page_row;
+ 
+     if (!page_row.wrap) return;
++    self.pages.noteTextWrite(self.cursor.page_pin.*);
+ 
+     // This row does not wrap and the next row is not wrapped to
+     page_row.wrap = false;
+ 
+     if (self.cursor.page_pin.down(1)) |next_row| {
++        self.pages.noteTextWrite(next_row);
+         next_row.rowAndCell().row.wrap_continuation = false;
+     }
+ 
+@@ -1874,6 +1880,7 @@
+     while (it.next()) |chunk| {
+         const page = chunk.node.page();
+         for (chunk.rows()) |*row| {
++            self.pages.noteTextRow(page, row);
+             const cells_offset = row.cells;
+ 
+             // Already empty: only reset metadata. The cells don't
+@@ -1934,6 +1941,7 @@
+ ) void {
+     if (cells.len == 0) return;
+     if (row.blank and self.blankCell().isZero()) return;
++    self.pages.noteTextRow(page, row);
+ 
+     // This whole operation does unsafe things, so we just want to assert
+     // the end state.
+@@ -2041,6 +2049,7 @@
+     row: *Row,
+     cells: []Cell,
+ ) void {
++    self.pages.noteTextRow(page, row);
+     var x0: usize = 0;
+     var x1: usize = 0;
+ 
+@@ -2762,6 +2771,7 @@
+     cell: *Cell,
+     cp: u21,
+ ) PageList.IncreaseCapacityError!void {
++    self.pages.noteTextWrite(self.cursor.page_pin.*);
+     defer self.cursor.page_pin.node.page().assertIntegrity();
+     self.cursor.page_pin.node.page().appendGrapheme(
+         self.cursor.page_row,
+@@ -2817,6 +2827,7 @@
+     cell: *Cell,
+     cps: []const u21,
+ ) PageList.IncreaseCapacityError!void {
++    self.pages.noteTextWrite(self.cursor.page_pin.*);
+     defer self.cursor.page_pin.node.page().assertIntegrity();
+     self.cursor.page_pin.node.page().setGraphemes(
+         self.cursor.page_row,
+@@ -3093,6 +3104,7 @@
+ /// managing memory for you, it also performs safety checks that the selection
+ /// is always tracked.
+ pub fn select(self: *Screen, sel_: ?Selection) Allocator.Error!void {
++    const changed = if (self.selection) |old| if (sel_) |sel| !old.eql(sel) else true else sel_ != null;
+     const sel = sel_ orelse {
+         self.clearSelection();
+         return;
+@@ -3124,6 +3136,7 @@
+             },
+         }
+     }
++    if (changed) self.selection_serial +%= 1;
+     self.selection = tracked_sel;
+     self.dirty.selection = true;
+ }
+@@ -3131,6 +3144,7 @@
+ /// Same as select(null) but can't fail.
+ pub fn clearSelection(self: *Screen) void {
+     if (self.selection) |*sel| {
++        self.selection_serial +%= 1;
+         sel.deinit(self);
+         self.dirty.selection = true;
+     }
+--- a/src/terminal/SelectionGesture.zig
++++ b/src/terminal/SelectionGesture.zig
+@@ -214,6 +214,7 @@
+     screens: *const ScreenSet,
+ ) ?*Pin {
+     const pin = self.left_click_pin orelse return null;
++    if (pin.garbage) return null;
+     if (self.left_click_screen != screens.active_key) return null;
+     if (screens.generation(self.left_click_screen) != self.left_click_screen_generation) return null;
+     _ = screens.get(self.left_click_screen) orelse return null;
+--- /dev/null
++++ b/src/terminal/SelectionRead.zig
+@@ -0,0 +1,227 @@
++//! Bounded, cancellable copy-command-time extraction from one native screen.
++const Self = @This();
++const std = @import("std");
++const Allocator = std.mem.Allocator;
++const Terminal = @import("Terminal.zig");
++const ScreenSet = @import("ScreenSet.zig");
++const Screen = @import("Screen.zig");
++const PageList = @import("PageList.zig");
++const Selection = @import("Selection.zig");
++const Formatter = @import("Formatter.zig");
++const Tracker = @import("TextReadTracker.zig");
++const Row = @import("page.zig").Row;
++alloc: Allocator,
++id: u64,
++selection_serial: u64,
++geometry: u64,
++screen_key: ScreenSet.Key,
++screen_generation: usize,
++row_mode: bool,
++tracker: Tracker,
++a: *PageList.Pin,
++b: *PageList.Pin,
++walk_a: *PageList.Pin,
++walk_b: ?*PageList.Pin,
++formatter: ?Formatter.PlainCursor = null,
++order_ready: bool = false,
++order_b_turn: bool = false,
++rectangle: bool,
++point: ?PageList.Pin,
++pub fn create(alloc: Allocator, t: *Terminal, sel: Selection, id: u64, geometry: u64, row_mode: bool, point: ?PageList.Pin) !*Self {
++    const s = t.screens.active;
++    if (s.pages.text_read != null) return error.Busy;
++    const start = sel.start();
++    const end = sel.end();
++    if (start.garbage or end.garbage) return error.Stale;
++    const self = try alloc.create(Self);
++    errdefer alloc.destroy(self);
++    const a = try s.pages.trackPin(start);
++    errdefer s.pages.untrackPin(a);
++    const b = try s.pages.trackPin(end);
++    errdefer s.pages.untrackPin(b);
++    const wa = try s.pages.trackPin(start);
++    errdefer s.pages.untrackPin(wa);
++    const wb = try s.pages.trackPin(end);
++    errdefer s.pages.untrackPin(wb);
++    self.* = .{ .alloc = alloc, .id = id, .selection_serial = s.selection_serial, .geometry = geometry, .screen_key = t.screens.active_key, .screen_generation = t.screens.generation(t.screens.active_key), .row_mode = row_mode, .a = a, .b = b, .walk_a = wa, .walk_b = wb, .rectangle = sel.rectangle, .point = point, .tracker = .{ .alloc = alloc, .cutoff = s.pages.page_serial, .max_keys = s.pages.page_size / @sizeOf(Row) } };
++    s.pages.text_read = &self.tracker;
++    return self;
++}
++pub fn deinit(self: *Self, t: *Terminal) void {
++    if (t.screens.generation(self.screen_key) == self.screen_generation) {
++        if (t.screens.get(self.screen_key)) |s| {
++            if (s.pages.text_read == &self.tracker) s.pages.text_read = null;
++            s.pages.untrackPin(self.a);
++            s.pages.untrackPin(self.b);
++            s.pages.untrackPin(self.walk_a);
++            if (self.walk_b) |p| s.pages.untrackPin(p);
++        }
++    }
++    self.tracker.deinit();
++    self.alloc.destroy(self);
++}
++pub fn valid(self: *Self, t: *Terminal, geometry: u64) bool {
++    if (self.tracker.failure != .none) return false;
++    if (geometry != self.geometry or t.screens.active_key != self.screen_key or
++        t.screens.generation(self.screen_key) != self.screen_generation)
++    {
++        self.tracker.fail(.stale);
++        return false;
++    }
++    if ((!self.row_mode and t.screens.active.selection_serial != self.selection_serial) or
++        self.a.garbage or self.b.garbage or self.walk_a.garbage or
++        (if (self.walk_b) |p| p.garbage else false))
++    {
++        self.tracker.fail(.stale);
++        return false;
++    }
++    if (self.a.node.serial >= self.tracker.cutoff or self.b.node.serial >= self.tracker.cutoff) {
++        self.tracker.fail(.stale);
++        return false;
++    }
++    return true;
++}
++fn ordered(self: *Self, t: *Terminal, work: *usize, visited: *usize, budget: usize) bool {
++    if (self.formatter != null) return true;
++    if (!self.order_ready) {
++        var reverse: ?bool = null;
++        if (self.a.node == self.b.node) {
++            reverse = self.a.y > self.b.y or (self.a.y == self.b.y and self.a.x > self.b.x);
++        } else while (work.* < budget) {
++            const walk = if (self.order_b_turn) self.walk_b.? else self.walk_a;
++            const target = if (self.order_b_turn) self.a.node else self.b.node;
++            if (walk.node.next) |successor| walk.* = .{ .node = successor };
++            work.* += 1;
++            if (walk.node == target) {
++                reverse = self.order_b_turn;
++                break;
++            }
++            self.order_b_turn = !self.order_b_turn;
++        }
++        if (reverse == null) return false;
++        if (reverse.?) std.mem.swap(*PageList.Pin, &self.a, &self.b);
++        if (self.rectangle) {
++            const left = @min(self.a.x, self.b.x);
++            const right = @max(self.a.x, self.b.x);
++            self.a.x = left;
++            self.b.x = right;
++        }
++        self.order_ready = true;
++    }
++    if (work.* >= budget) return false;
++    work.* += 1;
++    // Match PageListFormatter's wrapped-wide-character end correction.
++    if (!self.rectangle and !self.row_mode) {
++        if (!self.tracker.capture(self.b.node.serial, self.b.y)) return false;
++        visited.* += 1;
++        if (self.b.rowAndCell().cell.wide == .spacer_head)
++            self.b.* = self.b.rightWrap(1) orelse self.b.*;
++    }
++    self.walk_a.* = self.a.*;
++    t.screens.active.pages.untrackPin(self.walk_b.?);
++    self.walk_b = null;
++    self.formatter = .{ .start = self.a, .end = self.b, .next = self.walk_a, .rectangle = self.rectangle, .point = self.point };
++    return true;
++}
++pub const Result = struct { failure: Tracker.Failure, written: usize, visited: usize, work: usize, done: bool, point_offset: ?u64 };
++pub fn next(self: *Self, t: *Terminal, geometry: u64, out: []u8, budget: usize) Result {
++    var result: Result = .{ .failure = .none, .written = 0, .visited = 0, .work = 0, .done = false, .point_offset = null };
++    if (!self.valid(t, geometry)) {
++        result.failure = self.tracker.failure;
++        return result;
++    }
++    var work: usize = 0;
++    if (!self.ordered(t, &work, &result.visited, budget)) {
++        result.failure = self.tracker.failure;
++        result.work = work;
++        return result;
++    }
++    const formatter = &self.formatter.?;
++    while (work < budget and result.written < out.len and formatter.phase != .done) {
++        if (!self.tracker.capture(formatter.next.node.serial, formatter.next.y)) break;
++        const step = formatter.step(out[result.written..], budget - work);
++        work += step.work;
++        result.written += step.written;
++        result.visited += step.visited;
++        if (step.work == 0 and step.written == 0) break;
++    }
++    result.work = work;
++    result.failure = self.tracker.failure;
++    if (result.failure != .none) result.written = 0;
++    result.done = formatter.phase == .done;
++    result.point_offset = formatter.point_offset;
++    return result;
++}
++pub fn finished(self: *Self, t: *Terminal, geometry: u64) Tracker.Failure {
++    if (!self.valid(t, geometry)) return self.tracker.failure;
++    return if (self.formatter != null and self.formatter.?.phase == .done) .none else .invalid;
++}
++
++test "SelectionRead bounded formatter matches native selection bytes" {
++    const testing = std.testing;
++    var t = try Terminal.init(testing.io, testing.allocator, .{ .cols = 8, .rows = 5 });
++    defer t.deinit(testing.allocator);
++    try t.printString("alpha  \r\n\xe4\xbd\xa0\xe5\xa5\xbd e\xcc\x81\r\nwrapped-text  ");
++    const s = t.screens.active;
++    const selection = s.selectAll().?;
++    try s.select(selection);
++    const expected = try s.selectionString(testing.allocator, .{ .sel = s.selection.?, .trim = false });
++    defer testing.allocator.free(expected);
++    const read = try Self.create(testing.allocator, &t, s.selection.?, 1, 1, false, null);
++    defer read.deinit(&t);
++    var actual: std.ArrayList(u8) = .empty;
++    defer actual.deinit(testing.allocator);
++    var buffer: [5]u8 = undefined;
++    var done = false;
++    var calls: usize = 0;
++    while (!done and calls < 10000) : (calls += 1) {
++        const chunk = read.next(&t, 1, &buffer, 3);
++        try testing.expectEqual(Tracker.Failure.none, chunk.failure);
++        try testing.expect(chunk.visited <= 3);
++        try actual.appendSlice(testing.allocator, buffer[0..chunk.written]);
++        done = chunk.done;
++    }
++    try testing.expect(done);
++    try testing.expectEqual(Tracker.Failure.none, read.finished(&t, 1));
++    try testing.expectEqualStrings(expected, actual.items);
++}
++
++test "SelectionRead unrelated same-page row output stays live and overwrite is refused" {
++    const testing = std.testing;
++    var t = try Terminal.init(testing.io, testing.allocator, .{ .cols = 40, .rows = 4 });
++    defer t.deinit(testing.allocator);
++    try t.printString("retained selection\r\nother output");
++    const s = t.screens.active;
++    const left = s.pages.pin(.{ .active = .{ .x = 0, .y = 0 } }).?;
++    const right = s.pages.pin(.{ .active = .{ .x = 17, .y = 0 } }).?;
++    try s.select(Selection.init(left, right, false));
++    const read = try Self.create(testing.allocator, &t, s.selection.?, 2, 1, false, null);
++    defer read.deinit(&t);
++    var bytes: [8]u8 = undefined;
++    const first = read.next(&t, 1, &bytes, 8);
++    try testing.expectEqual(Tracker.Failure.none, first.failure);
++    t.setCursorPos(2, 1);
++    try t.printString("new");
++    try testing.expectEqual(Tracker.Failure.none, read.next(&t, 1, &bytes, 8).failure);
++    t.setCursorPos(1, 1);
++    try t.printString("changed");
++    try testing.expectEqual(Tracker.Failure.stale, read.next(&t, 1, &bytes, 8).failure);
++    try testing.expectEqual(Tracker.Failure.stale, read.finished(&t, 1));
++    try t.printString("parser still live");
++}
++
++test "SelectionRead map allocation refusal does not fail the terminal" {
++    const testing = std.testing;
++    var t = try Terminal.init(testing.io, testing.allocator, .{ .cols = 8, .rows = 2 });
++    defer t.deinit(testing.allocator);
++    try t.printString("sample");
++    const s = t.screens.active;
++    try s.select(s.selectAll());
++    const read = try Self.create(testing.allocator, &t, s.selection.?, 3, 1, false, null);
++    defer read.deinit(&t);
++    var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 0 });
++    read.tracker.alloc = failing.allocator();
++    var bytes: [16]u8 = undefined;
++    try testing.expectEqual(Tracker.Failure.out_of_memory, read.next(&t, 1, &bytes, 8).failure);
++    try t.printString("still live");
++}
+--- a/src/terminal/Terminal.zig
++++ b/src/terminal/Terminal.zig
+@@ -1147,6 +1147,7 @@
+                     cursor.page_row.wrap = true;
+                     spacer.wide = .spacer_head;
+                 }
++                self.screens.active.pages.noteTextWrite(cursor.page_pin.*);
+                 cursor.page_row.markWritten();
+                 if (style_id != style.default_id) cursor.page_row.styled = true;
+                 cells[0] = spacer;
+@@ -1381,6 +1382,7 @@
+         if (k > 0) {
+             assert(k % cells_per_cp == 0);
+ 
++            self.screens.active.pages.noteTextWrite(cursor.page_pin.*);
+             cursor.page_row.markWritten();
+             if (style_id != style.default_id) cursor.page_row.styled = true;
+ 
+@@ -1548,6 +1550,7 @@
+         // cursor past them, onto the last cell with a pending wrap if
+         // the row is full, as in print().
+         if (state.k > 0) {
++            self.screens.active.pages.noteTextWrite(cursor.page_pin.*);
+             cursor.page_row.markWritten();
+             if (style_id != style.default_id) cursor.page_row.styled = true;
+             if (linked) page.setHyperlinkRun(
+@@ -1578,6 +1581,7 @@
+                     cursor.page_row.wrap = true;
+                     spacer.wide = .spacer_head;
+                 }
++                self.screens.active.pages.noteTextWrite(cursor.page_pin.*);
+                 cursor.page_row.markWritten();
+                 if (style_id != style.default_id) cursor.page_row.styled = true;
+                 cursor.page_cell.* = spacer;
+@@ -2309,6 +2313,7 @@
+ 
+     // Done here rather than in callers so that every write is covered,
+     // including the spacer head written before a wide char wraps.
++    self.screens.active.pages.noteTextWrite(self.screens.active.cursor.page_pin.*);
+     self.screens.active.cursor.page_row.markWritten();
+ 
+     const cell = self.screens.active.cursor.page_cell;
+@@ -2449,6 +2454,7 @@
+ }
+ 
+ fn printWrap(self: *Terminal) !void {
++    self.screens.active.pages.noteTextWrite(self.screens.active.cursor.page_pin.*);
+     // We only mark that we soft-wrapped if we're at the edge of our
+     // full screen. We don't mark the row as wrapped if we're in the
+     // middle due to a right margin.
+@@ -2480,6 +2486,7 @@
+     if (mark_wrap) {
+         const row = self.screens.active.cursor.page_row;
+         // Always mark the row as a continuation
++        self.screens.active.pages.noteTextWrite(self.screens.active.cursor.page_pin.*);
+         row.wrap_continuation = true;
+     }
+ 
+@@ -3609,6 +3616,7 @@
+     page: *Page,
+     row: *Row,
+ ) void {
++    self.screens.active.pages.noteTextRow(page, row);
+     const cells = row.cells.ptr(page.memory.ptr);
+ 
+     // If our scrolling region includes the rightmost column then we
+@@ -3845,6 +3853,7 @@
+         }
+ 
+         // Mark the row as dirty
++        self.screens.active.pages.noteTextWrite(cur_p.*);
+         cur_p.markDirty();
+ 
+         // We have successfully processed a line.
+@@ -4013,6 +4022,7 @@
+         }
+ 
+         // Mark the row as dirty
++        self.screens.active.pages.noteTextWrite(cur_p.*);
+         cur_p.markDirty();
+ 
+         // We have successfully processed a line.
+@@ -4030,6 +4040,7 @@
+ ///
+ /// The inserted cells are colored according to the current SGR state.
+ pub fn insertBlanks(self: *Terminal, count: usize) void {
++    self.screens.active.pages.noteTextWrite(self.screens.active.cursor.page_pin.*);
+     // Unset pending wrap state without wrapping. Note: this purposely
+     // happens BEFORE the scroll region check below, because that's what
+     // xterm does.
+@@ -4131,6 +4142,7 @@
+ ///
+ /// Does not change the cursor position.
+ pub fn deleteChars(self: *Terminal, count_req: usize) void {
++    self.screens.active.pages.noteTextWrite(self.screens.active.cursor.page_pin.*);
+     if (count_req == 0) return;
+ 
+     // If our cursor is outside the margins then do nothing. We DO reset
+@@ -4273,6 +4285,7 @@
+ }
+ 
+ pub fn eraseChars(self: *Terminal, count_req: usize) void {
++    self.screens.active.pages.noteTextWrite(self.screens.active.cursor.page_pin.*);
+     const count = end: {
+         const remaining = self.cols - self.screens.active.cursor.x;
+         var end = @min(remaining, @max(count_req, 1));
+@@ -4622,6 +4635,7 @@
+         const row = self.screens.active.cursor.page_row;
+         const cells_multi: [*]Cell = row.cells.ptr(page.memory);
+         const cells = cells_multi[0..page.size.cols];
++        self.screens.active.pages.noteTextWrite(self.screens.active.cursor.page_pin.*);
+         row.blank = false;
+         @memset(cells, .{
+             .content_tag = .codepoint,
+--- /dev/null
++++ b/src/terminal/TextReadTracker.zig
+@@ -0,0 +1,46 @@
++//! One bounded native text read's sparse row write set. No terminal text is cached.
++const Self = @This();
++const std = @import("std");
++const Allocator = std.mem.Allocator;
++pub const Failure = enum { none, invalid, bound, stale, out_of_memory };
++pub const Key = struct { generation: u64, row: u16 };
++alloc: Allocator,
++cutoff: u64,
++max_keys: usize,
++rows: std.AutoHashMapUnmanaged(Key, bool) = .{},
++failure: Failure = .none,
++pub fn deinit(self: *Self) void {
++    self.rows.deinit(self.alloc);
++}
++pub fn fail(self: *Self, code: Failure) void {
++    if (self.failure == .none) self.failure = code;
++}
++fn entry(self: *Self, key: Key) ?std.AutoHashMapUnmanaged(Key, bool).GetOrPutResult {
++    if (self.failure != .none or key.generation >= self.cutoff) return null;
++    if (self.rows.getPtr(key)) |value| return .{ .value_ptr = value, .key_ptr = undefined, .found_existing = true };
++    if (self.rows.count() >= self.max_keys) {
++        self.fail(.bound);
++        return null;
++    }
++    return self.rows.getOrPut(self.alloc, key) catch {
++        self.fail(.out_of_memory);
++        return null;
++    };
++}
++pub fn write(self: *Self, generation: u64, row: u16) void {
++    const e = self.entry(.{ .generation = generation, .row = row }) orelse return;
++    if (e.found_existing and e.value_ptr.*) self.fail(.stale) else e.value_ptr.* = false;
++}
++pub fn capture(self: *Self, generation: u64, row: u16) bool {
++    if (generation >= self.cutoff) {
++        self.fail(.stale);
++        return false;
++    }
++    const e = self.entry(.{ .generation = generation, .row = row }) orelse return false;
++    if (e.found_existing and !e.value_ptr.*) {
++        self.fail(.stale);
++        return false;
++    }
++    e.value_ptr.* = true;
++    return true;
++}
+--- a/src/terminal/formatter.zig
++++ b/src/terminal/formatter.zig
+@@ -906,6 +906,157 @@
+ };
+ 
+ /// PageList formatter formats multiple pages as represented by a PageList.
++/// Resumable plaintext selection formatter. It shares the canonical codepoint
++/// encoder and preserves PageFormatter's pending blank/wrap accounting. The
++/// caller owns tracked pins and protects the PageList for each bounded step.
++pub const PlainCursor = struct {
++    start: *PageList.Pin,
++    end: *PageList.Pin,
++    next: *PageList.Pin,
++    rectangle: bool,
++    point: ?PageList.Pin = null,
++    point_offset: ?u64 = null,
++    total_bytes: u64 = 0,
++    phase: enum { prepare, scan, newline, emit, advance, done } = .prepare,
++    left: usize = 0,
++    right: usize = 0,
++    scan_x: usize = 0,
++    x: usize = 0,
++    cp_index: usize = 0,
++    cell_started: bool = false,
++    blank_rows: usize = 0,
++    blank_cells: usize = 0,
++    newlines: usize = 0,
++    spaces: usize = 0,
++    pub const Step = struct { written: usize, visited: usize, work: usize, done: bool };
++    pub fn step(self: *PlainCursor, out: []u8, budget: usize) Step {
++        var written: usize = 0;
++        var visited: usize = 0;
++        var work: usize = 0;
++        while (written < out.len and work < budget) {
++            const page_ = self.next.node.page();
++            const row = page_.getRow(self.next.y);
++            const cells = page_.getCells(row);
++            switch (self.phase) {
++                .done => break,
++                .prepare => {
++                    work += 1;
++                    const first = self.next.node == self.start.node and self.next.y == self.start.y;
++                    const last = self.next.node == self.end.node and self.next.y == self.end.y;
++                    self.left = if (self.rectangle or first) @min(self.start.x, cells.len - 1) else 0;
++                    self.right = if (self.rectangle or last) @min(@as(usize, self.end.x) + 1, cells.len) else cells.len;
++                    if (self.left > 0) switch (cells[self.left].wide) {
++                        .spacer_tail => self.left -= 1,
++                        .spacer_head => {
++                            self.phase = .advance;
++                            continue;
++                        },
++                        else => {},
++                    };
++                    self.scan_x = self.left;
++                    self.phase = .scan;
++                },
++                .scan => {
++                    if (self.scan_x >= self.right) {
++                        self.blank_rows += 1;
++                        self.phase = .advance;
++                        continue;
++                    }
++                    const cell = cells[self.scan_x];
++                    self.scan_x += 1;
++                    visited += 1;
++                    work += 1;
++                    if (!cell.hasText()) continue;
++                    self.newlines = self.blank_rows;
++                    self.blank_rows = if (!row.wrap) 1 else 0;
++                    if (!row.wrap_continuation) self.blank_cells = 0;
++                    self.x = self.left;
++                    self.phase = .newline;
++                },
++                .newline => {
++                    const count = @min(self.newlines, @min(out.len - written, budget - work));
++                    @memset(out[written..][0..count], '\n');
++                    written += count;
++                    self.total_bytes += count;
++                    self.newlines -= count;
++                    work += count;
++                    if (self.newlines == 0) self.phase = .emit;
++                },
++                .emit => {
++                    if (self.spaces > 0) {
++                        const count = @min(self.spaces, @min(out.len - written, budget - work));
++                        @memset(out[written..][0..count], ' ');
++                        written += count;
++                        self.total_bytes += count;
++                        self.spaces -= count;
++                        work += count;
++                        continue;
++                    }
++                    if (self.x >= self.right) {
++                        self.phase = .advance;
++                        continue;
++                    }
++                    const cell = &cells[self.x];
++                    if (!self.cell_started) {
++                        visited += 1;
++                        work += 1;
++                        if (cell.wide == .spacer_head or cell.wide == .spacer_tail) {
++                            self.x += 1;
++                            continue;
++                        }
++                        if (!cell.hasText()) {
++                            self.blank_cells += 1;
++                            self.x += 1;
++                            continue;
++                        }
++                        self.cell_started = true;
++                        self.cp_index = 0;
++                        self.spaces = self.blank_cells;
++                        self.blank_cells = 0;
++                        if (self.point) |point| if (point.node == self.next.node and point.y == self.next.y and point.x == self.x) {
++                            self.point_offset = self.total_bytes + self.spaces;
++                        };
++                        if (self.spaces > 0) continue;
++                    }
++                    const grapheme: []const u21 = if (cell.content_tag == .codepoint_grapheme)
++                        page_.lookupGrapheme(cell).?
++                    else
++                        &.{};
++                    if (self.cp_index > grapheme.len) {
++                        self.cell_started = false;
++                        self.x += 1;
++                        continue;
++                    }
++                    const cp = if (self.cp_index == 0) cell.codepoint() else grapheme[self.cp_index - 1];
++                    var encoded: [512]u8 = undefined;
++                    var count: usize = 0;
++                    _ = PageFormatter.encodeCodepoint(.plain, &encoded, &count, cp);
++                    if (count > out.len - written) break;
++                    @memcpy(out[written..][0..count], encoded[0..count]);
++                    written += count;
++                    self.total_bytes += count;
++                    self.cp_index += 1;
++                    work += 1;
++                },
++                .advance => {
++                    work += 1;
++                    if (self.next.node == self.end.node and self.next.y == self.end.y) {
++                        self.phase = .done;
++                        continue;
++                    }
++                    self.next.* = self.next.down(1) orelse {
++                        self.phase = .done;
++                        continue;
++                    };
++                    self.phase = .prepare;
++                    break; // Caller authenticates/captures the next row before reading it.
++                },
++            }
++        }
++        return .{ .written = written, .visited = visited, .work = work, .done = self.phase == .done };
++    }
++};
++
+ pub const PageListFormatter = struct {
+     /// The pagelist to format.
+     list: *const PageList,
+--- a/src/terminal/main.zig
++++ b/src/terminal/main.zig
+@@ -53,6 +53,7 @@
+ pub const ScreenSet = @import("ScreenSet.zig");
+ pub const Scrollbar = PageList.Scrollbar;
+ pub const Selection = @import("Selection.zig");
++pub const SelectionRead = @import("SelectionRead.zig");
+ pub const SelectionGesture = @import("SelectionGesture.zig");
+ pub const SizeReportStyle = csi.SizeReportStyle;
+ pub const StringMap = @import("StringMap.zig");
+--- a/src/terminal/page.zig
++++ b/src/terminal/page.zig
+@@ -174,6 +174,9 @@
+     /// a single contiguous block of memory that is aligned on a page
+     /// boundary and is a multiple of the system page size.
+     memory: []align(std.heap.page_size_min) u8,
++
++    /// Process-local PageList generation, refreshed whenever a node exposes this page.
++    read_generation: u64 = 0,
+ 
+     /// The array of rows in the page. The rows are always in row order
+     /// (i.e. index 0 is the top row, index 1 is the row below that, etc.)
+--- a/src/termio/External.zig
++++ b/src/termio/External.zig
+@@ -13,6 +13,7 @@
+     premultiplied: u32,
+     color_space: u32,
+     origin: u32,
++    screen: u32 = 0,
+     modifier: u64 = 0,
+     stream: u64 = 0,
+     geometry: u64 = 0,
+@@ -52,6 +53,9 @@
+     precision: u32,
+     has_button: u32,
+     button: u32,
++    selection_enabled: u32,
++    selection_screen: u32,
++    selection_geometry: u64,
+     x: f64,
+     y: f64,
+     delta_x: f64,
+@@ -66,6 +70,34 @@
+     width: f64 = 0,
+     height: f64 = 0,
+     required_capacity: usize = 0,
++    has_selection: bool = false,
++    link_candidate: bool = false,
++    selection_result: u32 = 0,
++    selection_serial: u64 = 0,
++};
++pub const SelectionResult = extern struct {
++    stale: bool = false,
++    has_selection: bool = false,
++    screen: u32 = 0,
++    column: u32 = 0,
++    selection_serial: u64 = 0,
++    geometry: u64 = 0,
++    mutation: u64 = 0,
++    cursor: u64 = 0,
++    done: bool = false,
++    has_clicked_offset: bool = false,
++    visited: usize = 0,
++    work: usize = 0,
++    written: usize = 0,
++    clicked_offset: u64 = 0,
++};
++pub const LinkCurrentResult = extern struct {
++    screen: u32 = 0,
++    row: u32 = 0,
++    column: u32 = 0,
++    sequence: u64 = 0,
++    mutation: u64 = 0,
++    geometry: u64 = 0,
+ };
+ /// Borrowed parser data; the embedding caller copies synchronously.
+ pub const Effect = extern struct {

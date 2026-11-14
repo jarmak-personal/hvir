@@ -5,7 +5,10 @@ import type {
   NativeTerminalSession,
   NativeTerminalStatus,
 } from '../../src/shared/native-terminal'
-import { NativeTerminalHost } from '../../src/main/terminal/native-terminal-host'
+import {
+  NativeTerminalHost,
+  type NativeTerminalFrameMetadata,
+} from '../../src/main/terminal/native-terminal-host'
 
 /** Actual main authority backed only by its immediate native process port.
  * This fixture makes no Ghostty/GPU or cross-process execution claim. */
@@ -69,6 +72,7 @@ export function nativeTerminalHostFixture(exitEvidence?: (epoch: string) => bool
             lease: String(++nextLease),
             streamSequence: 0,
             snapshotMutation: 0,
+            screen: 0,
             geometrySerial: 1,
             kind: 1,
             width: 32,
@@ -77,7 +81,7 @@ export function nativeTerminalHostFixture(exitEvidence?: (epoch: string) => bool
             origin: 1,
             premultiplied: true,
             resource: { fourcc: 0x42475241, modifier: '0', planes: [] },
-          })
+          } satisfies NativeTerminalFrameMetadata)
         case 'release':
           held.delete(command.state)
           return Promise.resolve({ result: 0 })

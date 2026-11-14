@@ -8,7 +8,7 @@ import {
   terminalPathFromFileClipboardText,
 } from '../src/main/terminal/electron-clipboard-file-paste'
 import { terminalClipboardFilePasteText } from '../src/preload/terminal-clipboard-file-paste'
-import { resolveGhosttyTerminalFilePaste } from '../src/renderer/src/terminal/ghostty-terminal-file-paste'
+import { resolveTerminalFilePaste } from '../src/renderer/src/terminal/terminal-file-paste'
 import type { HvirApi } from '../src/shared'
 
 const FILE = { name: 'requirements.txt' } as File
@@ -161,7 +161,7 @@ describe('Ghostty terminal file paste selection', () => {
       'invoke' | 'resolveTerminalClipboardFilePaste'
     >
 
-    expect(resolveGhosttyTerminalFilePaste(api, FILE)).toBe(
+    expect(resolveTerminalFilePaste(api, FILE)).toBe(
       '/home/user/Downloads/requirements.txt',
     )
     expect(resolveTerminalClipboardFilePaste).toHaveBeenCalledExactlyOnceWith(FILE)
@@ -176,7 +176,7 @@ describe('Ghostty terminal file paste selection', () => {
       'invoke' | 'resolveTerminalClipboardFilePaste'
     >
 
-    await expect(resolveGhosttyTerminalFilePaste(api, undefined)).resolves.toBe(
+    await expect(resolveTerminalFilePaste(api, undefined)).resolves.toBe(
       '/home/user/Downloads/requirements.txt',
     )
     expect(invoke).toHaveBeenCalledExactlyOnceWith('terminal:resolve-file-clipboard', {})

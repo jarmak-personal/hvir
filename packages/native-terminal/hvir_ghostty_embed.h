@@ -5,10 +5,10 @@
 #include <stdint.h>
 /* Pinned full-core hooks, separate from stable libghostty-vt. Local pointers/FDs
  * belong to this process; M4 must transfer real OS rights across processes. */
-#define HVIR_GHOSTTY_EMBED_ABI 7u
+#define HVIR_GHOSTTY_EMBED_ABI 8u
 typedef uint32_t (*hvir_ghostty_embed_abi_fn)(void);
 typedef struct {
-  uint32_t kind, width, height, fourcc, plane_count, premultiplied, color_space, origin;
+  uint32_t kind, width, height, fourcc, plane_count, premultiplied, color_space, origin, screen;
   uint64_t modifier, stream, geometry, mutation;
   void *surface;
   int32_t fds[4];
@@ -28,11 +28,30 @@ typedef struct {
 typedef struct {
   uint32_t kind, key, mods, consumed_mods, action, unshifted_codepoint, option_as_alt, encoding_fallback;
   uint32_t composing, focused, precision, has_button, button;
+  uint32_t selection_enabled, selection_screen;
+  uint64_t selection_geometry;
   double x, y, delta_x, delta_y;
   const uint8_t *text;
   size_t text_len;
 } hvir_ghostty_input_event;
-typedef struct { bool captured; double x, y, width, height; size_t required_capacity; } hvir_ghostty_input_result;
+typedef struct {
+  bool captured; double x, y, width, height; size_t required_capacity;
+  bool has_selection, link_candidate;
+  uint32_t selection_result;
+  uint64_t selection_serial;
+} hvir_ghostty_input_result;
+typedef struct {
+  bool stale, has_selection;
+  uint32_t screen, column;
+  uint64_t selection_serial, geometry, mutation, cursor;
+  bool done, has_clicked_offset;
+  size_t visited, work, written;
+  uint64_t clicked_offset;
+} hvir_ghostty_selection_result;
+typedef struct {
+  uint32_t screen, row, column;
+  uint64_t sequence, mutation, geometry;
+} hvir_ghostty_link_current_result;
 typedef struct {
   uint32_t kind, action, screen, row, column;
   uint64_t sequence, serial;

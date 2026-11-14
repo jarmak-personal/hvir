@@ -918,6 +918,14 @@ through existing policy owners; parser replies keep their sole consumer and nati
 
 ---
 
+### [ADR-090 — Native terminal selection and explicit clipboard](adr/ADR-090-native-terminal-selection-and-explicit-clipboard.md)
+
+> Lifecycle: Active
+
+Native selection reuses authoritative gestures and bounded exact reads, with asynchronous
+menu/copy lifetimes, current-viewport geometry qualification and existing host-correct
+clipboard/navigation owners.
+
 ## 5. Architecture
 
 ### Process model

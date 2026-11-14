@@ -25,6 +25,7 @@ function source() {
     metadata: {
       lease: '1',
       snapshotMutation: 0,
+      screen: 0 as const,
       streamSequence: 7,
       geometrySerial: 2,
       kind: 1,
@@ -437,6 +438,7 @@ it('routes main-granted metadata independently from the private native lease', a
     },
     origin: 1,
     colorSpace: 2,
+    screen: 0 as const,
   }
   const frame = await f.owner.acquire(native, { ...f.target, presentation })
   await frame.send()

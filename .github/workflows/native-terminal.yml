@@ -235,7 +235,7 @@ jobs:
           npm run build:smoke
           # Keep diagnostic stderr out of the machine-readable proof stream.
           if [[ "$RUNNER_OS" == Linux ]]; then
-            HVIR_NATIVE_TERMINAL_OZONE=x11 HVIR_NATIVE_TERMINAL_LIBRARY="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" \
+            HVIR_NATIVE_TERMINAL_ISOLATED_CLIPBOARD=1 HVIR_NATIVE_TERMINAL_OZONE=x11 HVIR_NATIVE_TERMINAL_LIBRARY="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" \
               xvfb-run -a node scripts/run-smoke-scenarios.mts native-terminal-workbench \
               | tee "$RUNNER_TEMP/hvir-native-bindings/workbench-proof.jsonl"
           else
@@ -286,6 +286,55 @@ jobs:
             assert(Number.isSafeInteger(loop.samples) && loop.samples >= 2);
             assert(Number.isFinite(loop.maxMs) && loop.maxMs >= 0 && loop.maxMs <= 500);
           }
+          const selection = proof.nativeSelection;
+          for (const field of ['samePty', 'originalReadyBeforeClear', 'clearScreenScrollback', 'resetTerminal',
+            'parserInputAlive', 'drag', 'word', 'line', 'unicodeWhitespace', 'softwrap', 'selectAll', 'menu',
+            'metaCopy', 'controlShiftCopy', 'fileUriAndPlainIntent', 'linkRootsMatched', 'loopbackRouteContent',
+            'externalOpenerObserved']) assert.equal(selection[field], true);
+          assert.equal(selection.osExternalOpenerInvoked, false);
+          assert.equal(selection.hardwareGpuQualified, false);
+          assert.equal(selection.retentionEpoch, 'HVIR_M9_RETENTION_EPOCH');
+          assert(Number.isSafeInteger(selection.fixtureColumns) && selection.fixtureColumns >= 40);
+          assert(Number.isSafeInteger(selection.linkIntents) && selection.linkIntents >= 4);
+          assert.deepEqual(selection.copies.map(copy => copy.name),
+            ['drag', 'word', 'line', 'unicode-whitespace', 'all-softwrap', 'continuous-drag']);
+          for (const copy of selection.copies) {
+            assert(Number.isSafeInteger(copy.bytes) && copy.bytes > 0);
+            assert(/^[a-f0-9]{64}$/.test(copy.sha256));
+            const fixed = {drag:'alpha', word:'alpha', line:'alpha beta',
+              'unicode-whitespace':'  A界e\u0301B  ', 'continuous-drag':'alpha'}[copy.name];
+            if (fixed !== undefined) {
+              assert.equal(copy.bytes, Buffer.byteLength(fixed));
+              assert.equal(copy.sha256, crypto.createHash('sha256').update(fixed).digest('hex'));
+            } else assert(copy.bytes > selection.fixtureColumns);
+          }
+          assert(selection.continuous.producedBytes >= 65536);
+          assert.equal(selection.continuous.copiedWhileActive, true);
+          const largeCopy = selection.largeCopy;
+          assert.equal(largeCopy.fixtureBytes, 4096 * (selection.fixtureColumns + 1) - 1);
+          assert(largeCopy.fixtureBytes > 65536);
+          assert.equal(Number(largeCopy.copyFinished) + Number(largeCopy.copyStale), 1);
+          assert.equal(largeCopy.refusalCode, largeCopy.copyStale ? 6 : null);
+          assert.equal(largeCopy.userWrites, 1);
+          assert(Number.isSafeInteger(largeCopy.mutation) && largeCopy.mutation > 0);
+          assert(largeCopy.copyStale || largeCopy.inputWhilePending || largeCopy.writeWhilePending);
+          for (const [samples, maximum] of [[selection.mainSamples,selection.mainMaxMs],
+            [selection.rendererSamples,selection.rendererMaxMs]]) {
+            assert(Number.isSafeInteger(samples) && samples >= 2);
+            assert(Number.isFinite(maximum) && maximum >= 0 && maximum <= 500);
+          }
+          const isolatedClipboard = process.env.RUNNER_OS === 'Linux';
+          assert.equal(selection.isolatedOsClipboardReadback, isolatedClipboard);
+          assert.equal(selection.clipboardIntercepted, !isolatedClipboard);
+          const readonlySelection = proof.readonlySelection;
+          assert(Number.isSafeInteger(readonlySelection.rendererSamples) && readonlySelection.rendererSamples >= 2);
+          assert(Number.isFinite(readonlySelection.rendererMaxMs) && readonlySelection.rendererMaxMs >= 0 && readonlySelection.rendererMaxMs <= 500);
+          assert.equal(readonlySelection.readonlyDrag, true);
+          assert.equal(readonlySelection.readonlyCopy, true);
+          assert.equal(readonlySelection.bytes, Buffer.byteLength('HVIR_READONLY_SELECTION'));
+          assert.equal(readonlySelection.sha256,
+            crypto.createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex'));
+          assert.equal(readonlySelection.isolatedOsClipboardReadback, isolatedClipboard);
           NODE
       - name: Diagnose failed Linux library relocation
         if: failure() && runner.os == 'Linux'
@@ -333,9 +382,9 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: |
-          proofs=(resource-proof.jsonl electron-proof.jsonl)
+          proofs=(resource-proof.jsonl electron-proof.jsonl workbench-proof.jsonl)
           if [[ "$RUNNER_OS" == macOS ]]; then
-            proofs+=(presenter-gpu.jsonl presenter-pixels.jsonl workbench-proof.jsonl)
+            proofs+=(presenter-gpu.jsonl presenter-pixels.jsonl)
           fi
           tar -czf "$RUNNER_TEMP/native-terminal-bindings-${TARGET}.tar.gz" -C packages/native-terminal/build Release -C "$RUNNER_TEMP/hvir-native-bindings" "${proofs[@]}"
       - uses: actions/upload-artifact@v7

@@ -4,7 +4,7 @@ export interface Endpoint {
 }
 export interface Receipt extends Omit<
   Frame,
-  'lease' | 'streamSequence' | 'geometrySerial' | 'snapshotMutation' | 'pixels'
+  'lease' | 'streamSequence' | 'geometrySerial' | 'snapshotMutation' | 'screen' | 'pixels'
 > {
   ticket: string
 }
@@ -22,7 +22,7 @@ declare const resource: {
     ticket: string,
     frame: Omit<
       Frame,
-      'lease' | 'streamSequence' | 'geometrySerial' | 'snapshotMutation'
+      'lease' | 'streamSequence' | 'geometrySerial' | 'snapshotMutation' | 'screen'
     >,
   ): Promise<void>
   release(receipt: Receipt): void

@@ -1,48 +1,81 @@
 import type { Disposer } from '../../../shared'
-import type { TerminalPane } from './terminal-pane'
+import type {
+  TerminalPane,
+  NativeTerminalPanePort,
+  TerminalSelectionCapability,
+} from './terminal-pane'
+type MenuPane = TerminalPane | NativeTerminalPanePort
 
 /** Revocable access to one exact live terminal pane for its host-owned menu. */
 export interface TerminalContextMenuTarget {
   isCurrent(): boolean
-  hasSelection(): boolean
-  getSelection(): string | undefined
+  hasSelection(signal?: AbortSignal): Promise<boolean>
+  getSelection(signal?: AbortSignal): Promise<string | undefined>
   paste(data: string): boolean
-  selectAll(): boolean
-  clear(): boolean
-  reset(): boolean
+  selectAll(signal?: AbortSignal): Promise<boolean>
+  clear(signal?: AbortSignal): Promise<boolean>
+  reset(signal?: AbortSignal): Promise<boolean>
   focus(): boolean
   onRevoked(callback: () => void): Disposer
 }
 
 function createTerminalContextMenuTarget(options: {
-  readonly pane: TerminalPane
+  readonly pane: MenuPane
   readonly isCurrent: () => boolean
   readonly focusOwner: () => void
   readonly clearOwner: () => void
   readonly resetOwner: () => void
   readonly subscribe: (callback: () => void) => Disposer
 }): TerminalContextMenuTarget {
-  const act = (action: (pane: TerminalPane) => void): boolean => {
-    if (!options.isCurrent()) return false
+  const selection: TerminalSelectionCapability = options.pane.selection ?? {
+    status: () =>
+      Promise.resolve({ hasSelection: (options.pane as TerminalPane).hasSelection() }),
+    read: () => Promise.resolve((options.pane as TerminalPane).getSelection()),
+    selectAll: () => {
+      ;(options.pane as TerminalPane).selectAll()
+      return Promise.resolve()
+    },
+    clear: () => {
+      ;(options.pane as TerminalPane).clear()
+      return Promise.resolve()
+    },
+    reset: () => {
+      ;(options.pane as TerminalPane).reset()
+      return Promise.resolve()
+    },
+  }
+  const capability = options.pane.selection
+  const current = () =>
+    options.isCurrent() && (!capability || options.pane.selection === capability)
+  const act = (action: (pane: MenuPane) => void): boolean => {
+    if (!current()) return false
     action(options.pane)
     return true
   }
+  const selectionAction = async (
+    action: 'selectAll' | 'clear' | 'reset',
+    signal?: AbortSignal,
+  ): Promise<boolean> => {
+    if (!current()) return false
+    await selection[action](signal)
+    if (!current()) return false
+    if (action === 'clear') options.clearOwner()
+    if (action === 'reset') options.resetOwner()
+    return true
+  }
   return {
-    isCurrent: options.isCurrent,
-    hasSelection: () => options.isCurrent() && options.pane.hasSelection(),
-    getSelection: () => (options.isCurrent() ? options.pane.getSelection() : undefined),
+    isCurrent: current,
+    hasSelection: async (signal) =>
+      current() && (await selection.status(signal)).hasSelection && current(),
+    getSelection: async (signal) => {
+      if (!current()) return undefined
+      const text = await selection.read(signal)
+      return current() ? text : undefined
+    },
     paste: (data) => act((pane) => pane.paste(data)),
-    selectAll: () => act((pane) => pane.selectAll()),
-    clear: () =>
-      act((pane) => {
-        options.clearOwner()
-        pane.clear()
-      }),
-    reset: () =>
-      act((pane) => {
-        options.resetOwner()
-        pane.reset()
-      }),
+    selectAll: (signal) => selectionAction('selectAll', signal),
+    clear: (signal) => selectionAction('clear', signal),
+    reset: (signal) => selectionAction('reset', signal),
     focus: () =>
       act((pane) => {
         pane.focus()
@@ -50,14 +83,14 @@ function createTerminalContextMenuTarget(options: {
       }),
     onRevoked: (callback) =>
       options.subscribe(() => {
-        if (!options.isCurrent()) callback()
+        if (!current()) callback()
       }),
   }
 }
 
 /** Owns and revokes menu authority independently from a pane's retained presentation. */
 export class TerminalContextMenuOwner {
-  private pane?: TerminalPane
+  private pane?: MenuPane
   private ptyId?: string
   private focusOwner: () => void = () => undefined
   private clearOwner: () => void = () => undefined
@@ -86,7 +119,7 @@ export class TerminalContextMenuOwner {
   }
 
   bind(
-    pane: TerminalPane,
+    pane: MenuPane,
     ptyId: string,
     focusOwner: () => void,
     owners: Readonly<{ clear: () => void; reset: () => void }> = {
@@ -112,7 +145,7 @@ export class TerminalContextMenuOwner {
     this.notify()
   }
 
-  private owns(pane: TerminalPane, ptyId: string): boolean {
+  private owns(pane: MenuPane, ptyId: string): boolean {
     return this.pane === pane && this.ptyId === ptyId && this.available()
   }
 

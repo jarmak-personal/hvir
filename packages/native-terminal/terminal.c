@@ -186,8 +186,8 @@ static bool frame_ready(void *userdata, const hvir_ghostty_external_frame *nativ
                                .modifier = native->modifier,
                                .stream_sequence = native->stream,
                                .geometry_serial = native->geometry,
-                               .snapshot_mutation = native->mutation};
-  bool valid = true;
+                               .snapshot_mutation = native->mutation, .screen = native->screen};
+  bool valid = native->screen <= 1;
   if (native->kind == 1) {
 #ifdef __APPLE__
     frame.surface = native->surface;
@@ -325,6 +325,13 @@ hvir_terminal_result hvir_terminal_open(const char *path, void *display, hvir_te
   LOAD(external_resize, "ghostty_external_resize");
   LOAD(surface_visibility, "ghostty_surface_set_occlusion");
   LOAD(external_link, "ghostty_external_link");
+  LOAD(external_selection, "ghostty_external_selection");
+  LOAD(external_extract_begin, "ghostty_external_extract_begin");
+  LOAD(external_link_row_begin, "ghostty_external_link_row_begin");
+  LOAD(external_extract_next, "ghostty_external_extract_next");
+  LOAD(external_extract_finish, "ghostty_external_extract_finish");
+  LOAD(external_extract_close, "ghostty_external_extract_close");
+  LOAD(external_link_current, "ghostty_external_link_current");
   LOAD(external_read, "ghostty_external_read");
   LOAD(external_key, "ghostty_external_key");
   LOAD(external_input, "ghostty_external_input");

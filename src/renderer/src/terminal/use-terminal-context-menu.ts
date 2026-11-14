@@ -44,6 +44,25 @@ export function useTerminalContextMenu(
     return () => void dispose()
   }, [request])
 
+  const requestId = request?.id,
+    selectionTarget = request?.target
+  useEffect(() => {
+    if (requestId === undefined || !selectionTarget) return
+    const controller = new AbortController(),
+      id = requestId,
+      target = selectionTarget
+    void target.hasSelection(controller.signal).then(
+      (copyAvailable) => {
+        if (controller.signal.aborted || !target.isCurrent()) return
+        setRequest((current) =>
+          current?.id === id ? { ...current, copyAvailable } : current,
+        )
+      },
+      () => undefined,
+    )
+    return () => controller.abort()
+  }, [requestId, selectionTarget])
+
   const open = useCallback(
     (x: number, y: number, focusMenu: boolean): void => {
       const target = getTarget()
@@ -57,7 +76,7 @@ export function useTerminalContextMenu(
         x,
         y,
         focusMenu,
-        copyAvailable: target.hasSelection(),
+        copyAvailable: false,
       })
     },
     [getTarget],

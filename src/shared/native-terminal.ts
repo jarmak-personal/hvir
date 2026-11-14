@@ -68,6 +68,7 @@ export interface NativeTerminalFrameResource {
   }[]
 }
 export interface NativeTerminalFrameInfo {
+  readonly screen: 0 | 1
   readonly snapshotMutation: number
   readonly streamSequence: number
   readonly geometrySerial: number
@@ -125,6 +126,12 @@ export type NativeTerminalCommand =
       input: NativeTerminalInputOperation
       readOnly: boolean
       keyEncodingFallback?: NativeTerminalKeyEncodingFallback
+      selectionContext?: import('./native-terminal-selection').NativeTerminalSelectionContext
+    }
+  | {
+      kind: 'selection'
+      state: string
+      operation: import('./native-terminal-selection').NativeTerminalSelectionOperation
     }
   | {
       kind: 'resize'

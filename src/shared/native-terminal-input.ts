@@ -48,6 +48,10 @@ export interface NativeTerminalInputCompletion {
   readonly requestedMutation: number
   readonly caret?: NativeTerminalCaret
   readonly captured?: boolean
+  readonly hasSelection?: boolean
+  readonly selectionSerial?: number
+  readonly selectionResult?: 0 | 5 | 6 | 7
+  readonly linkCandidate?: boolean
   /** Proven-unsent transient admission; accepted input is never replayed. */
   readonly refused?: 'capacity'
 }
@@ -252,6 +256,13 @@ export function validNativeTerminalInputResult(
     Number.isSafeInteger(result.requestedMutation) &&
     result.requestedMutation >= 0 &&
     (result.captured === undefined || typeof result.captured === 'boolean') &&
+    ((result.hasSelection === undefined && result.selectionSerial === undefined) ||
+      (typeof result.hasSelection === 'boolean' &&
+        Number.isSafeInteger(result.selectionSerial) &&
+        result.selectionSerial! >= 0)) &&
+    (result.selectionResult === undefined ||
+      [0, 5, 6, 7].includes(result.selectionResult)) &&
+    (result.linkCandidate === undefined || typeof result.linkCandidate === 'boolean') &&
     (result.caret === undefined ||
       (result.caret !== null &&
         typeof result.caret === 'object' &&

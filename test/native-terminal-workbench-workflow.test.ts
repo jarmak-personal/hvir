@@ -25,6 +25,13 @@ function executeQualification(
   platform: 'macOS' | 'Linux',
   invalid = false,
   badEffect?: 'clipboard' | 'responsiveness' | 'disposition',
+  badSelection?:
+    | 'clipboard'
+    | 'liveness'
+    | 'authority'
+    | 'responsiveness'
+    | 'os-clipboard'
+    | 'readonly',
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'hvir-native-workbench-report-'))
   try {
@@ -45,11 +52,19 @@ const proof = {
   resizeAcknowledgedByStty: {rows: 21, columns: 80}, development: true,
   hardwareQualified: process.env.HVIR_TEST_INVALID === 'true',
   nativeEffects:{phases:10,causalEventSerials:true,titleProductDelivery:true,remoteCwdCopied:true,readQueriesRefused:true,newClipboardProtocolsRefused:true,queriesExact:true,linkUserIntentPortHostCorrect:true,semanticObservations:4,semanticOccurrenceIdentityQualified:false,linkGestureQualified:false,hardwareQualified:false,nativeOsActionsQualified:false,osc777AndProgressDisposition:'ignored',quietAttentionEvents:2,clipboardWrites:['native-effects','a'.repeat(49152)].map(text=>({bytes:Buffer.byteLength(text),sha256:require('node:crypto').createHash('sha256').update(text).digest('hex')})),responsiveness:{maximumMs:500,main:{samples:4,maxMs:10},renderer:{samples:4,maxMs:18}}},
+  nativeSelection:{samePty:true,originalReadyBeforeClear:true,clearScreenScrollback:true,resetTerminal:true,parserInputAlive:true,drag:true,word:true,line:true,unicodeWhitespace:true,softwrap:true,selectAll:true,menu:true,metaCopy:true,controlShiftCopy:true,fileUriAndPlainIntent:true,linkRootsMatched:true,loopbackRouteContent:true,externalOpenerObserved:true,osExternalOpenerInvoked:false,hardwareGpuQualified:false,retentionEpoch:'HVIR_M9_RETENTION_EPOCH',fixtureColumns:80,linkIntents:4,copies:[['drag','alpha'],['word','alpha'],['line','alpha beta'],['unicode-whitespace','  A界e\\u0301B  '],['all-softwrap','w'.repeat(100)],['continuous-drag','alpha']].map(([name,text])=>({name,bytes:Buffer.byteLength(text),sha256:require('node:crypto').createHash('sha256').update(text).digest('hex')})),continuous:{producedBytes:65536,copiedWhileActive:true},largeCopy:{fixtureBytes:4096*81-1,copyFinished:false,copyStale:true,refusalCode:6,inputWhilePending:false,writeWhilePending:false,userWrites:1,mutation:8},mainSamples:4,mainMaxMs:20,rendererSamples:4,rendererMaxMs:20,isolatedOsClipboardReadback:process.env.RUNNER_OS==='Linux'&&process.env.HVIR_NATIVE_TERMINAL_ISOLATED_CLIPBOARD==='1',clipboardIntercepted:process.env.RUNNER_OS!=='Linux'},
+  readonlySelection:{rendererSamples:4,rendererMaxMs:20,readonlyDrag:true,readonlyCopy:true,bytes:Buffer.byteLength('HVIR_READONLY_SELECTION'),sha256:require('node:crypto').createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex'),isolatedOsClipboardReadback:process.env.RUNNER_OS==='Linux'&&process.env.HVIR_NATIVE_TERMINAL_ISOLATED_CLIPBOARD==='1'},
   diagnosticPadding: 'x'.repeat(90000),
 };
 if(process.env.HVIR_TEST_BAD_EFFECT==='clipboard')proof.nativeEffects.clipboardWrites[1].sha256='incorrect';
 if(process.env.HVIR_TEST_BAD_EFFECT==='responsiveness')proof.nativeEffects.responsiveness.main.maxMs=501;
 if(process.env.HVIR_TEST_BAD_EFFECT==='disposition')proof.nativeEffects.quietAttentionEvents=3;
+if(process.env.HVIR_TEST_BAD_SELECTION==='clipboard')proof.nativeSelection.copies[0].sha256='incorrect';
+if(process.env.HVIR_TEST_BAD_SELECTION==='liveness')proof.nativeSelection.largeCopy.copyStale=false;
+if(process.env.HVIR_TEST_BAD_SELECTION==='authority')proof.nativeSelection.linkRootsMatched=false;
+if(process.env.HVIR_TEST_BAD_SELECTION==='responsiveness')proof.nativeSelection.mainMaxMs=501;
+if(process.env.HVIR_TEST_BAD_SELECTION==='os-clipboard')proof.nativeSelection.isolatedOsClipboardReadback=!proof.nativeSelection.isolatedOsClipboardReadback;
+if(process.env.HVIR_TEST_BAD_SELECTION==='readonly')proof.readonlySelection.readonlyCopy=false;
 const line = 'HVIR_NATIVE_WORKBENCH_OK ' + JSON.stringify(proof) + '\\n';
 process.stdout.write(line.slice(0, 65536), () => {
   process.stderr.write('controlled native cleanup diagnostic\\n', () => {
@@ -84,6 +99,7 @@ exec "$HVIR_TEST_NODE" "$@"
         HVIR_TEST_PRODUCER: producer,
         HVIR_TEST_INVALID: String(invalid),
         HVIR_TEST_BAD_EFFECT: badEffect ?? '',
+        HVIR_TEST_BAD_SELECTION: badSelection ?? '',
       },
     })
     const proof = readFileSync(
@@ -110,6 +126,27 @@ describe('native workbench machine-readable workflow stream', () => {
     },
   )
 
+  it.each([
+    'clipboard',
+    'liveness',
+    'authority',
+    'responsiveness',
+    'os-clipboard',
+    'readonly',
+  ] as const)(
+    'rejects a missing or false selection acceptance fact: %s',
+    (badSelection) => {
+      const result = executeQualification(
+        qualification,
+        'Linux',
+        false,
+        undefined,
+        badSelection,
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.status).not.toBe(0)
+    },
+  )
   it('reproduces corruption when diagnostic stderr is merged before the strict reader', () => {
     const merged = qualification.replaceAll(
       'native-terminal-workbench \\\n',
