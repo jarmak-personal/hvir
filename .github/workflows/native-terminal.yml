@@ -396,7 +396,7 @@ jobs:
               trace_buffer_size_in_kb: 65536,
               included_categories: [
                 'toplevel', 'input', 'cc', 'viz', 'gpu', 'renderer.scheduler',
-                'sequence_manager', 'devtools.timeline',
+                'sequence_manager', 'devtools.timeline', 'blink.user_timing',
                 'disabled-by-default-devtools.timeline',
                 'disabled-by-default-cc.debug.scheduler',
               ],

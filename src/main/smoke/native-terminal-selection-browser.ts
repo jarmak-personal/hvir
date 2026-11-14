@@ -57,10 +57,16 @@ export const clipboardInstall = (isolated: boolean) => `(() => {
  probe.flushLongTasks=()=>{try{if(longTaskObserver)recordLongTasks(longTaskObserver.takeRecords());}catch{longTasks.unavailable=true;}};
  try{longTasks.supported=typeof PerformanceObserver==='function'&&PerformanceObserver.supportedEntryTypes.includes('longtask');if(longTasks.supported){longTaskObserver=new PerformanceObserver(list=>{try{recordLongTasks(list.getEntries());}catch{longTasks.unavailable=true;}});longTaskObserver.observe({type:'longtask',buffered:false});}}catch{longTasks.unavailable=true;}
  probe.longTasks=longTasks;
+ const nativeApiTiming={supported:false,unavailable:false,spans:['get-video-frame','canvas-create','canvas-upload','canvas-submit','frame-close','texture-release'].map(name=>({name,count:0,worst:null}))};let nativeApiObserver;
+ const nativeApiNames=new Map(nativeApiTiming.spans.map(span=>['hvir.native.presentation.'+span.name,span]));
+ const recordNativeApi=entries=>{if(!probe.active)return;try{for(const entry of entries){const result=nativeApiNames.get(entry.name);if(!result)continue;result.count++;const fromMs=entry.startTime,durationMs=entry.duration;if(!Number.isFinite(fromMs)||!Number.isFinite(durationMs)||durationMs<0){nativeApiTiming.unavailable=true;continue;}if(!result.worst||durationMs>result.worst.durationMs)result.worst={fromMs,toMs:fromMs+durationMs,fromEpochMs:probe.timeOriginMs+fromMs,toEpochMs:probe.timeOriginMs+fromMs+durationMs,durationMs};}}catch{nativeApiTiming.unavailable=true;}};
+ probe.flushNativeApiTiming=()=>{try{if(nativeApiObserver)recordNativeApi(nativeApiObserver.takeRecords());}catch{nativeApiTiming.unavailable=true;}};
+ try{nativeApiTiming.supported=typeof PerformanceObserver==='function'&&PerformanceObserver.supportedEntryTypes.includes('measure');if(nativeApiTiming.supported){nativeApiObserver=new PerformanceObserver(list=>{try{recordNativeApi(list.getEntries());}catch{nativeApiTiming.unavailable=true;}});nativeApiObserver.observe({type:'measure',buffered:false});}}catch{nativeApiTiming.unavailable=true;}
+ probe.nativeApiTiming=nativeApiTiming;
  Object.defineProperty(clipboard,'writeText',{configurable:true,value:async text=>{const bytes=new TextEncoder().encode(text),hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');if(${isolated})await write(text);probe.writes.push({bytes:bytes.length,sha256:hash});if(probe.writes.length>64)throw new Error('native-selection-clipboard-observation-bound');}});
  window.open=(target,frame,features)=>{probe.opens.push({target:String(target),frame,features});return null;};
  const tick=now=>{if(!probe.active)return;const from=probe.last,worst=now-from>probe.maxGapMs;probe.frames++;probe.maxGapMs=Math.max(probe.maxGapMs,now-probe.last);probe.last=now;requestAnimationFrame(tick);try{const current=viewState();if(worst)probe.worstGap={fromMs:from,toMs:now,fromEpochMs:probe.timeOriginMs+from,toEpochMs:probe.timeOriginMs+now,fromView:probe.lastViewState,toView:current};probe.lastViewState=current;}catch{probe.timingReadFailed=true;}};requestAnimationFrame(tick);
- probe.restore=()=>{probe.active=false;try{longTaskObserver?.disconnect();}catch{longTasks.unavailable=true;}try{document.removeEventListener('visibilitychange',visibilityChanged,true);}catch{probe.timingReadFailed=true;}window.open=open;if(descriptor)Object.defineProperty(clipboard,'writeText',descriptor);else delete clipboard.writeText;delete window.nativeSelectionProbe;};window.nativeSelectionProbe=probe;return true;
+ probe.restore=()=>{probe.active=false;try{longTaskObserver?.disconnect();}catch{longTasks.unavailable=true;}try{nativeApiObserver?.disconnect();}catch{nativeApiTiming.unavailable=true;}try{document.removeEventListener('visibilitychange',visibilityChanged,true);}catch{probe.timingReadFailed=true;}window.open=open;if(descriptor)Object.defineProperty(clipboard,'writeText',descriptor);else delete clipboard.writeText;delete window.nativeSelectionProbe;};window.nativeSelectionProbe=probe;return true;
 })()`
 interface NativeViewFacts {
   nativeVisibility: 'visible' | 'hidden' | null
@@ -91,6 +97,21 @@ interface ClipboardProof {
     visibilityTransitionCount: number
     visibilityTransitionsTruncated: boolean
     timingReadFailed: boolean
+    nativeApiTiming: {
+      supported: boolean
+      unavailable: boolean
+      spans: {
+        name: string
+        count: number
+        worst: {
+          fromMs: number
+          toMs: number
+          fromEpochMs: number
+          toEpochMs: number
+          durationMs: number
+        } | null
+      }[]
+    }
     longTasks: {
       supported: boolean
       unavailable: boolean
@@ -391,7 +412,7 @@ export function nativeSelectionBrowser(
     )
   const proof = () =>
     win.webContents.executeJavaScript(
-      `(()=>{const p=window.nativeSelectionProbe,raw={writes:p.writes,opens:p.opens,frames:p.frames,maxGapMs:p.maxGapMs};p.flushLongTasks();const tasks=p.longTasks;return{...raw,rendererTiming:{timeOriginMs:p.timeOriginMs,startedMs:p.startedMs,worstGap:p.worstGap,visibilityTransitions:p.visibilityTransitions.slice(),visibilityTransitionCount:p.visibilityTransitionCount,visibilityTransitionsTruncated:p.visibilityTransitionCount>p.visibilityTransitions.length,timingReadFailed:p.timingReadFailed,longTasks:{supported:tasks.supported,unavailable:tasks.unavailable,count:tasks.count,records:tasks.records.slice(),worst:tasks.worst,truncated:tasks.count>tasks.records.length}}};})()`,
+      `(()=>{const p=window.nativeSelectionProbe,raw={writes:p.writes,opens:p.opens,frames:p.frames,maxGapMs:p.maxGapMs};p.flushLongTasks();p.flushNativeApiTiming();const tasks=p.longTasks,native=p.nativeApiTiming;return{...raw,rendererTiming:{timeOriginMs:p.timeOriginMs,startedMs:p.startedMs,worstGap:p.worstGap,visibilityTransitions:p.visibilityTransitions.slice(),visibilityTransitionCount:p.visibilityTransitionCount,visibilityTransitionsTruncated:p.visibilityTransitionCount>p.visibilityTransitions.length,timingReadFailed:p.timingReadFailed,nativeApiTiming:{supported:native.supported,unavailable:native.unavailable,spans:native.spans.map(({name,count,worst})=>({name,count,worst}))},longTasks:{supported:tasks.supported,unavailable:tasks.unavailable,count:tasks.count,records:tasks.records.slice(),worst:tasks.worst,truncated:tasks.count>tasks.records.length}}};})()`,
     ) as Promise<ClipboardProof>
   const menu = async (label: string) => {
     const p = await point(2.5, 4.5)

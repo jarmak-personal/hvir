@@ -8,6 +8,10 @@ import {
   type NativeTerminalPresentedFrame,
   type NativeTerminalViewGrant,
 } from '../shared/native-terminal-presentation'
+import {
+  nativePresentationSpanEnd,
+  nativePresentationSpanStart,
+} from './native-terminal-presentation-smoke'
 
 export interface NativeTerminalCanvasPort {
   draw(frame: unknown, metadata: NativeTerminalPresentedFrame): void
@@ -99,16 +103,40 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
     try {
       const current = this.current(metadata)
       if (!current) return
-      frame = texture.getVideoFrame()
+      let started: number | undefined
+      if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+        started = nativePresentationSpanStart()
+      try {
+        frame = texture.getVideoFrame()
+      } finally {
+        if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+          nativePresentationSpanEnd('get-video-frame', started)
+      }
       current.canvas.draw(frame, current.metadata)
       if (this.current(current.metadata)) this.reportDraw(current.metadata)
     } catch {
       this.failure(metadata)
     } finally {
       try {
-        frame?.close()
+        let started: number | undefined
+        if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+          started = nativePresentationSpanStart()
+        try {
+          frame?.close()
+        } finally {
+          if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+            nativePresentationSpanEnd('frame-close', started)
+        }
       } finally {
-        texture.release()
+        let started: number | undefined
+        if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+          started = nativePresentationSpanStart()
+        try {
+          texture.release()
+        } finally {
+          if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+            nativePresentationSpanEnd('texture-release', started)
+        }
       }
     }
   }
@@ -162,8 +190,17 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
       !sameNativeTerminalView(grant, metadata.nativeTerminal)
     )
       return
-    if (!view.canvas)
-      view.canvas = this.createCanvas(view.elementId, () => this.failure(metadata))
+    if (!view.canvas) {
+      let started: number | undefined
+      if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+        started = nativePresentationSpanStart()
+      try {
+        view.canvas = this.createCanvas(view.elementId, () => this.failure(metadata))
+      } finally {
+        if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+          nativePresentationSpanEnd('canvas-create', started)
+      }
+    }
     if (!view.canvas) throw new Error('native-canvas-unavailable')
     return { canvas: view.canvas, metadata }
   }

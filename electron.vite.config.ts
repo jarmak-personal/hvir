@@ -192,6 +192,10 @@ export default defineConfig(({ mode }) => {
     },
     preload: {
       ...baseConfig.preload,
+      define: {
+        ...baseConfig.preload?.define,
+        __HVIR_SMOKE_BUILD__: JSON.stringify(smokeBuild),
+      },
       plugins: [
         ...(baseConfig.preload?.plugins ?? []),
         excludeNativeProbeFromProduction(nativeProbe),

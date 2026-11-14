@@ -27,6 +27,37 @@ function fixture() {
   return { receiver, canvas, create, frame, texture, metadata, drawn }
 }
 describe('isolated native presentation routing', () => {
+  it('preserves frame cleanup when smoke timing fails, including an original close error', () => {
+    vi.stubGlobal('__HVIR_SMOKE_BUILD__', true)
+    vi.spyOn(performance, 'now').mockImplementationOnce(() => {
+      throw new Error('clock unavailable')
+    })
+    const measure = vi.spyOn(performance, 'measure').mockImplementation(() => {
+      throw new Error('measurement unavailable')
+    })
+    vi.spyOn(performance, 'clearMeasures').mockImplementation(() => {
+      throw new Error('measurement cleanup unavailable')
+    })
+    try {
+      const f = fixture()
+      f.receiver.mount(grant.viewId, 'retained-terminal')
+      f.receiver.grant({ viewId: grant.viewId, grant })
+      f.receiver.receive(f.texture, f.metadata)
+      expect(f.drawn).toHaveBeenCalledOnce()
+      expect(f.frame.close).toHaveBeenCalledOnce()
+      expect(f.texture.release).toHaveBeenCalledOnce()
+      expect(measure).toHaveBeenCalled()
+      const original = new Error('frame close failed')
+      f.frame.close.mockImplementationOnce(() => {
+        throw original
+      })
+      expect(() => f.receiver.receive(f.texture, f.metadata)).toThrow(original)
+      expect(f.texture.release).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    }
+  })
   it('reports geometry readiness only after a successful current draw', () => {
     const f = fixture()
     f.receiver.mount(grant.viewId, 'retained-terminal')

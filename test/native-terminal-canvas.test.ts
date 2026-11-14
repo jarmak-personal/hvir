@@ -83,6 +83,7 @@ function fixture(maximumTextureSize = 16384) {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   document.body.replaceChildren()
 })
 
@@ -150,6 +151,13 @@ describe('native canvas submission ownership', () => {
   })
 
   it('preserves upload exceptions and refuses a lost context before submission', () => {
+    vi.stubGlobal('__HVIR_SMOKE_BUILD__', true)
+    vi.spyOn(performance, 'measure').mockImplementation(() => {
+      throw new Error('measurement unavailable')
+    })
+    vi.spyOn(performance, 'clearMeasures').mockImplementation(() => {
+      throw new Error('measurement cleanup unavailable')
+    })
     const { gl, port } = fixture()
     const error = new Error('VideoFrame upload failed')
     gl.texImage2D.mockImplementationOnce(() => {

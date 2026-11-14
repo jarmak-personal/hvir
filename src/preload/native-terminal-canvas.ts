@@ -3,6 +3,10 @@ import type {
   NativeTerminalPresentedFrame,
 } from '../shared/native-terminal-presentation'
 import type { NativeTerminalCanvasPort } from './native-terminal-presentation'
+import {
+  nativePresentationSpanEnd,
+  nativePresentationSpanStart,
+} from './native-terminal-presentation-smoke'
 
 /** GPU upload/composition only. Pixel inspection belongs to qualification code. */
 export function createNativeTerminalCanvas(
@@ -169,40 +173,64 @@ export function createNativeTerminalCanvas(
     gl.disable(gl.BLEND)
   }
   const submit = (straightAlpha: boolean): void => {
-    gl.uniform1i(straightAlphaLocation, straightAlpha ? 1 : 0)
-    gl.drawArrays(gl.TRIANGLES, 0, 3)
-    // Synchronous GPU status queries can wait for compositor work on this thread.
-    // Submit; Chromium's VideoFrame release sync token owns actual GPU completion.
-    gl.flush()
+    let started: number | undefined
+    if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+      started = nativePresentationSpanStart()
+    try {
+      gl.uniform1i(straightAlphaLocation, straightAlpha ? 1 : 0)
+      gl.drawArrays(gl.TRIANGLES, 0, 3)
+      // Synchronous GPU status queries can wait for compositor work on this thread.
+      // Submit; Chromium's VideoFrame release sync token owns actual GPU completion.
+      gl.flush()
+    } finally {
+      if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+        nativePresentationSpanEnd('canvas-submit', started)
+    }
   }
   return {
     draw(frame: unknown, metadata: NativeTerminalPresentedFrame): void {
-      configure(metadata)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
-      gl.texImage2D(
-        gl.TEXTURE_2D,
-        0,
-        gl.RGBA,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
-        frame as TexImageSource,
-      )
+      let started: number | undefined
+      if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+        started = nativePresentationSpanStart()
+      try {
+        configure(metadata)
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          frame as TexImageSource,
+        )
+      } finally {
+        if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+          nativePresentationSpanEnd('canvas-upload', started)
+      }
       submit(false)
     },
     pixels(frame: NativeTerminalPixelFrame): void {
-      configure(frame)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
-      gl.texImage2D(
-        gl.TEXTURE_2D,
-        0,
-        gl.RGBA,
-        frame.nativeTerminal.width,
-        frame.nativeTerminal.height,
-        0,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
-        frame.bytes,
-      )
+      let started: number | undefined
+      if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+        started = nativePresentationSpanStart()
+      try {
+        configure(frame)
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA,
+          frame.nativeTerminal.width,
+          frame.nativeTerminal.height,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          frame.bytes,
+        )
+      } finally {
+        if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+          nativePresentationSpanEnd('canvas-upload', started)
+      }
       submit(true)
     },
     dispose,
