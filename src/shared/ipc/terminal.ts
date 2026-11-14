@@ -257,9 +257,29 @@ export const terminalIpc = {
       },
       import('../native-terminal-input').NativeTerminalInputCompletion
     >(),
+    'native-terminal:selection': invoke<
+      import('../native-terminal-selection').NativeTerminalSelectionRequest,
+      import('../native-terminal-selection').NativeTerminalSelectionResponse
+    >(),
+    'native-terminal:selection-read': invoke<
+      import('../native-terminal-selection').NativeTerminalSelectionReadRequest,
+      import('../native-terminal-selection').NativeTerminalSelectionResponse
+    >(),
+    'native-terminal:link': invoke<
+      import('../native-terminal-link').NativeTerminalLinkIntent,
+      import('../native-terminal-link').NativeTerminalLinkCapture
+    >(),
+    'native-terminal:link-read': invoke<
+      import('../native-terminal-selection').NativeTerminalSelectionReadRequest,
+      import('../native-terminal-link').NativeTerminalLinkActivation | undefined
+    >(),
     'pty:start': invoke<StartPtyRequest, StartPtyResponse>(),
   },
   send: {
+    'native-terminal:selection-cancel':
+      payload<
+        import('../native-terminal-selection').NativeTerminalSelectionCancellation
+      >(),
     'native-terminal:presentation-ack':
       payload<NativeTerminalPresentationAcknowledgement>(),
     'pty:write': payload<{ readonly id: string; readonly data: string }>(),

@@ -43,7 +43,7 @@ import {
   isFileUri,
   isTerminalWebTarget,
 } from './terminal-file-link'
-import { resolveGhosttyTerminalFilePaste } from './ghostty-terminal-file-paste'
+import { resolveTerminalFilePaste } from './terminal-file-paste'
 import {
   ghosttyClipboardPasteFallback,
   ghosttyKeyboardOverride,
@@ -191,8 +191,7 @@ class GhosttyTerminalPane implements TerminalPane {
         alternateScreenFallback: 'page',
         mouseEncoding: 'sgr',
       },
-      resolveClipboardFilePaste: (file) =>
-        resolveGhosttyTerminalFilePaste(window.hvir, file),
+      resolveClipboardFilePaste: (file) => resolveTerminalFilePaste(window.hvir, file),
     })
     this.fit = new FitAddon({ resizeDebounceMs: 75 })
     this.terminal.loadAddon(this.fit)

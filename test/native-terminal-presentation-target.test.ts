@@ -37,6 +37,7 @@ function fixture() {
   }
   const pixels = {
     nativeTerminal: grant,
+    screen: 0 as const,
     colorSpace: 1,
     origin: 1,
     premultiplied: false as const,
@@ -64,6 +65,30 @@ function fixture() {
 }
 afterEach(() => vi.useRealTimers())
 describe('private native presentation Electron target', () => {
+  it('requires a current matching successful-draw receipt and revokes it with geometry', () => {
+    const f = fixture()
+    f.target.publishGrant(f.grant)
+    const ack = { kind: 'drawn', grant: f.grant, screen: 0 }
+    expect(f.owner.drawn(f.grant.viewId, f.frame)).toBeUndefined()
+    f.owner.acknowledge({} as WebFrameMain, ack)
+    expect(f.owner.drawn(f.grant.viewId, f.frame)).toBeUndefined()
+    f.owner.acknowledge(f.frame, ack)
+    expect(f.owner.drawn(f.grant.viewId, f.frame)).toEqual({
+      screen: 0,
+      geometrySerial: 1,
+    })
+    f.target.publishGrant({ ...f.grant, geometrySerial: 2 })
+    f.owner.acknowledge(f.frame, ack)
+    expect(f.owner.drawn(f.grant.viewId, f.frame)).toBeUndefined()
+    f.owner.acknowledge(f.frame, {
+      ...ack,
+      grant: { ...f.grant, geometrySerial: 2 },
+      screen: 1,
+    })
+    expect(f.owner.drawn(f.grant.viewId, f.frame)?.screen).toBe(1)
+    f.revoke()
+    expect(f.owner.drawn(f.grant.viewId, f.frame)).toBeUndefined()
+  })
   it('requires the actual recipient frame and current authority for pixel acknowledgements', async () => {
     const f = fixture()
     const uploaded = f.target.sendPixels(f.pixels)

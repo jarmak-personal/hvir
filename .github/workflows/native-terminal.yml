@@ -228,6 +228,7 @@ jobs:
           assert.equal(proof.mainImportMaxMs, Math.max(0, ...proof.importTimesMs));
           NODE
       - name: Qualify the ordinary native workbench runtime
+        id: native_workbench
         timeout-minutes: 5
         env:
           NODE_OPTIONS: --max-old-space-size=4096
@@ -235,7 +236,7 @@ jobs:
           npm run build:smoke
           # Keep diagnostic stderr out of the machine-readable proof stream.
           if [[ "$RUNNER_OS" == Linux ]]; then
-            HVIR_NATIVE_TERMINAL_OZONE=x11 HVIR_NATIVE_TERMINAL_LIBRARY="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" \
+            HVIR_NATIVE_TERMINAL_ISOLATED_CLIPBOARD=1 HVIR_NATIVE_TERMINAL_OZONE=x11 HVIR_NATIVE_TERMINAL_LIBRARY="$RUNNER_TEMP/hvir-native-build/artifact/ghostty-internal.so" \
               xvfb-run -a node scripts/run-smoke-scenarios.mts native-terminal-workbench \
               | tee "$RUNNER_TEMP/hvir-native-bindings/workbench-proof.jsonl"
           else
@@ -286,6 +287,69 @@ jobs:
             assert(Number.isSafeInteger(loop.samples) && loop.samples >= 2);
             assert(Number.isFinite(loop.maxMs) && loop.maxMs >= 0 && loop.maxMs <= 500);
           }
+          const selection = proof.nativeSelection;
+          for (const field of ['samePty', 'originalReadyBeforeClear', 'clearScreenScrollback', 'resetTerminal',
+            'parserInputAlive', 'drag', 'word', 'line', 'unicodeWhitespace', 'softwrap', 'selectAll', 'menu',
+            'metaCopy', 'controlShiftCopy', 'fileUriAndPlainIntent', 'linkRootsMatched', 'loopbackRouteContent',
+            'externalOpenerObserved']) assert.equal(selection[field], true);
+          assert.equal(selection.osExternalOpenerInvoked, false);
+          assert.equal(selection.hardwareGpuQualified, false);
+          assert.equal(selection.retentionEpoch, 'HVIR_M9_RETENTION_EPOCH');
+          assert(Number.isSafeInteger(selection.fixtureColumns) && selection.fixtureColumns >= 40);
+          assert(Number.isSafeInteger(selection.linkIntents) && selection.linkIntents >= 4);
+          assert.deepEqual(selection.copies.map(copy => copy.name),
+            ['drag', 'word', 'line', 'unicode-whitespace', 'all-softwrap', 'continuous-drag']);
+          for (const copy of selection.copies) {
+            assert(Number.isSafeInteger(copy.bytes) && copy.bytes > 0);
+            assert(/^[a-f0-9]{64}$/.test(copy.sha256));
+            const fixed = {drag:'alpha', word:'alpha', line:'alpha beta',
+              'unicode-whitespace':'  A界e\u0301B  ', 'continuous-drag':'alpha'}[copy.name];
+            if (fixed !== undefined) {
+              assert.equal(copy.bytes, Buffer.byteLength(fixed));
+              assert.equal(copy.sha256, crypto.createHash('sha256').update(fixed).digest('hex'));
+            } else assert(copy.bytes > selection.fixtureColumns);
+          }
+          assert(selection.continuous.producedBytes >= 65536);
+          assert.equal(selection.continuous.copiedWhileActive, true);
+          const pendingPress = selection.pendingPressAck;
+          assert(Number.isSafeInteger(pendingPress.pointerId) && pendingPress.pointerId >= 0);
+          for (const field of ['trustedOutsideMove', 'trustedOutsideUp', 'ackHeldUntilOutsideUp',
+            'nativeOriginalViewOrder', 'captureReleasedBeforeAck', 'captureReleasedAfterAck']) assert.equal(pendingPress[field], true);
+          assert.equal(pendingPress.heldMoveButtons, 1);
+          assert.equal(pendingPress.exactSelectedBytes, 5);
+          assert.equal(pendingPress.exactSelectedSha256, crypto.createHash('sha256').update('alpha').digest('hex'));
+          const largeCopy = selection.largeCopy;
+          assert.equal(largeCopy.fixtureBytes, 4096 * (selection.fixtureColumns + 1) - 1);
+          assert(largeCopy.fixtureBytes > 65536);
+          assert.equal(Number(largeCopy.copyFinished) + Number(largeCopy.copyStale), 1);
+          assert.equal(largeCopy.refusalCode, largeCopy.copyStale ? 6 : null);
+          assert.equal(largeCopy.userWrites, 1);
+          assert(Number.isSafeInteger(largeCopy.mutation) && largeCopy.mutation > 0);
+          assert(largeCopy.copyStale || largeCopy.inputWhilePending || largeCopy.writeWhilePending);
+          for (const [samples, maximum] of [[selection.mainSamples,selection.mainMaxMs],
+            [selection.rendererSamples,selection.rendererMaxMs]]) {
+            assert(Number.isSafeInteger(samples) && samples >= 2);
+            assert(Number.isFinite(maximum) && maximum >= 0 && maximum <= 500);
+          }
+          const isolatedClipboard = process.env.RUNNER_OS === 'Linux';
+          assert.equal(selection.isolatedOsClipboardReadback, isolatedClipboard);
+          assert.equal(selection.clipboardIntercepted, !isolatedClipboard);
+          const readonlySelection = proof.readonlySelection;
+          assert(Number.isSafeInteger(readonlySelection.rendererSamples) && readonlySelection.rendererSamples >= 2);
+          assert(Number.isFinite(readonlySelection.rendererMaxMs) && readonlySelection.rendererMaxMs >= 0 && readonlySelection.rendererMaxMs <= 500);
+          const gestureBlur = readonlySelection.gestureBlur;
+          assert(Number.isSafeInteger(gestureBlur.pointerId) && gestureBlur.pointerId >= 0);
+          for (const field of ['acknowledgedDrag', 'tabChangedFocus', 'nativeFocusCleanup',
+            'captureReleased', 'selectedRangePreserved']) assert.equal(gestureBlur[field], true);
+          assert.equal(gestureBlur.heldMoveButtons, 1);
+          assert.equal(gestureBlur.ptyWrites, 0);
+          assert.equal(gestureBlur.ptyCount, 0);
+          assert.equal(readonlySelection.readonlyDrag, true);
+          assert.equal(readonlySelection.readonlyCopy, true);
+          assert.equal(readonlySelection.bytes, Buffer.byteLength('HVIR_READONLY_SELECTION'));
+          assert.equal(readonlySelection.sha256,
+            crypto.createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex'));
+          assert.equal(readonlySelection.isolatedOsClipboardReadback, isolatedClipboard);
           NODE
       - name: Diagnose failed Linux library relocation
         if: failure() && runner.os == 'Linux'
@@ -311,6 +375,55 @@ jobs:
           path: ${{ runner.temp }}/hvir-native-build/facade-*.log
           if-no-files-found: ignore
           retention-days: 7
+      # This additional run diagnoses an already-failed unprofiled qualification.
+      # Its outcome never replaces the original responsiveness acceptance result.
+      - name: Trace a failed macOS native workbench qualification
+        if: failure() && runner.os == 'macOS' && steps.native_workbench.outcome == 'failure'
+        timeout-minutes: 5
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          mkdir -p "$RUNNER_TEMP/hvir-native-trace"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const directory = path.join(process.env.RUNNER_TEMP, 'hvir-native-trace');
+          fs.writeFileSync(path.join(directory, 'trace-config.json'), JSON.stringify({
+            startup_duration: 180,
+            result_file: path.join(directory, 'compositor.pftrace'),
+            trace_config: {
+              record_mode: 'record-continuously',
+              trace_buffer_size_in_kb: 65536,
+              included_categories: [
+                'toplevel', 'input', 'cc', 'viz', 'gpu', 'renderer.scheduler',
+                'sequence_manager', 'devtools.timeline', 'blink.user_timing',
+                'disabled-by-default-devtools.timeline',
+                'disabled-by-default-cc.debug.scheduler',
+              ],
+              excluded_categories: ['*'],
+            },
+          }, null, 2));
+          NODE
+          # Ring buffer is bounded; shutdown flush is not periodic file flushing.
+          # Check trace coverage/loss before drawing conclusions from a captured gap.
+          git rev-parse HEAD > "$RUNNER_TEMP/hvir-native-trace/source-commit.txt"
+          shasum -a 256 "$RUNNER_TEMP/hvir-native-trace/trace-config.json" \
+            packages/native-terminal/build/Release/bindings.json \
+            "$RUNNER_TEMP/hvir-native-build/artifact/manifest.json" \
+            > "$RUNNER_TEMP/hvir-native-trace/identities.sha256"
+          HVIR_NATIVE_TERMINAL_TRACE_CONFIG="$RUNNER_TEMP/hvir-native-trace/trace-config.json" \
+            HVIR_NATIVE_TERMINAL_LIBRARY="$RUNNER_TEMP/hvir-native-build/artifact/libghostty.dylib" \
+            node scripts/run-smoke-scenarios.mts native-terminal-workbench \
+            > "$RUNNER_TEMP/hvir-native-trace/profiled.stdout.log" \
+            2> "$RUNNER_TEMP/hvir-native-trace/profiled.stderr.log"
+      - name: Retain macOS compositor diagnostic trace
+        if: always() && runner.os == 'macOS' && steps.native_workbench.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-terminal-compositor-trace-${{ matrix.target }}
+          path: ${{ runner.temp }}/hvir-native-trace/
+          if-no-files-found: warn
+          retention-days: 7
       - name: Retain binding and Electron failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v7
@@ -333,9 +446,9 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: |
-          proofs=(resource-proof.jsonl electron-proof.jsonl)
+          proofs=(resource-proof.jsonl electron-proof.jsonl workbench-proof.jsonl)
           if [[ "$RUNNER_OS" == macOS ]]; then
-            proofs+=(presenter-gpu.jsonl presenter-pixels.jsonl workbench-proof.jsonl)
+            proofs+=(presenter-gpu.jsonl presenter-pixels.jsonl)
           fi
           tar -czf "$RUNNER_TEMP/native-terminal-bindings-${TARGET}.tar.gz" -C packages/native-terminal/build Release -C "$RUNNER_TEMP/hvir-native-bindings" "${proofs[@]}"
       - uses: actions/upload-artifact@v7

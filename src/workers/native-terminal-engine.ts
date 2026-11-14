@@ -8,6 +8,10 @@ import {
   validNativeTerminalExportMode,
 } from '../shared/native-terminal-linux'
 import type { NativeTerminalWorkerOptions } from '../shared/native-terminal'
+import {
+  validNativeTerminalSelectionContext,
+  validNativeTerminalSelectionOperation,
+} from '../shared/native-terminal-selection'
 
 if (!parentPort) throw new Error('Native terminal engine requires its owner worker')
 const options = workerData as Pick<NativeTerminalWorkerOptions, 'library' | 'linux'>
@@ -66,7 +70,13 @@ parentPort.on(
             65536,
           )
           break
-        case 'input':
+        case 'input': {
+          const selectionContext = args[4]
+          if (
+            selectionContext !== undefined &&
+            !validNativeTerminalSelectionContext(selectionContext)
+          )
+            throw new Error('native-selection-context-invalid')
           try {
             value = engine.input(
               host,
@@ -74,6 +84,10 @@ parentPort.on(
               args[1] as Parameters<typeof engine.input>[2],
               args[2] === true,
               args[3] as Parameters<typeof engine.input>[4],
+              selectionContext && {
+                screen: selectionContext.screen,
+                geometrySerial: BigInt(selectionContext.geometrySerial),
+              },
             )
           } catch (error) {
             // This reserved NAPI code is emitted only by input_text's allocation
@@ -87,6 +101,55 @@ parentPort.on(
             value = { result: 7, requestedMutation: 0n, capacity: 0 }
           }
           break
+        }
+        case 'selection': {
+          const operation = args[1]
+          if (!validNativeTerminalSelectionOperation(operation))
+            throw new Error('native-selection-command-invalid')
+          const id = BigInt(String(args[0]))
+          switch (operation.kind) {
+            case 'command':
+              value = engine.selection(host, id, operation.action, {
+                screen: operation.context.screen,
+                geometrySerial: BigInt(operation.context.geometrySerial),
+              })
+              break
+            case 'begin':
+              value = engine.extractBegin(host, id, BigInt(operation.selectionSerial), {
+                screen: operation.context.screen,
+                geometrySerial: BigInt(operation.context.geometrySerial),
+              })
+              break
+            case 'next':
+              value = engine.extractNext(host, id, BigInt(operation.cursor))
+              break
+            case 'finish':
+              value = engine.extractFinish(host, id, BigInt(operation.cursor))
+              break
+            case 'close':
+              value = engine.extractClose(host, id, BigInt(operation.cursor))
+              break
+            case 'link-row-begin': {
+              const result = engine.linkRowBegin(host, id, {
+                ...operation.query,
+                geometrySerial: BigInt(operation.query.geometrySerial),
+              })
+              value = result.link
+                ? {
+                    ...result,
+                    link: {
+                      ...result.link,
+                      uri: new TextDecoder('utf-8', { fatal: true }).decode(
+                        result.link.uri,
+                      ),
+                    },
+                  }
+                : result
+              break
+            }
+          }
+          break
+        }
         case 'visibility':
           value = engine.visibility(host, BigInt(String(args[0])), args[1] === true)
           break

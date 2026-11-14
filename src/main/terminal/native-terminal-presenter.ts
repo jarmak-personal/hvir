@@ -378,6 +378,7 @@ export class NativeTerminalPresenter {
         throw new Error('native-presentation-frame-stale')
       const presentation = {
         nativeTerminal: grant,
+        screen: source.metadata.screen,
         origin: source.metadata.origin,
         colorSpace: source.metadata.colorSpace,
       }

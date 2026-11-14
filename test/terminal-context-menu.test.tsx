@@ -52,7 +52,7 @@ describe('terminal context menu placement', () => {
 })
 
 describe('terminal context menu ownership', () => {
-  it('clears semantic transcript metadata with both retained-buffer clearing actions', () => {
+  it('clears semantic transcript metadata with both retained-buffer clearing actions', async () => {
     const interactions = new TerminalRuntimeInteractions(
       'Shell',
       () => true,
@@ -73,17 +73,17 @@ describe('terminal context menu ownership', () => {
     }
 
     addRegion(1)
-    expect(interactions.contextMenuTarget()?.clear()).toBe(true)
+    expect(await interactions.contextMenuTarget()?.clear()).toBe(true)
     expect(fixture.clear).toHaveBeenCalledOnce()
     expect(interactions.paneEvents.snapshot().semanticRegionsAvailable).toBe(false)
 
     addRegion(2)
-    expect(interactions.contextMenuTarget()?.reset()).toBe(true)
+    expect(await interactions.contextMenuTarget()?.reset()).toBe(true)
     expect(fixture.reset).toHaveBeenCalledOnce()
     expect(interactions.paneEvents.snapshot().semanticRegionsAvailable).toBe(false)
   })
 
-  it('binds only one visible attached pane and rejects a same-id successor', () => {
+  it('binds only one visible attached pane and rejects a same-id successor', async () => {
     let available = true
     const owner = new TerminalContextMenuOwner(() => available)
     const original = paneFixture()
@@ -91,15 +91,15 @@ describe('terminal context menu ownership', () => {
     owner.bind(original.pane, 'pty-instance-1', vi.fn())
     const originalTarget = owner.target()
 
-    expect(originalTarget?.reset()).toBe(true)
+    expect(await originalTarget?.reset()).toBe(true)
     available = false
     expect(owner.target()).toBeUndefined()
-    expect(originalTarget?.clear()).toBe(false)
+    expect(await originalTarget?.clear()).toBe(false)
 
     available = true
     owner.bind(successor.pane, 'pty-instance-2', vi.fn())
-    expect(originalTarget?.reset()).toBe(false)
-    expect(owner.target()?.reset()).toBe(true)
+    expect(await originalTarget?.reset()).toBe(false)
+    expect(await owner.target()?.reset()).toBe(true)
     expect(original.reset).toHaveBeenCalledOnce()
     expect(successor.reset).toHaveBeenCalledOnce()
 
@@ -107,12 +107,12 @@ describe('terminal context menu ownership', () => {
     expect(owner.target()).toBeUndefined()
   })
 
-  it('opens from pointer and both keyboard gestures, disabling Copy without selection', () => {
+  it('opens from pointer and both keyboard gestures, disabling Copy without selection', async () => {
     const fixture = targetFixture('')
     renderMenu(fixture.target)
     const terminal = terminalTarget()
 
-    openFromPointer(terminal)
+    await openFromPointer(terminal)
     expect(menuButton('Copy Selection').disabled).toBe(true)
     expect(fixture.focus).not.toHaveBeenCalled()
 
@@ -123,7 +123,7 @@ describe('terminal context menu ownership', () => {
     expect(outside).toBe(document.activeElement)
     expect(fixture.focus).not.toHaveBeenCalled()
     terminal.focus()
-    openFromKeyboard(terminal, 'ContextMenu')
+    await openFromKeyboard(terminal, 'ContextMenu')
     expect(menuButton('Paste')).toBe(document.activeElement)
 
     act(() => {
@@ -133,18 +133,115 @@ describe('terminal context menu ownership', () => {
     expect(fixture.focus).toHaveBeenCalledOnce()
     expect(terminal).toBe(document.activeElement)
 
-    openFromKeyboard(terminal, 'F10', true)
+    await openFromKeyboard(terminal, 'F10', true)
     expect(menuButton('Paste')).toBe(document.activeElement)
   })
 
-  it('captures pointer-menu Escape before the focused terminal can emit it', () => {
+  it.each([true, false])(
+    'waits for actual selection status %s before keyboard focus chooses the first enabled item',
+    async (available) => {
+      const fixture = targetFixture('selected'),
+        status = selectionStatus()
+      fixture.target.hasSelection = () => status.promise
+      renderMenu(fixture.target)
+      await openFromKeyboard(terminalTarget(), 'ContextMenu')
+      expect(document.activeElement).toBe(document.querySelector('[role="menu"]'))
+      expect(menuButton('Copy Selection').disabled).toBe(true)
+      await act(async () => {
+        status.resolve(available)
+        await status.promise
+      })
+      expect(document.activeElement).toBe(
+        menuButton(available ? 'Copy Selection' : 'Paste'),
+      )
+    },
+  )
+
+  it('settles a refused selection query without leaving keyboard focus stranded', async () => {
+    const fixture = targetFixture('selected'),
+      status = selectionStatus()
+    fixture.target.hasSelection = () => status.promise
+    renderMenu(fixture.target)
+    await openFromKeyboard(terminalTarget(), 'ContextMenu')
+    await act(async () => {
+      status.reject(new Error('unavailable'))
+      await status.promise.catch(() => undefined)
+    })
+    expect(menuButton('Copy Selection').disabled).toBe(true)
+    expect(document.activeElement).toBe(menuButton('Paste'))
+  })
+
+  it.each(['navigation-down', 'navigation-up', 'outside', 'pointer'] as const)(
+    'preserves %s focus when pending selection status resolves',
+    async (mode) => {
+      const fixture = targetFixture('selected'),
+        status = selectionStatus()
+      fixture.target.hasSelection = () => status.promise
+      renderMenu(fixture.target)
+      const terminal = terminalTarget()
+      terminal.focus()
+      if (mode === 'pointer') await openFromPointer(terminal)
+      else await openFromKeyboard(terminal, 'ContextMenu')
+      if (mode.startsWith('navigation'))
+        act(() => {
+          document.dispatchEvent(
+            new KeyboardEvent('keydown', {
+              key: mode === 'navigation-up' ? 'ArrowUp' : 'ArrowDown',
+              bubbles: true,
+            }),
+          )
+        })
+      const outside = document.createElement('button')
+      if (mode === 'outside') {
+        document.body.append(outside)
+        outside.focus()
+      }
+      const focused = document.activeElement
+      await act(async () => {
+        status.resolve(true)
+        await status.promise
+      })
+      expect(menuButton('Copy Selection').disabled).toBe(false)
+      expect(document.activeElement).toBe(focused)
+      if (mode === 'navigation-down') expect(focused).toBe(menuButton('Paste'))
+      if (mode === 'navigation-up') expect(focused).toBe(menuButton('Terminal Settings'))
+      if (mode === 'pointer') expect(focused).toBe(terminal)
+    },
+  )
+
+  it('ignores the old selection result after a newer keyboard menu request', async () => {
+    const fixture = targetFixture('selected'),
+      first = selectionStatus(),
+      second = selectionStatus()
+    fixture.target.hasSelection = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    renderMenu(fixture.target)
+    await openFromKeyboard(terminalTarget(), 'ContextMenu')
+    await openFromKeyboard(terminalTarget(), 'ContextMenu')
+    const menu = document.querySelector('[role="menu"]')
+    await act(async () => {
+      first.resolve(true)
+      await first.promise
+    })
+    expect(document.activeElement).toBe(menu)
+    expect(menuButton('Copy Selection').disabled).toBe(true)
+    await act(async () => {
+      second.resolve(false)
+      await second.promise
+    })
+    expect(document.activeElement).toBe(menuButton('Paste'))
+  })
+
+  it('captures pointer-menu Escape before the focused terminal can emit it', async () => {
     const fixture = targetFixture('')
     renderMenu(fixture.target)
     const terminal = terminalTarget()
     const terminalKeydown = vi.fn()
     terminal.addEventListener('keydown', terminalKeydown)
     terminal.focus()
-    openFromPointer(terminal)
+    await openFromPointer(terminal)
 
     const escape = new KeyboardEvent('keydown', {
       key: 'Escape',
@@ -162,13 +259,38 @@ describe('terminal context menu ownership', () => {
     expect(terminal).toBe(document.activeElement)
   })
 
+  it('keeps the menu disabled after a clipboard write is observed until that write settles', async () => {
+    const fixture = targetFixture('selected')
+    let finish!: () => void
+    const writeText = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    renderMenu(fixture.target, { writeText })
+    await openFromPointer(terminalTarget())
+    await clickMenuButton('Copy Selection')
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('selected')
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    expect(buttons.length).toBeGreaterThan(0)
+    expect(buttons.every((button) => button.disabled)).toBe(true)
+    await act(async () => {
+      finish()
+      await writeText.mock.results[0]!.value
+    })
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(fixture.focus).toHaveBeenCalledOnce()
+  })
+
   it('copies exact plain text and preserves selection when clipboard writing fails', async () => {
     const fixture = targetFixture('first\nsecond')
     const writeText = vi.fn<(value: string) => Promise<void>>()
     writeText.mockRejectedValue(new Error('denied'))
     renderMenu(fixture.target, { writeText })
 
-    openFromPointer(terminalTarget())
+    await openFromPointer(terminalTarget())
     await clickMenuButton('Copy Selection')
 
     expect(writeText).toHaveBeenCalledExactlyOnceWith('first\nsecond')
@@ -179,6 +301,27 @@ describe('terminal context menu ownership', () => {
     )
   })
 
+  it('never commits a deferred extracted selection after its exact source is revoked', async () => {
+    const fixture = targetFixture('selected'),
+      writeText = vi.fn(() => Promise.resolve())
+    let finish!: (value: string) => void
+    fixture.getSelection.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    renderMenu(fixture.target, { writeText })
+    await openFromPointer(terminalTarget())
+    act(() => menuButton('Copy Selection').click())
+    act(() => fixture.revoke())
+    await act(async () => {
+      finish('old selected text')
+      await Promise.resolve()
+    })
+    expect(writeText).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
   it('reads text only after Paste activation and preserves exact bracketed-paste input', async () => {
     const fixture = targetFixture('')
     const readText = vi
@@ -186,7 +329,7 @@ describe('terminal context menu ownership', () => {
       .mockResolvedValue('line one\nline two')
     renderMenu(fixture.target, { readText })
 
-    openFromPointer(terminalTarget())
+    await openFromPointer(terminalTarget())
     expect(readText).not.toHaveBeenCalled()
     await clickMenuButton('Paste')
 
@@ -200,7 +343,7 @@ describe('terminal context menu ownership', () => {
     const readText = vi.fn<() => Promise<string>>().mockRejectedValue(new Error('denied'))
     renderMenu(fixture.target, { readText })
 
-    openFromPointer(terminalTarget())
+    await openFromPointer(terminalTarget())
     await clickMenuButton('Paste')
 
     expect(fixture.paste).not.toHaveBeenCalled()
@@ -214,7 +357,7 @@ describe('terminal context menu ownership', () => {
     const readText = vi.fn<() => Promise<string>>().mockResolvedValue('')
     renderMenu(fixture.target, { readText })
 
-    openFromPointer(terminalTarget())
+    await openFromPointer(terminalTarget())
     await clickMenuButton('Paste')
 
     expect(fixture.paste).not.toHaveBeenCalled()
@@ -234,14 +377,14 @@ describe('terminal context menu ownership', () => {
       ['Clear Screen and Scrollback', fixture.clear],
       ['Reset Terminal', fixture.reset],
     ] as const) {
-      openFromPointer(terminalTarget())
+      await openFromPointer(terminalTarget())
       await clickMenuButton(label)
       expect(action).toHaveBeenCalledOnce()
     }
 
-    openFromPointer(terminalTarget())
+    await openFromPointer(terminalTarget())
     await clickMenuButton('Split Terminal')
-    openFromPointer(terminalTarget())
+    await openFromPointer(terminalTarget())
     await clickMenuButton('Terminal Settings…')
 
     expect(onSplit).toHaveBeenCalledOnce()
@@ -256,7 +399,7 @@ describe('terminal context menu ownership', () => {
       forkAvailability: { available: true },
     })
 
-    openFromPointer(terminalTarget())
+    await openFromPointer(terminalTarget())
     const action = menuButton('Fork Conversation to New Terminal')
     await clickMenuButton('Fork Conversation to New Terminal')
     action.click()
@@ -271,7 +414,7 @@ describe('terminal context menu ownership', () => {
     'This terminal does not have an exact current conversation identity.',
     'The observed conversation identity diverged from this terminal.',
     'This terminal is no longer live.',
-  ])('states a disabled fork reason: %s', (reason) => {
+  ])('states a disabled fork reason: %s', async (reason) => {
     const fixture = targetFixture('')
     const onFork = vi.fn()
     renderMenu(fixture.target, {
@@ -279,7 +422,7 @@ describe('terminal context menu ownership', () => {
       forkAvailability: { available: false, reason },
     })
 
-    openFromPointer(terminalTarget())
+    await openFromPointer(terminalTarget())
     const action = menuButton('Fork Conversation to New Terminal')
 
     expect(action.disabled).toBe(true)
@@ -289,7 +432,7 @@ describe('terminal context menu ownership', () => {
     expect(onFork).not.toHaveBeenCalled()
   })
 
-  it('revokes the exact fork target before a stale action can run', () => {
+  it('revokes the exact fork target before a stale action can run', async () => {
     const fixture = targetFixture('')
     const onFork = vi.fn()
     renderMenu(fixture.target, {
@@ -297,7 +440,7 @@ describe('terminal context menu ownership', () => {
       forkAvailability: { available: true },
     })
 
-    openFromPointer(terminalTarget())
+    await openFromPointer(terminalTarget())
     act(() => fixture.revoke())
 
     expect(document.querySelector('[role="menu"]')).toBeNull()
@@ -310,7 +453,7 @@ describe('terminal context menu ownership', () => {
     document.addEventListener('click', documentClick)
     renderMenu(fixture.target)
 
-    openFromPointer(terminalTarget())
+    await openFromPointer(terminalTarget())
     await clickMenuButton('Select All')
 
     expect(fixture.selectAll).toHaveBeenCalledOnce()
@@ -329,7 +472,7 @@ describe('terminal context menu ownership', () => {
     )
     renderMenu(fixture.target, { readText })
 
-    openFromPointer(terminalTarget())
+    await openFromPointer(terminalTarget())
     act(() => menuButton('Paste').click())
     act(() => fixture.revoke())
     expect(document.querySelector('[role="menu"]')).toBeNull()
@@ -346,7 +489,7 @@ describe('terminal context menu ownership', () => {
     const onSearch = vi.fn()
     renderMenu(fixture.target, { onSearch })
 
-    openFromPointer(terminalTarget())
+    await openFromPointer(terminalTarget())
     await clickMenuButton('Search Terminal…')
 
     expect(onSearch).toHaveBeenCalledOnce()
@@ -429,6 +572,15 @@ function MenuHarness({
   )
 }
 
+function selectionStatus() {
+  let resolve!: (value: boolean) => void, reject!: (error: Error) => void
+  const promise = new Promise<boolean>((accept, refuse) => {
+    resolve = accept
+    reject = refuse
+  })
+  return { promise, resolve, reject }
+}
+
 function targetFixture(selection: string) {
   let current = true
   const revoked = new Set<() => void>()
@@ -436,14 +588,14 @@ function targetFixture(selection: string) {
     document.querySelector<HTMLElement>('.terminal-test-target')?.focus()
     return current
   })
-  const getSelection = vi.fn(() => (current ? selection : undefined))
+  const getSelection = vi.fn(() => Promise.resolve(current ? selection : undefined))
   const paste = vi.fn(() => current)
-  const selectAll = vi.fn(() => current)
-  const clear = vi.fn(() => current)
-  const reset = vi.fn(() => current)
+  const selectAll = vi.fn(() => Promise.resolve(current))
+  const clear = vi.fn(() => Promise.resolve(current))
+  const reset = vi.fn(() => Promise.resolve(current))
   const target: TerminalContextMenuTarget = {
     isCurrent: () => current,
-    hasSelection: () => current && selection.length > 0,
+    hasSelection: () => Promise.resolve(current && selection.length > 0),
     getSelection,
     paste,
     selectAll,
@@ -534,8 +686,9 @@ function terminalTarget(): HTMLDivElement {
   return target
 }
 
-function openFromPointer(target: HTMLElement): void {
-  act(() => {
+async function openFromPointer(target: HTMLElement): Promise<void> {
+  await act(async () => {
+    await Promise.resolve()
     target.dispatchEvent(
       new MouseEvent('contextmenu', {
         bubbles: true,
@@ -547,8 +700,13 @@ function openFromPointer(target: HTMLElement): void {
   })
 }
 
-function openFromKeyboard(target: HTMLElement, key: string, shiftKey = false): void {
-  act(() => {
+async function openFromKeyboard(
+  target: HTMLElement,
+  key: string,
+  shiftKey = false,
+): Promise<void> {
+  await act(async () => {
+    await Promise.resolve()
     target.dispatchEvent(
       new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true }),
     )

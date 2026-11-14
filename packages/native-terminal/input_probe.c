@@ -13,7 +13,7 @@ typedef struct {
   const char *library;
   hvir_terminal_host *host;
   hvir_terminal_id id;
-  uint64_t sequence, held_lease;
+  uint64_t sequence, held_lease, selection_cursor;
   unsigned checks;
   size_t wheel_capacity, wheel_bytes;
   uint64_t wheel_ms;
@@ -114,6 +114,175 @@ static bool key(probe *p, uint32_t key, uint32_t mods, uint32_t action,
     .text_length=strlen(text), .unshifted_codepoint=key == GHOSTTY_KEY_C ? 'c' : 0},
     false, expected, strlen(expected), 1);
 }
+/* ABI8 uses the same worker, parser and renderer as every assertion above. */
+static bool selection_context(probe *p, uint32_t screen,
+    hvir_terminal_selection_context *context, hvir_terminal_geometry *geometry) {
+  hvir_terminal_status status;
+  hvir_terminal_frame frame;
+  if (!replies_applied(p) || hvir_terminal_inspect(p->host, p->id, &status) != HVIR_OK ||
+      !completed(p, status.io_applied_mutation, &frame)) return false;
+  bool ok = check(p, frame.screen == screen, "completed-frame-actual-screen");
+  *context = (hvir_terminal_selection_context){.screen=frame.screen,
+    .geometry_serial=frame.geometry_serial};
+  *geometry = status.geometry;
+  if (hvir_terminal_release_frame(p->host, p->id, frame.lease) != HVIR_OK) return false;
+  p->held_lease = 0;
+  return ok;
+}
+static bool selection_command(probe *p, uint32_t action,
+    const hvir_terminal_selection_context *context, hvir_terminal_selection_result *out) {
+  return check(p, hvir_terminal_selection(p->host, p->id, action, context, out) == HVIR_OK,
+    "selection-command") && applied(p, out->requested_mutation);
+}
+static bool selection_pointer(probe *p, hvir_terminal_selection_context context,
+    hvir_terminal_geometry geometry, double column, double row, int action,
+    uint32_t modifiers, bool read_only, uint64_t *serial) {
+  hvir_terminal_input_event event = {.kind=HVIR_INPUT_POINTER,
+    .x=(geometry.padding_left + geometry.cell_width * column) / geometry.backing_scale,
+    .y=(geometry.padding_top + geometry.cell_height * row) / geometry.backing_scale,
+    .modifiers=modifiers, .has_button=action >= 0, .button=1,
+    .action=action >= 0 ? (uint32_t)action : 0,
+    .selection_enabled=true,.selection_screen=context.screen,
+    .selection_geometry=context.geometry_serial};
+  hvir_terminal_input_result out;
+  hvir_terminal_result code = hvir_terminal_input(p->host, p->id, &event, read_only, &out);
+  bool ok = check(p, code == HVIR_OK && out.selection_result == 0, "native-selection-input-metadata") &&
+    check(p, out.length == 0 && out.source == 1, "selection-no-pty-wire");
+  if (serial) *serial = out.selection_serial;
+  uint64_t mutation = out.requested_mutation;
+  hvir_terminal_input_result_free(&out);
+  return ok && applied(p, mutation);
+}
+static bool selection_drain(probe *p, uint64_t cursor, const char *expected,
+    bool require_clicked_zero) {
+  uint8_t bytes[7]; size_t total = 0, wanted = strlen(expected);
+  hvir_terminal_selection_result out = {0};
+  bool done = false;
+  for (unsigned calls = 0; calls < 10000 && !done; calls++) {
+    hvir_terminal_result code = hvir_terminal_extract_next(p->host, p->id, cursor,
+      bytes, sizeof(bytes), &out);
+    if (!check(p, code == HVIR_OK && !out.stale && out.cursor == cursor &&
+        out.length <= sizeof(bytes) && out.visited <= HVIR_TERMINAL_SELECTION_VISITS &&
+        out.work <= HVIR_TERMINAL_SELECTION_VISITS && (out.done || out.length || out.visited || out.work),
+        "bounded-native-selection-chunk")) return false;
+    if (!check(p, total + out.length <= wanted &&
+        !memcmp(bytes, expected + total, out.length), "native-selection-exact-concatenation")) return false;
+    total += out.length; done = out.done;
+  }
+  if (!check(p, done && total == wanted, "native-selection-completed-exact-length")) return false;
+  hvir_terminal_result code = hvir_terminal_extract_finish(p->host, p->id, cursor, &out);
+  p->selection_cursor = 0;
+  return check(p, code == HVIR_OK && !out.stale, "native-selection-finish-valid") &&
+    check(p, !require_clicked_zero || (out.has_clicked_offset && out.clicked_offset == 0),
+      "wide-tail-click-offset-is-head-zero");
+}
+static bool selection_copy(probe *p, const hvir_terminal_selection_context *context,
+    uint64_t serial, const char *expected) {
+  hvir_terminal_selection_result out;
+  if (!check(p, hvir_terminal_extract_begin(p->host, p->id, serial, context, &out) == HVIR_OK &&
+      out.cursor != 0, "native-selection-begin-owned-cursor")) return false;
+  p->selection_cursor = out.cursor;
+  return selection_drain(p, out.cursor, expected, false);
+}
+static bool selection_proof(probe *p) {
+  hvir_terminal_selection_context context;
+  hvir_terminal_geometry geometry;
+  hvir_terminal_selection_result out;
+  uint64_t serial = 0;
+  REQUIRE(feed(p, "\x1b[?1049h\x1b[?25l\x1b[2J\x1b[Halpha\r\nA\xe7\x95\x8c" "e\xcc\x81" "B"),
+    "selection-alternate-unicode-fixture");
+  REQUIRE(selection_context(p, 1, &context, &geometry), "selection-completed-alternate-context");
+  REQUIRE(selection_pointer(p, context, geometry, .25, .5, 1, 0, true, NULL), "readonly-native-selection-press");
+  REQUIRE(selection_pointer(p, context, geometry, 4.9, .5, -1, 0, true, NULL), "readonly-native-selection-drag");
+  REQUIRE(selection_pointer(p, context, geometry, 4.9, .5, 0, 0, true, &serial), "readonly-native-selection-release");
+  REQUIRE(serial && selection_copy(p, &context, serial, "alpha"), "readonly-native-drag-copy-exact");
+  REQUIRE(selection_command(p, HVIR_SELECTION_ALL, &context, &out) && out.has_selection,
+    "native-select-all-unicode");
+  REQUIRE(selection_copy(p, &context, out.selection_serial, "alpha\nA\xe7\x95\x8c" "e\xcc\x81" "B"),
+    "native-select-all-exact-wide-combining");
+  REQUIRE(hvir_terminal_selection(p->host, p->id, HVIR_SELECTION_STATE, &context, &out) == HVIR_OK &&
+    hvir_terminal_extract_begin(p->host, p->id, out.selection_serial, &context, &out) == HVIR_OK && out.cursor,
+    "native-cancel-active-copy-begin");
+  p->selection_cursor = out.cursor;
+  hvir_terminal_link_query busy_facts; uint8_t busy_uri[256]; size_t busy_length = 0;
+  REQUIRE(hvir_terminal_link_row_begin(p->host, p->id, 1, 1, &context, &out,
+    &busy_facts, busy_uri, sizeof(busy_uri), &busy_length) == HVIR_BUSY && !out.cursor,
+    "row-fallback-does-not-replace-owned-copy");
+  REQUIRE(hvir_terminal_extract_close(p->host, p->id, p->selection_cursor) == HVIR_OK,
+    "native-cancel-active-copy-owned-cursor");
+  p->selection_cursor = 0;
+  REQUIRE(selection_command(p, HVIR_SELECTION_TERMINAL_CLEAR, &context, &out), "native-clear-before-softwrap");
+  char wrap[2048];
+  REQUIRE(geometry.columns + 5 < sizeof(wrap), "softwrap-fixture-local-buffer");
+  memset(wrap, 'w', geometry.columns); memcpy(wrap + geometry.columns, "tail", 5);
+  REQUIRE(feed(p, wrap) && replies_applied(p), "native-softwrap-fixture-feed");
+  REQUIRE(selection_command(p, HVIR_SELECTION_ALL, &context, &out) &&
+    selection_copy(p, &context, out.selection_serial, wrap), "native-softwrap-without-invented-newline");
+  REQUIRE(selection_command(p, HVIR_SELECTION_TERMINAL_CLEAR, &context, &out) &&
+    feed(p, "alpha") && replies_applied(p), "native-copy-tracker-fixture");
+  REQUIRE(selection_command(p, HVIR_SELECTION_ALL, &context, &out), "native-copy-tracker-select");
+  REQUIRE(hvir_terminal_extract_begin(p->host, p->id, out.selection_serial, &context, &out) == HVIR_OK && out.cursor,
+    "native-unrelated-row-copy-begin");
+  p->selection_cursor = out.cursor;
+  REQUIRE(feed(p, "\x1b[5;1Hunrelated\x1b[1;6H") && replies_applied(p), "same-page-unrelated-row-output");
+  REQUIRE(selection_drain(p, p->selection_cursor, "alpha", false), "unrelated-row-output-does-not-starve-copy");
+  REQUIRE(hvir_terminal_selection(p->host, p->id, HVIR_SELECTION_STATE, &context, &out) == HVIR_OK,
+    "selection-survives-copy-completion");
+  REQUIRE(hvir_terminal_extract_begin(p->host, p->id, out.selection_serial, &context, &out) == HVIR_OK && out.cursor,
+    "native-overwrite-copy-begin");
+  p->selection_cursor = out.cursor;
+  uint8_t piece[4];
+  REQUIRE(hvir_terminal_extract_next(p->host, p->id, p->selection_cursor, piece, sizeof(piece), &out) == HVIR_OK &&
+    out.length && !out.done && out.work <= HVIR_TERMINAL_SELECTION_VISITS, "native-overwrite-first-partial-chunk");
+  REQUIRE(feed(p, "\x1b[1;1Hchanged") && replies_applied(p), "selected-row-overwritten-after-chunk");
+  REQUIRE(hvir_terminal_extract_next(p->host, p->id, p->selection_cursor, piece, sizeof(piece), &out) == HVIR_BUSY && out.stale,
+    "native-overwrite-stale-refusal");
+  REQUIRE(hvir_terminal_extract_close(p->host, p->id, p->selection_cursor) == HVIR_OK &&
+    hvir_terminal_extract_close(p->host, p->id, p->selection_cursor) == HVIR_OK, "native-targeted-cancel-idempotent");
+  p->selection_cursor = 0;
+  REQUIRE(key(p, GHOSTTY_KEY_C, 2, 1, "c", "\x03"), "native-input-live-after-stale-copy");
+  REQUIRE(feed(p, "\x1b[?1000h\x1b[?1006h") && replies_applied(p), "selection-live-tui-mode");
+  hvir_terminal_input_event pointer = {.kind=HVIR_INPUT_POINTER,
+    .x=(geometry.padding_left + geometry.cell_width * 2.5)/geometry.backing_scale,
+    .y=(geometry.padding_top + geometry.cell_height * 2.5)/geometry.backing_scale,
+    .has_button=true,.button=1,.action=1};
+  REQUIRE(input(p, pointer, false, "\x1b[<0;3;3M", 9, 1), "absent-draw-context-keeps-native-tui-report");
+  pointer.action = 0; pointer.selection_enabled = true; pointer.selection_screen = 0;
+  pointer.selection_geometry = context.geometry_serial;
+  REQUIRE(input(p, pointer, false, "\x1b[<0;3;3m", 9, 1), "stale-screen-context-keeps-native-tui-release");
+  REQUIRE(selection_pointer(p, context, geometry, .25, .5, 1, 1, false, NULL) &&
+    selection_pointer(p, context, geometry, 3.9, .5, -1, 1, false, NULL) &&
+    selection_pointer(p, context, geometry, 3.9, .5, 0, 1, false, &serial),
+    "shift-tui-override-native-selection-no-recursive-lock");
+  REQUIRE(input(p, (hvir_terminal_input_event){.kind=HVIR_INPUT_FOCUS}, true, "", 0, 2),
+    "readonly-native-gesture-focus-cleanup-no-wire");
+  REQUIRE(feed(p, "\x1b[?1000l\x1b[?1006l") && replies_applied(p), "restore-native-no-tui-reporting");
+  REQUIRE(selection_command(p, HVIR_SELECTION_TERMINAL_CLEAR, &context, &out) &&
+    feed(p, "\x1b]8;;https://example.com/path\x1b\\link\x1b]8;;\x1b\\") && replies_applied(p), "native-osc8-atomic-fixture");
+  hvir_terminal_link_query facts;
+  uint8_t uri[256]; size_t length = 0;
+  double x = (geometry.padding_left + geometry.cell_width * .5) / geometry.backing_scale;
+  double y = (geometry.padding_top + geometry.cell_height * .5) / geometry.backing_scale;
+  REQUIRE(hvir_terminal_link_row_begin(p->host, p->id, x, y, &context, &out, &facts, uri, sizeof(uri), &length) == HVIR_OK &&
+    !out.cursor && length == strlen("https://example.com/path") &&
+    !memcmp(uri, "https://example.com/path", length) && facts.screen == 1, "atomic-osc8-fast-path-no-row-cursor");
+  REQUIRE(selection_command(p, HVIR_SELECTION_TERMINAL_CLEAR, &context, &out) &&
+    feed(p, "\xe7\x95\x8c" "e\xcc\x81 ./file.ts") && replies_applied(p), "native-physical-row-wide-fixture");
+  x = (geometry.padding_left + geometry.cell_width * 1.5) / geometry.backing_scale;
+  REQUIRE(hvir_terminal_link_row_begin(p->host, p->id, x, y, &context, &out, &facts, uri, sizeof(uri), &length) == HVIR_OK &&
+    out.cursor && !length && out.column == 1, "native-wide-tail-row-cursor-actual-column");
+  p->selection_cursor = out.cursor;
+  REQUIRE(selection_drain(p, out.cursor, "\xe7\x95\x8c" "e\xcc\x81 ./file.ts", true), "native-row-exact-and-clicked-byte-head");
+  REQUIRE(feed(p, "\x1b[?1049l"), "restore-primary-screen-after-selection");
+  REQUIRE(selection_context(p, 0, &context, &geometry), "completed-frame-primary-screen-restored");
+done:
+  if (p->selection_cursor) {
+    check(p, hvir_terminal_extract_close(p->host, p->id, p->selection_cursor) == HVIR_OK, "selection-owned-cursor-cleanup");
+    p->selection_cursor = 0;
+  }
+  return !p->failed;
+}
+
 static void *run(void *data) {
   probe *p = data;
   uint8_t *paste_text = NULL, *paste_expected = NULL;
@@ -296,6 +465,10 @@ static void *run(void *data) {
     completed(p, status.io_applied_mutation, &restored), "readonly-scroll-down-applied-frame");
   REQUIRE(restored.kind == 2 || frame_hash(p, &restored) == original, "readonly-viewport-restores-bottom");
   REQUIRE(hvir_terminal_release_frame(p->host, p->id, restored.lease) == HVIR_OK, "release-readonly-bottom");
+  REQUIRE(hvir_terminal_release_frame(p->host, p->id, p->held_lease) == HVIR_OK,
+    "cleanup-held-resource-idempotent");
+  p->held_lease = 0;
+  REQUIRE(selection_proof(p), "abi8-same-parser-selection-and-link-proof");
 done:
   free(paste_text); free(paste_expected);
   if (p->held_lease) check(p, hvir_terminal_release_frame(p->host, p->id, p->held_lease) == HVIR_OK,

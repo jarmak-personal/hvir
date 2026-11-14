@@ -8,10 +8,12 @@ import type { TerminalRuntimeInteractions } from './terminal-runtime-interaction
 export async function bindStartedTerminalPane(
   pane: TerminalRuntimePane,
   ptyId: string,
-  interactions: Pick<TerminalRuntimeInteractions, 'bind'>,
+  interactions: Pick<TerminalRuntimeInteractions, 'bind' | 'bindSelection'>,
 ): Promise<void> {
-  if (isNativeTerminalPane(pane)) await pane.bind(ptyId)
-  else interactions.bind(pane, ptyId)
+  if (isNativeTerminalPane(pane)) {
+    await pane.bind(ptyId)
+    interactions.bindSelection(pane, ptyId)
+  } else interactions.bind(pane, ptyId)
 }
 
 export function publishTerminalIdentity(

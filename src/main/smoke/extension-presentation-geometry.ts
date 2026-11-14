@@ -178,6 +178,28 @@ export async function verifyExtensionAttentionFocus(
   )
 }
 
+/** Same real Chromium rail predicate plus bounded, content-free last-observation facts. */
+export function extensionRailGeometryProbe(headerItems: number): string {
+  return `(() => {
+          const rail=document.querySelector('.terminal-rail:not([hidden])'), header=rail?.querySelector('.terminal-rail-header'), group=header?.querySelector('.extension-terminal-items');
+          const context={viewport:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},scale:getComputedStyle(document.documentElement).getPropertyValue('--hvir-interface-scale').trim(),theme:document.documentElement.dataset.theme,fonts:document.fonts.status};
+          const contributions=group?.querySelectorAll('button').length??0;
+          if(!header||!group||contributions!==${headerItems})return {accepted:false,checks:{elements:!!header&&!!group,contributions:contributions===${headerItems}},contributions,...context};
+          const bounds=header.getBoundingClientRect(), part=group.getBoundingClientRect();
+          const actions=[...header.querySelector('.terminal-header-actions').children].filter(e=>e!==group).map(e=>e.getBoundingClientRect());
+          const buttons=[...group.querySelectorAll('button')];
+          const controls=[part,...actions];
+          const singleRow=controls.every(e=>Math.abs((e.top+e.bottom)/2-(part.top+part.bottom)/2)<1);
+          const contained=controls.every((e,i)=>e.left>=bounds.left&&e.right<=bounds.right&&e.top>=bounds.top&&e.bottom<=bounds.bottom&&controls.slice(i+1).every(other=>e.right<=other.left+1||other.right<=e.left+1));
+          const accessible=[...header.querySelectorAll('button')].every(e=>e.getAttribute('aria-label')&&e.title);
+          const chrome=header.querySelectorAll('.terminal-header-actions > button, .terminal-move-control > button, .terminal-new-control > button');
+          const oneRowHeight=bounds.height<=Math.max(...controls.map(e=>e.height))+10;
+          const checks={railLabel:!!rail.getAttribute('aria-label'),noSettings:!header.querySelector('.terminal-settings-button'),noHeading:!header.textContent.includes('Terminals'),chromeCount:chrome.length===4,contributionWidth:!(part.width<52),singleRow,contained,accessible,oneRowHeight,buttonsFit:!buttons.some(e=>e.scrollWidth>e.clientWidth||e.getBoundingClientRect().width>28),scroll:getComputedStyle(group).overflowX==='auto'};
+          const box=e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,left:r.left,right:r.right,top:r.top,bottom:r.bottom};};
+          return {accepted:Object.values(checks).every(Boolean),checks,...context,width:bounds.width,height:bounds.height,contributionWidth:part.width,singleRow,contained,accessible,header:box(header),group:{...box(group),scrollWidth:group.scrollWidth,clientWidth:group.clientWidth,scrollLeft:group.scrollLeft},actions:actions.slice(0,8).map(r=>({x:r.x,y:r.y,width:r.width,height:r.height})),contributions,buttons:buttons.slice(0,16).map(e=>({...box(e),scrollWidth:e.scrollWidth,clientWidth:e.clientWidth}))};
+        })()`
+}
+
 /** One compact row keeps built-ins and the full declared extension demand reachable. */
 export async function verifyExtensionRailGeometry(
   win: BrowserWindow,
@@ -212,24 +234,32 @@ export async function verifyExtensionRailGeometry(
         await win.webContents.executeJavaScript(
           `document.documentElement.dataset.theme=${JSON.stringify(theme)};document.documentElement.style.setProperty('--hvir-interface-scale',${JSON.stringify(scale)})`,
         )
-        const geometry = `(() => {
-          const rail=document.querySelector('.terminal-rail:not([hidden])'), header=rail?.querySelector('.terminal-rail-header'), group=header?.querySelector('.extension-terminal-items');
-          if(!header||!group||group.querySelectorAll('button').length!==${headerItems})return false;
-          const bounds=header.getBoundingClientRect(), part=group.getBoundingClientRect();
-          const actions=[...header.querySelector('.terminal-header-actions').children].filter(e=>e!==group).map(e=>e.getBoundingClientRect());
-          const buttons=[...group.querySelectorAll('button')];
-          const controls=[part,...actions];
-          const singleRow=controls.every(e=>Math.abs((e.top+e.bottom)/2-(part.top+part.bottom)/2)<1);
-          const contained=controls.every((e,i)=>e.left>=bounds.left&&e.right<=bounds.right&&e.top>=bounds.top&&e.bottom<=bounds.bottom&&controls.slice(i+1).every(other=>e.right<=other.left+1||other.right<=e.left+1));
-          const accessible=[...header.querySelectorAll('button')].every(e=>e.getAttribute('aria-label')&&e.title);
-          const chrome=header.querySelectorAll('.terminal-header-actions > button, .terminal-move-control > button, .terminal-new-control > button');
-          const oneRowHeight=bounds.height<=Math.max(...controls.map(e=>e.height))+10;
-          if(!rail.getAttribute('aria-label')||header.querySelector('.terminal-settings-button')||header.textContent.includes('Terminals')||chrome.length!==4||part.width<52||!singleRow||!contained||!accessible||!oneRowHeight||buttons.some(e=>e.scrollWidth>e.clientWidth||e.getBoundingClientRect().width>28)||getComputedStyle(group).overflowX!=='auto')return false;
-          return {width:bounds.width,height:bounds.height,contributionWidth:part.width,contributions:buttons.length,singleRow,contained,accessible,scale:getComputedStyle(document.documentElement).getPropertyValue('--hvir-interface-scale').trim(),theme:document.documentElement.dataset.theme};
-        })()`
-        await wait(
-          async () => !!(await win.webContents.executeJavaScript(geometry)),
-          `single-row terminal controls without overlap: ${theme} ${variant}`,
+        const geometry = extensionRailGeometryProbe(headerItems)
+        let lastObservation: { accepted: boolean } | undefined
+        await wait(async () => {
+          lastObservation = (await win.webContents.executeJavaScript(geometry)) as {
+            accepted: boolean
+          }
+          return lastObservation.accepted
+        }, `single-row terminal controls without overlap: ${theme} ${variant}`).catch(
+          (reason: unknown) => {
+            console.log(
+              '[smoke] terminal rail geometry failure',
+              JSON.stringify({
+                theme,
+                variant,
+                requestedContentSize: {
+                  width: variant === 'ordinary' ? 1280 : 760,
+                  height: 800,
+                },
+                window: win.getBounds(),
+                content: win.getContentBounds(),
+                zoom: win.webContents.getZoomFactor(),
+                lastObservation,
+              }),
+            )
+            throw reason
+          },
         )
         await win.webContents.executeJavaScript(
           "document.querySelector('.terminal-rail-header .extension-terminal-items button:last-child').focus()",

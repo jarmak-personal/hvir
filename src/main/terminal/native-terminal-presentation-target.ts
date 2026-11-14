@@ -23,8 +23,26 @@ export class NativeTerminalPresentationTargets {
   private disposed = false
   private readonly granted = new Map<
     string,
-    { frame: WebFrameMain; grant: NativeTerminalViewGrant; fail(): void }
+    {
+      frame: WebFrameMain
+      grant: NativeTerminalViewGrant
+      current(): boolean
+      drawnScreen?: 0 | 1
+      fail(): void
+    }
   >()
+  /** A successful receiver draw qualifies geometry, not old text or physical paint. */
+  drawn(viewId: string, frame: WebFrameMain) {
+    const view = this.granted.get(viewId)
+    if (
+      !view ||
+      view.frame !== frame ||
+      !view.current() ||
+      view.drawnScreen === undefined
+    )
+      return
+    return { screen: view.drawnScreen, geometrySerial: view.grant.geometrySerial }
+  }
   acknowledge(frame: WebFrameMain, value: unknown): void {
     if (!value || typeof value !== 'object') return
     const ack = value as {
@@ -32,6 +50,19 @@ export class NativeTerminalPresentationTargets {
       accepted?: boolean
       kind?: string
       grant?: unknown
+      screen?: unknown
+    }
+    if (ack.kind === 'drawn' && validNativeTerminalViewGrant(ack.grant)) {
+      const routed = this.granted.get(ack.grant.viewId)
+      if (
+        routed &&
+        frame === routed.frame &&
+        routed.current() &&
+        sameNativeTerminalView(routed.grant, ack.grant) &&
+        (ack.screen === 0 || ack.screen === 1)
+      )
+        routed.drawnScreen = ack.screen
+      return
     }
     if (ack.kind === 'renderer-failure' && validNativeTerminalViewGrant(ack.grant)) {
       const routed = this.granted.get(ack.grant.viewId)
@@ -85,6 +116,7 @@ export class NativeTerminalPresentationTargets {
           this.granted.set(viewId, {
             frame,
             grant,
+            current,
             fail: () => {
               failed = true
               unavailable?.(grant)

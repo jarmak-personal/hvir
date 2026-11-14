@@ -1,4 +1,9 @@
 import { validNativeTerminalLinkQuery } from '../shared/native-terminal-link'
+import { validNativeTerminalSelectionOperation } from '../shared/native-terminal-selection'
+import {
+  runNativeSelectionStep,
+  type NativeSelectionEngineResult,
+} from './native-terminal-selection'
 import { Worker } from 'node:worker_threads'
 import { join } from 'node:path'
 import resource from '@hvir/native-terminal/resource'
@@ -34,7 +39,7 @@ interface ParentPort {
   on(event: 'message', listener: (event: { data: unknown }) => void): void
   postMessage(message: NativeTerminalHostMessage): void
 }
-interface NativeResult {
+interface NativeResult extends NativeSelectionEngineResult {
   result: number
   id?: bigint
   status?: Status
@@ -197,7 +202,13 @@ export function runNativeTerminalHost(
         const result = await invoke(
           state,
           'input',
-          [state, command.input, command.readOnly, command.keyEncodingFallback],
+          [
+            state,
+            command.input,
+            command.readOnly,
+            command.keyEncodingFallback,
+            command.selectionContext,
+          ],
           nativeTerminalCommandBytes(command),
         )
         if (
@@ -213,6 +224,12 @@ export function runNativeTerminalHost(
         const { data, ...metadata } = requireOk(result)
         return { ...(plain(metadata) as object), bytes: data }
       }
+      case 'selection':
+        return runNativeSelectionStep(
+          command.operation,
+          (operation) => invoke(state, 'selection', [state, operation]),
+          cancelled,
+        )
       case 'visibility':
         return requireOk(await invoke(state, 'visibility', [state, command.visible]))
       case 'presentation-mode':
@@ -266,6 +283,7 @@ export function runNativeTerminalHost(
         }
         return plain({
           lease: frame.lease,
+          screen: frame.screen,
           streamSequence: frame.streamSequence,
           snapshotMutation: frame.snapshotMutation,
           geometrySerial: frame.geometrySerial,
@@ -440,6 +458,8 @@ function validCommand(value: NativeTerminalCommand): boolean {
       )
     case 'link':
       return validNativeTerminalLinkQuery(value.query)
+    case 'selection':
+      return validNativeTerminalSelectionOperation(value.operation)
     case 'key':
       return validNativeTerminalKeyInput(value)
     case 'input':

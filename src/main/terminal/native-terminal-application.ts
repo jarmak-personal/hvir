@@ -24,6 +24,7 @@ import { NativeTerminalHost } from './native-terminal-host'
 import { NativeTerminalFrameImports } from './native-terminal-import'
 import { NativeTerminalPresenter } from './native-terminal-presenter'
 import { NativeTerminalPresentationTargets } from './native-terminal-presentation-target'
+import { NativeTerminalSelection } from './native-terminal-selection'
 
 /** Application lifetime wiring stays beside the native resource owner. */
 export async function installNativeTerminalApplication(
@@ -97,6 +98,7 @@ type OwnedPty = Pick<
 export class NativeTerminalApplication {
   private readonly stopPtyObservation: import('../project-host/project-host').Disposer
   private readonly inputOwner: NativeTerminalInput
+  private readonly selectionOwner: NativeTerminalSelection
   private readonly views = new Map<
     string,
     {
@@ -130,6 +132,7 @@ export class NativeTerminalApplication {
       | 'readLinkProducer'
       | 'input'
       | 'rendererInfo'
+      | 'selection'
       | 'dispose'
     >,
     private readonly presenter: Pick<
@@ -138,7 +141,7 @@ export class NativeTerminalApplication {
     >,
     readonly targets: Pick<
       NativeTerminalPresentationTargets,
-      'create' | 'dispose' | 'acknowledge'
+      'create' | 'dispose' | 'acknowledge' | 'drawn'
     >,
     private readonly ptys: Pick<
       PtySupervisor,
@@ -151,6 +154,9 @@ export class NativeTerminalApplication {
     readonly effects?: NativeTerminalEffectPolicy,
   ) {
     this.inputOwner = new NativeTerminalInput(host)
+    this.selectionOwner = new NativeTerminalSelection(host, (id, owner) =>
+      this.selectionSource(id, owner),
+    )
     this.stopPtyObservation = ptys.observe(() => this.refreshOwnership())
     this.refreshOwnership()
   }
@@ -168,7 +174,10 @@ export class NativeTerminalApplication {
         native.session.ownerId !== managed.ownerId ||
         native.session.ownerGeneration !== managed.ownerGeneration ||
         !hostPathEquals(native.session.workspaceRoot, managed.workspaceRoot)
-      )
+      ) {
+        for (const [viewId, view] of this.views)
+          if (view.sessionId === managed.id && view.instanceId === managed.instanceId)
+            this.selectionOwner.revoke(viewId)
         this.sessions.transferOwner(
           managed.id,
           managed.instanceId,
@@ -176,6 +185,7 @@ export class NativeTerminalApplication {
           managed.ownerGeneration,
           managed.workspaceRoot,
         )
+      }
     }
   }
   /** Trusted-main qualification only; not a renderer IPC capability. */
@@ -198,6 +208,36 @@ export class NativeTerminalApplication {
   ): import('../../shared/native-terminal-effects').NativeTerminalMetadata {
     const record = this.requireSession(id, owner)
     return { instanceId: record.session.instanceId, title: record.title }
+  }
+  selection(
+    request: import('../../shared/native-terminal-selection').NativeTerminalSelectionRequest,
+    owner: RendererOwner,
+  ) {
+    return this.selectionOwner.action(request, owner)
+  }
+  readSelection(
+    request: import('../../shared/native-terminal-selection').NativeTerminalSelectionReadRequest,
+    owner: RendererOwner,
+  ) {
+    return this.selectionOwner.read(request, owner)
+  }
+  cancelSelection(
+    request: import('../../shared/native-terminal-selection').NativeTerminalSelectionReadRequest,
+    owner: RendererOwner,
+  ): void {
+    this.selectionOwner.cancel(request, owner)
+  }
+  captureLink(
+    request: import('../../shared/native-terminal-link').NativeTerminalLinkIntent,
+    owner: RendererOwner,
+  ) {
+    return this.selectionOwner.link(request, owner)
+  }
+  continueLink(
+    request: import('../../shared/native-terminal-selection').NativeTerminalSelectionReadRequest,
+    owner: RendererOwner,
+  ) {
+    return this.selectionOwner.readLink(request, owner)
   }
   async readLink(
     id: string,
@@ -320,6 +360,7 @@ export class NativeTerminalApplication {
     },
   ): Promise<void> {
     const view = this.requireView(viewId, owner)
+    this.selectionOwner.revoke(viewId)
     const cleanup = !layout.visible
       ? this.inputOwner.blur(this.inputContext(viewId, owner, true))
       : undefined
@@ -393,8 +434,6 @@ export class NativeTerminalApplication {
     if (input.kind !== 'wheel' && input.kind !== 'pointer' && input.kind !== 'caret')
       this.requireInput(viewId, owner)
     const context = this.inputContext(viewId, owner)
-    if (context.readOnly && input.kind === 'pointer' && input.button !== undefined)
-      throw new Error('native-session-readonly')
     try {
       return this.inputOwner.dispatch(context, input).catch((error: unknown) => {
         if (
@@ -448,6 +487,7 @@ export class NativeTerminalApplication {
       handle: record.handle,
       instanceId: view.instanceId,
       geometrySerial: view.geometrySerial,
+      selectionContext: captured ? undefined : this.targets.drawn(viewId, view.frame),
       state: view.input,
       inputSettled: () => this.sessions.inputSettled(view.sessionId, view.instanceId),
       retainInput: (pending) =>
@@ -466,11 +506,7 @@ export class NativeTerminalApplication {
         if (current.view !== view || view.revision !== revision)
           throw new Error('native-view-stale')
       },
-      prefix: () =>
-        !record.unavailable &&
-        this.ptys.get(view.sessionId)?.instanceId === view.instanceId
-          ? this.ptys.inputPrefix(view.sessionId, view.instanceId)
-          : { parsed: () => Promise.resolve(), replies: () => Promise.resolve() },
+      prefix: () => this.inputPrefix(view.sessionId, view.instanceId, record.unavailable),
       writeUser: (bytes) =>
         this.ptys.writeConfirmed(
           view.sessionId,
@@ -489,6 +525,7 @@ export class NativeTerminalApplication {
     if (!view) return
     if (view.owner.id !== owner.id || view.owner.generation !== owner.generation)
       throw new Error('native-view-foreign')
+    this.selectionOwner.revoke(viewId)
     const context = this.inputContext(viewId, owner, true)
     this.views.delete(viewId)
     const results = await Promise.allSettled([this.inputOwner.revoke(context)])
@@ -504,21 +541,64 @@ export class NativeTerminalApplication {
       }
     }
     const results = await Promise.allSettled(detaching)
-    results.push(...(await Promise.allSettled([this.sessions.remove(id, instanceId)])))
+    const removed = await Promise.allSettled([this.sessions.remove(id, instanceId)])
+    if (removed[0]?.status === 'fulfilled') this.selectionOwner.forget(instanceId)
+    results.push(...removed)
     const failure = results.find((result) => result.status === 'rejected')
     if (failure?.status === 'rejected') throw failure.reason
   }
   unavailable(sessionId: string, instanceId: string): void {
     for (const [viewId, view] of this.views) {
-      if (view.sessionId === sessionId && view.instanceId === instanceId)
+      if (view.sessionId === sessionId && view.instanceId === instanceId) {
+        this.selectionOwner.revoke(viewId)
         void this.presenter.suspend(viewId).catch(() => undefined)
+      }
     }
   }
   dispose(): void {
     void this.stopPtyObservation()
+    this.selectionOwner.dispose()
     this.views.clear()
     this.targets.dispose()
     this.host.dispose()
+  }
+  private inputPrefix(id: string, instanceId: string, unavailable = false) {
+    return !unavailable && this.ptys.get(id)?.instanceId === instanceId
+      ? this.ptys.inputPrefix(id, instanceId)
+      : { parsed: () => Promise.resolve(), replies: () => Promise.resolve() }
+  }
+  private selectionSource(viewId: string, owner: RendererOwner) {
+    const view = this.requireView(viewId, owner)
+    const record = this.requireSession(view.sessionId, owner)
+    const session = record.session,
+      revision = view.revision
+    const geometry = this.targets.drawn(viewId, view.frame)
+    if (!geometry || geometry.geometrySerial !== view.geometrySerial)
+      throw new Error('native-selection-not-drawn')
+    return {
+      handle: record.handle,
+      instanceId: view.instanceId,
+      workspaceRoot: session.workspaceRoot,
+      geometry,
+      prefix: () => this.inputPrefix(view.sessionId, view.instanceId, record.unavailable),
+      assertCurrent: () => {
+        const current = this.requireView(viewId, owner)
+        const native = this.requireSession(view.sessionId, owner)
+        const drawn = this.targets.drawn(viewId, view.frame)
+        if (
+          current !== view ||
+          native.handle !== record.handle ||
+          native.session !== session ||
+          view.revision !== revision ||
+          !view.visible ||
+          !this.presenter.isInputCurrent(viewId) ||
+          !drawn ||
+          drawn.geometrySerial !== geometry.geometrySerial ||
+          drawn.screen !== geometry.screen
+        )
+          throw new Error('native-selection-source-stale')
+      },
+    }
   }
   private requireInput(id: string, owner: RendererOwner) {
     const view = this.requireView(id, owner)

@@ -46,7 +46,8 @@ static bool valid_input_text(const hvir_terminal_input_event *event) {
 static bool valid_event(const hvir_terminal_input_event *event) {
   if (!event || event->kind < HVIR_INPUT_KEY || event->kind > HVIR_INPUT_CARET ||
       event->modifiers > 1023 || event->consumed_modifiers > 1023 ||
-      (event->text_length && !event->text)) return false;
+      (event->text_length && !event->text) ||
+      (event->selection_enabled && (event->selection_screen > 1 || !event->selection_geometry))) return false;
   switch (event->kind) {
     case HVIR_INPUT_KEY:
       if (event->key > 175 || event->action > 2 || event->option_as_alt > 3 || event->encoding_fallback > 2 ||
@@ -92,6 +93,8 @@ hvir_terminal_result hvir_terminal_input(hvir_terminal_host *host, hvir_terminal
     .unshifted_codepoint = event->unshifted_codepoint, .option_as_alt = event->option_as_alt,
     .encoding_fallback = event->encoding_fallback,
     .composing = event->composing, .focused = event->focused, .precision = event->precision,
+    .selection_enabled = event->selection_enabled, .selection_screen = event->selection_screen,
+    .selection_geometry = event->selection_geometry,
     .has_button = event->has_button, .button = event->button, .x = event->x, .y = event->y,
     .delta_x = event->delta_x, .delta_y = event->delta_y,
     .text = event->text, .text_len = event->text_length,
@@ -137,6 +140,10 @@ hvir_terminal_result hvir_terminal_input(hvir_terminal_host *host, hvir_terminal
   out->length = capture.length;
   out->capacity = capture.capacity;
   out->captured = observed.captured;
+  out->has_selection = observed.has_selection;
+  out->selection_serial = observed.selection_serial;
+  out->selection_result = observed.selection_result;
+  out->link_candidate = observed.link_candidate;
   out->has_caret = query;
   out->geometry_serial = geometry;
   out->caret_x = observed.x;

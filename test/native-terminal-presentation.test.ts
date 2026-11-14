@@ -14,13 +14,65 @@ const grant: NativeTerminalViewGrant = {
 function fixture() {
   const canvas = { draw: vi.fn(), pixels: vi.fn(), dispose: vi.fn() }
   const create = vi.fn((_id: string, _lost: () => void) => canvas)
-  const receiver = new NativeTerminalPresentationReceiver(create)
+  const drawn = vi.fn()
+  const receiver = new NativeTerminalPresentationReceiver(create, undefined, drawn)
   const frame = { close: vi.fn() }
   const texture = { getVideoFrame: vi.fn(() => frame), release: vi.fn() }
-  const metadata = { nativeTerminal: { ...grant }, colorSpace: 1, origin: 1 }
-  return { receiver, canvas, create, frame, texture, metadata }
+  const metadata = {
+    nativeTerminal: { ...grant },
+    screen: 0 as const,
+    colorSpace: 1,
+    origin: 1,
+  }
+  return { receiver, canvas, create, frame, texture, metadata, drawn }
 }
 describe('isolated native presentation routing', () => {
+  it('preserves frame cleanup when smoke timing fails, including an original close error', () => {
+    vi.stubGlobal('__HVIR_SMOKE_BUILD__', true)
+    vi.spyOn(performance, 'now').mockImplementationOnce(() => {
+      throw new Error('clock unavailable')
+    })
+    const measure = vi.spyOn(performance, 'measure').mockImplementation(() => {
+      throw new Error('measurement unavailable')
+    })
+    vi.spyOn(performance, 'clearMeasures').mockImplementation(() => {
+      throw new Error('measurement cleanup unavailable')
+    })
+    try {
+      const f = fixture()
+      f.receiver.mount(grant.viewId, 'retained-terminal')
+      f.receiver.grant({ viewId: grant.viewId, grant })
+      f.receiver.receive(f.texture, f.metadata)
+      expect(f.drawn).toHaveBeenCalledOnce()
+      expect(f.frame.close).toHaveBeenCalledOnce()
+      expect(f.texture.release).toHaveBeenCalledOnce()
+      expect(measure).toHaveBeenCalled()
+      const original = new Error('frame close failed')
+      f.frame.close.mockImplementationOnce(() => {
+        throw original
+      })
+      expect(() => f.receiver.receive(f.texture, f.metadata)).toThrow(original)
+      expect(f.texture.release).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    }
+  })
+  it('reports geometry readiness only after a successful current draw', () => {
+    const f = fixture()
+    f.receiver.mount(grant.viewId, 'retained-terminal')
+    f.receiver.grant({ viewId: grant.viewId, grant })
+    f.canvas.draw.mockImplementationOnce(() => {
+      expect(f.drawn).not.toHaveBeenCalled()
+    })
+    f.receiver.receive(f.texture, f.metadata)
+    expect(f.drawn).toHaveBeenCalledExactlyOnceWith(f.metadata)
+    f.canvas.draw.mockImplementationOnce(() => {
+      throw new Error('canvas draw refused')
+    })
+    f.receiver.receive(f.texture, f.metadata)
+    expect(f.drawn).toHaveBeenCalledOnce()
+  })
   it('requires both a local mount and main-issued grant before opening a VideoFrame', () => {
     const f = fixture()
     f.receiver.receive(f.texture, f.metadata)

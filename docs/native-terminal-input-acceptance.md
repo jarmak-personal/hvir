@@ -101,3 +101,34 @@ Renderer RAF gaps retain the existing responsiveness budget. Electron process me
 and renderer heap measurements are sampled observations, with units and unavailable
 fields preserved; result-capacity credits are not a physical-memory or peak-working-set
 bound. Synthetic clipboard events do not qualify system clipboard integration.
+
+## Native selection and explicit copy
+
+The same opt-in workbench scenario also runs a synthetic selection recorder inside
+its existing Shell PTY. Real Chromium pointer events exercise drag, word/line
+selection, Unicode/wide/combining characters, explicit whitespace, soft wraps,
+Select All, the context menu, Meta+C and Ctrl+Shift+C. Plain Ctrl+C remains terminal
+input. Copy goldens come from fixed fixture data, rather than an observed selection.
+An unrelated-row producer honors stdout backpressure and emits at least 64 KiB before
+the live drag/copy phase. A larger copy checks actual later Ctrl+C progress or a
+truthful stale refusal after that input causes selected output to change.
+
+The qualifier intentionally tests Clear Screen and Scrollback and Reset Terminal.
+It first verifies the original retained marker, then starts a new, explicitly named
+retention epoch. The later paste, resize and final-exit checks preserve that new
+marker. Known colored history and a fixed final marker keep the finished-terminal
+scroll/selection checks independent from shell prompt formatting.
+
+Local runs intercept the browser's clipboard write call and retain only byte counts
+and SHA-256 values; they do not modify the machine's clipboard. The explicit
+`HVIR_NATIVE_TERMINAL_ISOLATED_CLIPBOARD=1` qualification flag is reserved for the
+Linux CI scenario's disposable Xvfb display, where the actual browser write is read
+back through Electron's clipboard owner. Receipts distinguish those modes. This is
+not primary-selection or middle-click paste support.
+
+Synthetic OSC8/file and plain-path links retain the originating host. A dedicated
+HTTP fixture listens only on `127.0.0.1` with an ephemeral port for the real loopback
+web-pane route; the qualifier closes its pane and server. External-link activation
+is observed at the existing browser opener without launching an OS application.
+These software checks do not qualify hardware GPU presentation, manual OS clipboard
+formats, SSH/provider-specific image staging, physical paint, or OS input methods.

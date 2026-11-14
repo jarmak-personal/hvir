@@ -202,6 +202,7 @@ await run(
     join(repository, 'packages/native-terminal/terminal.c'),
     join(repository, 'packages/native-terminal/terminal_input.c'),
     join(repository, 'packages/native-terminal/terminal_effects.c'),
+    join(repository, 'packages/native-terminal/terminal_selection.c'),
     join(repository, 'packages/native-terminal/linux_display.c'),
     join(repository, 'packages/native-terminal/facade_probe.c'),
     '-pthread',
@@ -247,8 +248,8 @@ await writeFile(
   JSON.stringify(facadeResult, null, 2) + '\n',
 )
 console.log(facade.stdout.trim())
-// Both proofs use the same real Surface; they report contract counts, never contents.
-for (const capability of ['input', 'effects']) {
+// Each proof uses the same real Surface; it reports contract counts, never contents.
+for (const capability of ['input', 'effects', 'selection']) {
   await run(
     'cc',
     [
@@ -261,6 +262,7 @@ for (const capability of ['input', 'effects']) {
         'terminal.c',
         'terminal_input.c',
         'terminal_effects.c',
+        'terminal_selection.c',
         'linux_display.c',
         `${capability}_probe.c`,
       ].map((file) => join(repository, 'packages/native-terminal', file)),
@@ -280,12 +282,41 @@ for (const capability of ['input', 'effects']) {
     kind?: unknown
     passed?: unknown
     checks?: unknown
+    mutationCases?: unknown
+    sourceCases?: unknown
+    linkCandidateCases?: unknown
+    autoscrollCases?: unknown
+    largeCopyBytes?: unknown
+    largeCopyChunks?: unknown
+    workBoundaryBytes?: unknown
+    workBoundaryChunks?: unknown
+    cleanupChecked?: unknown
   }
   if (
     result.kind !== `native-${capability}` ||
     result.passed !== true ||
     typeof result.checks !== 'number' ||
-    result.checks < (capability === 'input' ? 100 : 30)
+    result.checks < (capability === 'effects' ? 30 : 100) ||
+    (capability === 'selection' &&
+      (typeof result.mutationCases !== 'number' ||
+        result.mutationCases < 18 ||
+        typeof result.sourceCases !== 'number' ||
+        result.sourceCases < 5 ||
+        typeof result.linkCandidateCases !== 'number' ||
+        result.linkCandidateCases < 6 ||
+        typeof result.autoscrollCases !== 'number' ||
+        result.autoscrollCases < 2 ||
+        typeof result.largeCopyBytes !== 'number' ||
+        !Number.isSafeInteger(result.largeCopyBytes) ||
+        result.largeCopyBytes <= 1024 * 1024 ||
+        typeof result.largeCopyChunks !== 'number' ||
+        !Number.isSafeInteger(result.largeCopyChunks) ||
+        result.largeCopyChunks < 2 ||
+        typeof result.workBoundaryBytes !== 'number' ||
+        result.workBoundaryBytes <= 0 ||
+        typeof result.workBoundaryChunks !== 'number' ||
+        result.workBoundaryChunks < 2 ||
+        result.cleanupChecked !== true))
   )
     throw new Error(`native-${capability}: incomplete proof`)
   await writeFile(join(output, `${capability}-proof.json`), proof.stdout)
@@ -344,6 +375,7 @@ if (selected.platform === 'linux') {
               join(repository, 'packages/native-terminal/terminal.c'),
               join(repository, 'packages/native-terminal/terminal_input.c'),
               join(repository, 'packages/native-terminal/terminal_effects.c'),
+              join(repository, 'packages/native-terminal/terminal_selection.c'),
               join(repository, 'packages/native-terminal/linux_display.c'),
             ]
           : []),

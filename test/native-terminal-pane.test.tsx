@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { localPath } from '../src/shared/host-path'
 import { NativeTerminalPane } from '../src/renderer/src/terminal/native-terminal-pane'
 
 function deferred<T>() {
@@ -35,6 +36,19 @@ function fixture(
       Promise.resolve({ requestedMutation: 1 }),
     ),
     clipboardPaste: vi.fn(),
+    selection: vi.fn<ConstructorParameters<typeof NativeTerminalPane>[1]['selection']>(
+      () => Promise.resolve({ hasSelection: false, selectionSerial: 0 }),
+    ),
+    readSelection: vi.fn<
+      ConstructorParameters<typeof NativeTerminalPane>[1]['readSelection']
+    >(() => Promise.resolve({ hasSelection: false, selectionSerial: 0 })),
+    link: vi.fn<ConstructorParameters<typeof NativeTerminalPane>[1]['link']>(() =>
+      Promise.resolve({ pending: false }),
+    ),
+    readLink: vi.fn<ConstructorParameters<typeof NativeTerminalPane>[1]['readLink']>(() =>
+      Promise.resolve(undefined),
+    ),
+    cancelSelection: vi.fn(),
     ...overrides,
   }
   const pane = new NativeTerminalPane(api, port)
@@ -69,6 +83,92 @@ afterEach(() => {
 })
 
 describe('native retained pane adapter', () => {
+  it('publishes captured-root native links to typed listeners and opens only explicit external links', async () => {
+    if (!MouseEvent.prototype.getModifierState)
+      Object.defineProperty(MouseEvent.prototype, 'getModifierState', {
+        configurable: true,
+        value: () => false,
+      })
+    const f = fixture(),
+      receive = vi.fn(),
+      open = vi.spyOn(window, 'open').mockReturnValue(null)
+    f.pane.onLink(receive)
+    await f.ready()
+    const link = {
+      kind: 'file' as const,
+      target: 'file:///synthetic.ts',
+      workspaceRoot: localPath('/synthetic'),
+    }
+    f.port.input.mockImplementation(() =>
+      Promise.resolve({ requestedMutation: 1, linkCandidate: true, captured: false }),
+    )
+    f.port.link.mockResolvedValueOnce({ pending: false, link })
+    const release = () =>
+      f.element.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          button: 0,
+          clientX: 10,
+          clientY: 20,
+        }),
+      )
+    release()
+    await vi.waitFor(() => expect(receive).toHaveBeenCalledExactlyOnceWith(link))
+    expect(open).not.toHaveBeenCalled()
+    f.port.link.mockResolvedValueOnce({
+      pending: false,
+      link: {
+        kind: 'external-http',
+        target: 'https://example.com/',
+        workspaceRoot: link.workspaceRoot,
+      },
+    })
+    release()
+    await vi.waitFor(() =>
+      expect(open).toHaveBeenCalledExactlyOnceWith(
+        'https://example.com/',
+        '_blank',
+        'noopener,noreferrer',
+      ),
+    )
+    expect(receive).toHaveBeenCalledTimes(1)
+  })
+  it('exposes retained readonly selection through the exact native view and cancels a hidden copy', async () => {
+    const f = fixture()
+    await f.ready()
+    f.port.selection.mockResolvedValue({ hasSelection: true, selectionSerial: 5 })
+    f.port.readSelection.mockResolvedValue({
+      hasSelection: true,
+      selectionSerial: 5,
+      text: 'retained',
+    })
+    f.pane.setReadonly()
+    await expect(f.pane.selection.read()).resolves.toBe('retained')
+    const first = f.port.selection.mock.calls[0]![0]
+    expect(first.viewId).toBe('native-view')
+    expect(first.action).toBe('copy')
+    expect(first.requestId).toEqual(expect.any(String))
+    f.pane.paste('must not write')
+    expect(
+      f.port.input.mock.calls.some(([request]) => request.input.kind === 'paste'),
+    ).toBe(false)
+    const pending = deferred<{
+      hasSelection: boolean
+      selectionSerial: number
+      text?: string
+    }>()
+    f.port.selection.mockImplementationOnce(() => pending.promise)
+    const capability = f.pane.selection,
+      copying = capability.read()
+    const rejected = expect(copying).rejects.toMatchObject({ name: 'AbortError' })
+    await vi.waitFor(() => expect(f.port.selection).toHaveBeenCalledTimes(2))
+    const request = f.port.selection.mock.calls[1]![0]
+    f.pane.setPresentation('hidden')
+    expect(f.port.cancelSelection).toHaveBeenCalledWith('native-view', request.requestId)
+    pending.resolve({ hasSelection: true, selectionSerial: 5, text: 'stale' })
+    await rejected
+    expect(f.pane.selection).not.toBe(capability)
+  })
   it('keeps a newer live title when metadata bootstrap settles with an older snapshot', async () => {
     const metadata =
       deferred<import('../src/shared/native-terminal-effects').NativeTerminalMetadata>()
@@ -172,7 +272,8 @@ describe('native retained pane adapter', () => {
     await f.ready()
     expect(f.api.mount).toHaveBeenCalledOnce()
     const textarea = f.element.querySelector('textarea')!
-    expect(textarea.disabled).toBe(true)
+    expect(textarea.disabled).toBe(false)
+    expect(textarea.readOnly).toBe(true)
     expect(f.element.textContent).toContain('Native input unavailable')
     f.key('KeyA', 'a')
     expect(

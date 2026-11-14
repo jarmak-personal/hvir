@@ -223,9 +223,9 @@ async function deliver(
 
   const target = runtime.interactions.contextMenuTarget()!
   expect(target.paste('line one\nline two')).toBe(true)
-  expect(target.selectAll()).toBe(true)
-  expect(target.clear()).toBe(true)
-  expect(target.reset()).toBe(true)
+  expect(await target.selectAll()).toBe(true)
+  expect(await target.clear()).toBe(true)
+  expect(await target.reset()).toBe(true)
 
   expect(runtime.interactions.search.open()).toBe(true)
   runtime.interactions.search.setQuery('exact text')

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { PtyWriteConfirmedRevokedError } from '../src/main/project-host/project-host'
 import type { NativeTerminalInputOperation } from '../src/shared/native-terminal-input'
 import type { NativeTerminalHost } from '../src/main/terminal/native-terminal-host'
@@ -75,6 +76,29 @@ function fixture() {
   )
   const host = {
     rendererInfo: vi.fn(),
+    selection: vi.fn<NativeTerminalHost['selection']>(
+      async (_handle, _instance, operation, signal, eligible) => {
+        await eligible?.(signal ?? new AbortController().signal)
+        if (operation.kind === 'close') return { result: 0 }
+        if (operation.kind === 'next')
+          return {
+            cursor: operation.cursor,
+            selectionSerial: 7,
+            data: new TextEncoder().encode('selected'),
+            done: true,
+            visited: 8,
+            work: 8,
+          }
+        return {
+          hasSelection: true,
+          selectionSerial: 7,
+          screen: 0,
+          geometrySerial: 1,
+          requestedMutation: 0,
+          ...(operation.kind === 'begin' ? { cursor: '19' } : {}),
+        }
+      },
+    ),
     readLinkProducer: vi.fn<NativeTerminalHost['readLinkProducer']>(() =>
       Promise.resolve(undefined),
     ),
@@ -111,7 +135,17 @@ function fixture() {
     publishStatus: vi.fn(),
     sendPixels: vi.fn(() => Promise.resolve(undefined)),
   }
-  const targets = { create: vi.fn(() => target), dispose: vi.fn(), acknowledge: vi.fn() }
+  const targets = {
+    create: vi.fn(() => target),
+    dispose: vi.fn(),
+    acknowledge: vi.fn(),
+    drawn: vi.fn<
+      (
+        id: string,
+        frame: WebFrameMain,
+      ) => { screen: 0 | 1; geometrySerial: number } | undefined
+    >(() => ({ screen: 0, geometrySerial: grant.geometrySerial })),
+  }
   const grant = {
     viewId: 'view',
     attachment: 1,
@@ -189,6 +223,89 @@ function fixture() {
 }
 
 describe('native workbench application ownership', () => {
+  it('qualifies fresh session projections and drawn targets after physical exit, but rejects an old owner', async () => {
+    const f = fixture(),
+      viewId = randomUUID(),
+      request = { viewId, requestId: randomUUID() }
+    f.sessions.get.mockImplementation(() => ({ ...f.state }))
+    f.presenter.attach.mockResolvedValueOnce(viewId)
+    await f.app.attach('session', f.owner, f.frame)
+    await f.app.update(viewId, f.owner, f.layout)
+    f.targets.drawn.mockReturnValueOnce(undefined)
+    await expect(
+      f.app.selection({ ...request, action: 'copy' }, f.owner),
+    ).rejects.toThrow('native-selection-not-drawn')
+    expect(f.host.selection).not.toHaveBeenCalled()
+    f.state.readonly = true
+    f.state.inputClosed = true
+    f.ptys.get.mockReturnValue(undefined)
+    await expect(
+      f.app.selection({ ...request, action: 'copy' }, f.owner),
+    ).resolves.toEqual({ hasSelection: true, selectionSerial: 7 })
+    await expect(f.app.readSelection(request, f.owner)).resolves.toMatchObject({
+      text: 'selected',
+    })
+    expect(f.ptys.writeConfirmed).not.toHaveBeenCalled()
+    await expect(
+      f.app.selection(
+        { ...request, requestId: randomUUID(), action: 'copy' },
+        { ...f.owner, generation: 2 },
+      ),
+    ).rejects.toThrow()
+    expect(f.targets.drawn).toHaveBeenCalledWith(viewId, f.frame)
+  })
+  it('allows B input while A copy continuation is physically deferred', async () => {
+    const f = fixture(),
+      viewId = randomUUID(),
+      bView = randomUUID(),
+      request = { viewId, requestId: randomUUID() }
+    const other = {
+      ...f.state,
+      handle: 'b-handle',
+      session: { ...f.state.session, sessionId: 'b-session', instanceId: 'b-instance' },
+    }
+    f.sessions.get.mockImplementation((id) => (id === 'b-session' ? other : f.state))
+    f.ptys.get.mockImplementation((id) =>
+      id === 'b-session'
+        ? { ...f.managed, id: 'b-session', instanceId: 'b-instance' }
+        : f.managed,
+    )
+    f.presenter.attach.mockResolvedValueOnce(viewId).mockResolvedValueOnce(bView)
+    await f.app.attach('session', f.owner, f.frame)
+    await f.app.update(viewId, f.owner, f.layout)
+    await f.app.attach('b-session', f.owner, f.frame)
+    await f.app.update(bView, f.owner, f.layout)
+    await f.app.selection({ ...request, action: 'copy' }, f.owner)
+    const next = deferred<unknown>(),
+      defaultSelection = f.host.selection.getMockImplementation()!
+    f.host.selection.mockImplementation((...args) =>
+      args[2].kind === 'next' ? next.promise : defaultSelection(...args),
+    )
+    const copying = watched(f.app.readSelection(request, f.owner))
+    await vi.waitFor(() =>
+      expect(f.host.selection.mock.calls.some((call) => call[2].kind === 'next')).toBe(
+        true,
+      ),
+    )
+    await f.app.input(bView, f.owner, { kind: 'focus', focused: true })
+    await f.app.key(bView, f.owner, { key: 0, modifiers: 0, action: 1, text: 'b' })
+    expect(f.ptys.writeConfirmed).toHaveBeenCalledExactlyOnceWith(
+      'b-session',
+      1,
+      new Uint8Array([0, 128, 255]),
+      1,
+      'user',
+    )
+    next.resolve({
+      cursor: '19',
+      selectionSerial: 7,
+      data: new TextEncoder().encode('selected'),
+      done: true,
+      visited: 8,
+      work: 8,
+    })
+    await expect(copying).resolves.toMatchObject({ text: 'selected' })
+  })
   it('publishes a current readonly title and restores its latest metadata on reattachment without attention replay', async () => {
     const f = fixture()
     await f.app.attach('session', f.owner, f.frame)
@@ -561,7 +678,7 @@ describe('native workbench application ownership', () => {
     expect(f.sessions.writeControl).not.toHaveBeenCalled()
   })
 
-  it('uses trusted readonly native navigation without user/control PTY writes or captured button requests', async () => {
+  it('uses trusted readonly navigation and selection gestures without user/control PTY writes', async () => {
     const f = fixture()
     await f.app.attach('session', f.owner, f.frame)
     await f.app.update('view', f.owner, f.layout)
@@ -586,18 +703,24 @@ describe('native workbench application ownership', () => {
       expect.any(Function),
       true,
       undefined,
+      { screen: 0, geometrySerial: 1 },
     )
-    expect(f.host.input.mock.calls.every((call) => call[4] === true)).toBe(true)
-    expect(() =>
-      f.app.input('view', f.owner, {
+    for (const action of [1, 0] as const)
+      await f.app.input('view', f.owner, {
         kind: 'pointer',
         x: 10,
         y: 15,
         modifiers: 0,
         button: 1,
-        action: 1,
-      }),
-    ).toThrow('native-session-readonly')
+        action,
+      })
+    expect(f.host.input.mock.calls.map((call) => call[2])).toMatchObject([
+      wheel,
+      { kind: 'pointer' },
+      { kind: 'pointer', button: 1, action: 1 },
+      { kind: 'pointer', button: 1, action: 0 },
+    ])
+    expect(f.host.input.mock.calls.every((call) => call[4] === true)).toBe(true)
     await expect(
       f.app.key('view', f.owner, { key: 20, text: 'a', modifiers: 0, action: 1 }),
     ).rejects.toThrow('native-session-readonly')

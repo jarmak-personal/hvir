@@ -182,6 +182,7 @@ export function collectModuleGraph(
                 'terminal.c',
                 'terminal_input.c',
                 'terminal_effects.c',
+                'terminal_selection.c',
                 'terminal_internal.h',
                 'linux_display.c',
                 'linux_display.h',

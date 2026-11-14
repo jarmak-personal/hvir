@@ -3,7 +3,7 @@
  * Product consumers retain the engine-neutral surface and explicit capability seams.
  */
 
-import type { Disposer } from '../../../shared'
+import type { Disposer, HostPath } from '../../../shared'
 import type { TerminalInputSource } from '../../../shared/terminal-input'
 
 export interface TerminalSize {
@@ -189,9 +189,10 @@ export type TerminalEvent =
       readonly data: string
     }
 
-export type TerminalLinkActivation =
+export type TerminalLinkActivation = { readonly workspaceRoot?: HostPath } & (
   | { readonly kind: 'file'; readonly target: string }
   | { readonly kind: 'loopback-http'; readonly target: string }
+)
 
 export interface TerminalPaneEvents {
   /** User input or parser-owned protocol replies that must be written to the PTY. */
@@ -206,7 +207,17 @@ export interface TerminalPaneEvents {
   onLink(cb: (activation: TerminalLinkActivation) => void): Disposer
 }
 
+/** Async selection capability; engine text stays at the command-time owner. */
+export interface TerminalSelectionCapability {
+  status(signal?: AbortSignal): Promise<{ hasSelection: boolean }>
+  read(signal?: AbortSignal): Promise<string | undefined>
+  selectAll(signal?: AbortSignal): Promise<void>
+  clear(signal?: AbortSignal): Promise<void>
+  reset(signal?: AbortSignal): Promise<void>
+}
+
 export interface TerminalPane {
+  readonly selection?: TerminalSelectionCapability
   /** Attach the pane to a DOM container and begin rendering. */
   mount(container: HTMLElement): void
   /** Move the retained render surface without resetting its VT buffer. */
@@ -274,6 +285,8 @@ export interface TerminalPane {
  * rather than pretending to implement the legacy synchronous parser contract. */
 export interface NativeTerminalPanePort {
   readonly engine: 'native'
+  readonly selection: TerminalSelectionCapability
+  paste(data: string): void
   mount(container: HTMLElement): void
   reparent(container: HTMLElement): void
   setPresentation(presentation: TerminalPresentation): void
@@ -283,6 +296,7 @@ export interface NativeTerminalPanePort {
   bind(sessionId: string): Promise<void>
   setReadonly(): void
   onInput(listener: (text: string) => void): Disposer
+  onLink?(listener: (link: TerminalLinkActivation) => void): Disposer
   onEffect?(listener: (event: TerminalEvent) => void): Disposer
 }
 export type TerminalRuntimePane = TerminalPane | NativeTerminalPanePort

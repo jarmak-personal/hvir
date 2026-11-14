@@ -98,18 +98,29 @@ export const EXTENSION_LIFECYCLE_PROBE_SCRIPT = `
   });
   document.body.append(renderControl);
   window.extensionLifecycleEvents = [];
+  const nativeVisibility = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState').get;
   document.addEventListener('freeze', () => {
-    window.extensionLifecycleEvents.push({ kind: 'freeze', at: performance.now(), ticks: window.extensionInitialTicks });
+    const observation = { kind: 'freeze', at: performance.now(), ticks: window.extensionInitialTicks };
+    window.extensionLifecycleEvents.push(observation);
     if (window.extensionLifecycleEvents.length > 16) window.extensionLifecycleEvents.shift();
+    try {
+      observation.frames = window.extensionRenderFrames;
+      observation.visible = nativeVisibility.call(document);
+    } catch { observation.visibilityReadFailed = true; }
   });
   document.addEventListener('resume', () => {
-    window.extensionLifecycleEvents.push({ kind: 'resume', at: performance.now(), ticks: window.extensionInitialTicks });
+    const observation = { kind: 'resume', at: performance.now(), ticks: window.extensionInitialTicks };
+    window.extensionLifecycleEvents.push(observation);
     if (window.extensionLifecycleEvents.length > 16) window.extensionLifecycleEvents.shift();
+    try {
+      observation.frames = window.extensionRenderFrames;
+      observation.visible = nativeVisibility.call(document);
+    } catch { observation.visibilityReadFailed = true; }
   });
-  const nativeVisibility = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState').get;
   window.addEventListener('visibilitychange', event => {
-    if (!event.isTrusted || nativeVisibility.call(document) !== 'visible') return;
-    window.extensionLifecycleEvents.push({ kind: 'native-visible', at: performance.now(), ticks: window.extensionInitialTicks });
+    if (!event.isTrusted) return;
+    const visible = nativeVisibility.call(document);
+    window.extensionLifecycleEvents.push({ kind: visible === 'visible' ? 'native-visible' : 'native-hidden', at: performance.now(), ticks: window.extensionInitialTicks, frames: window.extensionRenderFrames, visible });
     if (window.extensionLifecycleEvents.length > 16) window.extensionLifecycleEvents.shift();
   }, true);
   window.addEventListener('visibilitychange', event => {
@@ -125,6 +136,9 @@ interface LifecycleEvent {
   kind: string
   at: number
   ticks: number
+  frames?: number
+  visible?: string
+  visibilityReadFailed?: boolean
 }
 interface LifecycleObservation {
   ticks: number
@@ -356,10 +370,10 @@ async function verifyExtensionPlacementRenderResume(
   const { fixture, owner } = createExtensionGuestFixture(extensions, scopes)
   const guests: WebContents[] = []
   fixture.webContents.on('did-attach-webview', (_event, guest) => guests.push(guest))
-  const events: { event: string; at: number }[] = []
+  const events: { event: string; at: number; native?: object }[] = []
   const started = Date.now()
-  const mark = (event: string): void => {
-    events.push({ event, at: Date.now() - started })
+  const mark = (event: string, native?: object): void => {
+    events.push({ event, at: Date.now() - started, ...(native ? { native } : {}) })
     if (events.length > 16) events.shift()
   }
   fixture.on('show', () => mark('show'))
@@ -387,7 +401,7 @@ async function verifyExtensionPlacementRenderResume(
   }
   const read = async (guest: WebContents) => {
     const result = (await guest.debugger.sendCommand('Runtime.evaluate', {
-      expression: `({visible:Object.getOwnPropertyDescriptor(Document.prototype,'visibilityState').get.call(document),frames:window.extensionRenderFrames,ticks:window.extensionInitialTicks,clicks:window.extensionRenderClicks,replies:window.extensionRenderReplies})`,
+      expression: `({visible:Object.getOwnPropertyDescriptor(Document.prototype,'visibilityState').get.call(document),frames:window.extensionRenderFrames,ticks:window.extensionInitialTicks,clicks:window.extensionRenderClicks,replies:window.extensionRenderReplies,events:window.extensionLifecycleEvents.slice(-16)})`,
       returnByValue: true,
     })) as {
       result: {
@@ -397,6 +411,7 @@ async function verifyExtensionPlacementRenderResume(
           ticks: number
           clicks: number
           replies: number
+          events: LifecycleEvent[]
         }
       }
     }
@@ -447,14 +462,63 @@ async function verifyExtensionPlacementRenderResume(
         visible,
         false,
       )
-    const display = (visible: boolean) =>
-      fixture.webContents.executeJavaScript(
-        `document.getElementById(${JSON.stringify(view.id)}).style.display=${JSON.stringify(visible ? 'flex' : 'none')}`,
-      )
+    const display = async (visible: boolean): Promise<void> => {
+      const layout: unknown = await fixture.webContents
+        .executeJavaScript(`new Promise((resolve,reject)=>{
+        const target=document.getElementById(${JSON.stringify(view.id)}),shown=${JSON.stringify(visible)};
+        let observer,timer;
+        const finish=(error,value)=>{observer?.disconnect();clearTimeout(timer);if(error)reject(error);else resolve(value);};
+        try {
+          if(!target?.isConnected)throw new Error('Extension layout target unavailable');
+          const requestedAt=performance.now();
+          observer=new IntersectionObserver(entries=>{
+            try {
+              const entry=entries.find(value=>value.target===target&&value.time>=requestedAt);
+              if(!entry)return;
+              const positive=entry.isIntersecting&&entry.intersectionRect.width>0&&entry.intersectionRect.height>0;
+              if(shown?!positive:entry.isIntersecting)return;
+              finish(undefined,{shown,intersecting:entry.isIntersecting,width:entry.boundingClientRect.width,height:entry.boundingClientRect.height,intersectionWidth:entry.intersectionRect.width,intersectionHeight:entry.intersectionRect.height,requestedAt,observedAt:entry.time,epochMs:performance.timeOrigin+entry.time});
+            } catch(error){finish(error);}
+          });
+          observer.observe(target);
+          timer=setTimeout(()=>finish(new Error('Extension layout acknowledgement timed out')),${EXTENSION_LIMITS.requestTimeoutMs});
+          target.style.display=shown?'flex':'none';
+        } catch(error){finish(error);}
+      })`)
+      // Embedder geometry acknowledgement, not a browser-side native visibility ACK.
+      mark(visible ? 'layout-intersecting' : 'layout-nonintersecting', { layout })
+      try {
+        console.log(
+          `[smoke] extension layout acknowledgement ${JSON.stringify({ surface, visible, layout })}`,
+        )
+      } catch {
+        // Optional logging must not change the acknowledged setup.
+      }
+    }
+    let positiveControl: Awaited<ReturnType<typeof read>> | undefined
+    snapshot = () => ({
+      surface,
+      foreground: extensions.surface.foreground(owner),
+      shown: !fixture.isDestroyed() && fixture.isVisible(),
+      focused: !fixture.isDestroyed() && fixture.isFocused(),
+      minimized: !fixture.isDestroyed() && fixture.isMinimized(),
+      guestAlive: !guest.isDestroyed(),
+      positiveControl,
+    })
+    // Navigation/attachment can withdraw the native authority admitted before loading.
+    fixture.show()
+    fixture.focus()
+    await wait('loaded documents native foreground', () =>
+      extensions.surface.foreground(owner),
+    )
     placement(true)
     await wait('visible positive control', async () => {
-      const current = await read(guest)
-      return current.visible === 'visible' && current.frames > 2 && current.ticks > 2
+      positiveControl = await read(guest)
+      return (
+        positiveControl.visible === 'visible' &&
+        positiveControl.frames > 2 &&
+        positiveControl.ticks > 2
+      )
     })
     const nativeClick = async (): Promise<void> => {
       const before = await read(guest)
@@ -523,7 +587,7 @@ async function verifyExtensionPlacementRenderResume(
       if (args[0] === 'Page.setWebLifecycleState') {
         if (state === 'active') activeSent++
         if (state === 'frozen') frozenSent++
-        mark(state === 'active' ? 'active-sent' : 'frozen-sent')
+        mark(state === 'active' ? 'active-sent' : 'frozen-sent', snapshot())
       }
       const result: unknown = await send(...args)
       if (args[0] === 'Page.setWebLifecycleState' && state === 'active') {
@@ -534,11 +598,11 @@ async function verifyExtensionPlacementRenderResume(
           })
         }
         activeAcks++
-        mark('active-ack')
+        mark('active-ack', snapshot())
       }
       if (args[0] === 'Page.setWebLifecycleState' && state === 'frozen') {
         frozenAcks++
-        mark('frozen-ack')
+        mark('frozen-ack', snapshot())
       }
       return result
     }
@@ -587,16 +651,37 @@ async function verifyExtensionPlacementRenderResume(
           surface === 'top' ? frozenAcks > previousFrozen : activeAcks > previousAcks,
         )
         const before = await read(guest)
+        const nativeBefore = {
+          ...snapshot(),
+          events: events.map((event) => ({ ...event })),
+        }
         await pause(350)
         const after = await read(guest)
+        const nativeAfter = {
+          ...snapshot(),
+          events: events.map((event) => ({ ...event })),
+        }
         if (
           after.visible !== 'hidden' ||
           after.frames !== before.frames ||
           (surface === 'top' && after.ticks !== before.ticks)
-        )
-          failures.push(
-            `Background return revived the hidden ${surface} guest: ${JSON.stringify({ before, after })}`,
+        ) {
+          let parent: unknown = { available: false }
+          try {
+            parent = await fixture.webContents.executeJavaScript(
+              `(()=>{const view=document.getElementById(${JSON.stringify(view.id)}),style=view&&getComputedStyle(view),bounds=view?.getBoundingClientRect();return{available:true,nativeVisibility:Object.getOwnPropertyDescriptor(Document.prototype,'visibilityState').get.call(document),publicVisibility:document.visibilityState,focused:document.hasFocus(),webviewConnected:view?.isConnected??false,display:style?.display??null,visibility:style?.visibility??null,width:bounds?.width??null,height:bounds?.height??null};})()`,
+            )
+          } catch {
+            // A diagnostic failure must not replace the original rendering failure.
+          }
+          const evidence = { before, after, nativeBefore, nativeAfter, parent }
+          console.log(
+            `[smoke] background native rendering failure ${JSON.stringify(evidence)}`,
           )
+          failures.push(
+            `Background return revived the hidden ${surface} guest: ${JSON.stringify(evidence)}`,
+          )
+        }
         fixture.show()
         fixture.focus()
         await wait('restored native foreground', () =>

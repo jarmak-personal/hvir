@@ -19,8 +19,7 @@ import type { SessionsRendererSession } from '../sessions/sessions-renderer-obse
 import { fitSplitPrimaryWidth } from '../layout/split-layout-policy'
 import type { TerminalPreferences } from '../settings/settings'
 import {
-  normalizeTerminalWebTarget,
-  activateTerminalFileTarget,
+  activateTerminalLink,
   type ResolvedTerminalFileTarget,
 } from './terminal-file-link'
 import { TerminalDeck } from './TerminalDeck'
@@ -340,14 +339,15 @@ export function TerminalWorkspace({
         onOutput={recordOutput}
         onBell={(id) => raiseAttention(id, 'bell')}
         onFocus={commands.focus}
-        onLink={(session, activation) => {
-          if (activation.kind === 'file') {
-            activateTerminalFileTarget(activation.target, workspaceRoot, onOpenPath)
-            return
-          }
-          const url = normalizeTerminalWebTarget(activation.target)
-          if (url) onOpenWebLink({ terminalId: session.id, workspaceRoot, url })
-        }}
+        onLink={(session, activation) =>
+          activateTerminalLink(
+            activation,
+            session.id,
+            workspaceRoot,
+            onOpenPath,
+            onOpenWebLink,
+          )
+        }
         onSplit={commands.split}
         onFork={commands.fork}
         onOpenTerminalSettings={onOpenTerminalSettings}

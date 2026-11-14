@@ -8,7 +8,11 @@ import { TerminalRuntimeRegistry } from '../src/renderer/src/terminal/terminal-r
 import { TerminalView } from '../src/renderer/src/terminal/TerminalView'
 import { ghosttyLifecycleRuntimeOptions as runtimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
 
-const viewState = vi.hoisted(() => ({ live: true, current: true }))
+const viewState = vi.hoisted(() => ({
+  live: true,
+  current: true,
+  selection: Promise.resolve(false),
+}))
 
 vi.mock('../src/renderer/src/terminal/use-terminal-pane-controller', () => ({
   useTerminalPaneController: () => ({
@@ -27,12 +31,12 @@ vi.mock('../src/renderer/src/terminal/use-terminal-pane-controller', () => ({
     openSearch: vi.fn(),
     getContextMenuTarget: () => ({
       isCurrent: () => viewState.current,
-      hasSelection: () => false,
-      getSelection: () => undefined,
+      hasSelection: () => viewState.selection,
+      getSelection: () => Promise.resolve(undefined),
       paste: () => viewState.current,
-      selectAll: () => viewState.current,
-      clear: () => viewState.current,
-      reset: () => viewState.current,
+      selectAll: () => Promise.resolve(viewState.current),
+      clear: () => Promise.resolve(viewState.current),
+      reset: () => Promise.resolve(viewState.current),
       focus: () => viewState.current,
       onRevoked: () => () => undefined,
     }),
@@ -52,6 +56,7 @@ describe('TerminalView conversation fork binding', () => {
   beforeEach(() => {
     viewState.live = true
     viewState.current = true
+    viewState.selection = Promise.resolve(false)
     host = document.createElement('div')
     document.body.append(host)
     root = createRoot(host)
@@ -64,11 +69,11 @@ describe('TerminalView conversation fork binding', () => {
     document.body.replaceChildren()
   })
 
-  it('binds the fork command to the exact TerminalView session target', () => {
+  it('binds the fork command to the exact TerminalView session target', async () => {
     const onFork = vi.fn()
     renderView({ sessionId: 'exact-target', onFork })
 
-    openContextMenu()
+    await openContextMenu()
     const action = forkAction()
     expect(action.disabled).toBe(false)
     act(() => action.click())
@@ -80,13 +85,13 @@ describe('TerminalView conversation fork binding', () => {
   it.each([
     ['non-live', false, true],
     ['non-current', true, false],
-  ])('fails closed for a %s TerminalView target', (_case, live, current) => {
+  ])('fails closed for a %s TerminalView target', async (_case, live, current) => {
     viewState.live = live
     viewState.current = current
     const onFork = vi.fn()
     renderView({ sessionId: 'unavailable-target', onFork })
 
-    openContextMenu()
+    await openContextMenu()
     const action = forkAction()
     expect(action.disabled).toBe(true)
     expect(action.title).toContain('no longer live')
@@ -94,23 +99,21 @@ describe('TerminalView conversation fork binding', () => {
     expect(onFork).not.toHaveBeenCalled()
   })
 
-  it('states the forkPending disabled reason on the exact TerminalView target', () => {
+  it('states the forkPending disabled reason on the exact TerminalView target', async () => {
     renderView({ sessionId: 'pending-target', forkPending: true })
 
-    openContextMenu()
+    await openContextMenu()
     const action = forkAction()
     expect(action.disabled).toBe(true)
     expect(action.title).toContain('already starting')
     expect(action.textContent).toContain('already starting')
   })
 
-  function renderView(
-    overrides: {
-      readonly sessionId: string
-      readonly onFork?: (sessionId: string) => void
-      readonly forkPending?: true
-    },
-  ): void {
+  function renderView(overrides: {
+    readonly sessionId: string
+    readonly onFork?: (sessionId: string) => void
+    readonly forkPending?: true
+  }): void {
     act(() => {
       root.render(
         <TerminalView
@@ -126,11 +129,14 @@ describe('TerminalView conversation fork binding', () => {
     })
   }
 
-  function openContextMenu(): void {
-    act(() => {
-      host.querySelector<HTMLElement>('.terminal-container')?.dispatchEvent(
-        new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
-      )
+  async function openContextMenu(): Promise<void> {
+    await act(async () => {
+      host
+        .querySelector<HTMLElement>('.terminal-container')
+        ?.dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+        )
+      await viewState.selection
     })
   }
 })

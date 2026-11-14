@@ -18,6 +18,10 @@ import { NativeTerminalPresentationTargets } from '../../src/main/terminal/nativ
 import { IpcAuthorityRouter } from '../../src/main/ipc/authority-router'
 import { RendererResourceScopes } from '../../src/main/renderer-resource-scopes'
 import { registerNativeTerminalPresentationIpc } from '../../src/main/ipc/features/native-terminal-presentation'
+import {
+  presenterHeartbeatWindow,
+  type PresenterHeartbeatPhase,
+} from './presenter-heartbeat.mts'
 
 const library = process.argv.find((a) => a.startsWith('--library='))?.slice(10)
 if (!library || !['darwin', 'linux'].includes(process.platform))
@@ -38,8 +42,16 @@ let router: IpcAuthorityRouter | undefined
 let timer: ReturnType<typeof setTimeout> | undefined
 let failed = false
 let stage = 'startup'
+const heartbeatPhases: PresenterHeartbeatPhase[] = []
+let heartbeatPhaseCount = 0
 function phase(value: string): void {
   stage = value
+  heartbeatPhaseCount++
+  if (heartbeatPhases.length < 32)
+    heartbeatPhases.push({
+      phase: value,
+      epochMs: performance.timeOrigin + performance.now(),
+    })
   writeSync(2, `native-presenter:phase ${value}\n`)
 }
 process.on('uncaughtExceptionMonitor', (error) => {
@@ -105,7 +117,7 @@ void app
     assert.equal(isolation.sandboxed, true)
     assert.equal(isolation.api, true)
     await contents.executeJavaScript(
-      `window.nativeHeartbeat={gaps:[],last:performance.now()};window.nativeHeartbeatTimer=setInterval(()=>{const h=window.nativeHeartbeat,now=performance.now();if(h.gaps.length<12000)h.gaps.push(now-h.last);h.last=now},10);true`,
+      `const startedMs=performance.now();window.nativeHeartbeat={gaps:[],last:startedMs,startedMs,timeOriginMs:performance.timeOrigin,intervalCount:0};window.nativeHeartbeatTimer=setInterval(()=>{const h=window.nativeHeartbeat,now=performance.now();h.intervalCount++;if(h.gaps.length<12000)h.gaps.push(now-h.last);h.last=now},10);true`,
     )
     const imports = new NativeTerminalFrameImports(processPort, sharedTexture)
     targets = new NativeTerminalPresentationTargets()
@@ -147,8 +159,9 @@ void app
       `window.hvir.nativeTerminalPresentation.mount(${JSON.stringify(view)},'first');window.hvir.nativeTerminalPresentation.mount(${JSON.stringify(otherView)},'second');window.nativeStatuses=[];window.hvir.nativeTerminalPresentation.onStatus(s=>window.nativeStatuses.push(s));true`,
     )
     const mainGaps: number[] = []
+    const mainStartedMs = performance.now()
     let mainMaxGapMs = 0,
-      lastBeat = performance.now(),
+      lastBeat = mainStartedMs,
       samples = 0
     const beat = setInterval(() => {
       const now = performance.now()
@@ -458,10 +471,18 @@ void app
           .includes('parser-after-context-loss'),
       )
     }
-    const rendererGaps = (await contents.executeJavaScript(
-      `clearInterval(window.nativeHeartbeatTimer);window.nativeHeartbeat.gaps.push(performance.now()-window.nativeHeartbeat.last);window.nativeHeartbeat.gaps`,
-    )) as number[]
-    mainGaps.push(performance.now() - lastBeat)
+    const rendererHeartbeat = (await contents.executeJavaScript(
+      `clearInterval(window.nativeHeartbeatTimer);const h=window.nativeHeartbeat,endedMs=performance.now();h.gaps.push(endedMs-h.last);({gaps:h.gaps,startedMs:h.startedMs,endedMs,timeOriginMs:h.timeOriginMs,intervalCount:h.intervalCount})`,
+    )) as {
+      gaps: number[]
+      startedMs: number
+      endedMs: number
+      timeOriginMs: number
+      intervalCount: number
+    }
+    const rendererGaps = rendererHeartbeat.gaps,
+      mainEndedMs = performance.now()
+    mainGaps.push(mainEndedMs - lastBeat)
     const gapSummary = (values: number[]) => {
       assert(
         values.length >= 2 &&
@@ -479,6 +500,29 @@ void app
       main: gapSummary(mainGaps),
       renderer: gapSummary(rendererGaps),
     }
+    writeSync(
+      2,
+      `native-presenter:heartbeat ${JSON.stringify({
+        responsiveness,
+        main: presenterHeartbeatWindow(
+          mainGaps,
+          {
+            startedMs: mainStartedMs,
+            endedMs: mainEndedMs,
+            timeOriginMs: performance.timeOrigin,
+            intervalCount: samples,
+          },
+          heartbeatPhases,
+        ),
+        renderer: presenterHeartbeatWindow(
+          rendererGaps,
+          rendererHeartbeat,
+          heartbeatPhases,
+        ),
+        phases: heartbeatPhases,
+        phaseCount: heartbeatPhaseCount,
+      })}\n`,
+    )
     assert(
       responsiveness.main.maxMs <= 500 && responsiveness.renderer.maxMs <= 500,
       'presenter-heartbeat-maximum',
