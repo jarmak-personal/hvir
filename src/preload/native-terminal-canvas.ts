@@ -61,6 +61,9 @@ export function createNativeTerminalCanvas(
     }
   }
   let disposed = false
+  let topOriginLocation: WebGLUniformLocation | null = null
+  let straightAlphaLocation: WebGLUniformLocation | null = null
+  let maximumTextureSize = 0
   const shaders: WebGLShader[] = []
   const program = gl.createProgram()
   const texture = gl.createTexture()
@@ -121,6 +124,18 @@ export function createNativeTerminalCanvas(
     gl.linkProgram(program)
     if (!gl.getProgramParameter(program, gl.LINK_STATUS))
       throw new Error('native-canvas-program')
+    topOriginLocation = gl.getUniformLocation(program, 'topOrigin')
+    straightAlphaLocation = gl.getUniformLocation(program, 'straightAlpha')
+    if (!topOriginLocation || !straightAlphaLocation)
+      throw new Error('native-canvas-uniform')
+    const deviceTextureSize: unknown = gl.getParameter(gl.MAX_TEXTURE_SIZE)
+    if (
+      typeof deviceTextureSize !== 'number' ||
+      !Number.isSafeInteger(deviceTextureSize) ||
+      deviceTextureSize <= 0
+    )
+      throw new Error('native-canvas-texture-bound')
+    maximumTextureSize = deviceTextureSize
     gl.useProgram(program)
     gl.bindTexture(gl.TEXTURE_2D, texture)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
@@ -142,22 +157,21 @@ export function createNativeTerminalCanvas(
     if (disposed || !canvas.isConnected || gl.isContextLost())
       throw new Error('native-canvas-lost')
     const { width, height } = metadata.nativeTerminal
+    if (width > maximumTextureSize || height > maximumTextureSize)
+      throw new Error('native-canvas-texture-bound')
     if (canvas.width !== width) canvas.width = width
     if (canvas.height !== height) canvas.height = height
     gl.drawingBufferColorSpace = metadata.colorSpace === 2 ? 'display-p3' : 'srgb'
     gl.viewport(0, 0, width, height)
     gl.useProgram(program)
     gl.bindTexture(gl.TEXTURE_2D, texture)
-    gl.uniform1i(
-      gl.getUniformLocation(program, 'topOrigin'),
-      metadata.origin === 1 ? 1 : 0,
-    )
+    gl.uniform1i(topOriginLocation, metadata.origin === 1 ? 1 : 0)
     gl.disable(gl.BLEND)
   }
   const submit = (straightAlpha: boolean): void => {
-    gl.uniform1i(gl.getUniformLocation(program, 'straightAlpha'), straightAlpha ? 1 : 0)
+    gl.uniform1i(straightAlphaLocation, straightAlpha ? 1 : 0)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
-    if (gl.getError() !== gl.NO_ERROR) throw new Error('native-canvas-upload')
+    // Synchronous GPU status queries can wait for compositor work on this thread.
     // Submit; Chromium's VideoFrame release sync token owns actual GPU completion.
     gl.flush()
   }
