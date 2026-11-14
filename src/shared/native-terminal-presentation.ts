@@ -10,6 +10,8 @@ export interface NativeTerminalViewGrant {
 }
 export interface NativeTerminalPresentedFrame {
   readonly nativeTerminal: NativeTerminalViewGrant
+  /** Screen sampled with this native snapshot; not historic text authority. */
+  readonly screen: 0 | 1
   readonly origin: number
   readonly colorSpace: number
 }
@@ -34,6 +36,11 @@ export interface NativeTerminalPresentationStatus {
 export type NativeTerminalPresentationAcknowledgement =
   | { readonly kind: 'pixels'; readonly ticket: string; readonly accepted: boolean }
   | { readonly kind: 'renderer-failure'; readonly grant: NativeTerminalViewGrant }
+  | {
+      readonly kind: 'drawn'
+      readonly grant: NativeTerminalViewGrant
+      readonly screen: 0 | 1
+    }
 export const NATIVE_TERMINAL_PRESENTATION = {
   grantChannel: 'native-terminal:presentation-grant',
   pixelsChannel: 'native-terminal:presentation-pixels',

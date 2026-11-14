@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { validNativeTerminalSelectionCursor } from '../../shared/native-terminal-selection'
 import type { UtilityProcess } from 'electron'
 import resource, { type Endpoint, type Receipt } from '@hvir/native-terminal/resource'
 import {
@@ -127,6 +128,8 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
       signal,
       command.kind === 'release' ||
         command.kind === 'destroy' ||
+        (command.kind === 'selection' &&
+          (command.operation.kind === 'close' || command.operation.kind === 'finish')) ||
         (command.kind === 'visibility' && !command.visible) ||
         // NativeSessions serializes feed -> drain -> discard for each state.
         // Each physical credit is freed before the producer continuation runs;
@@ -431,12 +434,18 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
     const item = this.pending.get(message.id)
     if (!item) return this.lose(new Error('native-result-foreign'))
     if (
-      item.cancelled &&
-      message.ok &&
-      (item.command.kind === 'create' || item.command.kind === 'frame')
+      (item.cancelled &&
+        message.ok &&
+        (item.command.kind === 'create' || item.command.kind === 'frame')) ||
+      (item.cancelled &&
+        message.ok &&
+        item.command.kind === 'selection' &&
+        (item.command.operation.kind === 'begin' ||
+          item.command.operation.kind === 'link-row-begin'))
     ) {
       const result = message.value as
-        { state?: unknown; lease?: unknown; unavailable?: unknown } | undefined
+        | { state?: unknown; lease?: unknown; cursor?: unknown; unavailable?: unknown }
+        | undefined
       let cleanup: NativeTerminalCommand | undefined
       if (
         item.command.kind === 'create' &&
@@ -453,6 +462,17 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
       else if (item.command.kind === 'frame' && Number.isInteger(result?.unavailable)) {
         this.finish(message.id)
         return
+      } else if (item.command.kind === 'selection') {
+        if (validNativeTerminalSelectionCursor(result?.cursor))
+          cleanup = {
+            kind: 'selection',
+            state: item.command.state,
+            operation: { kind: 'close', cursor: result.cursor },
+          }
+        else if (result?.cursor === '0' || Number.isInteger(result?.unavailable)) {
+          this.finish(message.id)
+          return
+        }
       }
       // Free exactly this physical slot before admitting its uncancelled cleanup.
       this.finish(message.id)

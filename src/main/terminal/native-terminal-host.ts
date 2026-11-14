@@ -2,14 +2,13 @@ import {
   readNativeTerminalProducer,
   drainNativeTerminalProducerEffects,
   readNativeTerminalProducerLink,
+  inputNativeTerminalProducer,
+  selectionNativeTerminalProducer,
 } from './native-terminal-producer'
 import type { NativeTerminalLinkQuery } from '../../shared/native-terminal-link'
 import { randomUUID } from 'node:crypto'
 import {
-  NativeTerminalCaretPending,
   nativeTerminalKeyOperation,
-  validNativeTerminalInput,
-  validNativeTerminalInputResult,
   type NativeTerminalInputOperation,
   type NativeTerminalKeyEncodingFallback,
   type NativeTerminalInputResult,
@@ -321,26 +320,14 @@ export class NativeTerminalHost {
     eligible?: (signal: AbortSignal) => Promise<void>,
     readOnly = false,
     keyEncodingFallback?: NativeTerminalKeyEncodingFallback,
+    selectionContext?: import('../../shared/native-terminal-selection').NativeTerminalSelectionContext,
   ): Promise<NativeTerminalInputResult> {
-    const binding = this.requireProducer(handle, instanceId)
-    if (!validNativeTerminalInput(input)) throw new Error('native-input-invalid')
-    const value = await this.process.request(
-      { kind: 'input', state: binding.state, input, readOnly, keyEncodingFallback },
-      binding.abort.signal,
+    return inputNativeTerminalProducer(this.producerContext(handle, instanceId), input, {
       eligible,
-      true,
-    )
-    this.requireProducer(handle, instanceId)
-    if (
-      input.kind === 'caret' &&
-      value &&
-      typeof value === 'object' &&
-      'busy' in value &&
-      value.busy === true
-    )
-      throw new NativeTerminalCaretPending()
-    if (!validNativeTerminalInputResult(value)) throw new Error('native-input-invalid')
-    return value
+      readOnly,
+      keyEncodingFallback,
+      selectionContext,
+    })
   }
   async encodeKey(
     handle: string,
@@ -349,40 +336,35 @@ export class NativeTerminalHost {
   ): Promise<Uint8Array> {
     return (await this.input(handle, instanceId, nativeTerminalKeyOperation(input))).bytes
   }
-  async readProducer(handle: string, instanceId: string): Promise<Uint8Array> {
-    return readNativeTerminalProducer(
-      this.process,
-      this.requireProducer(handle, instanceId),
-      () => this.requireProducer(handle, instanceId),
-      'read',
+  async selection(
+    handle: string,
+    instanceId: string,
+    operation: import('../../shared/native-terminal-selection').NativeTerminalSelectionOperation,
+    signal?: AbortSignal,
+    eligible?: (signal: AbortSignal) => Promise<void>,
+  ): Promise<unknown> {
+    return selectionNativeTerminalProducer(
+      this.producerContext(handle, instanceId),
+      operation,
+      signal,
+      eligible,
     )
   }
+  async readProducer(handle: string, instanceId: string): Promise<Uint8Array> {
+    return readNativeTerminalProducer(this.producerContext(handle, instanceId), 'read')
+  }
   async drainEffectsProducer(handle: string, instanceId: string) {
-    return drainNativeTerminalProducerEffects(
-      this.process,
-      this.requireProducer(handle, instanceId),
-      () => this.requireProducer(handle, instanceId),
-    )
+    return drainNativeTerminalProducerEffects(this.producerContext(handle, instanceId))
   }
   async readLinkProducer(
     handle: string,
     instanceId: string,
     query: NativeTerminalLinkQuery,
   ) {
-    return readNativeTerminalProducerLink(
-      this.process,
-      this.requireProducer(handle, instanceId),
-      () => this.requireProducer(handle, instanceId),
-      query,
-    )
+    return readNativeTerminalProducerLink(this.producerContext(handle, instanceId), query)
   }
   async drainReplies(handle: string, instanceId: string): Promise<Uint8Array> {
-    return readNativeTerminalProducer(
-      this.process,
-      this.requireProducer(handle, instanceId),
-      () => this.requireProducer(handle, instanceId),
-      'drain',
-    )
+    return readNativeTerminalProducer(this.producerContext(handle, instanceId), 'drain')
   }
   async resizeProducer(
     handle: string,
@@ -843,6 +825,15 @@ export class NativeTerminalHost {
       throw new Error('native-session-revoked')
     return current
   }
+  private producerContext(handle: string, instanceId: string) {
+    return {
+      port: this.process,
+      binding: this.requireProducer(handle, instanceId),
+      current: () => {
+        this.requireProducer(handle, instanceId)
+      },
+    }
+  }
   private requireProducer(handle: string, instanceId: string): Binding {
     const binding = this.bindings.get(handle)
     if (
@@ -908,6 +899,7 @@ function validFrame(value: NativeTerminalFrameMetadata): boolean {
     !!value &&
     /^[1-9][0-9]{0,19}$/.test(value.lease) &&
     [1, 2, 3].includes(value.kind) &&
+    [0, 1].includes(value.screen) &&
     Number.isSafeInteger(value.geometrySerial) &&
     value.geometrySerial > 0 &&
     Number.isSafeInteger(value.streamSequence) &&

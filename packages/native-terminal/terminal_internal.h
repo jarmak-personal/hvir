@@ -49,7 +49,7 @@ struct hvir_terminal_host {
   hvir_linux_display *owned_display;
   uint32_t initial_presentation_mode;
   bool closing;
-  uint64_t next_id, next_lease;
+  uint64_t next_id, next_lease, next_cursor;
   int (*init)(uintptr_t, char **);
   ghostty_config_t (*config_new)(void);
   void (*config_free)(ghostty_config_t);
@@ -68,6 +68,13 @@ struct hvir_terminal_host {
   bool (*external_resize)(ghostty_surface_t, uint32_t, uint32_t, uint64_t, double);
   void (*surface_visibility)(ghostty_surface_t, bool);
   uint32_t (*external_link)(ghostty_surface_t, uint32_t, uint32_t, uint32_t, uint64_t, uint64_t, uint64_t, uint8_t *, size_t, size_t *);
+  uint32_t (*external_selection)(ghostty_surface_t, uint32_t, uint32_t, uint64_t, uint64_t, hvir_ghostty_selection_result *);
+  uint32_t (*external_extract_begin)(ghostty_surface_t, uint64_t, uint32_t, uint64_t, uint64_t, bool, double, double, hvir_ghostty_selection_result *);
+  uint32_t (*external_link_row_begin)(ghostty_surface_t, double, double, uint32_t, uint64_t, uint64_t, hvir_ghostty_selection_result *, hvir_ghostty_link_current_result *, uint8_t *, size_t, size_t *);
+  uint32_t (*external_extract_next)(ghostty_surface_t, uint64_t, uint8_t *, size_t, size_t, hvir_ghostty_selection_result *);
+  uint32_t (*external_extract_finish)(ghostty_surface_t, uint64_t, hvir_ghostty_selection_result *);
+  void (*external_extract_close)(ghostty_surface_t, uint64_t);
+  uint32_t (*external_link_current)(ghostty_surface_t, double, double, uint32_t, uint64_t, uint8_t *, size_t, size_t *, hvir_ghostty_link_current_result *);
   bool (*external_read)(ghostty_surface_t, uint8_t *, size_t, size_t *);
   bool (*external_key)(ghostty_surface_t, int, uint32_t, int, const uint8_t *, size_t, uint8_t *,
                        size_t, size_t *);

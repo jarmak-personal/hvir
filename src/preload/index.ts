@@ -17,6 +17,12 @@ const nativeReceiver = new NativeTerminalPresentationReceiver(
       kind: 'renderer-failure',
       grant,
     }),
+  (metadata) =>
+    ipcRenderer.send(nativePresentation.acknowledgementChannel, {
+      kind: 'drawn',
+      grant: metadata.nativeTerminal,
+      screen: metadata.screen,
+    }),
 )
 ipcRenderer.on(
   nativePresentation.grantChannel,

@@ -7,7 +7,7 @@
     "sha256": "2c276d3e62cb15fb38f0d7f621f199029d1d4df86538096c6bec2a107cad7159",
     "applicationVersion": "1.4.1-dev",
     "vtVersion": "1.0.1",
-    "embedAbi": 7
+    "embedAbi": 8
   },
   "zig": {
     "version": "0.17.0",
@@ -60,6 +60,11 @@
       "file": "patches/0006-external-effects.patch.txt",
       "sha256": "d0c2631a48e59c6b3953c6146c31d749fad58ff39ca47133ae345f1263ab0d08",
       "purpose": "Copied generic parser effects with causal feed provenance, full OSC52 selection/protocol metadata and write-only external notifications, post-mutation semantic markers, same-state palette replies and snapshot-qualified OSC8 readback. Product authority, policy and queues remain maintained C/TypeScript."
+    },
+    {
+      "file": "patches/0007-external-selection.patch.txt",
+      "sha256": "127282752d44050bd5d72dbea0a468cafb9b85b3b539660bc3c2d1357e68a853",
+      "purpose": "Generic terminal-only native selection gestures, bounded resumable plaintext extraction with request-owned row mutation tracking and cancellation, current-viewport link/row readback, and actual render-snapshot screen metadata. Clipboard/navigation authority and application policy remain maintained C/TypeScript."
     }
   ],
   "targets": {

@@ -90,6 +90,7 @@ function frame(): Frame {
   return {
     lease: 9007199254740993n,
     snapshotMutation: 0n,
+    screen: 0,
     streamSequence: 2n,
     geometrySerial: 1n,
     kind: 1,
@@ -144,6 +145,35 @@ afterEach(async () => {
 })
 
 describe('native utility owner', () => {
+  it('admits a closed selection command through the real utility request boundary', async () => {
+    const operation = {
+      kind: 'command',
+      action: 'state',
+      context: { screen: 1, geometrySerial: 3 },
+    }
+    port.send(1, { kind: 'selection', state: '7', operation })
+    expect(last()).toMatchObject({ operation: 'selection', args: ['7', operation] })
+    await complete({
+      result: 0,
+      stale: false,
+      hasSelection: false,
+      selectionSerial: 0n,
+      screen: 1,
+      geometrySerial: 3n,
+      requestedMutation: 0n,
+    })
+    expect(port.result(1)).toMatchObject({
+      ok: true,
+      value: { hasSelection: false, screen: 1, geometrySerial: 3 },
+    })
+    expect(() =>
+      port.send(2, {
+        kind: 'selection',
+        state: '7',
+        operation: { ...operation, context: { ...operation.context, extra: true } },
+      }),
+    ).toThrow(UtilityExit)
+  })
   it('reports only premutation native capacity refusal as recoverable admission', async () => {
     port.send(1, {
       kind: 'input',

@@ -27,6 +27,14 @@ function fixture() {
       (op: NativeTerminalInputOperation) => Promise<NativeTerminalInputCompletion>
     >(() => Promise.resolve({ requestedMutation: 1 })),
     clipboardPaste: vi.fn(),
+    selection: vi.fn(() =>
+      Promise.resolve({ hasSelection: true, selectionSerial: 1, text: 'selected' }),
+    ),
+    copySelection: vi.fn(() => Promise.resolve()),
+    activateLink: vi.fn(() => Promise.resolve()),
+    resolveFilePaste: vi.fn<(file: File | undefined) => Promise<string | undefined>>(() =>
+      Promise.resolve(undefined),
+    ),
     accepted: vi.fn(),
     failed: vi.fn(),
     refused: vi.fn(),
@@ -78,6 +86,134 @@ afterEach(() => {
 })
 
 describe('native browser input transactions', () => {
+  it('uses only uncaptured native link candidacy on left release and keeps local selection refusal recoverable', async () => {
+    const f = fixture()
+    f.port.input
+      .mockResolvedValueOnce({
+        requestedMutation: 1,
+        captured: true,
+        linkCandidate: true,
+      })
+      .mockResolvedValueOnce({
+        requestedMutation: 1,
+        captured: false,
+        linkCandidate: false,
+      })
+      .mockResolvedValueOnce({
+        requestedMutation: 1,
+        captured: false,
+        linkCandidate: true,
+      })
+    const release = () =>
+      f.root.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          button: 0,
+          clientX: 20,
+          clientY: 30,
+        }),
+      )
+    release()
+    await f.settle()
+    expect(f.port.activateLink).not.toHaveBeenCalled()
+    release()
+    await f.settle()
+    expect(f.port.activateLink).not.toHaveBeenCalled()
+    release()
+    await f.settle()
+    expect(f.port.activateLink).toHaveBeenCalledExactlyOnceWith(10, 10)
+    f.port.input.mockResolvedValueOnce({ requestedMutation: 1, selectionResult: 7 })
+    release()
+    await f.settle()
+    expect(f.port.refused).toHaveBeenCalledWith('Could not update the terminal selection')
+    f.key('keydown', 'KeyA', 'a')
+    await f.settle()
+    expect(f.port.accepted).toHaveBeenCalledWith('a')
+    expect(f.port.failed).not.toHaveBeenCalled()
+  })
+  it('orders extraction after accepted pointer release and retains physical ownership after cancellation', async () => {
+    const f = fixture()
+    let finish!: (value: NativeTerminalInputCompletion) => void
+    f.port.input.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    f.root.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0 }))
+    const abort = new AbortController()
+    const reading = f.input.selection('copy', 'request', abort.signal)
+    const rejected = expect(reading).rejects.toMatchObject({ name: 'AbortError' })
+    expect(f.port.selection).not.toHaveBeenCalled()
+    abort.abort()
+    await rejected
+    finish({ requestedMutation: 1 })
+    await f.settle()
+    expect(f.port.selection).not.toHaveBeenCalled()
+    expect(f.port.failed).not.toHaveBeenCalled()
+    await expect(f.input.selection('state')).resolves.toMatchObject({
+      hasSelection: true,
+    })
+  })
+  it('keeps input usable after an explicit selection extraction refusal', async () => {
+    const f = fixture()
+    f.port.selection.mockRejectedValueOnce(new Error('selection changed'))
+    await expect(f.input.selection('copy', 'request')).rejects.toThrow(
+      'selection changed',
+    )
+    f.key('keydown', 'KeyA', 'a')
+    await f.settle()
+    expect(f.port.failed).not.toHaveBeenCalled()
+    expect(f.port.accepted).toHaveBeenCalledWith('a')
+    expect(f.ops()).toContainEqual(expect.objectContaining({ kind: 'key', text: 'a' }))
+  })
+  it('reserves explicit copy shortcuts while plain CtrlC remains terminal input, including readonly copy', async () => {
+    const f = fixture()
+    f.key('keydown', 'KeyC', 'c', { ctrlKey: true })
+    f.key('keyup', 'KeyC', 'c', { ctrlKey: true })
+    await f.settle()
+    expect(f.ops().filter((op) => op.kind === 'key')).toHaveLength(2)
+    f.key('keydown', 'KeyC', 'C', { ctrlKey: true, shiftKey: true })
+    f.key('keyup', 'KeyC', 'C', { ctrlKey: true, shiftKey: true })
+    f.input.setReadonly()
+    f.key('keydown', 'KeyC', 'c', { metaKey: true })
+    f.key('keyup', 'KeyC', 'c', { metaKey: true })
+    await f.settle()
+    expect(f.port.copySelection).toHaveBeenCalledTimes(2)
+    expect(f.ops().filter((op) => op.kind === 'key')).toHaveLength(2)
+  })
+  it('drops a file resolution after revocation and reports a synchronous resolver error without losing input', async () => {
+    const f = fixture()
+    let resolve!: (value: string) => void
+    f.port.resolveFilePaste.mockImplementationOnce(
+      () =>
+        new Promise((yes) => {
+          resolve = yes
+        }),
+    )
+    const paste = () => {
+      const event = new Event('paste', { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'clipboardData', {
+        value: { getData: () => '', files: { length: 0 } },
+      })
+      f.text.dispatchEvent(event)
+    }
+    paste()
+    await f.settle()
+    f.input.setEnabled(false)
+    resolve('/old-file')
+    await f.settle()
+    expect(f.ops().filter((op) => op.kind === 'paste')).toEqual([])
+    f.input.setEnabled(true)
+    f.input.setReady(true)
+    f.port.resolveFilePaste.mockImplementationOnce(() => {
+      throw new Error('unavailable')
+    })
+    paste()
+    await f.settle()
+    expect(f.port.refused).toHaveBeenCalledWith('Could not paste the clipboard file')
+    expect(f.port.failed).not.toHaveBeenCalled()
+  })
   it('uses the pinned full physical key table, including international, keypad, media and F25 keys', () => {
     expect(nativeTerminalPhysicalKey('KeyA')).toBe(20)
     expect(nativeTerminalPhysicalKey('KeyZ')).toBe(45)
@@ -463,7 +599,7 @@ describe('native browser input transactions', () => {
       [2, 0],
     ])
   })
-  it('retains readonly wheel/position navigation but sends no typing, paste, focus gain or button reports', async () => {
+  it('retains readonly native selection gestures without typing, paste or focus gain', async () => {
     const f = fixture()
     f.input.setReadonly()
     f.key('keydown', 'KeyA', 'a')
@@ -498,15 +634,17 @@ describe('native browser input transactions', () => {
     await f.settle()
     expect(f.ops()).toEqual([
       expect.objectContaining({ kind: 'wheel', deltaY: 30 }),
-      { kind: 'pointer', x: 20, y: 30, modifiers: 0 },
+      { kind: 'pointer', x: 20, y: 30, modifiers: 0, button: 1, action: 1 },
+      { kind: 'pointer', x: 20, y: 30, modifiers: 0, button: 1, action: 0 },
     ])
-    expect(f.text.disabled).toBe(true)
+    expect(f.text.disabled).toBe(false)
+    expect(f.text.readOnly).toBe(true)
     expect(f.port.accepted).not.toHaveBeenCalled()
     expect(f.port.clipboardPaste).not.toHaveBeenCalled()
     f.input.setEnabled(false)
     f.root.dispatchEvent(wheel)
     await f.settle()
-    expect(f.port.input).toHaveBeenCalledTimes(2)
+    expect(f.port.input).toHaveBeenCalledTimes(3)
   })
   it('reports proven-unsent capacity without accepted-input notification, readonly or automatic replay', async () => {
     const f = fixture()

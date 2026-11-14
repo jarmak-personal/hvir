@@ -22,6 +22,8 @@ typedef enum {
 #define HVIR_TERMINAL_FEED_MAX 65536u
 #define HVIR_TERMINAL_REPLY_MAX 65536u
 #define HVIR_TERMINAL_TEXT_MAX 1048576u
+#define HVIR_TERMINAL_SELECTION_CHUNK 65536u
+#define HVIR_TERMINAL_SELECTION_VISITS 8192u
 #define HVIR_TERMINAL_PIXEL_MAX 16777216u
 #define HVIR_TERMINAL_INFO_MAX 256u
 #define HVIR_TERMINAL_INPUT_SMALL_MAX 65536u
@@ -67,6 +69,7 @@ typedef struct {
 } hvir_terminal_status;
 typedef struct {
   uint64_t lease, stream_sequence, geometry_serial, snapshot_mutation;
+  uint32_t screen; /* actual terminal screen at this render snapshot:0 primary,1 alternate */
   uint32_t kind; /* 1 IOSurface, 2 DMA-BUF, 3 owned RGBA pixels */
   uint32_t width, height, fourcc, plane_count;
   uint32_t premultiplied, color_space, origin; /* colors:1 sRGB,2 P3; origins:1 top,2 bottom */
@@ -123,6 +126,9 @@ typedef struct {
   uint32_t kind, key, modifiers, consumed_modifiers, action, unshifted_codepoint, option_as_alt, encoding_fallback;
   bool composing, focused, precision, has_button;
   uint32_t button;
+  bool selection_enabled;
+  uint32_t selection_screen;
+  uint64_t selection_geometry;
   double x, y, delta_x, delta_y;
   const uint8_t *text;
   size_t text_length;
@@ -133,6 +139,9 @@ typedef struct {
   uint32_t source; /*1 user,2 terminal-response/control; never parser FIFO capture */
   uint64_t requested_mutation, geometry_serial;
   bool captured, has_caret;
+  bool has_selection, link_candidate;
+  uint32_t selection_result;
+  uint64_t selection_serial;
   double caret_x, caret_y, caret_width, caret_height;
 } hvir_terminal_input_result;
 /* One synchronous owned result, one later physical write. A failed operation may
@@ -141,6 +150,31 @@ typedef struct {
 hvir_terminal_result hvir_terminal_input(hvir_terminal_host *, hvir_terminal_id,
   const hvir_terminal_input_event *, bool read_only, hvir_terminal_input_result *);
 void hvir_terminal_input_result_free(hvir_terminal_input_result *);
+typedef enum { HVIR_SELECTION_STATE = 0, HVIR_SELECTION_ALL, HVIR_SELECTION_CLEAR,
+  HVIR_SELECTION_TERMINAL_CLEAR, HVIR_SELECTION_RESET } hvir_terminal_selection_action;
+typedef struct { uint32_t screen; uint64_t geometry_serial; } hvir_terminal_selection_context;
+typedef struct {
+  bool stale, has_selection;
+  uint32_t screen, column;
+  uint64_t selection_serial, geometry_serial, requested_mutation, cursor;
+  bool done, has_clicked_offset;
+  size_t visited, work, length;
+  uint64_t clicked_offset;
+} hvir_terminal_selection_result;
+hvir_terminal_result hvir_terminal_selection(hvir_terminal_host *, hvir_terminal_id,
+  uint32_t action, const hvir_terminal_selection_context *, hvir_terminal_selection_result *);
+hvir_terminal_result hvir_terminal_extract_begin(hvir_terminal_host *, hvir_terminal_id,
+  uint64_t selection_serial, const hvir_terminal_selection_context *, hvir_terminal_selection_result *);
+hvir_terminal_result hvir_terminal_extract_next(hvir_terminal_host *, hvir_terminal_id,
+  uint64_t cursor, uint8_t *, size_t, hvir_terminal_selection_result *);
+hvir_terminal_result hvir_terminal_extract_finish(hvir_terminal_host *, hvir_terminal_id,
+  uint64_t cursor, hvir_terminal_selection_result *);
+hvir_terminal_result hvir_terminal_extract_close(hvir_terminal_host *, hvir_terminal_id, uint64_t cursor);
+hvir_terminal_result hvir_terminal_link_current(hvir_terminal_host *, hvir_terminal_id,
+  double x, double y, const hvir_terminal_selection_context *, hvir_terminal_link_query *, uint8_t *, size_t, size_t *);
+hvir_terminal_result hvir_terminal_link_row_begin(hvir_terminal_host *, hvir_terminal_id,
+  double x, double y, const hvir_terminal_selection_context *, hvir_terminal_selection_result *,
+  hvir_terminal_link_query *, uint8_t *, size_t, size_t *);
 /* Encode a Unicode text/key event using current native modes. key is a Ghostty key
  * enum from the pinned header; modifiers/action stay at this private native edge. */
 hvir_terminal_result hvir_terminal_key(hvir_terminal_host *, hvir_terminal_id, uint32_t key,

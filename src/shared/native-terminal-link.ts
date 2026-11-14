@@ -1,4 +1,32 @@
 import type { HostPath } from './host-path'
+import { validNativeTerminalUuid } from './native-terminal-identities'
+export interface NativeTerminalLinkIntent {
+  readonly viewId: string
+  readonly requestId: string
+  readonly x: number
+  readonly y: number
+}
+export interface NativeTerminalLinkActivation {
+  readonly kind: 'file' | 'loopback-http' | 'external-http'
+  readonly target: string
+  readonly workspaceRoot: HostPath
+}
+export interface NativeTerminalLinkCapture {
+  readonly pending: boolean
+  readonly link?: NativeTerminalLinkActivation
+}
+export function validNativeTerminalLinkIntent(
+  value: unknown,
+): value is NativeTerminalLinkIntent {
+  if (!value || typeof value !== 'object') return false
+  const request = value as NativeTerminalLinkIntent
+  return (
+    validNativeTerminalUuid(request.viewId) &&
+    validNativeTerminalUuid(request.requestId) &&
+    [request.x, request.y].every((n) => Number.isFinite(n) && Math.abs(n) <= 32768) &&
+    Object.keys(request).every((key) => ['viewId', 'requestId', 'x', 'y'].includes(key))
+  )
+}
 export interface NativeTerminalLinkQuery {
   readonly row: number
   readonly column: number

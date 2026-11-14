@@ -2,12 +2,17 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { asHostId, hostPath } from '../src/shared'
 import {
-  activateTerminalFileTarget,
   detectTerminalFileLinks,
+  detectTerminalExternalLinks,
+  isTerminalExternalTarget,
   detectTerminalWebLinks,
   normalizeTerminalWebTarget,
   parseTerminalFileTarget,
   resolveTerminalFileTarget,
+} from '../src/shared/terminal-link-targets'
+import {
+  activateTerminalFileTarget,
+  activateTerminalLink,
 } from '../src/renderer/src/terminal/terminal-file-link'
 
 const root = hostPath(asHostId('remote'), '/srv/project')
@@ -191,4 +196,121 @@ it('reports rejected URI activation visibly without opening a file or reading pr
   } finally {
     vi.unstubAllGlobals()
   }
+})
+
+describe('pinned external HTTP(S) link policy', () => {
+  it('retains mature plain-provider length, trailing punctuation and inclusive UTF16 offsets', () => {
+    const text =
+      '🙂 see https://example.com/path?q=1). and http://a https://a, FTP://example.com'
+    expect(detectTerminalExternalLinks(text)).toEqual([
+      { target: 'https://example.com/path?q=1', start: 7, end: 34 },
+      { target: 'https://a', start: 51, end: 59 },
+    ])
+    for (const link of detectTerminalExternalLinks(text))
+      expect(text.slice(link.start, link.end + 1)).toBe(link.target)
+    expect(isTerminalExternalTarget('http://a')).toBe(true)
+    expect(detectTerminalExternalLinks('http://a')).toEqual([])
+  })
+  it.each([
+    'https://example.com',
+    'HTTP://example.com',
+    'https://例.example/path',
+    'http://user:pass@example.com/a',
+    'https://example.com/é',
+  ])('retains default explicit URI acceptance: %s', (target) => {
+    expect(isTerminalExternalTarget(target)).toBe(true)
+  })
+  it.each([
+    '',
+    'http://',
+    'https://example.com/a b',
+    'https://example.com/\n',
+    'https://example.com/\x7f',
+    'javascript:alert(1)',
+    'data:text/plain,example',
+    'file:///tmp/file',
+    'ftp://example.com',
+    'mailto:a@example.com',
+    'localhost:8080',
+  ])('refuses the mature default non-HTTP/control target: %s', (target) => {
+    expect(isTerminalExternalTarget(target)).toBe(false)
+  })
+  it('retains ASCII regex behavior for Unicode URL text rather than broadening it', () => {
+    expect(detectTerminalExternalLinks('https://例.example/path')).toEqual([])
+    expect(detectTerminalExternalLinks('https://example.com/é')).toEqual([
+      { target: 'https://example.com/', start: 0, end: 19 },
+    ])
+  })
+})
+
+describe('terminal link activation host authority', () => {
+  it('uses the captured SSH root for native file and loopback intent while web falls back to its current workspace', () => {
+    const local = hostPath(asHostId('local'), '/current'),
+      open = vi.fn(),
+      web = vi.fn()
+    activateTerminalLink(
+      { kind: 'file', target: 'src/main.ts:2', workspaceRoot: root },
+      'terminal',
+      local,
+      open,
+      web,
+    )
+    expect(open).toHaveBeenLastCalledWith({
+      path: hostPath(root.hostId, '/srv/project/src/main.ts'),
+      line: 2,
+    })
+    activateTerminalLink(
+      { kind: 'file', target: 'src/main.ts' },
+      'terminal',
+      local,
+      open,
+      web,
+    )
+    expect(open).toHaveBeenLastCalledWith({
+      path: hostPath(local.hostId, '/current/src/main.ts'),
+    })
+    activateTerminalLink(
+      { kind: 'loopback-http', target: 'localhost:8080', workspaceRoot: root },
+      'terminal',
+      local,
+      open,
+      web,
+    )
+    expect(web).toHaveBeenCalledExactlyOnceWith({
+      terminalId: 'terminal',
+      workspaceRoot: root,
+      url: 'http://localhost:8080/',
+    })
+  })
+  it('refuses invalid targets through the existing explicit activation policy', () => {
+    const alert = vi.fn(),
+      open = vi.fn(),
+      web = vi.fn()
+    vi.stubGlobal('window', { alert })
+    try {
+      activateTerminalLink(
+        { kind: 'file', target: 'file://other/tmp/a', workspaceRoot: root },
+        'terminal',
+        root,
+        open,
+        web,
+      )
+      activateTerminalLink(
+        {
+          kind: 'loopback-http',
+          target: 'http://user:pass@localhost:8080',
+          workspaceRoot: root,
+        },
+        'terminal',
+        root,
+        open,
+        web,
+      )
+      expect(alert).toHaveBeenCalledOnce()
+      expect(open).not.toHaveBeenCalled()
+      expect(web).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

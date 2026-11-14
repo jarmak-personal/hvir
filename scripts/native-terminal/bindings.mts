@@ -67,6 +67,7 @@ const sources = [
     'terminal.c',
     'terminal_input.c',
     'terminal_effects.c',
+    'terminal_selection.c',
     'terminal_internal.h',
     'linux_display.c',
     'linux_display.h',
@@ -132,6 +133,7 @@ const commands = [
       join(native, 'terminal.c'),
       join(native, 'terminal_input.c'),
       join(native, 'terminal_effects.c'),
+      join(native, 'terminal_selection.c'),
       join(native, 'linux_display.c'),
       ...(process.platform === 'darwin'
         ? ['-framework', 'CoreFoundation', '-framework', 'IOSurface']

@@ -1,4 +1,7 @@
-import { terminalRuntimeEffectListener } from './terminal-runtime-effects'
+import {
+  nativeListeners,
+  terminalRuntimeEffectListener,
+} from './terminal-runtime-effects'
 import { hostPathEquals, type HostConnectionState, type HostPath } from '../../../shared'
 import type { TerminalEventRouter } from './terminal-event-router'
 import { isNativeTerminalPane, type TerminalRuntimePane } from './terminal-pane'
@@ -425,10 +428,7 @@ export class TerminalRuntime {
       live: () => this.started,
     })
     if (isNativeTerminalPane(pane)) {
-      this.paneDisposers = [
-        pane.onInput((text) => this.surface.canFocus() && this.options.onInput(text)),
-        ...(pane.onEffect ? [pane.onEffect(onEvent)] : []),
-      ]
+      this.paneDisposers = nativeListeners(pane, this.options, onEvent, this.surface)
       return
     }
     this.paneDisposers = [

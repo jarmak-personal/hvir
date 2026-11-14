@@ -1,4 +1,13 @@
 import type { NativeTerminalCommand } from '../../shared/native-terminal'
+import {
+  NativeTerminalCaretPending,
+  validNativeTerminalInput,
+  validNativeTerminalInputResult,
+  type NativeTerminalInputOperation,
+  type NativeTerminalKeyEncodingFallback,
+} from '../../shared/native-terminal-input'
+import type { NativeTerminalSelectionContext } from '../../shared/native-terminal-selection'
+import type { NativeTerminalSelectionOperation } from '../../shared/native-terminal-selection'
 import { NATIVE_TERMINAL_LIMITS as limits } from '../../shared/native-terminal'
 import { validNativeTerminalEffectBatch } from '../../shared/native-terminal-effects'
 import {
@@ -11,13 +20,72 @@ interface ProducerBinding {
   readonly abort: AbortController
 }
 interface ProducerPort {
-  request(command: NativeTerminalCommand, signal?: AbortSignal): Promise<unknown>
+  request(
+    command: NativeTerminalCommand,
+    signal?: AbortSignal,
+    eligible?: (signal: AbortSignal) => Promise<void>,
+    physicalInput?: true,
+  ): Promise<unknown>
+}
+interface ProducerContext {
+  readonly port: ProducerPort
+  readonly binding: ProducerBinding
+  readonly current: () => void
+}
+export async function selectionNativeTerminalProducer(
+  { port, binding, current }: ProducerContext,
+  operation: NativeTerminalSelectionOperation,
+  signal?: AbortSignal,
+  eligible?: (signal: AbortSignal) => Promise<void>,
+) {
+  const value = await port.request(
+    { kind: 'selection', state: binding.state, operation },
+    signal ? AbortSignal.any([binding.abort.signal, signal]) : binding.abort.signal,
+    eligible,
+  )
+  current()
+  return value
+}
+/** Encoder results use ordinary input admission, never the privileged output role. */
+export async function inputNativeTerminalProducer(
+  { port, binding, current }: ProducerContext,
+  input: NativeTerminalInputOperation,
+  options: {
+    eligible?: (signal: AbortSignal) => Promise<void>
+    readOnly: boolean
+    keyEncodingFallback?: NativeTerminalKeyEncodingFallback
+    selectionContext?: NativeTerminalSelectionContext
+  },
+) {
+  if (!validNativeTerminalInput(input)) throw new Error('native-input-invalid')
+  const value = await port.request(
+    {
+      kind: 'input',
+      state: binding.state,
+      input,
+      readOnly: options.readOnly,
+      keyEncodingFallback: options.keyEncodingFallback,
+      selectionContext: options.selectionContext,
+    },
+    binding.abort.signal,
+    options.eligible,
+    true,
+  )
+  current()
+  if (
+    input.kind === 'caret' &&
+    value &&
+    typeof value === 'object' &&
+    'busy' in value &&
+    value.busy === true
+  )
+    throw new NativeTerminalCaretPending()
+  if (!validNativeTerminalInputResult(value)) throw new Error('native-input-invalid')
+  return value
 }
 /** Copied producer results are checked after the exact immutable binding is revalidated. */
 export async function readNativeTerminalProducer(
-  port: ProducerPort,
-  binding: ProducerBinding,
-  current: () => void,
+  { port, binding, current }: ProducerContext,
   kind: 'read' | 'drain',
 ): Promise<Uint8Array> {
   const value = await port.request({ kind, state: binding.state }, binding.abort.signal)
@@ -26,11 +94,11 @@ export async function readNativeTerminalProducer(
     throw new Error(kind === 'read' ? 'native-read-bound' : 'native-reply-bound')
   return value
 }
-export async function drainNativeTerminalProducerEffects(
-  port: ProducerPort,
-  binding: ProducerBinding,
-  current: () => void,
-) {
+export async function drainNativeTerminalProducerEffects({
+  port,
+  binding,
+  current,
+}: ProducerContext) {
   const value = await port.request(
     { kind: 'effects', state: binding.state },
     binding.abort.signal,
@@ -41,9 +109,7 @@ export async function drainNativeTerminalProducerEffects(
   return value
 }
 export async function readNativeTerminalProducerLink(
-  port: ProducerPort,
-  binding: ProducerBinding,
-  current: () => void,
+  { port, binding, current }: ProducerContext,
   query: NativeTerminalLinkQuery,
 ) {
   if (!validNativeTerminalLinkQuery(query)) throw new Error('native-link-query-invalid')

@@ -1,4 +1,8 @@
 import type {
+  NativeTerminalSelectionAction,
+  NativeTerminalSelectionResponse,
+} from '../../../shared/native-terminal-selection'
+import type {
   NativeTerminalInputCompletion,
   NativeTerminalInputOperation,
 } from '../../../shared/native-terminal-input'
@@ -12,17 +16,35 @@ interface KeyboardLayoutPort {
 interface DomInputPort {
   input(operation: NativeTerminalInputOperation): Promise<NativeTerminalInputCompletion>
   clipboardPaste(fallback: string): void
+  selection?(
+    action: NativeTerminalSelectionAction,
+    requestId?: string,
+  ): Promise<NativeTerminalSelectionResponse>
+  copySelection?(): Promise<void>
+  activateLink?(x: number, y: number): Promise<void>
+  resolveFilePaste?(
+    file: File | undefined,
+  ): string | undefined | Promise<string | undefined>
   accepted(text: string): void
   failed(message: string): void
   refused(message: string): void
 }
 type BrowserOperation =
-  NativeTerminalInputOperation | { kind: 'clipboard'; fallback: string }
+  | NativeTerminalInputOperation
+  | { kind: 'clipboard'; fallback: string }
+  | { kind: 'selection'; action: NativeTerminalSelectionAction; requestId?: string }
 interface PendingInput {
   operation: BrowserOperation
   revision: number
   text?: string
   capture?: number
+  captureRevision?: number
+  selection?: {
+    signal?: AbortSignal
+    resolve: (value: NativeTerminalSelectionResponse) => void
+    reject: (error: unknown) => void
+    release: () => void
+  }
 }
 
 /** Browser text/gesture transactions only. Native owns pressed keys and terminal modes. */
@@ -43,6 +65,8 @@ export class NativeTerminalDomInput {
   private readonly pressed = new Set<string>()
   private duplicateText?: string
   private clipboardGesture = false
+  private pointerRevision = 0
+  private pointerRoute?: AbortController
   private pointer?: number
   private captured?: number
   private gesture?: { button: number; x: number; y: number; modifiers: number }
@@ -98,13 +122,14 @@ export class NativeTerminalDomInput {
         this.keyboard.removeEventListener('layoutchange', this.refreshLayout)
       this.layout = undefined
     }
-    this.textarea.disabled = !enabled || this.readOnly
+    this.textarea.disabled = !enabled
   }
   setReadonly(): void {
     if (this.readOnly) return
     this.revoke()
     this.readOnly = true
-    this.textarea.disabled = true
+    this.textarea.readOnly = true
+    this.textarea.disabled = !this.enabled
   }
   setReady(ready: boolean): void {
     if (!ready) this.geometryRevision++
@@ -115,7 +140,7 @@ export class NativeTerminalDomInput {
     }
   }
   focus(): void {
-    if (!this.disposed && !this.readOnly) this.textarea.focus({ preventScroll: true })
+    if (!this.disposed) this.textarea.focus({ preventScroll: true })
   }
   dispose(): Promise<void> {
     if (this.disposed) return this.settled
@@ -128,9 +153,51 @@ export class NativeTerminalDomInput {
     this.textarea.remove()
     return this.flush()
   }
+  pasteText(text: string): void {
+    if (this.enabled && !this.readOnly && text)
+      this.enqueue({ kind: 'paste', text }, text)
+  }
+  selection(
+    action: NativeTerminalSelectionAction,
+    requestId?: string,
+    signal?: AbortSignal,
+  ): Promise<NativeTerminalSelectionResponse> {
+    if (this.disposed || !this.enabled || signal?.aborted || !this.port.selection)
+      return Promise.reject(
+        new DOMException('Terminal selection unavailable', 'AbortError'),
+      )
+    return new Promise((resolve, reject) => {
+      if (this.pending.length + Number(this.active) >= 30) {
+        reject(new Error('Native terminal selection capacity reached'))
+        return
+      }
+      const cancel = () =>
+        reject(new DOMException('Terminal selection cancelled', 'AbortError'))
+      signal?.addEventListener('abort', cancel, { once: true })
+      this.pending.push({
+        operation: { kind: 'selection', action, requestId },
+        revision: this.revision,
+        selection: {
+          signal,
+          resolve,
+          reject,
+          release: () => signal?.removeEventListener('abort', cancel),
+        },
+      })
+      void this.flush()
+    })
+  }
   private revoke(): void {
+    const ownsPointer =
+      this.pointer !== undefined ||
+      this.captured !== undefined ||
+      this.gesture !== undefined
     this.revision++
     this.needsNativeReset = false
+    for (const pending of this.pending) {
+      pending.selection?.reject(new DOMException('Terminal input revoked', 'AbortError'))
+      pending.selection?.release()
+    }
     this.pending.length = 0
     this.pressed.clear()
     this.duplicateText = undefined
@@ -138,7 +205,8 @@ export class NativeTerminalDomInput {
     if (this.composing) this.enqueue({ kind: 'preedit', text: null }, undefined, true)
     this.composing = false
     this.deadKey = false
-    if (this.focused) this.enqueue({ kind: 'focus', focused: false }, undefined, true)
+    if (this.focused || ownsPointer)
+      this.enqueue({ kind: 'focus', focused: false }, undefined, true)
     this.focused = false
     this.releaseCapture()
     this.clearText()
@@ -171,7 +239,13 @@ export class NativeTerminalDomInput {
       if (cleanup) this.needsNativeReset = true
       return false
     }
-    this.pending.push({ operation, revision: this.revision, text, capture })
+    this.pending.push({
+      operation,
+      revision: this.revision,
+      text,
+      capture,
+      captureRevision: capture === undefined ? undefined : this.pointerRevision,
+    })
     void this.flush()
     return true
   }
@@ -211,6 +285,29 @@ export class NativeTerminalDomInput {
           (next.operation.kind === 'preedit' && next.operation.text === null)
         if (!this.ready && !cleanup) break
         this.pending.shift()
+        if (next.operation.kind === 'selection') {
+          const pending = next.selection!
+          try {
+            if (pending.signal?.aborted)
+              throw new DOMException('Terminal selection cancelled', 'AbortError')
+            const result = await this.port.selection!(
+              next.operation.action,
+              next.operation.requestId,
+            )
+            if (
+              this.disposed ||
+              next.revision !== this.revision ||
+              pending.signal?.aborted
+            )
+              throw new DOMException('Terminal selection source changed', 'AbortError')
+            pending.resolve(result)
+          } catch (error) {
+            pending.reject(error)
+          } finally {
+            pending.release()
+          }
+          continue
+        }
         try {
           const geometryRevision = this.geometryRevision
           let result: NativeTerminalInputCompletion
@@ -228,6 +325,8 @@ export class NativeTerminalDomInput {
               this.needsNativeReset = true
             continue
           }
+          if (result.selectionResult !== undefined && result.selectionResult !== 0)
+            this.port.refused('Could not update the terminal selection')
           if (next.text !== undefined) this.port.accepted(next.text)
           if (
             result.caret &&
@@ -241,12 +340,30 @@ export class NativeTerminalDomInput {
             this.textarea.style.height = `${Math.max(1, result.caret.height)}px`
           }
           if (
-            result.captured &&
+            (result.captured ||
+              (next.operation.kind === 'pointer' &&
+                next.operation.action === 1 &&
+                next.operation.button === 1 &&
+                result.selectionResult === 0)) &&
             next.capture !== undefined &&
+            next.captureRevision === this.pointerRevision &&
             next.capture === this.pointer
           ) {
             this.root.setPointerCapture?.(next.capture)
             this.captured = next.capture
+          }
+          if (
+            result.linkCandidate &&
+            !result.captured &&
+            next.operation.kind === 'pointer' &&
+            next.operation.action === 0 &&
+            next.operation.button === 1
+          ) {
+            try {
+              await this.port.activateLink?.(next.operation.x, next.operation.y)
+            } catch {
+              this.port.refused('Could not open the terminal link')
+            }
           }
         } catch {
           if (!this.disposed && next.revision === this.revision)
@@ -356,6 +473,23 @@ export class NativeTerminalDomInput {
     )
   }
   private readonly keydown = (event: KeyboardEvent): void => {
+    if (
+      this.enabled &&
+      !event.defaultPrevented &&
+      !event.isComposing &&
+      !this.composing &&
+      event.code === 'KeyC' &&
+      (event.metaKey || (event.ctrlKey && event.shiftKey && !event.altKey))
+    ) {
+      event.preventDefault()
+      event.stopPropagation()
+      const revision = this.revision
+      void this.port.copySelection?.().catch(() => {
+        if (revision === this.revision && !this.disposed)
+          this.port.refused('Could not copy the terminal selection')
+      })
+      return
+    }
     if (
       !this.enabled ||
       this.readOnly ||
@@ -474,8 +608,35 @@ export class NativeTerminalDomInput {
       this.clipboardGesture = false
       return
     }
-    const text = event.clipboardData?.getData('text/plain')
-    if (text) this.enqueue({ kind: 'paste', text }, text)
+    const clipboard = event.clipboardData,
+      text = clipboard?.getData('text/plain')
+    if (text) this.pasteText(text)
+    else if (clipboard && clipboard.files.length <= 1 && this.port.resolveFilePaste) {
+      const revision = this.revision,
+        file =
+          clipboard.files.length === 1
+            ? (clipboard.files.item(0) ?? undefined)
+            : undefined
+      if (clipboard.files.length === 0 || file)
+        void Promise.resolve()
+          .then(() => this.port.resolveFilePaste!(file))
+          .then(
+            (value) => {
+              if (
+                revision === this.revision &&
+                !this.disposed &&
+                this.enabled &&
+                !this.readOnly &&
+                value
+              )
+                this.pasteText(value)
+            },
+            () => {
+              if (revision === this.revision && !this.disposed)
+                this.port.refused('Could not paste the clipboard file')
+            },
+          )
+    }
     this.clearText()
   }
   private readonly focusin = (): void => {
@@ -489,7 +650,14 @@ export class NativeTerminalDomInput {
     this.caret()
   }
   private readonly focusout = (event: FocusEvent): void => {
-    if (!this.focused && !this.composing) return
+    if (
+      !this.focused &&
+      !this.composing &&
+      this.pointer === undefined &&
+      this.captured === undefined &&
+      !this.gesture
+    )
+      return
     if (event.relatedTarget instanceof Node && this.root.contains(event.relatedTarget))
       return
     this.revoke()
@@ -525,12 +693,11 @@ export class NativeTerminalDomInput {
   }
   private readonly pointerdown = (event: PointerEvent): void => {
     if (!this.enabled || event.defaultPrevented) return
-    if (this.readOnly) {
-      this.pointerEvent(event)
-      return
-    }
+    if (this.pointer !== undefined && event.pointerId !== this.pointer) return
     this.focus()
+    this.pointerRevision++
     this.pointer = event.pointerId
+    this.routePointer()
     this.gesture = {
       ...this.position(event),
       modifiers: this.mods(event),
@@ -546,6 +713,7 @@ export class NativeTerminalDomInput {
     this.pointerEvent(event, 1)
   }
   private readonly pointermove = (event: PointerEvent): void => {
+    if (this.pointer !== undefined && event.pointerId !== this.pointer) return
     if (this.enabled && !event.defaultPrevented) {
       if (event.pointerId === this.pointer && this.gesture)
         Object.assign(this.gesture, this.position(event), { modifiers: this.mods(event) })
@@ -553,16 +721,40 @@ export class NativeTerminalDomInput {
     }
   }
   private readonly pointerup = (event: PointerEvent): void => {
-    if (this.enabled && !event.defaultPrevented)
-      this.pointerEvent(event, this.readOnly ? undefined : 0)
-    this.releaseCapture()
+    if (this.pointer !== undefined && event.pointerId !== this.pointer) return
+    if (this.enabled && !event.defaultPrevented) this.pointerEvent(event, 0)
+    if (this.pointer === undefined || this.pointer === event.pointerId)
+      this.releaseCapture()
   }
   private readonly pointercancel = (event: PointerEvent): void => {
-    if (this.enabled && this.gesture && event.pointerId === this.pointer)
+    if (event.pointerId !== this.pointer) return
+    if (this.enabled && this.gesture)
       this.enqueue({ kind: 'pointer', ...this.gesture, action: 0 }, undefined, true)
     this.releaseCapture()
   }
+  private routePointer(): void {
+    this.pointerRoute?.abort()
+    const route = new AbortController()
+    this.pointerRoute = route
+    const forward = (event: PointerEvent) => {
+      if (
+        event.pointerId !== this.pointer ||
+        (event.target instanceof Node && this.root.contains(event.target))
+      )
+        return
+      event.stopPropagation()
+      if (event.type === 'pointermove') this.pointermove(event)
+      else if (event.type === 'pointerup') this.pointerup(event)
+      else this.pointercancel(event)
+      event.preventDefault()
+    }
+    for (const type of ['pointermove', 'pointerup', 'pointercancel'] as const)
+      window.addEventListener(type, forward, { capture: true, signal: route.signal })
+  }
   private releaseCapture(): void {
+    this.pointerRevision++
+    this.pointerRoute?.abort()
+    this.pointerRoute = undefined
     if (this.captured !== undefined && this.root.hasPointerCapture?.(this.captured))
       this.root.releasePointerCapture(this.captured)
     this.captured = undefined

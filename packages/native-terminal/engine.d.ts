@@ -33,6 +33,7 @@ export interface Frame {
   streamSequence: bigint
   geometrySerial: bigint
   snapshotMutation: bigint
+  screen: 0 | 1
   kind: number
   width: number
   height: number
@@ -63,7 +64,35 @@ export interface RendererInfo {
   pixelFrames: bigint
   dmaBufFrames: bigint
 }
+export interface SelectionContext {
+  screen: 0 | 1
+  geometrySerial: bigint
+}
+export interface SelectionResult extends Result {
+  column?: number
+  clickedByteOffset?: bigint
+  stale: boolean
+  hasSelection: boolean
+  selectionSerial: bigint
+  screen: 0 | 1
+  geometrySerial: bigint
+  requestedMutation: bigint
+}
+export interface ExtractionChunk extends Result {
+  clickedByteOffset?: bigint
+  stale: boolean
+  cursor: bigint
+  selectionSerial: bigint
+  data: Buffer
+  done: boolean
+  visited: number
+  work: number
+}
 export interface InputResult extends Result {
+  hasSelection?: boolean
+  selectionSerial?: bigint
+  selectionResult?: 0 | 5 | 6 | 7
+  linkCandidate?: boolean
   data?: Buffer
   capacity?: number
   source?: 'user' | 'terminal-response'
@@ -78,7 +107,55 @@ declare const engine: {
     operation: NativeTerminalInputOperation,
     readOnly?: boolean,
     keyEncodingFallback?: 'csi-u' | 'modify-other-keys',
+    selectionContext?: SelectionContext,
   ): InputResult
+  selection(
+    host: Host,
+    id: bigint,
+    action: 'state' | 'select-all' | 'selection-clear' | 'clear' | 'reset',
+    context: SelectionContext,
+  ): SelectionResult
+  extractBegin(
+    host: Host,
+    id: bigint,
+    selectionSerial: bigint,
+    context: SelectionContext,
+  ): SelectionResult & { cursor: bigint }
+  extractNext(host: Host, id: bigint, cursor: bigint): ExtractionChunk
+  extractFinish(host: Host, id: bigint, cursor: bigint): SelectionResult
+  extractClose(host: Host, id: bigint, cursor: bigint): Result
+  linkCurrent(
+    host: Host,
+    id: bigint,
+    query: { x: number; y: number; screen: 0 | 1; geometrySerial: bigint },
+  ): Result & {
+    link?: {
+      uri: Buffer
+      screen: number
+      row: number
+      column: number
+      streamSequence: bigint
+      snapshotMutation: bigint
+      geometrySerial: bigint
+    }
+  }
+  linkRowBegin(
+    host: Host,
+    id: bigint,
+    query: { x: number; y: number; screen: 0 | 1; geometrySerial: bigint },
+  ): SelectionResult & {
+    cursor: bigint
+    column: number
+    link?: {
+      uri: Buffer
+      screen: number
+      row: number
+      column: number
+      streamSequence: bigint
+      snapshotMutation: bigint
+      geometrySerial: bigint
+    }
+  }
   open(
     path: string,
     options?: { renderNode?: string; presentationMode?: 'auto' | 'pixels' },

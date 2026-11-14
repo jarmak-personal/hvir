@@ -39,6 +39,8 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
     ) => NativeTerminalCanvasPort | undefined,
     private readonly reportFailure: (grant: NativeTerminalViewGrant) => void = () =>
       undefined,
+    private readonly reportDraw: (metadata: NativeTerminalPresentedFrame) => void = () =>
+      undefined,
   ) {}
 
   mount(viewId: string, elementId: string): void {
@@ -99,6 +101,7 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
       if (!current) return
       frame = texture.getVideoFrame()
       current.canvas.draw(frame, current.metadata)
+      if (this.current(current.metadata)) this.reportDraw(current.metadata)
     } catch {
       this.failure(metadata)
     } finally {
@@ -122,6 +125,7 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
       )
         return false
       current.canvas.pixels(value)
+      if (this.current(current.metadata)) this.reportDraw(current.metadata)
       return true
     } catch {
       this.failure(value)
@@ -144,6 +148,7 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
     const metadata = value as NativeTerminalPresentedFrame
     if (
       !validNativeTerminalViewGrant(metadata.nativeTerminal) ||
+      ![0, 1].includes(metadata.screen) ||
       ![1, 2].includes(metadata.origin) ||
       ![1, 2].includes(metadata.colorSpace)
     )
