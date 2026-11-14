@@ -57,6 +57,20 @@ export async function verifyNativeTerminalSelection(
   const markers = new Set<string>()
   let initialGrid: unknown
   let phase = 'setup'
+  const phaseMarkers: { phase: string; atMs: number; epochMs: number }[] = []
+  let phaseMarkerCount = 0,
+    phaseTimingUnavailable = false
+  const recordPhase = (name: string) => {
+    try {
+      const atMs = performance.now()
+      phaseMarkerCount++
+      if (phaseMarkers.length < 32)
+        phaseMarkers.push({ phase: name, atMs, epochMs: performance.timeOrigin + atMs })
+    } catch {
+      phaseTimingUnavailable = true
+    }
+  }
+  recordPhase(phase)
   let lastBeatPhase = phase
   let worstMainGap: {
     fromMs: number
@@ -66,6 +80,7 @@ export async function verifyNativeTerminalSelection(
   } | null = null
   const stage = (name: string) => {
     phase = name
+    recordPhase(name)
     console.log('[native-workbench] selection-' + name)
   }
   const heartbeat = setInterval(() => {
@@ -537,6 +552,15 @@ export async function verifyNativeTerminalSelection(
           worstMainGap,
           rendererSamples: paint.frames,
           rendererMaxMs: paint.maxGapMs,
+          rendererTiming: paint.rendererTiming,
+          captureTiming: browser.captureTiming(),
+          phaseTiming: {
+            timeOriginMs: performance.timeOrigin,
+            count: phaseMarkerCount,
+            markers: phaseMarkers,
+            truncated: phaseMarkerCount > phaseMarkers.length,
+            unavailable: phaseTimingUnavailable,
+          },
           maximumInclusiveMs: UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs,
         }),
     )
@@ -735,6 +759,8 @@ export async function verifyNativeReadonlySelection(
         JSON.stringify({
           rendererSamples: paint.frames,
           rendererMaxMs: paint.maxGapMs,
+          rendererTiming: paint.rendererTiming,
+          captureTiming: browser.captureTiming(),
           maximumInclusiveMs: UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs,
         }),
     )

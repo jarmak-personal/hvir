@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { clipboard, type BrowserWindow } from 'electron'
+import { clipboard, type BrowserWindow, type NativeImage } from 'electron'
 import type { ManagedPty } from '../pty/pty-supervisor'
 import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
 
@@ -47,17 +47,46 @@ export function nativeSelectionReadinessScript(session: string): string {
 export const clipboardInstall = (isolated: boolean) => `(() => {
  const clipboard=navigator.clipboard;if(!clipboard?.writeText)throw new Error('native-selection-clipboard-unavailable');
  const descriptor=Object.getOwnPropertyDescriptor(clipboard,'writeText'),write=clipboard.writeText.bind(clipboard),open=window.open;
- const probe={writes:[],opens:[],active:true,frames:0,last:performance.now(),maxGapMs:0};
+ const probe={writes:[],opens:[],active:true,frames:0,last:performance.now(),maxGapMs:0,timeOriginMs:performance.timeOrigin,worstGap:null,visibilityTransitions:[],visibilityTransitionCount:0,timingReadFailed:false};
+ const viewState=()=>{try{const visible=Object.getOwnPropertyDescriptor(Document.prototype,'visibilityState').get.call(document);return{nativeVisibility:visible==='visible'||visible==='hidden'?visible:null,focused:document.hasFocus()===true};}catch{return{nativeVisibility:null,focused:null,readFailed:true};}};
+ probe.lastViewState=viewState();probe.startedMs=probe.last;
+ const visibilityChanged=event=>{try{const now=performance.now();probe.visibilityTransitionCount++;probe.visibilityTransitions.push({atMs:now,epochMs:probe.timeOriginMs+now,trusted:event.isTrusted===true,...viewState()});if(probe.visibilityTransitions.length>16)probe.visibilityTransitions.shift();}catch{probe.timingReadFailed=true;}};
+ try{document.addEventListener('visibilitychange',visibilityChanged,true);}catch{probe.timingReadFailed=true;}
  Object.defineProperty(clipboard,'writeText',{configurable:true,value:async text=>{const bytes=new TextEncoder().encode(text),hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');if(${isolated})await write(text);probe.writes.push({bytes:bytes.length,sha256:hash});if(probe.writes.length>64)throw new Error('native-selection-clipboard-observation-bound');}});
  window.open=(target,frame,features)=>{probe.opens.push({target:String(target),frame,features});return null;};
- const tick=now=>{if(!probe.active)return;probe.frames++;probe.maxGapMs=Math.max(probe.maxGapMs,now-probe.last);probe.last=now;requestAnimationFrame(tick);};requestAnimationFrame(tick);
- probe.restore=()=>{probe.active=false;window.open=open;if(descriptor)Object.defineProperty(clipboard,'writeText',descriptor);else delete clipboard.writeText;delete window.nativeSelectionProbe;};window.nativeSelectionProbe=probe;return true;
+ const tick=now=>{if(!probe.active)return;const from=probe.last,worst=now-from>probe.maxGapMs;probe.frames++;probe.maxGapMs=Math.max(probe.maxGapMs,now-probe.last);probe.last=now;requestAnimationFrame(tick);try{const current=viewState();if(worst)probe.worstGap={fromMs:from,toMs:now,fromEpochMs:probe.timeOriginMs+from,toEpochMs:probe.timeOriginMs+now,fromView:probe.lastViewState,toView:current};probe.lastViewState=current;}catch{probe.timingReadFailed=true;}};requestAnimationFrame(tick);
+ probe.restore=()=>{probe.active=false;try{document.removeEventListener('visibilitychange',visibilityChanged,true);}catch{probe.timingReadFailed=true;}window.open=open;if(descriptor)Object.defineProperty(clipboard,'writeText',descriptor);else delete clipboard.writeText;delete window.nativeSelectionProbe;};window.nativeSelectionProbe=probe;return true;
 })()`
+interface NativeViewFacts {
+  nativeVisibility: 'visible' | 'hidden' | null
+  focused: boolean | null
+  readFailed?: boolean
+}
 interface ClipboardProof {
   writes: { bytes: number; sha256: string }[]
   opens: { target: string; frame: string; features: string }[]
   frames: number
   maxGapMs: number
+  rendererTiming: {
+    timeOriginMs: number
+    startedMs: number
+    worstGap: {
+      fromMs: number
+      toMs: number
+      fromEpochMs: number
+      toEpochMs: number
+      fromView: NativeViewFacts
+      toView: NativeViewFacts
+    } | null
+    visibilityTransitions: (NativeViewFacts & {
+      atMs: number
+      epochMs: number
+      trusted: boolean
+    })[]
+    visibilityTransitionCount: number
+    visibilityTransitionsTruncated: boolean
+    timingReadFailed: boolean
+  }
 }
 
 export function nativeSelectionBrowser(
@@ -205,15 +234,62 @@ export function nativeSelectionBrowser(
       currentDraw: true,
     }
   }
+  const captures: {
+    fromMs: number
+    toMs: number
+    fromEpochMs: number
+    toEpochMs: number
+    completed: boolean
+  }[] = []
+  let captureCount = 0,
+    worstCapture: (typeof captures)[number] | undefined,
+    captureTimingUnavailable = false
+  const captureTiming = () => ({
+    count: captureCount,
+    spans: captures.slice(),
+    worst: worstCapture,
+    truncated: captureCount > captures.length,
+    unavailable: captureTimingUnavailable,
+  })
   const painted = () =>
     wait(async () => {
       const { geometry: g, bounds: b } = await layout()
-      const image = await win.webContents.capturePage({
-        x: Math.ceil(b.x + g.paddingLeft / g.backingScale),
-        y: Math.ceil(b.y + (g.paddingTop + 4 * g.cellHeight) / g.backingScale),
-        width: Math.max(1, Math.floor((10 * g.cellWidth) / g.backingScale)),
-        height: Math.max(1, Math.floor(g.cellHeight / g.backingScale)),
-      })
+      let fromMs: number | undefined,
+        image: NativeImage,
+        completed = false
+      captureCount++
+      try {
+        fromMs = performance.now()
+      } catch {
+        captureTimingUnavailable = true
+      }
+      try {
+        image = await win.webContents.capturePage({
+          x: Math.ceil(b.x + g.paddingLeft / g.backingScale),
+          y: Math.ceil(b.y + (g.paddingTop + 4 * g.cellHeight) / g.backingScale),
+          width: Math.max(1, Math.floor((10 * g.cellWidth) / g.backingScale)),
+          height: Math.max(1, Math.floor(g.cellHeight / g.backingScale)),
+        })
+        completed = true
+      } finally {
+        try {
+          if (fromMs !== undefined) {
+            const toMs = performance.now(),
+              span = {
+                fromMs,
+                toMs,
+                fromEpochMs: performance.timeOrigin + fromMs,
+                toEpochMs: performance.timeOrigin + toMs,
+                completed,
+              }
+            if (captures.length < 16) captures.push(span)
+            if (!worstCapture || toMs - fromMs > worstCapture.toMs - worstCapture.fromMs)
+              worstCapture = span
+          }
+        } catch {
+          captureTimingUnavailable = true
+        }
+      }
       const bytes = image.toBitmap()
       let blue = 0
       for (let offset = 0; offset < bytes.length; offset += 4)
@@ -290,7 +366,7 @@ export function nativeSelectionBrowser(
     )
   const proof = () =>
     win.webContents.executeJavaScript(
-      `(()=>{const p=window.nativeSelectionProbe;return{writes:p.writes,opens:p.opens,frames:p.frames,maxGapMs:p.maxGapMs};})()`,
+      `(()=>{const p=window.nativeSelectionProbe;return{writes:p.writes,opens:p.opens,frames:p.frames,maxGapMs:p.maxGapMs,rendererTiming:{timeOriginMs:p.timeOriginMs,startedMs:p.startedMs,worstGap:p.worstGap,visibilityTransitions:p.visibilityTransitions.slice(),visibilityTransitionCount:p.visibilityTransitionCount,visibilityTransitionsTruncated:p.visibilityTransitionCount>p.visibilityTransitions.length,timingReadFailed:p.timingReadFailed}};})()`,
     ) as Promise<ClipboardProof>
   const menu = async (label: string) => {
     const p = await point(2.5, 4.5)
@@ -354,6 +430,7 @@ export function nativeSelectionBrowser(
     copied,
     ready,
     painted,
+    captureTiming,
     hitObservations,
     menuDismissals,
     hitCensus,
