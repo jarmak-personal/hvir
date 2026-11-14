@@ -259,6 +259,31 @@ describe('terminal context menu ownership', () => {
     expect(terminal).toBe(document.activeElement)
   })
 
+  it('keeps the menu disabled after a clipboard write is observed until that write settles', async () => {
+    const fixture = targetFixture('selected')
+    let finish!: () => void
+    const writeText = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    renderMenu(fixture.target, { writeText })
+    await openFromPointer(terminalTarget())
+    await clickMenuButton('Copy Selection')
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('selected')
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    expect(buttons.length).toBeGreaterThan(0)
+    expect(buttons.every((button) => button.disabled)).toBe(true)
+    await act(async () => {
+      finish()
+      await writeText.mock.results[0]!.value
+    })
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(fixture.focus).toHaveBeenCalledOnce()
+  })
+
   it('copies exact plain text and preserves selection when clipboard writing fails', async () => {
     const fixture = targetFixture('first\nsecond')
     const writeText = vi.fn<(value: string) => Promise<void>>()

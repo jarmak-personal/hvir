@@ -56,6 +56,70 @@ afterEach(() => {
   vi.useRealTimers()
 })
 describe('same-PTY native selection qualification protocol', () => {
+  it('does not complete a finite menu action while its dispatched DOM menu remains present', async () => {
+    let present = true,
+      settled = false
+    const rect = () => ({ x: 0, y: 0, width: 80, height: 40 })
+    const button = {
+      textContent: 'Select All',
+      disabled: false,
+      getBoundingClientRect: rect,
+    }
+    const input = {}
+    const canvas = { width: 80, height: 40, getBoundingClientRect: rect }
+    const surface = { id: 'native-terminal-view', querySelector: () => canvas }
+    const pane = {
+      getBoundingClientRect: rect,
+      querySelector: (selector: string) => (selector === 'textarea' ? input : surface),
+    }
+    const panel = { getAttribute: () => 's', querySelector: () => pane }
+    const document = {
+      querySelector: () => (present ? {} : null),
+      querySelectorAll: (selector: string) =>
+        selector === '.terminal-surface' ? [panel] : [button],
+    }
+    const sendInputEvent = vi.fn()
+    const win = {
+      webContents: {
+        executeJavaScript: (script: string) =>
+          Promise.resolve(
+            runInNewContext(script, { document, devicePixelRatio: 1 }) as unknown,
+          ),
+        sendInputEvent,
+      },
+    } as unknown as Parameters<typeof nativeSelectionBrowser>[0]
+    const native = {
+      inspectRetained: () =>
+        Promise.resolve({
+          geometry: {
+            width: 80,
+            height: 40,
+            backingScale: 1,
+            paddingLeft: 0,
+            paddingTop: 0,
+            cellWidth: 8,
+            cellHeight: 10,
+          },
+        }),
+    } as unknown as Parameters<typeof nativeSelectionBrowser>[1]
+    const managed = { id: 's' } as Parameters<typeof nativeSelectionBrowser>[2]
+    const action = nativeSelectionBrowser(win, native, managed)
+      .menu('Select All')
+      .then(() => {
+        settled = true
+      })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(
+      sendInputEvent.mock.calls.map(([event]) => (event as { type: string }).type),
+    ).toEqual(['mouseDown', 'mouseUp', 'mouseDown', 'mouseUp'])
+    expect(settled).toBe(false)
+    present = false
+    await vi.advanceTimersByTimeAsync(25)
+    await action
+    expect(settled).toBe(true)
+    expect(sendInputEvent).toHaveBeenCalledTimes(4)
+  })
+
   it.each([1, 2])(
     'uses one finite ordinary separator drag at DPR%s and waits for actual new geometry and drawn current canvas',
     async (scale) => {

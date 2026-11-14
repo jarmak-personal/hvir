@@ -356,10 +356,10 @@ async function verifyExtensionPlacementRenderResume(
   const { fixture, owner } = createExtensionGuestFixture(extensions, scopes)
   const guests: WebContents[] = []
   fixture.webContents.on('did-attach-webview', (_event, guest) => guests.push(guest))
-  const events: { event: string; at: number }[] = []
+  const events: { event: string; at: number; native?: object }[] = []
   const started = Date.now()
-  const mark = (event: string): void => {
-    events.push({ event, at: Date.now() - started })
+  const mark = (event: string, native?: object): void => {
+    events.push({ event, at: Date.now() - started, ...(native ? { native } : {}) })
     if (events.length > 16) events.shift()
   }
   fixture.on('show', () => mark('show'))
@@ -543,7 +543,7 @@ async function verifyExtensionPlacementRenderResume(
       if (args[0] === 'Page.setWebLifecycleState') {
         if (state === 'active') activeSent++
         if (state === 'frozen') frozenSent++
-        mark(state === 'active' ? 'active-sent' : 'frozen-sent')
+        mark(state === 'active' ? 'active-sent' : 'frozen-sent', snapshot())
       }
       const result: unknown = await send(...args)
       if (args[0] === 'Page.setWebLifecycleState' && state === 'active') {
@@ -554,11 +554,11 @@ async function verifyExtensionPlacementRenderResume(
           })
         }
         activeAcks++
-        mark('active-ack')
+        mark('active-ack', snapshot())
       }
       if (args[0] === 'Page.setWebLifecycleState' && state === 'frozen') {
         frozenAcks++
-        mark('frozen-ack')
+        mark('frozen-ack', snapshot())
       }
       return result
     }
@@ -607,16 +607,29 @@ async function verifyExtensionPlacementRenderResume(
           surface === 'top' ? frozenAcks > previousFrozen : activeAcks > previousAcks,
         )
         const before = await read(guest)
+        const nativeBefore = {
+          ...snapshot(),
+          events: events.map((event) => ({ ...event })),
+        }
         await pause(350)
         const after = await read(guest)
+        const nativeAfter = {
+          ...snapshot(),
+          events: events.map((event) => ({ ...event })),
+        }
         if (
           after.visible !== 'hidden' ||
           after.frames !== before.frames ||
           (surface === 'top' && after.ticks !== before.ticks)
-        )
-          failures.push(
-            `Background return revived the hidden ${surface} guest: ${JSON.stringify({ before, after })}`,
+        ) {
+          const evidence = { before, after, nativeBefore, nativeAfter }
+          console.log(
+            `[smoke] background native rendering failure ${JSON.stringify(evidence)}`,
           )
+          failures.push(
+            `Background return revived the hidden ${surface} guest: ${JSON.stringify(evidence)}`,
+          )
+        }
         fixture.show()
         fixture.focus()
         await wait('restored native foreground', () =>

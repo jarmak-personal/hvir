@@ -305,6 +305,13 @@ export function nativeSelectionBrowser(
     }, 'menu-' + label)
     mouse('mouseDown', bounds!.x, bounds!.y)
     mouse('mouseUp', bounds!.x, bounds!.y)
+    await wait(
+      () =>
+        win.webContents.executeJavaScript(
+          `!document.querySelector('.terminal-context-menu')`,
+        ),
+      'menu-' + label + '-dismissed',
+    )
   }
   const copied = async (
     expected: string,
