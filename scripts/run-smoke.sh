@@ -17,6 +17,19 @@ if [[ -n "${HVIR_NATIVE_TERMINAL_OZONE:-}" ]]; then
   smoke_ozone_args=("--ozone-platform=$HVIR_NATIVE_TERMINAL_OZONE")
 fi
 
+# Diagnostic only: the ordinary macOS qualification runs without tracing first.
+smoke_trace_args=()
+if [[ -n "${HVIR_NATIVE_TERMINAL_TRACE_CONFIG:-}" ]]; then
+  if [[ "$(uname -s)" != Darwin ]] || [[ "$HVIR_SMOKE_SCENARIO" != native-terminal-workbench ]] ||
+     [[ -z "${RUNNER_TEMP:-}" ]] || [[ "$RUNNER_TEMP" != /* ]] ||
+     [[ "$HVIR_NATIVE_TERMINAL_TRACE_CONFIG" != "$RUNNER_TEMP/hvir-native-trace/trace-config.json" ]] ||
+     [[ ! -f "$HVIR_NATIVE_TERMINAL_TRACE_CONFIG" ]]; then
+    echo 'Native tracing requires macOS native-terminal-workbench and the owned runner trace config' >&2
+    exit 1
+  fi
+  smoke_trace_args=("--trace-config-file=$HVIR_NATIVE_TERMINAL_TRACE_CONFIG")
+fi
+
 # One lease covers this entire invocation, including child cleanup.
 if [[ -z "${HVIR_SMOKE_LEASE:-}" ]]; then
   exec node "$source_checkout/scripts/smoke-run-lock.mts" bash "$source_checkout/scripts/run-smoke.sh" "$@"
@@ -139,6 +152,7 @@ else
     HVIR_SMOKE_SCENARIO="${HVIR_SMOKE_SCENARIO}" \
     "$source_checkout/node_modules/.bin/electron" "$source_checkout" \
     --project-root="$project_root" \
+    ${smoke_trace_args[@]+"${smoke_trace_args[@]}"} \
     ${smoke_sandbox_args[@]+"${smoke_sandbox_args[@]}"} \
     ${smoke_ozone_args[@]+"${smoke_ozone_args[@]}"} \
     --user-data-dir="$user_data_root" &
