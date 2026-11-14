@@ -1,4 +1,4 @@
-import { discardNativeTerminalEffects } from './native-terminal-effects'
+import { drainNativeTerminalEffects } from './native-terminal-effects'
 /** One real caller thread. This entry never imports Electron or project capabilities. */
 import { parentPort, workerData } from 'node:worker_threads'
 import engine, { type Host } from '@hvir/native-terminal/engine'
@@ -124,14 +124,36 @@ parentPort.on(
         case 'drain':
           value = engine.drain(host, BigInt(String(args[0])), 65536)
           break
-        case 'discard-events':
-          value = discardNativeTerminalEffects(() =>
+        case 'effects':
+          value = drainNativeTerminalEffects(() =>
             engine.event(host, BigInt(String(args[0]))),
           )
           break
-        case 'event':
-          value = engine.event(host, BigInt(String(args[0])))
+        case 'link': {
+          const query =
+            args[1] as import('../shared/native-terminal-link').NativeTerminalLinkQuery
+          const result = engine.link(host, BigInt(String(args[0])), {
+            ...query,
+            expectedSequence: BigInt(query.expectedSequence),
+            expectedMutation: BigInt(query.expectedMutation),
+            expectedGeometrySerial: BigInt(query.expectedGeometrySerial),
+          })
+          value =
+            result.result === 6
+              ? { result: 0, unavailable: 6 }
+              : result.link
+                ? {
+                    result: result.result,
+                    link: {
+                      ...result.link,
+                      uri: new TextDecoder('utf-8', { fatal: true }).decode(
+                        result.link.uri,
+                      ),
+                    },
+                  }
+                : { result: result.result }
           break
+        }
         case 'frame':
           value = engine.takeFrame(host, BigInt(String(args[0])))
           break

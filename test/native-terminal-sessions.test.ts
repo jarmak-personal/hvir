@@ -1,3 +1,4 @@
+import { NativeTerminalEffectPolicy } from '../src/main/terminal/native-terminal-effect-policy'
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { NativeTerminalSessions } from '../src/main/terminal/native-terminal-sessions'
 import { NativeTerminalAdmissionError } from '../src/shared/native-terminal'
@@ -13,7 +14,7 @@ function deferred<T>() {
   })
   return { promise, resolve, reject }
 }
-function fixture() {
+function fixture(effectPolicy?: NativeTerminalEffectPolicy) {
   const reservation = {
     sessionId: 'session',
     instanceId: 'instance',
@@ -46,12 +47,16 @@ function fixture() {
     feed: vi.fn((_handle: string, _instance: string, _bytes: Uint8Array) =>
       Promise.resolve(),
     ),
-    discardEffectsProducer: vi.fn(() => Promise.resolve(0)),
+    drainEffectsProducer: vi.fn<
+      () => Promise<
+        import('../src/shared/native-terminal-effects').NativeTerminalEffectBatch
+      >
+    >(() => Promise.resolve({ effects: [], droppedEffects: 0, semanticGeneration: 0 })),
     drainReplies: vi.fn(() => Promise.resolve(new Uint8Array())),
     end: vi.fn(() => Promise.resolve()),
   }
   const current = vi.fn(() => true)
-  const sessions = new NativeTerminalSessions(host, current)
+  const sessions = new NativeTerminalSessions(host, current, undefined, effectPolicy)
   const signal = new AbortController()
   const writer = {
     live: true,
@@ -70,6 +75,213 @@ function fixture() {
 afterEach(() => vi.useRealTimers())
 
 describe('native supervisor session state', () => {
+  it('retains immutable native facts across owner transfer without authorizing old-owner effects', async () => {
+    const clipboard = { writeText: vi.fn() },
+      publish = vi.fn()
+    const f = fixture(new NativeTerminalEffectPolicy(clipboard, publish))
+    const prepared = await f.prepare()
+    prepared.connect(f.writer)
+    const feeding = deferred<void>()
+    f.host.feed.mockReturnValueOnce(feeding.promise)
+    f.host.drainEffectsProducer.mockResolvedValue({
+      effects: [
+        {
+          kind: 'clipboard',
+          protocol: 'osc-52',
+          selection: '',
+          data: 'YQ==',
+          sequence: 1,
+          eventSerial: 1,
+        },
+        { kind: 'bell', sequence: 1, eventSerial: 2 },
+        { kind: 'title', title: 'actual native title', sequence: 1, eventSerial: 3 },
+        {
+          kind: 'cwd',
+          uri: 'file://reported-host/actual/native/path',
+          sequence: 1,
+          eventSerial: 4,
+        },
+      ],
+      droppedEffects: 4,
+      semanticGeneration: 2,
+    })
+    const output = prepared.output('A')
+    await vi.waitFor(() => expect(f.host.feed).toHaveBeenCalledTimes(1))
+    f.sessions.transferOwner('session', 'instance', 2, 2, f.reservation.workspaceRoot)
+    feeding.resolve()
+    await output
+    expect(clipboard.writeText).not.toHaveBeenCalled()
+    expect(publish).not.toHaveBeenCalled()
+    expect(f.sessions.get('session')).toMatchObject({
+      session: { instanceId: 'instance', ownerId: 2, ownerGeneration: 2 },
+      title: { title: 'actual native title', eventSerial: 3 },
+      cwd: hostPath(f.reservation.workspaceRoot.hostId, '/actual/native/path'),
+      effectState: { droppedEffects: 4, semanticGeneration: 2 },
+    })
+    f.host.drainEffectsProducer.mockResolvedValue({
+      effects: [
+        {
+          kind: 'clipboard',
+          protocol: 'osc-52',
+          selection: '',
+          data: 'Yg==',
+          sequence: 2,
+          eventSerial: 5,
+        },
+      ],
+      droppedEffects: 4,
+      semanticGeneration: 2,
+    })
+    await prepared.output('B')
+    expect(clipboard.writeText).toHaveBeenCalledExactlyOnceWith('b')
+    f.writer.live = false
+    f.host.drainEffectsProducer.mockResolvedValue({
+      effects: [
+        { kind: 'title', title: 'current B finished title', sequence: 3, eventSerial: 6 },
+        {
+          kind: 'clipboard',
+          protocol: 'osc-52',
+          selection: '',
+          data: 'Yw==',
+          sequence: 3,
+          eventSerial: 7,
+        },
+        { kind: 'bell', sequence: 3, eventSerial: 8 },
+      ],
+      droppedEffects: 4,
+      semanticGeneration: 2,
+    })
+    await prepared.output('B retained tail')
+    expect(publish).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ ownerId: 2, ownerGeneration: 2 }),
+      {
+        id: 'session',
+        instanceId: 'instance',
+        eventSerial: 6,
+        effect: { kind: 'title', title: 'current B finished title' },
+      },
+    )
+    expect(clipboard.writeText).toHaveBeenCalledTimes(1)
+    expect(f.sessions.get('session')?.title).toEqual({
+      title: 'current B finished title',
+      eventSerial: 6,
+    })
+  })
+  it('rejects an old copied batch after removal without changing a replacement native instance', async () => {
+    const clipboard = { writeText: vi.fn() },
+      publish = vi.fn()
+    const f = fixture(new NativeTerminalEffectPolicy(clipboard, publish))
+    const prepared = await f.prepare()
+    prepared.connect(f.writer)
+    const effects =
+      deferred<
+        import('../src/shared/native-terminal-effects').NativeTerminalEffectBatch
+      >()
+    f.host.drainEffectsProducer.mockReturnValueOnce(effects.promise)
+    const oldOutput = prepared.output('old instance')
+    void oldOutput.catch(() => undefined)
+    await vi.waitFor(() => expect(f.host.drainEffectsProducer).toHaveBeenCalledTimes(1))
+    await f.sessions.remove('session', 'instance')
+    f.host.prepare.mockResolvedValueOnce('fresh-handle')
+    const fresh = await f.sessions.prepare(
+      { ...f.reservation, instanceId: 'replacement' },
+      f.signal.signal,
+      { width: 640, height: 400, backingScale: 1 },
+    )
+    fresh.connect(f.writer)
+    effects.resolve({
+      effects: [
+        { kind: 'title', title: 'removed title', sequence: 1, eventSerial: 1 },
+        { kind: 'cwd', uri: 'file:///removed/path', sequence: 1, eventSerial: 2 },
+      ],
+      droppedEffects: 9,
+      semanticGeneration: 4,
+    })
+    await expect(oldOutput).rejects.toThrow()
+    expect(f.sessions.get('session')).toMatchObject({
+      handle: 'fresh-handle',
+      session: { instanceId: 'replacement' },
+      unavailable: false,
+    })
+    expect(f.sessions.get('session')?.title).toBeUndefined()
+    expect(f.sessions.get('session')?.cwd).toBeUndefined()
+    expect(f.sessions.get('session')?.effectState).toBeUndefined()
+    expect(publish).not.toHaveBeenCalled()
+    expect(clipboard.writeText).not.toHaveBeenCalled()
+  })
+  it('does not duplicate coalesced effects and survives failed resource execution', async () => {
+    const publish = vi.fn(),
+      clipboard = {
+        writeText: vi.fn(() => {
+          throw new Error('clipboard failed')
+        }),
+      }
+    const f = fixture(new NativeTerminalEffectPolicy(clipboard, publish))
+    const prepared = await f.prepare()
+    prepared.connect(f.writer)
+    const effects = [
+      { kind: 'bell' as const, sequence: 1, eventSerial: 3 },
+      {
+        kind: 'clipboard' as const,
+        protocol: 'osc-52' as const,
+        data: 'YQ==',
+        selection: '',
+        sequence: 1,
+        eventSerial: 4,
+      },
+      { kind: 'title' as const, title: 'latest', sequence: 1, eventSerial: 10 },
+    ]
+    f.host.drainEffectsProducer.mockResolvedValue({
+      effects,
+      droppedEffects: 1,
+      semanticGeneration: 2,
+    })
+    await prepared.output('a')
+    await prepared.output('b')
+    expect(publish).toHaveBeenCalledTimes(2)
+    expect(clipboard.writeText).toHaveBeenCalledTimes(1)
+    expect(f.sessions.get('session')?.unavailable).toBe(false)
+    expect(f.host.feed).toHaveBeenCalledTimes(2)
+    expect(f.sessions.get('session')?.title).toEqual({ title: 'latest', eventSerial: 10 })
+    expect(f.sessions.get('session')?.effectState).toEqual({
+      droppedEffects: 1,
+      semanticGeneration: 2,
+    })
+  })
+  it.each(['unknown-input', 'input-closed', 'renderer-revoked'] as const)(
+    'continues parse and the sole drain without side effects after %s',
+    async (reason) => {
+      const clipboard = { writeText: vi.fn() },
+        publish = vi.fn()
+      const f = fixture(new NativeTerminalEffectPolicy(clipboard, publish))
+      const prepared = await f.prepare()
+      prepared.connect(f.writer)
+      f.host.drainEffectsProducer.mockResolvedValue({
+        effects: [
+          { kind: 'bell', sequence: 1, eventSerial: 1 },
+          {
+            kind: 'clipboard',
+            protocol: 'osc-52',
+            selection: '',
+            data: 'YQ==',
+            sequence: 1,
+            eventSerial: 2,
+          },
+        ],
+        droppedEffects: 0,
+        semanticGeneration: 0,
+      })
+      if (reason === 'unknown-input') f.sessions.blockInput('session', 'instance')
+      else if (reason === 'input-closed') f.writer.live = false
+      else f.current.mockReturnValue(false)
+      await prepared.output('still parsed')
+      expect(f.host.feed).toHaveBeenCalledTimes(1)
+      expect(f.host.drainEffectsProducer).toHaveBeenCalledTimes(1)
+      expect(clipboard.writeText).not.toHaveBeenCalled()
+      expect(publish).not.toHaveBeenCalled()
+      expect(f.sessions.get('session')?.unavailable).toBe(false)
+    },
+  )
   it('waits for definitive feed IO completion before draining a final silent query', async () => {
     const f = fixture()
     const prepared = await f.prepare()
@@ -91,20 +303,24 @@ describe('native supervisor session state', () => {
   })
   it('appends parser replies before waiting for effects, retaining one physical producer slot', async () => {
     const f = fixture(),
-      effects = deferred<number>(),
+      effects = deferred<{
+        effects: []
+        droppedEffects: number
+        semanticGeneration: number
+      }>(),
       written = deferred<void>()
     const prepared = await f.prepare()
     prepared.connect(f.writer)
     f.host.drainReplies.mockResolvedValueOnce(new Uint8Array([27, 91, 48, 110]))
-    f.host.discardEffectsProducer.mockReturnValueOnce(effects.promise)
+    f.host.drainEffectsProducer.mockReturnValueOnce(effects.promise)
     f.writer.writeReply.mockReturnValueOnce(written.promise)
     const output = prepared.output('x'.repeat(17000))
-    await vi.waitFor(() => expect(f.host.discardEffectsProducer).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(f.host.drainEffectsProducer).toHaveBeenCalledOnce())
     expect(f.writer.writeReply).toHaveBeenCalledExactlyOnceWith(
       new Uint8Array([27, 91, 48, 110]),
     )
     expect(f.writer.parsed).toHaveBeenCalledExactlyOnceWith(16384)
-    effects.resolve(0)
+    effects.resolve({ effects: [], droppedEffects: 0, semanticGeneration: 0 })
     await Promise.resolve()
     expect(f.host.feed).toHaveBeenCalledOnce()
     written.resolve()

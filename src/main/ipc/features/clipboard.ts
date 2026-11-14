@@ -1,6 +1,6 @@
 import { clipboard } from 'electron'
 
-import { MAX_CLIPBOARD_WRITE_BYTES } from '../../../shared'
+import { writeTerminalClipboard } from '../../terminal/terminal-clipboard-write'
 import type { IpcRegistrar } from '../authority-router'
 import type { IpcDeps, SystemClipboardPort } from '../deps'
 
@@ -22,13 +22,6 @@ export function registerClipboardIpc(ipc: IpcRegistrar, deps: ClipboardIpcDeps):
     // Qualifies the sender against the current renderer owner, so a revoked
     // generation cannot reach the clipboard after its terminals are gone.
     context.owner()
-    const { text } = request
-    if (typeof text !== 'string' || text.length === 0) {
-      throw new Error('Invalid clipboard write')
-    }
-    if (Buffer.byteLength(text, 'utf8') > MAX_CLIPBOARD_WRITE_BYTES) {
-      throw new Error('Clipboard write exceeds the permitted size')
-    }
-    target.writeText(text)
+    writeTerminalClipboard(target, request.text)
   })
 }

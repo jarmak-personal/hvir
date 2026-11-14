@@ -265,6 +265,27 @@ jobs:
           assert(proof.resizeAcknowledgedByStty.rows > 0 && proof.resizeAcknowledgedByStty.columns > 0);
           assert.equal(proof.development, true);
           assert.equal(proof.hardwareQualified, false);
+          const effects = proof.nativeEffects;
+          assert.equal(effects.phases, 10);
+          for (const field of ['causalEventSerials', 'titleProductDelivery', 'remoteCwdCopied', 'readQueriesRefused', 'newClipboardProtocolsRefused', 'queriesExact', 'linkUserIntentPortHostCorrect'])
+            assert.equal(effects[field], true);
+          assert(Number.isSafeInteger(effects.semanticObservations) && effects.semanticObservations >= 3);
+          assert.equal(effects.semanticOccurrenceIdentityQualified, false);
+          assert.equal(effects.linkGestureQualified, false);
+          assert.equal(effects.hardwareQualified, false);
+          assert.equal(effects.nativeOsActionsQualified, false);
+          assert.equal(effects.osc777AndProgressDisposition, 'ignored');
+          assert.equal(effects.quietAttentionEvents, 2);
+          const crypto = require('node:crypto');
+          const expectedClipboard = ['native-effects', 'a'.repeat(49152)].map(text => ({
+            bytes: Buffer.byteLength(text), sha256: crypto.createHash('sha256').update(text).digest('hex'),
+          }));
+          assert.deepEqual(effects.clipboardWrites, expectedClipboard);
+          assert.equal(effects.responsiveness.maximumMs, 500);
+          for (const loop of [effects.responsiveness.main, effects.responsiveness.renderer]) {
+            assert(Number.isSafeInteger(loop.samples) && loop.samples >= 2);
+            assert(Number.isFinite(loop.maxMs) && loop.maxMs >= 0 && loop.maxMs <= 500);
+          }
           NODE
       - name: Diagnose failed Linux library relocation
         if: failure() && runner.os == 'Linux'

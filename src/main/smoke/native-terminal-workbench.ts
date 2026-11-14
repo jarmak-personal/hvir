@@ -1,3 +1,7 @@
+import {
+  NativeEffectsClipboardObservation,
+  verifyNativeTerminalEffects,
+} from './native-terminal-effects'
 import { verifyNativeTerminalPaste } from './native-terminal-paste'
 import {
   verifyNativeTerminalInput,
@@ -32,15 +36,22 @@ export async function createNativeWorkbench(
   supervisor: PtySupervisor,
   cleanup: SmokeCleanup,
 ) {
+  const systemClipboard =
+    mode === 'native-terminal-workbench'
+      ? new NativeEffectsClipboardObservation()
+      : undefined
   const nativeTerminals =
     mode === 'native-terminal-workbench'
-      ? await createNativeTerminalApplication(supervisor, (owner) =>
-          rendererResources.isCurrent(owner),
+      ? await createNativeTerminalApplication(
+          supervisor,
+          (owner) => rendererResources.isCurrent(owner),
+          systemClipboard,
         )
       : undefined
   if (nativeTerminals)
     cleanup.defer('native development terminals', () => nativeTerminals.dispose())
   return {
+    systemClipboard,
     ipc: { nativeTerminals, nativeTerminalPresentation: nativeTerminals?.targets },
     async run(win: BrowserWindow): Promise<boolean> {
       if (mode !== 'native-terminal-workbench') return false
@@ -53,6 +64,7 @@ export async function createNativeWorkbench(
         supervisor,
         nativeTerminals,
         rendererResources,
+        systemClipboard,
       )
       console.log('HVIR_SMOKE_OK')
       return true
@@ -67,6 +79,7 @@ export async function verifyNativeTerminalWorkbench(
   ptys: PtySupervisor,
   native: NativeTerminalApplication,
   resources: RendererResourceScopes,
+  clipboard?: NativeEffectsClipboardObservation,
 ): Promise<void> {
   const rendererSandboxed = (await win.webContents.executeJavaScript(
     'window.hvir.diagnostics.processSandboxed',
@@ -145,6 +158,14 @@ export async function verifyNativeTerminalWorkbench(
   await waitFor(async () => (await text()).includes('NKEY7'))
   console.log('[native-workbench] encoded-keyboard')
   const nativeInput = await verifyNativeTerminalInput(win, ptys, native, managed)
+  if (!clipboard) throw new Error('native-effects-clipboard-port-missing')
+  const nativeEffects = await verifyNativeTerminalEffects(
+    win,
+    ptys,
+    native,
+    managed,
+    clipboard,
+  )
   const largePaste = await verifyNativeTerminalPaste(win, ptys, native, managed)
   const initialGeometry = (await native.inspectRetained(managed.id, owner)).geometry
   await win.webContents.executeJavaScript(`(() => {
@@ -215,6 +236,7 @@ export async function verifyNativeTerminalWorkbench(
       capturedAnsiRedPixels: redPixels,
       nativeEncodedKeyboard: true,
       nativeInput,
+      nativeEffects,
       largePaste,
       readonlyInput,
       resizeControl: 'terminal-rail',

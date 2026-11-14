@@ -84,6 +84,7 @@ describe('maintained module graph', () => {
       'packages/native-terminal/host_binding.c',
       'packages/native-terminal/terminal.c',
       'packages/native-terminal/terminal_input.c',
+      'packages/native-terminal/terminal_effects.c',
       'packages/native-terminal/terminal_internal.h',
       'packages/native-terminal/linux_display.c',
       'packages/native-terminal/linux_display.h',

@@ -1,0 +1,421 @@
+--- a/src/main_c.zig
++++ b/src/main_c.zig
+@@ -266,5 +266,5 @@
+ 
+ // Version of the pinned upstream hooks consumed by hvir's maintained C facade.
+ export fn hvir_ghostty_embed_abi() u32 {
+-    return 6;
+-}
++    return 7;
++}
+--- a/src/termio/External.zig
++++ b/src/termio/External.zig
+@@ -67,13 +67,27 @@
+     height: f64 = 0,
+     required_capacity: usize = 0,
+ };
++/// Borrowed parser data; the embedding caller copies synchronously.
++pub const Effect = extern struct {
++    kind: u32,
++    action: u32 = 0,
++    screen: u32 = 0,
++    row: u32 = 0,
++    column: u32 = 0,
++    sequence: u64 = 0,
++    serial: u64 = 0,
++    data: [*]const u8,
++    data_len: usize,
++    extra: [*]const u8,
++    extra_len: usize,
++};
+ pub const Config = extern struct {
+     userdata: ?*anyopaque,
+     write: *const fn (?*anyopaque, [*]const u8, usize) callconv(.c) bool,
+     applied: *const fn (?*anyopaque, u64, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, f64) callconv(.c) void,
+     failed: *const fn (?*anyopaque, u32) callconv(.c) void,
+     scrollback_limit: usize,
+-    effect: *const fn (?*anyopaque, u32, [*]const u8, usize) callconv(.c) bool,
++    effect: *const fn (?*anyopaque, *const Effect) callconv(.c) bool,
+     health: *const fn (?*anyopaque, u32) callconv(.c) void,
+     frame: *const fn (?*anyopaque, *const Frame) callconv(.c) bool,
+     /// Zero disables external CPU exports. Native application runtimes keep their policy.
+@@ -86,6 +100,8 @@
+     feed_applied: ?*const fn (?*anyopaque, u64) callconv(.c) void,
+ };
+ config: Config,
++sequence: u64 = 0,
++effect_serial: u64 = 0,
+ failed: std.atomic.Value(bool) = .init(false),
+ frame_held: std.atomic.Value(bool) = .init(false),
+ /// Only the designated synchronous input caller accesses this operation failure.
+@@ -167,14 +183,29 @@
+             data = v.slice();
+         },
+         .ring_bell => kind = 3,
+-        else => {},
++        else => return,
+     }
+     defer if (msg == .pwd_change) {
+         if (msg.pwd_change == .alloc) msg.pwd_change.alloc.alloc.free(msg.pwd_change.alloc.data);
+     };
+-    if (!self.config.effect(self.config.userdata, kind, data.ptr, data.len)) self.fail(3);
++    self.emit(.{ .kind = kind, .data = data.ptr, .data_len = data.len, .extra = "".ptr, .extra_len = 0 });
+ }
+ pub fn mailboxFailed(userdata: ?*anyopaque) callconv(.c) void {
+     const self: *External = @ptrCast(@alignCast(userdata.?));
+     self.fail(4);
+ }
++
++/// Called only from the serialized parser, or its immediate surface message.
++pub fn emit(self: *External, value: Effect) void {
++    var event = value;
++    // Binary palette metadata is explicit; all other payloads cross a text-only embedding contract.
++    if (event.kind != 7 and (!std.unicode.utf8ValidateSlice(event.data[0..event.data_len]) or
++        !std.unicode.utf8ValidateSlice(event.extra[0..event.extra_len])))
++    {
++        event = .{ .kind = 11, .action = value.kind, .data = "".ptr, .data_len = 0, .extra = "".ptr, .extra_len = 0 };
++    }
++    self.effect_serial +|= 1;
++    event.serial = self.effect_serial;
++    event.sequence = self.sequence;
++    _ = self.config.effect(self.config.userdata, &event);
++}
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -866,6 +866,7 @@
+ pub fn externalFeed(self: *Termio, buf: []const u8, sequence: u64) void {
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     defer self.renderer_state.mutex.unlock(global.io());
++    self.backend.external.sequence = sequence;
+     self.processOutputLocked(buf);
+     self.renderer_state.external_stream = sequence;
+     self.renderer_wakeup.notify() catch self.backend.external.fail(4);
+--- a/src/termio/stream_handler.zig
++++ b/src/termio/stream_handler.zig
+@@ -362,10 +362,16 @@
+             .decaln => try self.decaln(),
+             .window_title => try self.windowTitle(value.title),
+             .report_pwd => try self.reportPwd(value.url),
+-            .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
++            .show_desktop_notification => if (self.external) |ext| {
++                ext.emit(.{ .kind = 4, .action = value.source, .data = value.title.ptr, .data_len = value.title.len, .extra = value.body.ptr, .extra_len = value.body.len });
++            } else try self.showDesktopNotification(value.title, value.body),
+             .progress_report => self.progressReport(value),
+             .start_hyperlink => try self.startHyperlink(value.uri, value.id),
+-            .clipboard_contents => try self.clipboardContents(value.kind, value.data),
++            .clipboard_contents => if (self.external) |ext| {
++                // Reads and other clipboard protocols remain unavailable.
++                if (value.protocol == 0 and !std.mem.eql(u8, value.data, "?"))
++                    ext.emit(.{ .kind = 5, .action = 1, .data = value.data.ptr, .data_len = value.data.len, .extra = value.selection.ptr, .extra_len = value.selection.len });
++            } else try self.clipboardContents(value.kind, value.data),
+             .semantic_prompt => try self.semanticPrompt(value),
+             .mouse_shape => try self.setMouseShape(value),
+             .mouse_shape_reset => try self.setMouseShape(
+@@ -711,14 +717,17 @@
+ 
+             .alt_screen_legacy => {
+                 try self.terminal.switchScreenMode(.@"47", enabled);
++                if (self.external) |ext| ext.emit(.{ .kind = 8, .screen = if (self.terminal.screens.active_key == .alternate) 1 else 0, .data = "".ptr, .data_len = 0, .extra = "".ptr, .extra_len = 0 });
+             },
+ 
+             .alt_screen => {
+                 try self.terminal.switchScreenMode(.@"1047", enabled);
++                if (self.external) |ext| ext.emit(.{ .kind = 8, .screen = if (self.terminal.screens.active_key == .alternate) 1 else 0, .data = "".ptr, .data_len = 0, .extra = "".ptr, .extra_len = 0 });
+             },
+ 
+             .alt_screen_save_cursor_clear_enter => {
+                 try self.terminal.switchScreenMode(.@"1049", enabled);
++                if (self.external) |ext| ext.emit(.{ .kind = 8, .screen = if (self.terminal.screens.active_key == .alternate) 1 else 0, .data = "".ptr, .data_len = 0, .extra = "".ptr, .extra_len = 0 });
+             },
+ 
+             // Mode 1048 is xterm's conditional save cursor depending
+@@ -944,6 +953,7 @@
+         self: *StreamHandler,
+     ) !void {
+         self.terminal.fullReset();
++        if (self.external) |ext| ext.emit(.{ .kind = 8, .action = 1, .data = "".ptr, .data_len = 0, .extra = "".ptr, .extra_len = 0 });
+         try self.setMouseShape(.text);
+ 
+         // Full reset clears Kitty clipboard session grants.
+@@ -1003,6 +1013,13 @@
+     // OSC
+ 
+     fn windowTitle(self: *StreamHandler, title: []const u8) !void {
++        if (self.external) |ext| {
++            // Product title policy belongs to the embedding host, not the GUI's 256-byte message.
++            try self.terminal.setTitle(title);
++            self.seen_title = title.len != 0;
++            ext.emit(.{ .kind = 1, .data = title.ptr, .data_len = title.len, .extra = "".ptr, .extra_len = 0 });
++            return;
++        }
+         var buf: [256]u8 = undefined;
+         if (title.len >= buf.len) {
+             log.warn("change title requested larger than our buffer size, ignoring", .{});
+@@ -1521,9 +1538,19 @@
+         // We do this last so failures are still processed correctly
+         // above.
+         try self.terminal.semanticPrompt(cmd);
++        if (self.external) |ext| {
++            const screen = self.terminal.screens.active;
++            const pt = screen.pages.pointFromPin(.screen, screen.cursor.page_pin.*) orelse return;
++            ext.emit(.{ .kind = 6, .action = @backingInt(cmd.action), .screen = if (self.terminal.screens.active_key == .alternate) 1 else 0, .row = @intCast(pt.coord().y), .column = @intCast(pt.coord().x), .data = cmd.options_unvalidated.ptr, .data_len = cmd.options_unvalidated.len, .extra = "".ptr, .extra_len = 0 });
++        }
+     }
+ 
+     fn reportPwd(self: *StreamHandler, url: []const u8) !void {
++        if (self.external) |ext| {
++            // The embedding host knows the PTY host; preserve the URI rather than compare to this OS.
++            ext.emit(.{ .kind = 2, .data = url.ptr, .data_len = url.len, .extra = "".ptr, .extra_len = 0 });
++            return;
++        }
+         // Special handling for the empty URL. We treat the empty URL
+         // as resetting the pwd as if we never saw a pwd. I can't find any
+         // other terminal that does this but it seems like a reasonable
+@@ -1629,8 +1656,6 @@
+         requests: *const terminal.osc.color.List,
+         terminator: terminal.osc.Terminator,
+     ) !void {
+-        // We'll need op one day if we ever implement reporting special colors.
+-        _ = op;
+ 
+         // return early if there is nothing to do
+         if (requests.count() == 0) return;
+@@ -1643,6 +1668,76 @@
+ 
+         var it = requests.constIterator(0);
+         while (it.next()) |req| {
++            if (self.external) |ext| {
++                const operation: u32 = switch (op) {
++                    .osc_4 => 4,
++                    .osc_5 => 5,
++                    .osc_10 => 10,
++                    .osc_11 => 11,
++                    .osc_12 => 12,
++                    .osc_13 => 13,
++                    .osc_14 => 14,
++                    .osc_15 => 15,
++                    .osc_16 => 16,
++                    .osc_17 => 17,
++                    .osc_18 => 18,
++                    .osc_19 => 19,
++                    .osc_104 => 104,
++                    .osc_105 => 105,
++                    .osc_110 => 110,
++                    .osc_111 => 111,
++                    .osc_112 => 112,
++                    .osc_113 => 113,
++                    .osc_114 => 114,
++                    .osc_115 => 115,
++                    .osc_116 => 116,
++                    .osc_117 => 117,
++                    .osc_118 => 118,
++                    .osc_119 => 119,
++                };
++                var event: @import("External.zig").Effect = .{ .kind = 7, .screen = operation, .data = "".ptr, .data_len = 0, .extra = "".ptr, .extra_len = 0 };
++                var rgb: [3]u8 = undefined;
++                const target: ?terminal.osc.color.Target = switch (req.*) {
++                    .set => |v| value: {
++                        event.action = 0;
++                        rgb = .{ v.color.r, v.color.g, v.color.b };
++                        event.data = &rgb;
++                        event.data_len = 3;
++                        break :value v.target;
++                    },
++                    .query => |v| value: {
++                        event.action = 1;
++                        break :value v;
++                    },
++                    .reset => |v| value: {
++                        event.action = 2;
++                        break :value v;
++                    },
++                    .reset_palette => value: {
++                        event.action = 3;
++                        break :value null;
++                    },
++                    .reset_special => value: {
++                        event.action = 4;
++                        break :value null;
++                    },
++                };
++                if (target) |v| switch (v) {
++                    .palette => |palette_index| {
++                        event.row = 0;
++                        event.column = palette_index;
++                    },
++                    .special => |name| {
++                        event.row = 1;
++                        event.column = @backingInt(name);
++                    },
++                    .dynamic => |name| {
++                        event.row = 2;
++                        event.column = @backingInt(name);
++                    },
++                };
++                ext.emit(event);
++            }
+             switch (req.*) {
+                 .set => |set| {
+                     switch (set.target) {
+@@ -1960,6 +2055,10 @@
+ 
+     /// Display a GUI progress report.
+     fn progressReport(self: *StreamHandler, report: terminal.osc.Command.ProgressReport) void {
++        if (self.external) |ext| {
++            ext.emit(.{ .kind = 10, .action = @backingInt(report.state), .row = if (report.progress) |v| v else std.math.maxInt(u32), .data = "".ptr, .data_len = 0, .extra = "".ptr, .extra_len = 0 });
++            return;
++        }
+         self.surfaceMessageWriter(.{ .progress_report = report });
+     }
+ };
+--- a/src/terminal/osc.zig
++++ b/src/terminal/osc.zig
+@@ -52,6 +52,8 @@
+     /// clipboard contents are sent to the pty. Otherwise, the contents
+     /// are set on the clipboard.
+     clipboard_contents: struct {
++        protocol: u32 = 0, // 0 OSC52, 1 iTerm2; never infer from payload
++        selection: []const u8 = "",
+         kind: u8,
+         data: [:0]const u8,
+         terminator: Terminator = .st,
+@@ -96,6 +98,7 @@
+ 
+     /// Show a desktop notification (OSC 9 or OSC 777)
+     show_desktop_notification: struct {
++        source: u32 = 0, // 0 OSC9, 1 OSC777
+         title: [:0]const u8,
+         body: [:0]const u8,
+     },
+--- a/src/terminal/stream.zig
++++ b/src/terminal/stream.zig
+@@ -477,6 +477,7 @@
+     };
+ 
+     pub const ShowDesktopNotification = struct {
++        source: u32 = 0,
+         title: []const u8,
+         body: []const u8,
+ 
+@@ -511,6 +512,8 @@
+     };
+ 
+     pub const ClipboardContents = struct {
++        protocol: u32 = 0,
++        selection: []const u8 = "",
+         kind: u8,
+         data: []const u8,
+         terminator: osc.Terminator,
+@@ -3008,6 +3011,8 @@
+ 
+                 .clipboard_contents => |clip| {
+                     self.handler.vt(.clipboard_contents, .{
++                        .protocol = clip.protocol,
++                        .selection = clip.selection,
+                         .kind = clip.kind,
+                         .data = clip.data,
+                         .terminator = clip.terminator,
+@@ -3049,6 +3054,7 @@
+ 
+                 .show_desktop_notification => |v| {
+                     self.handler.vt(.show_desktop_notification, .{
++                        .source = v.source,
+                         .title = v.title,
+                         .body = v.body,
+                     });
+--- a/src/terminal/osc/parsers/clipboard_operation.zig
++++ b/src/terminal/osc/parsers/clipboard_operation.zig
+@@ -21,31 +21,16 @@
+         parser.state = .invalid;
+         return null;
+     }
+-    if (data[0] == ';') {
+-        parser.command = .{
+-            .clipboard_contents = .{
+-                .kind = 'c',
+-                .data = data[1 .. data.len - 1 :0],
+-                .terminator = .init(terminator_ch),
+-            },
+-        };
+-    } else {
+-        if (data.len < 2) {
+-            parser.state = .invalid;
+-            return null;
+-        }
+-        if (data[1] != ';') {
+-            parser.state = .invalid;
+-            return null;
+-        }
+-        parser.command = .{
+-            .clipboard_contents = .{
+-                .kind = data[0],
+-                .data = data[2 .. data.len - 1 :0],
+-                .terminator = .init(terminator_ch),
+-            },
+-        };
+-    }
++    const separator = std.mem.indexOfScalar(u8, data[0 .. data.len - 1], ';') orelse {
++        parser.state = .invalid;
++        return null;
++    };
++    parser.command = .{ .clipboard_contents = .{
++        .kind = if (separator == 0) 'c' else data[0],
++        .selection = data[0..separator],
++        .data = data[separator + 1 .. data.len - 1 :0],
++        .terminator = .init(terminator_ch),
++    } };
+     return &parser.command;
+ }
+ 
+--- a/src/terminal/osc/parsers/iterm2.zig
++++ b/src/terminal/osc/parsers/iterm2.zig
+@@ -131,6 +131,7 @@
+ 
+             parser.command = .{
+                 .clipboard_contents = .{
++                    .protocol = 1,
+                     .kind = 'c',
+                     .data = value,
+                 },
+--- a/src/terminal/osc/parsers/rxvt_extension.zig
++++ b/src/terminal/osc/parsers/rxvt_extension.zig
+@@ -37,6 +37,7 @@
+     const body = data[t + 1 .. data.len - 1 :0];
+     parser.command = .{
+         .show_desktop_notification = .{
++            .source = 1,
+             .title = title,
+             .body = body,
+         },
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1584,6 +1584,29 @@
+         return true;
+     }
+ 
++    /// Copies a hyperlink only from the caller-qualified current viewport snapshot.
++    export fn ghostty_external_link(surface: *Surface, row: u32, column: u32, screen: u32, sequence: u64, mutation: u64, geometry: u64, out: [*]u8, capacity: usize, written: *usize) u32 {
++        const core = &surface.core_surface;
++        core.renderer_state.mutex.lockUncancelable(global.io());
++        defer core.renderer_state.mutex.unlock(global.io());
++        const state = &core.renderer_state;
++        const t = &core.io.terminal;
++        written.* = 0;
++        if (state.external_stream != sequence or state.external_mutation != mutation or state.external_geometry != geometry or
++            screen != @as(u32, if (t.screens.active_key == .alternate) 1 else 0)) return 6;
++        if (column >= t.cols or row >= t.rows) return 1;
++        const pin = t.screens.active.pages.pin(.{ .viewport = .{ .x = @intCast(column), .y = @intCast(row) } }) orelse return 0;
++        const page = pin.node.page();
++        const id = page.lookupHyperlink(pin.rowAndCell().cell) orelse return 0;
++        const entry = page.hyperlink_set.get(page.memory, id);
++        const uri = entry.uri.slice(page.memory);
++        if (!std.unicode.utf8ValidateSlice(uri)) return 0;
++        if (uri.len > capacity) return 5;
++        @memcpy(out[0..uri.len], uri);
++        written.* = uri.len;
++        return 0;
++    }
++
+     export fn ghostty_external_read(surface: *Surface, out: [*]u8, capacity: usize, written: *usize) bool {
+         const core = &surface.core_surface;
+         core.renderer_state.mutex.lockUncancelable(global.io());

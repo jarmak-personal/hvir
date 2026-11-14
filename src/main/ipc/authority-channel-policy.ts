@@ -119,6 +119,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'terminal:resolve-file-clipboard',
   'native-terminal:enabled',
   'native-terminal:attach',
+  'native-terminal:metadata',
   'native-terminal:update',
   'native-terminal:demand',
   'native-terminal:detach',

@@ -9,9 +9,10 @@
  * admission locks. The byte FIFO is bounded independently of native mailboxes. */
 typedef struct terminal_state terminal_state;
 typedef struct {
-  uint32_t kind;
-  size_t length;
-  uint8_t data[1024];
+  uint32_t kind, action, screen, row, column;
+  uint64_t sequence, event_serial;
+  size_t length, extra_length;
+  uint8_t *data;
 } queued_effect;
 struct terminal_state {
   terminal_state *next;
@@ -25,8 +26,10 @@ struct terminal_state {
   uint32_t failure, presentation_failure, renderer_health;
   bool closing;
   queued_effect events[128];
-  hvir_terminal_event latest[2];
-  bool latest_pending[2];
+  queued_effect latest[3];
+  bool latest_pending[3];
+  size_t effect_bytes;
+  uint64_t dropped_effects, semantic_generation;
   size_t event_start, event_count;
   hvir_terminal_frame frame;
   bool frame_available, frame_taken;
@@ -64,6 +67,7 @@ struct hvir_terminal_host {
   bool (*external_presentation_mode)(ghostty_surface_t, uint32_t);
   bool (*external_resize)(ghostty_surface_t, uint32_t, uint32_t, uint64_t, double);
   void (*surface_visibility)(ghostty_surface_t, bool);
+  uint32_t (*external_link)(ghostty_surface_t, uint32_t, uint32_t, uint32_t, uint64_t, uint64_t, uint64_t, uint8_t *, size_t, size_t *);
   bool (*external_read)(ghostty_surface_t, uint8_t *, size_t, size_t *);
   bool (*external_key)(ghostty_surface_t, int, uint32_t, int, const uint8_t *, size_t, uint8_t *,
                        size_t, size_t *);
@@ -74,4 +78,6 @@ terminal_state *hvir_internal_lookup(hvir_terminal_host *, uint64_t);
 hvir_terminal_result hvir_internal_state(hvir_terminal_host *, uint64_t, terminal_state **, bool);
 bool hvir_internal_input(void *, uint32_t, const uint8_t *, size_t);
 void hvir_internal_mutation_applied(void *, uint64_t);
+bool hvir_internal_effect(void *, const hvir_ghostty_external_effect *);
+void hvir_internal_clear_effects(terminal_state *);
 #endif

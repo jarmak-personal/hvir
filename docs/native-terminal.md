@@ -95,7 +95,7 @@ The native facade itself accepts byte chunks and retains incomplete UTF-8/contro
 Before its first external feed, disable file/shared-memory image media and ambient input-file,
 open/config/window/split actions on the actual full Termio/Surface configuration. Do not
 assume the public VT constructor's safe media defaults govern private full-engine creation;
-M3 proves this pre-feed fence, while M11 later proves routed effects and protocol behavior.
+The pre-feed fence is distinct from routed effect execution and protocol reply completion.
 Future byte-transport changes require their own exact local/SSH evidence.
 
 Maintain one ordered PTY write owner. User bytes, provider-framed paste, and native replies
@@ -228,7 +228,7 @@ lost native state cannot. No snapshot archive or transparent reconstruction is s
 Native clipboard normalization is not protocol authorization. Public callbacks can merge
 OSC 52, iTerm2 Copy, and Kitty clipboard writes into one decoded request. Preserve original
 protocol, selection and encoded-size information through a focused facade patch where needed;
-M11 must enforce the existing OSC 52 allowlist and strict decode/UTF-8 bounds without silently
+The native effects adapter enforces the existing OSC 52 allowlist and strict decode/UTF-8 bounds without silently
 enabling another write protocol. All clipboard-read protocols remain disabled.
 
 GPU-context loss with intact state revokes presentation and follows the selected presenter
@@ -375,19 +375,18 @@ producer and native consumer, and do not qualify a remote operating system or GP
 Overflow or indeterminate feed failure makes native presentation unavailable while
 preserving the supervised PTY; it does not replay, restart, or switch engines.
 
-The designated native caller drains and discards unsupported effect metadata after each
-feed segment, within the existing 128-record mailbox plus two latest-value slots.
-This prevents accumulation across normal feeds; it never clears a native failure or
-undoes an overflow within one feed. Title, cwd, bell, semantic and clipboard effects
-remain unsupported: no UI action or clipboard authorization is performed. M11 must
-replace this single consumption seam with policy routing, rather than adding a
-competing mailbox consumer. This housekeeping is not feature compatibility.
-
-This slice deliberately exposes unfinished native capabilities in the pane: richer input,
-IME, clipboard, scrolling, selection, search, semantic navigation and live settings are
-not represented by successful no-op implementations. The native pane has a distinct
-capability contract within the existing TerminalPane/runtime boundary. Basic development
-keyboard input uses the authoritative native encoder and exact byte writes.
+The designated native caller copies typed effects after each feed's definitive IO fence;
+`NativeSessions` is the sole consumer and retains the existing reply-dispatch prefix.
+Existing policy owners apply automatic titles only with current producing-instance/owner
+authority, including legitimate trailing titles after PTY input closes. Quiet bell attention
+and strictly validated OSC52 writes additionally require physically live input authority.
+Latest title/CWD metadata may be retained;
+notifications and clipboard writes are never replayed. CWD remains host-qualified metadata,
+not project authority. Native semantic markers and snapshot-qualified OSC8 readback report
+same-state provenance; M9 gestures and M10 retained occurrence resolution remain distinct.
+See [ADR-089](adr/ADR-089-native-terminal-effect-authority.md) and the
+[facade effect contract](native-terminal-facade.md) for finite ownership, observable gaps,
+malformed-text refusal and native palette-query compatibility. Native settings remain M12.
 
 With the same environment selector, `npm run smoke:native-terminal` exercises the ordinary
 workbench renderer, IPC, supervisor, ProjectHost and native presenter with the production

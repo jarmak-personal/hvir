@@ -223,7 +223,16 @@ export const terminalIpc = {
     'native-terminal:enabled': invoke<Record<string, never>, boolean>(),
     'native-terminal:attach': invoke<
       { id: string },
-      { viewId: string; inputUnavailable?: boolean }
+      {
+        viewId: string
+        instanceId?: string
+        inputUnavailable?: boolean
+        title?: { title: string; eventSerial: number }
+      }
+    >(),
+    'native-terminal:metadata': invoke<
+      { id: string },
+      import('../native-terminal-effects').NativeTerminalMetadata
     >(),
     'native-terminal:update': invoke<
       {
@@ -267,6 +276,8 @@ export const terminalIpc = {
     'terminal:clipboard-write': payload<{ readonly text: string }>(),
   },
   event: {
+    'native-terminal:effect':
+      payload<import('../native-terminal-effects').NativeTerminalProductEffect>(),
     'native-terminal:presentation-grant': payload<{
       viewId: string
       grant?: NativeTerminalViewGrant

@@ -116,6 +116,7 @@ it('keeps the reviewed owner and authority channel policies explicit', () => {
       'terminal:resolve-file-clipboard',
       'native-terminal:enabled',
       'native-terminal:attach',
+      'native-terminal:metadata',
       'native-terminal:update',
       'native-terminal:demand',
       'native-terminal:detach',

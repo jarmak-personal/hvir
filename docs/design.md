@@ -908,6 +908,14 @@ Distinguish parsed output, native feed IO, reply dispatch and input mutation/fra
 keep browser focus/composition, readonly navigation and physical result capacity explicit.
 
 
+### [ADR-089 — Native terminal effect authority](adr/ADR-089-native-terminal-effect-authority.md)
+
+> Lifecycle: Active
+
+Copied native effects retain producer provenance and acquire current product authority only
+through existing policy owners; parser replies keep their sole consumer and native queries.
+
+
 ---
 
 ## 5. Architecture

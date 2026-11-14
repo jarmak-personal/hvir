@@ -24,6 +24,7 @@ function executeQualification(
   command: string,
   platform: 'macOS' | 'Linux',
   invalid = false,
+  badEffect?: 'clipboard' | 'responsiveness' | 'disposition',
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'hvir-native-workbench-report-'))
   try {
@@ -43,8 +44,12 @@ const proof = {
   rendererCanvas: true, nativeEncodedKeyboard: true, capturedAnsiRedPixels: 501,
   resizeAcknowledgedByStty: {rows: 21, columns: 80}, development: true,
   hardwareQualified: process.env.HVIR_TEST_INVALID === 'true',
+  nativeEffects:{phases:10,causalEventSerials:true,titleProductDelivery:true,remoteCwdCopied:true,readQueriesRefused:true,newClipboardProtocolsRefused:true,queriesExact:true,linkUserIntentPortHostCorrect:true,semanticObservations:4,semanticOccurrenceIdentityQualified:false,linkGestureQualified:false,hardwareQualified:false,nativeOsActionsQualified:false,osc777AndProgressDisposition:'ignored',quietAttentionEvents:2,clipboardWrites:['native-effects','a'.repeat(49152)].map(text=>({bytes:Buffer.byteLength(text),sha256:require('node:crypto').createHash('sha256').update(text).digest('hex')})),responsiveness:{maximumMs:500,main:{samples:4,maxMs:10},renderer:{samples:4,maxMs:18}}},
   diagnosticPadding: 'x'.repeat(90000),
 };
+if(process.env.HVIR_TEST_BAD_EFFECT==='clipboard')proof.nativeEffects.clipboardWrites[1].sha256='incorrect';
+if(process.env.HVIR_TEST_BAD_EFFECT==='responsiveness')proof.nativeEffects.responsiveness.main.maxMs=501;
+if(process.env.HVIR_TEST_BAD_EFFECT==='disposition')proof.nativeEffects.quietAttentionEvents=3;
 const line = 'HVIR_NATIVE_WORKBENCH_OK ' + JSON.stringify(proof) + '\\n';
 process.stdout.write(line.slice(0, 65536), () => {
   process.stderr.write('controlled native cleanup diagnostic\\n', () => {
@@ -78,6 +83,7 @@ exec "$HVIR_TEST_NODE" "$@"
         HVIR_TEST_NODE: process.execPath,
         HVIR_TEST_PRODUCER: producer,
         HVIR_TEST_INVALID: String(invalid),
+        HVIR_TEST_BAD_EFFECT: badEffect ?? '',
       },
     })
     const proof = readFileSync(
@@ -124,4 +130,19 @@ describe('native workbench machine-readable workflow stream', () => {
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('AssertionError')
   })
+  it.each(['clipboard', 'responsiveness', 'disposition'] as const)(
+    'rejects an incorrect native effect %s proof with the actual reader',
+    (kind) => {
+      const result = executeQualification(qualification, 'macOS', false, kind)
+      expect(result.error).toBeUndefined()
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain('AssertionError')
+      const line = result.proof
+        .split('\n')
+        .find((value) => value.startsWith('HVIR_NATIVE_WORKBENCH_OK '))!
+      expect(() => {
+        JSON.parse(line.slice('HVIR_NATIVE_WORKBENCH_OK '.length))
+      }).not.toThrow()
+    },
+  )
 })

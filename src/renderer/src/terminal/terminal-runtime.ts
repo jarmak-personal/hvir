@@ -1,5 +1,5 @@
+import { terminalRuntimeEffectListener } from './terminal-runtime-effects'
 import { hostPathEquals, type HostConnectionState, type HostPath } from '../../../shared'
-import { writeClipboardFromOsc } from './terminal-clipboard-write'
 import type { TerminalEventRouter } from './terminal-event-router'
 import { isNativeTerminalPane, type TerminalRuntimePane } from './terminal-pane'
 import { createTerminalRuntimePane } from './terminal-pane-factory'
@@ -416,9 +416,18 @@ export class TerminalRuntime {
   }
 
   private installPaneListeners(pane: TerminalRuntimePane): void {
+    const onEvent = terminalRuntimeEffectListener(this.interactions.paneEvents, {
+      title: (title) => {
+        this.updateSnapshot({ ...this.currentSnapshot, title })
+        this.options.onTitle(title)
+      },
+      bell: () => this.options.onBell(),
+      live: () => this.started,
+    })
     if (isNativeTerminalPane(pane)) {
       this.paneDisposers = [
         pane.onInput((text) => this.surface.canFocus() && this.options.onInput(text)),
+        ...(pane.onEffect ? [pane.onEffect(onEvent)] : []),
       ]
       return
     }
@@ -466,19 +475,7 @@ export class TerminalRuntime {
           })
         }, PTY_RESIZE_DEBOUNCE_MS)
       }),
-      pane.events.onEvent((event) => {
-        const effect = this.interactions.paneEvents.handle(event)
-        if (effect && 'title' in effect) {
-          this.updateSnapshot({ ...this.currentSnapshot, title: effect.title })
-          this.options.onTitle(effect.title)
-        } else if (effect && 'bell' in effect) this.options.onBell()
-        else if (effect && 'clipboardWrite' in effect && this.started) {
-          // A pane that outlived its PTY (resume-unavailable, exited) can still
-          // emit trailing/replayed events; only a live session is a trusted
-          // remote host allowed to place text on the local clipboard.
-          writeClipboardFromOsc(effect.clipboardWrite)
-        }
-      }),
+      pane.events.onEvent(onEvent),
       pane.events.onLink((target) => this.options.onLink(target)),
     ]
   }

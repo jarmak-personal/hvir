@@ -5,17 +5,17 @@
   "url": "https://registry.npmjs.org/node-pty/-/node-pty-1.1.0.tgz",
   "integrity": "sha512-20JqtutY6JPXTUnL0ij1uad7Qe1baT46lyolh2sSENDd4sTzKZ4nmAFkeAARDKwmlLjPx6XKRlwRUxwjOy+lUg==",
   "patch": "exit-drain.patch.txt",
-  "patchSha256": "d243b92d136811d006250aea95fc0361da75c6ac1742e42e2cb79658e4d51b3c",
+  "patchSha256": "8dde62a95450e6765a05fc3257263038823c7b4fbd637474c88ab9da290e14ce",
   "files": [
     {
       "path": "src/unixTerminal.ts",
       "originalSha256": "0bb9163a7c86d18516faf8a6e1326312dca36e21cab4a6a716fc396fedbcfbcd",
-      "patchedSha256": "637728fa68a6c80f5b795b87fa5fabc4c61cd30431142f52cfea69313abe6532"
+      "patchedSha256": "6abdd91fde7ce77eff7825f7bcd028ff262251694af8485a49ecaaa3ca78c548"
     },
     {
       "path": "lib/unixTerminal.js",
       "originalSha256": "a62e3a60c3bc1b0e7261f58284856df748dcee6761a2bc7a5a5ba98b22660473",
-      "patchedSha256": "c40c1a788d980ea8eda5fd4dd07c21cf43a673f765749f014e712ed29a90cbbb"
+      "patchedSha256": "17c525ca59e2d236085442635243adbcf8134a1dcb8e1d50565ba6d01d915e30"
     }
   ]
 }

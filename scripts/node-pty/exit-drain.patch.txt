@@ -29,9 +29,6 @@
 -          // Destroying the socket now will cause the close event to fire
 -          this._socket.destroy();
 -        }, DESTROY_SOCKET_TIMEOUT_MS);
--        this.once('close', () => {
--          if (timeout !== null) {
--            clearTimeout(timeout);
 +        };
 +        const armGuard = (): void => {
 +          clearGuard();
@@ -40,12 +37,15 @@
 +              timeout = null;
 +              if (!socket.isPaused()) socket.destroy();
 +            }, DESTROY_SOCKET_TIMEOUT_MS);
-           }
++          }
 +        };
 +        socket.on('pause', clearGuard);
 +        socket.on('resume', armGuard);
 +        socket.on('data', armGuard);
-+        this.once('close', () => {
+         this.once('close', () => {
+-          if (timeout !== null) {
+-            clearTimeout(timeout);
+-          }
 +          clearGuard();
 +          socket.removeListener('pause', clearGuard);
 +          socket.removeListener('resume', armGuard);
@@ -56,9 +56,14 @@
          return;
        }
        this.emit('exit', code, signal);
-@@ -247,6 +264,11 @@
+@@ -246,7 +263,16 @@
+     this._writeStream.dispose();
    }
  
++  public get inputClosed(): boolean {
++    return this._exited;
++  }
++
    public kill(signal?: string): void {
 +    if (this._exited) {
 +      this._socket.destroy();
@@ -99,9 +104,6 @@
 -                    // Destroying the socket now will cause the close event to fire
 -                    _this._socket.destroy();
 -                }, DESTROY_SOCKET_TIMEOUT_MS);
--                _this.once('close', function () {
--                    if (timeout_1 !== null) {
--                        clearTimeout(timeout_1);
 +                };
 +                var armGuard = function () {
 +                    clearGuard();
@@ -110,12 +112,15 @@
 +                            timeout_1 = null;
 +                            if (!socket.isPaused()) socket.destroy();
 +                        }, DESTROY_SOCKET_TIMEOUT_MS);
-                     }
++                    }
 +                };
 +                socket.on('pause', clearGuard);
 +                socket.on('resume', armGuard);
 +                socket.on('data', armGuard);
-+                _this.once('close', function () {
+                 _this.once('close', function () {
+-                    if (timeout_1 !== null) {
+-                        clearTimeout(timeout_1);
+-                    }
 +                    clearGuard();
 +                    socket.removeListener('pause', clearGuard);
 +                    socket.removeListener('resume', armGuard);
@@ -126,9 +131,15 @@
                  return;
              }
              _this.emit('exit', code, signal);
-@@ -224,6 +241,11 @@
+@@ -223,7 +240,17 @@
+         this._socket.destroy();
          this._writeStream.dispose();
      };
++    Object.defineProperty(UnixTerminal.prototype, "inputClosed", {
++        get: function () { return this._exited; },
++        enumerable: false,
++        configurable: true
++    });
      UnixTerminal.prototype.kill = function (signal) {
 +        if (this._exited) {
 +            this._socket.destroy();

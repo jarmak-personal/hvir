@@ -400,6 +400,26 @@ describe('IpcAuthorityRouter', () => {
     expect(assertCurrent).toHaveBeenCalledWith(owner)
   })
 
+  it('qualifies native metadata bootstrap through the current renderer owner before exposing its handler', () => {
+    const { deps, transport, currentIpcOwner, assertCurrent } = fixture()
+    const router = new IpcAuthorityRouter(deps, transport)
+    const metadata = vi.fn(() => ({ instanceId: 'immutable-native-instance' }))
+    router.handle('native-terminal:metadata', (_request, context) => {
+      context.owner()
+      return metadata()
+    })
+    const invoke = transport.invokes.get('native-terminal:metadata')?.[0]
+    expect(invoke?.(ipcEvent(), { id: 'terminal' })).toEqual({
+      instanceId: 'immutable-native-instance',
+    })
+    expect(currentIpcOwner).toHaveBeenCalledTimes(1)
+    expect(assertCurrent).toHaveBeenCalledExactlyOnceWith(owner)
+    assertCurrent.mockImplementation(() => {
+      throw new Error('revoked-owner')
+    })
+    expect(() => invoke?.(ipcEvent(), { id: 'terminal' })).toThrow('revoked-owner')
+    expect(metadata).toHaveBeenCalledTimes(1)
+  })
   it('reads the native file clipboard only for a current renderer owner', () => {
     const { deps, transport, currentIpcOwner, assertCurrent } = fixture()
     const read = vi.fn(() => '/home/user/Downloads/requirements.txt')

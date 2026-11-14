@@ -283,6 +283,7 @@ export interface NativeTerminalPanePort {
   bind(sessionId: string): Promise<void>
   setReadonly(): void
   onInput(listener: (text: string) => void): Disposer
+  onEffect?(listener: (event: TerminalEvent) => void): Disposer
 }
 export type TerminalRuntimePane = TerminalPane | NativeTerminalPanePort
 export function isNativeTerminalPane(

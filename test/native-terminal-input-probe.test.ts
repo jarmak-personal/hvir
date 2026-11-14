@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   nativeTerminalInputProbeSource,
   nativeReadonlyProbeScript,
+  nativeReadonlyPresentationReady,
+  type ReadonlyRendererProbe,
 } from '../src/main/smoke/native-terminal-input'
 
 /** The recorder protocol, not a native encoder or real TTY/GPU fixture. */
@@ -258,5 +260,168 @@ describe('readonly renderer qualification diagnostics', () => {
     expect(wheel.census.statusModes).toEqual(Array<string>(8).fill('native-pixels'))
     expect(wheel.census.paneReadonly).toBe(true)
     expect(JSON.stringify(wheel)).not.toContain('secret-payload')
+  })
+})
+
+describe('readonly presentation readiness observations', () => {
+  function observation(
+    options: {
+      missingCanvas?: boolean
+      session?: string
+      exited?: boolean
+      readonly?: boolean
+      connected?: boolean
+      dpr?: number
+      width?: number
+      height?: number
+    } = {},
+  ) {
+    const dispatch = vi.fn()
+    const canvas = {
+      isConnected: options.connected ?? true,
+      hidden: false,
+      width: options.width ?? 800,
+      height: options.height ?? 400,
+      getBoundingClientRect: () => ({
+        x: 1.2,
+        y: 2.3,
+        left: 1.2,
+        top: 2.3,
+        width: 400,
+        height: 200,
+      }),
+      dispatchEvent: dispatch,
+    }
+    const surface = {
+      isConnected: true,
+      getBoundingClientRect: () => ({ x: 1.2, y: 2.3, width: 400, height: 200 }),
+      querySelector: () => (options.missingCanvas ? null : canvas),
+    }
+    const pane = {
+      isConnected: true,
+      hidden: false,
+      getAttribute: () => (options.readonly === false ? 'false' : 'true'),
+      querySelector: () => surface,
+    }
+    const panel = {
+      isConnected: true,
+      getAttribute: (name: string) =>
+        name === 'data-terminal-session'
+          ? (options.session ?? 'expected-session')
+          : name === 'data-terminal-status'
+            ? options.exited === false
+              ? 'pid 42'
+              : 'Exited (0)'
+            : 'false',
+      querySelector: () => pane,
+    }
+    const result = runInNewContext(
+      nativeReadonlyProbeScript('readiness', 0, 'expected-session'),
+      {
+        document: {
+          querySelector: () => {
+            throw new Error('unscoped lookup')
+          },
+          querySelectorAll: (selector: string) =>
+            selector === '.terminal-surface'
+              ? [panel]
+              : selector.includes(' canvas')
+                ? options.missingCanvas
+                  ? []
+                  : [canvas]
+                : selector === '.native-terminal-pane'
+                  ? [pane]
+                  : [surface],
+        },
+        window: {
+          devicePixelRatio: options.dpr ?? 2,
+          nativeQualificationModes: ['native-pixels'],
+        },
+      },
+    ) as ReadonlyRendererProbe
+    return { result, dispatch }
+  }
+  const geometry = {
+    serial: 5,
+    width: 800,
+    height: 400,
+    backingScale: 2,
+    columns: 100,
+    rows: 25,
+    cellWidth: 8,
+    cellHeight: 16,
+    contentWidth: 800,
+    contentHeight: 400,
+    paddingLeft: 0,
+    paddingTop: 0,
+  }
+  it('waits observationally for the exact exited readonly panel and connected current canvas', () => {
+    for (const options of [
+      { missingCanvas: true },
+      { session: 'another-session' },
+      { exited: false },
+      { readonly: false },
+      { connected: false },
+    ]) {
+      const { result, dispatch } = observation(options)
+      expect(result.ok).toBe(true)
+      expect(result.ready).toBe(false)
+      expect(nativeReadonlyPresentationReady(geometry, geometry, result)).toBe(false)
+      expect(dispatch).not.toHaveBeenCalled()
+    }
+    const { result, dispatch } = observation()
+    expect(result.ready).toBe(true)
+    expect(nativeReadonlyPresentationReady(geometry, geometry, result)).toBe(true)
+    expect(result.bounds).toEqual({ x: 2, y: 3, width: 400, height: 200 })
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+  it('requires A/B matching acknowledgements and actual backing/CSS/DPR agreement', () => {
+    const { result } = observation()
+    expect(
+      nativeReadonlyPresentationReady(geometry, { ...geometry, serial: 6 }, result),
+    ).toBe(false)
+    expect(
+      nativeReadonlyPresentationReady(geometry, { ...geometry, width: 802 }, result),
+    ).toBe(false)
+    expect(
+      nativeReadonlyPresentationReady(
+        geometry,
+        geometry,
+        observation({ width: 799 }).result,
+      ),
+    ).toBe(false)
+    expect(
+      nativeReadonlyPresentationReady(
+        geometry,
+        geometry,
+        observation({ height: 399 }).result,
+      ),
+    ).toBe(false)
+    expect(
+      nativeReadonlyPresentationReady(geometry, geometry, observation({ dpr: 1 }).result),
+    ).toBe(false)
+    expect(
+      nativeReadonlyPresentationReady(geometry, geometry, {
+        ...result,
+        layout: { ...result.layout!, cssWidth: 399 },
+      }),
+    ).toBe(false)
+  })
+  it('uses observed fractional DPR for physical rounding and native f32 for scale agreement', () => {
+    const { result } = observation({ dpr: 1.2, width: 480, height: 240 })
+    const fractional = {
+      ...geometry,
+      width: 480,
+      height: 240,
+      backingScale: Math.fround(1.2),
+    }
+    expect(fractional.backingScale).not.toBe(1.2)
+    expect(nativeReadonlyPresentationReady(fractional, fractional, result)).toBe(true)
+    expect(
+      nativeReadonlyPresentationReady(fractional, fractional, {
+        ...result,
+        layout: { ...result.layout!, backingScale: 1.21 },
+      }),
+    ).toBe(false)
   })
 })

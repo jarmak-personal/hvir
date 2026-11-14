@@ -62,23 +62,41 @@ Input encoding reads the same parser's current modes. Encoded user bytes and nat
 replies remain byte spans. Do not round-trip them through UTF-8 strings: legacy mouse
 and other protocol bytes need the main-owned PTY adapter's exact byte-write path.
 
-The reply FIFO holds at most 65,536 bytes. Title and working-directory updates each
-have one latest-value slot, carrying up to 4,096 bytes and an explicit `truncated` flag.
-A burst replaces the pending value instead of filling the FIFO. Other metadata holds
-at most 128 copied events, with at most 1,024 bytes each. Overflow of noncoalescible
-records permanently marks the state failed and revokes further feed/input. Inspect
-and drains remain available for truthful failure reporting, then destroy releases the
-state. Parser replies do not depend on App pumping; external metadata bypasses the
-caller's own App mailbox. Native IO mailbox saturation releases the parser mutex before
-waiting, allowing lock-taking IO handlers to drain it. Native notification failures become
-observable failures rather than logged successful drops.
+The reply FIFO holds at most 65,536 bytes. Effects are copied synchronously from
+borrowed native payloads, stamped with their causal feed sequence and native event serial,
+and drained by the existing producer continuation. Three latest-value slots coalesce title,
+raw working-directory URI and bell; at most 128 other records share a **total** 1 MiB owned
+state-owned transport heap payload budget with those slots, including a pending replacement
+allocation before its old slot is freed. Fixed record metadata is separately bounded by
+128 FIFO records plus three latest-value records. The caller's return record separately has
+fixed 128 KiB data/extra buffers; the copied batch is at most 1 MiB. NAPI/IPC/caller copies
+are not a claim of a 1 MiB process or application allocation peak.
+Each data/extra component is at most 65,536 bytes. Complete
+supported OSC52 writes retain the existing 64 KiB encoded bound and full selection/protocol
+metadata. Ordinary paste has no source ceiling.
 
-Metadata exposes raw title (kind 1), working-directory (2), and bell (3). Renderer
-health is an independent coalesced `renderer_health` status field (0 healthy, 1 unhealthy),
-never a FIFO entry or parser failure. Its initial healthy value follows upstream defaults;
-it does not prove a frame has completed. The presenter owns recovery policy. Other actions
-are unsupported metadata records. Product interpretation, protocol provenance,
-clipboard/link authority and attention belong to the effect integration child.
+Refused, malformed or saturated effects increment sticky out-of-band drop and semantic
+generation counters; these remain readable with an empty/full FIFO or failed allocation.
+They do not fail terminal parsing/input. A drain consumes at most 131 records, in surviving
+native occurrence order. Semantic markers carry the actual post-mutation screen/cursor and
+parser action/options; these coordinates are observations, not retained occurrence identity.
+Screen reset/change is explicit. Native UTF8 validation refuses malformed text before the
+text-only wire boundary; palette RGB metadata is explicitly binary.
+
+Effect kinds are title (1), raw CWD URI (2), bell (3), notification (4; OSC9/OSC777 origin),
+OSC52 write (5), semantic marker (6), palette operation (7), screen/reset (8), progress (10).
+Internal malformed-text refusal (11) updates counters and never enters the event stream.
+OSC9 remains quiet attention; OSC777/progress remain observational. Native application actions,
+clipboard reads and other clipboard protocols remain disabled. Renderer health is independent
+coalesced status (0 healthy, 1 unhealthy), never parser failure or frame proof.
+
+Snapshot-qualified OSC8 readback uses viewport coordinates and exact stream, IO-applied input
+mutation and geometry under the same native state lock. It copies URI bytes and never opens
+anything. Stale snapshots return BUSY; malformed URI text returns no link. Product execution
+checks, user intent and host-qualified navigation remain outside the native engine. Native
+palette/theme query replies come from the same Terminal and existing reply FIFO; configured
+native theme/settings changes belong to their settings owner. See
+[ADR-089](adr/ADR-089-native-terminal-effect-authority.md) for authority and compatibility.
 
 Readback formats the active retained screen as plain, soft-wrap-unwrapped text, with
 upstream trailing-space/blank-row trimming. Its fixed caller buffer is at most 1 MiB;

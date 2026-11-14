@@ -12,6 +12,9 @@
 > Supersedes: [ADR-032](ADR-032-explicit-document-review-handoff.md) | partial | TerminalPane as the named provider- and review-blind terminal boundary.
 > Supersedes: [ADR-054](ADR-054-isolated-extension-package-and-capability-boundary.md) | partial | TerminalPane as the named terminal capability owner at the extension boundary.
 
+[ADR-089](ADR-089-native-terminal-effect-authority.md) refines effect copying, bounded
+refusal, execution authority and native query compatibility; other decisions remain unchanged.
+
 ## Context
 
 Native Ghostty rendering materially improves the terminal interaction hvir is built around.
