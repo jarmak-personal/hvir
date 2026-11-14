@@ -5,6 +5,73 @@ import { DEFAULT_EXTENSION_PRESENTATION } from '../src/main/extensions/guest-own
 import { ExtensionGuestLifecycle } from '../src/main/extensions/guest-lifecycle'
 
 describe('native foreground admission and finite guest work', () => {
+  it('requires current foreground after deferred document attachment before activating a top guest', async () => {
+    let foreground = true
+    let loaded!: () => void
+    const documentLoaded = new Promise<void>((resolve) => {
+      loaded = resolve
+    })
+    const lifecycle = new ExtensionGuestLifecycle(
+      () => Promise.resolve('applied'),
+      vi.fn(),
+      vi.fn(),
+    )
+    const data = fixture(
+      {
+        foreground: () => foreground,
+        windowVisible: () => foreground,
+        visibility: (_id, visible) => lifecycle.setVisible(visible),
+      },
+      {
+        views: [
+          { ...exampleManifest().views[0]!, navigation: 'top', placement: 'application' },
+        ],
+      },
+    )
+    try {
+      expect(data.owner.ownerForeground(data.renderer)).toBe(true)
+      const view = await data.owner.open(
+        data.renderer,
+        'installation',
+        'reference',
+        undefined,
+        { context: { surface: 'top' } },
+      )
+      const attach = documentLoaded.then(() => {
+        data.owner.claim(data.renderer, view.partition, view.url, view.id)
+        data.owner.bind(data.renderer, view.partition, 10)
+      })
+      foreground = false
+      data.owner.foregroundChanged(data.renderer)
+      loaded()
+      await attach
+      data.owner.presentation(
+        data.renderer,
+        view.id,
+        DEFAULT_EXTENSION_PRESENTATION,
+        true,
+        false,
+      )
+      await vi.waitFor(() => expect(lifecycle.isActive).toBe(false))
+      // The pre-navigation admission does not authorize the now-hidden document.
+      expect(data.owner.ownerForeground(data.renderer)).toBe(false)
+      foreground = true
+      data.owner.foregroundChanged(data.renderer)
+      data.owner.presentation(
+        data.renderer,
+        view.id,
+        DEFAULT_EXTENSION_PRESENTATION,
+        true,
+        false,
+      )
+      await vi.waitFor(() => expect(lifecycle.isActive).toBe(true))
+    } finally {
+      loaded()
+      lifecycle.dispose()
+      await data.owner.dispose()
+    }
+  })
+
   it('keeps an issued freeze and latest hidden target when a shown top window loses foreground', async () => {
     let foreground = true,
       holdFreeze = false,

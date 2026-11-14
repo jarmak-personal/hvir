@@ -451,10 +451,30 @@ async function verifyExtensionPlacementRenderResume(
       fixture.webContents.executeJavaScript(
         `document.getElementById(${JSON.stringify(view.id)}).style.display=${JSON.stringify(visible ? 'flex' : 'none')}`,
       )
+    let positiveControl: Awaited<ReturnType<typeof read>> | undefined
+    snapshot = () => ({
+      surface,
+      foreground: extensions.surface.foreground(owner),
+      shown: !fixture.isDestroyed() && fixture.isVisible(),
+      focused: !fixture.isDestroyed() && fixture.isFocused(),
+      minimized: !fixture.isDestroyed() && fixture.isMinimized(),
+      guestAlive: !guest.isDestroyed(),
+      positiveControl,
+    })
+    // Navigation/attachment can withdraw the native authority admitted before loading.
+    fixture.show()
+    fixture.focus()
+    await wait('loaded documents native foreground', () =>
+      extensions.surface.foreground(owner),
+    )
     placement(true)
     await wait('visible positive control', async () => {
-      const current = await read(guest)
-      return current.visible === 'visible' && current.frames > 2 && current.ticks > 2
+      positiveControl = await read(guest)
+      return (
+        positiveControl.visible === 'visible' &&
+        positiveControl.frames > 2 &&
+        positiveControl.ticks > 2
+      )
     })
     const nativeClick = async (): Promise<void> => {
       const before = await read(guest)
