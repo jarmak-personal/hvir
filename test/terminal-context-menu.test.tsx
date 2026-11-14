@@ -137,6 +137,103 @@ describe('terminal context menu ownership', () => {
     expect(menuButton('Paste')).toBe(document.activeElement)
   })
 
+  it.each([true, false])(
+    'waits for actual selection status %s before keyboard focus chooses the first enabled item',
+    async (available) => {
+      const fixture = targetFixture('selected'),
+        status = selectionStatus()
+      fixture.target.hasSelection = () => status.promise
+      renderMenu(fixture.target)
+      await openFromKeyboard(terminalTarget(), 'ContextMenu')
+      expect(document.activeElement).toBe(document.querySelector('[role="menu"]'))
+      expect(menuButton('Copy Selection').disabled).toBe(true)
+      await act(async () => {
+        status.resolve(available)
+        await status.promise
+      })
+      expect(document.activeElement).toBe(
+        menuButton(available ? 'Copy Selection' : 'Paste'),
+      )
+    },
+  )
+
+  it('settles a refused selection query without leaving keyboard focus stranded', async () => {
+    const fixture = targetFixture('selected'),
+      status = selectionStatus()
+    fixture.target.hasSelection = () => status.promise
+    renderMenu(fixture.target)
+    await openFromKeyboard(terminalTarget(), 'ContextMenu')
+    await act(async () => {
+      status.reject(new Error('unavailable'))
+      await status.promise.catch(() => undefined)
+    })
+    expect(menuButton('Copy Selection').disabled).toBe(true)
+    expect(document.activeElement).toBe(menuButton('Paste'))
+  })
+
+  it.each(['navigation-down', 'navigation-up', 'outside', 'pointer'] as const)(
+    'preserves %s focus when pending selection status resolves',
+    async (mode) => {
+      const fixture = targetFixture('selected'),
+        status = selectionStatus()
+      fixture.target.hasSelection = () => status.promise
+      renderMenu(fixture.target)
+      const terminal = terminalTarget()
+      terminal.focus()
+      if (mode === 'pointer') await openFromPointer(terminal)
+      else await openFromKeyboard(terminal, 'ContextMenu')
+      if (mode.startsWith('navigation'))
+        act(() => {
+          document.dispatchEvent(
+            new KeyboardEvent('keydown', {
+              key: mode === 'navigation-up' ? 'ArrowUp' : 'ArrowDown',
+              bubbles: true,
+            }),
+          )
+        })
+      const outside = document.createElement('button')
+      if (mode === 'outside') {
+        document.body.append(outside)
+        outside.focus()
+      }
+      const focused = document.activeElement
+      await act(async () => {
+        status.resolve(true)
+        await status.promise
+      })
+      expect(menuButton('Copy Selection').disabled).toBe(false)
+      expect(document.activeElement).toBe(focused)
+      if (mode === 'navigation-down') expect(focused).toBe(menuButton('Paste'))
+      if (mode === 'navigation-up') expect(focused).toBe(menuButton('Terminal Settings'))
+      if (mode === 'pointer') expect(focused).toBe(terminal)
+    },
+  )
+
+  it('ignores the old selection result after a newer keyboard menu request', async () => {
+    const fixture = targetFixture('selected'),
+      first = selectionStatus(),
+      second = selectionStatus()
+    fixture.target.hasSelection = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    renderMenu(fixture.target)
+    await openFromKeyboard(terminalTarget(), 'ContextMenu')
+    await openFromKeyboard(terminalTarget(), 'ContextMenu')
+    const menu = document.querySelector('[role="menu"]')
+    await act(async () => {
+      first.resolve(true)
+      await first.promise
+    })
+    expect(document.activeElement).toBe(menu)
+    expect(menuButton('Copy Selection').disabled).toBe(true)
+    await act(async () => {
+      second.resolve(false)
+      await second.promise
+    })
+    expect(document.activeElement).toBe(menuButton('Paste'))
+  })
+
   it('captures pointer-menu Escape before the focused terminal can emit it', async () => {
     const fixture = targetFixture('')
     renderMenu(fixture.target)
@@ -448,6 +545,15 @@ function MenuHarness({
       />
     </>
   )
+}
+
+function selectionStatus() {
+  let resolve!: (value: boolean) => void, reject!: (error: Error) => void
+  const promise = new Promise<boolean>((accept, refuse) => {
+    resolve = accept
+    reject = refuse
+  })
+  return { promise, resolve, reject }
 }
 
 function targetFixture(selection: string) {

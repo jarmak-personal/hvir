@@ -79,8 +79,22 @@ export function TerminalContextMenu({
     menu.style.left = `${position.x}px`
     menu.style.top = `${position.y}px`
     menu.style.visibility = 'visible'
-    if (request.focusMenu) firstEnabledMenuItem(menu)?.focus()
+    if (request.focusMenu) {
+      if (request.selectionPending) menu.focus()
+      else firstEnabledMenuItem(menu)?.focus()
+    }
   }, [request?.id])
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current
+    if (
+      request?.focusMenu &&
+      !request.selectionPending &&
+      menu &&
+      document.activeElement === menu
+    )
+      firstEnabledMenuItem(menu)?.focus()
+  }, [request?.id, request?.selectionPending, request?.focusMenu])
 
   useEffect(() => {
     if (!request) return
@@ -200,6 +214,7 @@ export function TerminalContextMenu({
           ref={menuRef}
           className="terminal-context-menu"
           role="menu"
+          tabIndex={-1}
           aria-label="Terminal actions"
           style={{ left: 0, top: 0, visibility: 'hidden' }}
           onClick={(event) => event.stopPropagation()}
@@ -340,7 +355,9 @@ function focusRelativeMenuItem(menu: HTMLElement, key: string): void {
       : key === 'End'
         ? items.length - 1
         : key === 'ArrowUp'
-          ? (index - 1 + items.length) % items.length
+          ? index < 0
+            ? items.length - 1
+            : (index - 1 + items.length) % items.length
           : (index + 1) % items.length
   items[next]?.focus()
 }

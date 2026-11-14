@@ -15,6 +15,7 @@ export interface TerminalContextMenuRequest {
   readonly x: number
   readonly y: number
   readonly focusMenu: boolean
+  readonly selectionPending: boolean
   readonly copyAvailable: boolean
 }
 
@@ -55,10 +56,19 @@ export function useTerminalContextMenu(
       (copyAvailable) => {
         if (controller.signal.aborted || !target.isCurrent()) return
         setRequest((current) =>
-          current?.id === id ? { ...current, copyAvailable } : current,
+          current?.id === id
+            ? { ...current, copyAvailable, selectionPending: false }
+            : current,
         )
       },
-      () => undefined,
+      () => {
+        if (controller.signal.aborted || !target.isCurrent()) return
+        setRequest((current) =>
+          current?.id === id
+            ? { ...current, copyAvailable: false, selectionPending: false }
+            : current,
+        )
+      },
     )
     return () => controller.abort()
   }, [requestId, selectionTarget])
@@ -77,6 +87,7 @@ export function useTerminalContextMenu(
         y,
         focusMenu,
         copyAvailable: false,
+        selectionPending: true,
       })
     },
     [getTarget],
