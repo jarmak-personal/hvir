@@ -3,6 +3,8 @@ import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   nativeSelectionBrowser,
+  nativeSelectionReadinessScript,
+  paneScript,
   nativeSelectionHitCensusScript,
   nativeSelectionPointerObservation,
 } from '../src/main/smoke/native-terminal-selection-browser'
@@ -58,7 +60,9 @@ describe('same-PTY native selection qualification protocol', () => {
     'uses one finite ordinary separator drag at DPR%s and waits for actual new geometry and drawn current canvas',
     async (scale) => {
       let serial = 3,
-        rows = 17
+        rows = 17,
+        missingCanvas = false,
+        missingObservations = 0
       let finishDraw!: () => void
       const drawn = new Promise<void>((resolve) => {
         finishDraw = resolve
@@ -79,7 +83,11 @@ describe('same-PTY native selection qualification protocol', () => {
           executeJavaScript: (script: string) => {
             if (script.includes('const separator='))
               return Promise.resolve({ x: 265, y: 390 })
-            if (script.includes("action:'state'")) return drawn
+            if (script.includes("action:'state'")) return drawn.then(() => true)
+            if (missingCanvas) {
+              missingObservations++
+              return Promise.resolve(undefined)
+            }
             return Promise.resolve({
               x: 241,
               y: 400,
@@ -98,6 +106,7 @@ describe('same-PTY native selection qualification protocol', () => {
             if (event.type === 'mouseUp') {
               serial = 4
               rows = 21
+              missingCanvas = true
             }
           },
         },
@@ -128,6 +137,10 @@ describe('same-PTY native selection qualification protocol', () => {
         'mouseUp',
       ])
       expect(events.at(-1)?.y).toBe(322)
+      expect(missingObservations).toBeGreaterThan(0)
+      missingCanvas = false
+      await vi.advanceTimersByTimeAsync(25)
+      expect(settled).toBe(false)
       finishDraw()
       expect(await proof).toMatchObject({
         action: true,
@@ -139,6 +152,71 @@ describe('same-PTY native selection qualification protocol', () => {
       expect(events).toHaveLength(4)
     },
   )
+
+  it('classifies absent or disconnected current elements and known drawn-state refusals inside the renderer, preserving unexpected errors', async () => {
+    let connected = false,
+      missing = true,
+      refusal: string | undefined
+    const input = {
+        get isConnected() {
+          return connected
+        },
+      },
+      canvas = {
+        get isConnected() {
+          return connected
+        },
+      },
+      surface = {
+        id: 'native-terminal-replacement',
+        get isConnected() {
+          return connected
+        },
+        querySelector: () => (missing ? undefined : canvas),
+      },
+      pane = {
+        get isConnected() {
+          return connected
+        },
+        querySelector: (selector: string) => (selector === 'textarea' ? input : surface),
+      },
+      panel = { getAttribute: () => 's', querySelector: () => pane },
+      invoke = vi.fn(() =>
+        refusal ? Promise.reject(new Error(refusal)) : Promise.resolve({}),
+      ),
+      context = {
+        document: { querySelectorAll: () => [panel] },
+        window: { hvir: { invoke } },
+      },
+      observe = () =>
+        runInNewContext(nativeSelectionReadinessScript('s'), context) as Promise<
+          boolean | undefined
+        >
+    expect(await observe()).toBeUndefined()
+    expect(invoke).not.toHaveBeenCalled()
+    expect(
+      () =>
+        runInNewContext(`(()=>{${paneScript('s')}return true})()`, context) as unknown,
+    ).toThrow('native-selection-elements')
+    missing = false
+    expect(await observe()).toBeUndefined()
+    connected = true
+    for (refusal of [
+      'native-selection-source-stale',
+      'native-selection-not-drawn',
+      'native-selection-stale',
+      'native-selection-unavailable',
+    ])
+      expect(await observe()).toBe(false)
+    refusal = undefined
+    expect(await observe()).toBe(true)
+    expect(invoke).toHaveBeenLastCalledWith('native-terminal:selection', {
+      viewId: 'replacement',
+      action: 'state',
+    })
+    refusal = 'unexpected-native-error'
+    await expect(observe()).rejects.toThrow('unexpected-native-error')
+  })
 
   it('never resends the resize gesture when authority is lost before acknowledgement', async () => {
     let current = true

@@ -38,8 +38,11 @@ const bounds=n=>{if(!n)return null;const r=n.getBoundingClientRect();return{x:r.
 const menus=[...document.querySelectorAll('.terminal-context-menu')],canvas=pane?.querySelector('canvas');return{viewport:{width:globalThis.innerWidth??null,height:globalThis.innerHeight??null,dpr:globalThis.devicePixelRatio??null},paneBounds:bounds(pane),canvasBounds:bounds(canvas),canvasBacking:canvas?{width:canvas.width,height:canvas.height}:null,point:{x:${x},y:${y}},menus:menus.length,menuBounds:menus.slice(0,4).map(bounds),hits:document.elementsFromPoint(${x},${y}).slice(0,8).map(describe),active:describe(document.activeElement),pane:!!pane,readonly:pane?.getAttribute('aria-readonly')==='true',canvas:!!pane?.querySelector('canvas'),nativeHit:!!pane&&pane.contains(document.elementsFromPoint(${x},${y})[0]),statusCount:pane?.querySelectorAll('[role="status"]').length??0,hidden:panel?.hidden??null};})()`
 }
 
-export function paneScript(session: string): string {
-  return `const panel=[...document.querySelectorAll('.terminal-surface')].find(node=>node.getAttribute('data-terminal-session')===${JSON.stringify(session)}),pane=panel?.querySelector('.native-terminal-pane'),surface=pane?.querySelector('[id^="native-terminal-"]'),canvas=surface?.querySelector('canvas'),input=pane?.querySelector('textarea');if(!pane||!surface||!canvas||!input)throw new Error('native-selection-elements');const viewId=surface.id.slice('native-terminal-'.length);`
+export function paneScript(session: string, readiness = false): string {
+  return `const panel=[...document.querySelectorAll('.terminal-surface')].find(node=>node.getAttribute('data-terminal-session')===${JSON.stringify(session)}),pane=panel?.querySelector('.native-terminal-pane'),surface=pane?.querySelector('[id^="native-terminal-"]'),canvas=surface?.querySelector('canvas'),input=pane?.querySelector('textarea');${readiness ? 'if(!pane?.isConnected||!surface?.isConnected||!canvas?.isConnected||!input?.isConnected)return undefined;' : "if(!pane||!surface||!canvas||!input)throw new Error('native-selection-elements');"}const viewId=surface.id.slice('native-terminal-'.length);`
+}
+export function nativeSelectionReadinessScript(session: string): string {
+  return `(async()=>{${paneScript(session, true)}try{await window.hvir.invoke('native-terminal:selection',{viewId,action:'state'});return true;}catch(error){if(/native-selection-(source-stale|stale|unavailable|not-drawn)/.test(String(error)))return false;throw error;}})()`
 }
 export const clipboardInstall = (isolated: boolean) => `(() => {
  const clipboard=navigator.clipboard;if(!clipboard?.writeText)throw new Error('native-selection-clipboard-unavailable');
@@ -72,25 +75,34 @@ export function nativeSelectionBrowser(
     } while (Date.now() < deadline)
     throw new Error('native-selection-' + phase + '-timeout')
   }
-  const layout = async () => {
+  const readLayout = async (readiness: boolean) => {
     const geometry = (await native.inspectRetained(managed.id, owner)).geometry
     const bounds = (await win.webContents.executeJavaScript(
-      `(()=>{${scope}const r=pane.getBoundingClientRect(),c=canvas.getBoundingClientRect();return{x:r.x,y:r.y,viewId,width:r.width,height:r.height,canvasWidth:canvas.width,canvasHeight:canvas.height,canvasCssWidth:c.width,canvasCssHeight:c.height,dpr:devicePixelRatio};})()`,
-    )) as {
-      x: number
-      y: number
-      viewId: string
-      width: number
-      height: number
-      canvasWidth: number
-      canvasHeight: number
-      canvasCssWidth: number
-      canvasCssHeight: number
-      dpr: number
-    }
+      `(()=>{${paneScript(managed.id, readiness)}const r=pane.getBoundingClientRect(),c=canvas.getBoundingClientRect();return{x:r.x,y:r.y,viewId,width:r.width,height:r.height,canvasWidth:canvas.width,canvasHeight:canvas.height,canvasCssWidth:c.width,canvasCssHeight:c.height,dpr:devicePixelRatio};})()`,
+    )) as
+      | {
+          x: number
+          y: number
+          viewId: string
+          width: number
+          height: number
+          canvasWidth: number
+          canvasHeight: number
+          canvasCssWidth: number
+          canvasCssHeight: number
+          dpr: number
+        }
+      | undefined
+    if (!bounds) return undefined
     if (Math.round(bounds.width * geometry.backingScale) !== geometry.width)
-      throw new Error('native-selection-layout-not-current')
+      if (readiness) return undefined
+      else throw new Error('native-selection-layout-not-current')
     return { geometry, bounds }
+  }
+  const layout = async () => {
+    const value = await readLayout(false)
+    if (!value) throw new Error('native-selection-elements')
+    return value
   }
   const mouse = (
     type: 'mouseDown' | 'mouseUp' | 'mouseMove',
@@ -119,18 +131,10 @@ export function nativeSelectionBrowser(
     win.webContents.executeJavaScript(
       `(async()=>{${scope}return window.hvir.invoke('native-terminal:selection',{viewId,action:'selection-clear'});})()`,
     )
-  const drawn = async () => {
-    try {
-      await win.webContents.executeJavaScript(
-        `(async()=>{${scope}return window.hvir.invoke('native-terminal:selection',{viewId,action:'state'});})()`,
-      )
-      return true
-    } catch (error) {
-      if (/native-selection-(stale|unavailable|not-drawn)/.test(String(error)))
-        return false
-      throw error
-    }
-  }
+  const drawn = async () =>
+    (await win.webContents.executeJavaScript(
+      nativeSelectionReadinessScript(managed.id),
+    )) === true
   const ready = () => wait(drawn, 'drawn-current-screen')
   const accommodateGrid = async (current: () => boolean) => {
     const before = await layout(),
@@ -162,15 +166,17 @@ export function nativeSelectionBrowser(
     await wait(async () => {
       if (!current() || native.sessions.get(managed.id)?.handle !== handle)
         throw new Error('native-selection-resize-owner')
-      const a = await layout()
+      const a = await readLayout(true)
       if (
+        !a ||
         a.geometry.serial <= before.geometry.serial ||
         a.geometry.rows < 20 ||
         !(await drawn())
       )
         return false
-      const b = await layout(),
-        g = b.geometry,
+      const b = await readLayout(true)
+      if (!b) return false
+      const g = b.geometry,
         bounds = b.bounds
       if (
         a.geometry.serial !== g.serial ||
