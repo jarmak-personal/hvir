@@ -1,3 +1,8 @@
+import type {
+  NativeTerminalInputOperation,
+  NativeTerminalInputCompletion,
+} from '../../../shared/native-terminal-input'
+import { NativeTerminalDomInput } from './native-terminal-dom-input'
 import type { NativeTerminalPresentationApi } from '../../../shared/native-terminal-presentation'
 import {
   NativeTerminalSurface,
@@ -6,27 +11,12 @@ import {
 import type { NativeTerminalPanePort, TerminalPresentation } from './terminal-pane'
 
 interface NativePanePort extends NativeTerminalSurfacePort {
-  attach(sessionId: string): Promise<{ viewId: string }>
-  key(request: {
+  attach(sessionId: string): Promise<{ viewId: string; inputUnavailable?: boolean }>
+  input(request: {
     viewId: string
-    key: number
-    modifiers: number
-    action: 0 | 1 | 2
-    text: string
-  }): Promise<void>
-}
-// Concrete pinned engine adapter only: ghostty.h's W3C-code enum (ABI4).
-// Rich IME, paste, pointer and modified-key policy belong to the following input slice.
-const functionalKeys: Readonly<Record<string, number>> = {
-  Backspace: 53,
-  Enter: 58,
-  Space: 63,
-  Tab: 64,
-  ArrowDown: 75,
-  ArrowLeft: 76,
-  ArrowRight: 77,
-  ArrowUp: 78,
-  Escape: 120,
+    input: NativeTerminalInputOperation
+  }): Promise<NativeTerminalInputCompletion>
+  clipboardPaste(sessionId: string, fallback: string): void
 }
 
 /** Retains one DOM/presentation surface without a renderer parser or output mirror. */
@@ -38,18 +28,12 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
   private surface?: NativeTerminalSurface
   private presentation: TerminalPresentation = 'hidden'
   private disposed = false
-  private readonlyState = false
   private binding = false
   private viewId?: string
-  private activeInput = false
   private inputReady = false
   private inputRevision = 0
-  private readonly keys: Array<{
-    key: number
-    modifiers: number
-    action: 0 | 1 | 2
-    text: string
-  }> = []
+  private sessionId?: string
+  private readonly input: NativeTerminalDomInput
 
   constructor(
     private readonly api: NativeTerminalPresentationApi,
@@ -58,7 +42,6 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
     this.element.className = 'terminal-engine-host native-terminal-pane'
     this.element.style.cssText =
       'position:relative;width:100%;height:100%;overflow:hidden'
-    this.element.tabIndex = 0
     this.element.setAttribute('role', 'textbox')
     this.element.setAttribute('aria-label', 'Native terminal development preview')
     this.element.setAttribute('aria-multiline', 'true')
@@ -66,11 +49,24 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
       'position:absolute;top:2px;left:4px;right:4px;z-index:2;font-size:10px;pointer-events:none'
     this.notice.setAttribute('role', 'status')
     this.notice.textContent =
-      'Native preview: search, selection, semantic navigation, scrolling, clipboard/IME and live settings are unfinished.'
+      'Native preview: selection, search, semantic navigation and live settings are unfinished.'
     this.element.appendChild(this.notice)
-    this.element.addEventListener('keydown', this.keydown)
-    this.element.addEventListener('paste', this.unsupportedInput)
-    this.element.addEventListener('compositionstart', this.unsupportedInput)
+    this.input = new NativeTerminalDomInput(this.element, {
+      input: (input) => {
+        if (!this.viewId) return Promise.reject(new Error('native-pane-unbound'))
+        return this.port.input({ viewId: this.viewId, input })
+      },
+      clipboardPaste: (fallback) => {
+        if (this.sessionId) this.port.clipboardPaste(this.sessionId, fallback)
+      },
+      accepted: (text) => {
+        for (const listener of this.inputListeners) listener(text)
+      },
+      failed: (message) => this.fail(message),
+      refused: (message) => {
+        this.notice.textContent = message
+      },
+    })
   }
   mount(container: HTMLElement): void {
     if (this.disposed) throw new Error('native-pane-closed')
@@ -83,10 +79,11 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
   setPresentation(presentation: TerminalPresentation): void {
     this.presentation = presentation
     if (presentation === 'hidden') {
-      this.keys.length = 0
       this.inputReady = false
+      this.input.setReady(false)
       this.inputRevision++
     }
+    this.input.setEnabled(presentation === 'visible')
     this.surface?.setPresentation(presentation)
   }
   viewport(): { width: number; height: number; backingScale: number } {
@@ -111,22 +108,26 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
       throw new Error('native-pane-bind-stale')
     this.binding = true
     try {
-      const { viewId } = await this.port.attach(sessionId)
+      const { viewId, inputUnavailable } = await this.port.attach(sessionId)
       if (this.disposed) {
         await this.port.detach(viewId)
         return
       }
       this.viewId = viewId
+      this.sessionId = sessionId
+      if (inputUnavailable)
+        this.fail('Native input unavailable; terminal output remains visible')
       this.surface = new NativeTerminalSurface(viewId, this.api, {
         demand: (id) => this.port.demand(id),
         detach: (id) => this.port.detach(id),
         update: async (id, geometry) => {
           const revision = ++this.inputRevision
           this.inputReady = false
+          this.input.setReady(false)
           await this.port.update(id, geometry)
           if (!this.disposed && revision === this.inputRevision) {
             this.inputReady = geometry.visible && this.presentation === 'visible'
-            if (this.inputReady) void this.flushKeys()
+            this.input.setReady(this.inputReady)
           }
         },
       })
@@ -140,8 +141,7 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
     }
   }
   setReadonly(): void {
-    this.readonlyState = true
-    this.keys.length = 0
+    this.input.setReadonly()
     this.element.setAttribute('aria-readonly', 'true')
   }
   onInput(listener: (text: string) => void): () => void {
@@ -149,87 +149,16 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
     return () => this.inputListeners.delete(listener)
   }
   focus(): void {
-    if (!this.disposed) this.element.focus()
+    if (!this.disposed) this.input.focus()
   }
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.keys.length = 0
+    // Logical occlusion stops demand now; physical input/resource cleanup may wait.
+    this.surface?.setPresentation('hidden')
     this.inputListeners.clear()
-    this.element.removeEventListener('keydown', this.keydown)
-    this.element.removeEventListener('paste', this.unsupportedInput)
-    this.element.removeEventListener('compositionstart', this.unsupportedInput)
-    this.surface?.dispose()
+    void this.input.dispose().finally(() => this.surface?.dispose())
     this.element.remove()
-  }
-  private readonly unsupportedInput = (event: Event): void => {
-    event.preventDefault()
-    this.notice.textContent =
-      'Native preview: clipboard paste and IME are not available yet.'
-  }
-  private readonly keydown = (event: KeyboardEvent): void => {
-    if (
-      this.disposed ||
-      this.readonlyState ||
-      !this.viewId ||
-      this.presentation !== 'visible' ||
-      event.defaultPrevented ||
-      event.isComposing ||
-      event.metaKey
-    )
-      return
-    let key = functionalKeys[event.code]
-    if (/^Key[A-Z]$/.test(event.code)) key = 20 + event.code.charCodeAt(3) - 65
-    const text = event.key.length === 1 ? event.key : ''
-    if (key === undefined && !text) return
-    if ((event.ctrlKey || event.altKey) && key === undefined) return
-    event.preventDefault()
-    if (this.keys.length >= 32) {
-      this.fail('Native terminal input capacity reached')
-      return
-    }
-    this.keys.push({
-      key: key ?? 0,
-      modifiers:
-        Number(event.shiftKey) |
-        (Number(event.ctrlKey) << 1) |
-        (Number(event.altKey) << 2),
-      action: event.repeat ? 2 : 1,
-      text,
-    })
-    void this.flushKeys()
-  }
-  private async flushKeys(): Promise<void> {
-    if (this.activeInput || !this.inputReady) return
-    this.activeInput = true
-    try {
-      while (
-        this.keys.length &&
-        this.viewId &&
-        !this.disposed &&
-        !this.readonlyState &&
-        this.inputReady &&
-        this.presentation === 'visible'
-      ) {
-        const request = this.keys.shift()!
-        const revision = this.inputRevision
-        try {
-          await this.port.key({ viewId: this.viewId, ...request })
-        } catch (error) {
-          // Hide/reparent revokes the old input admission. A newly acknowledged
-          // view may already have fresh keys waiting behind this physical call.
-          if (revision !== this.inputRevision) continue
-          throw error
-        }
-        if (!this.disposed && !this.readonlyState && revision === this.inputRevision)
-          for (const listener of this.inputListeners)
-            listener(request.key === 58 ? '\r' : request.text)
-      }
-    } catch {
-      if (!this.disposed) this.fail('Native terminal input unavailable')
-    } finally {
-      this.activeInput = false
-    }
   }
   private fail(message: string): void {
     this.setReadonly()
@@ -246,6 +175,8 @@ export function createNativeTerminalPane(): NativeTerminalPane {
       await window.hvir.invoke('native-terminal:demand', { viewId })
     },
     detach: (viewId) => window.hvir.invoke('native-terminal:detach', { viewId }),
-    key: (request) => window.hvir.invoke('native-terminal:key', request),
+    input: (request) => window.hvir.invoke('native-terminal:input', request),
+    clipboardPaste: (id, fallbackData) =>
+      window.hvir.send('terminal:paste-image', { id, fallbackData }),
   })
 }

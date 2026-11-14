@@ -7,7 +7,7 @@
     "sha256": "2c276d3e62cb15fb38f0d7f621f199029d1d4df86538096c6bec2a107cad7159",
     "applicationVersion": "1.4.1-dev",
     "vtVersion": "1.0.1",
-    "embedAbi": 5
+    "embedAbi": 6
   },
   "zig": {
     "version": "0.17.0",
@@ -50,6 +50,11 @@
       "file": "patches/0004-linux-presentation.patch.txt",
       "sha256": "989b9750ef30d46d699a3697ffd3238eb4804f09084bde4dabf7d7ee58c4d553",
       "purpose": "Configure generic external pixel export limits and initial presentation before rendering; reuse same-Surface presentation health, report bounded native renderer attribution, and bound readback allocation with truthful frame health. Linux device selection and product policy remain maintained C/TypeScript."
+    },
+    {
+      "file": "patches/0005-external-input.patch.txt",
+      "sha256": "8835d670af53bb681cf896a283a685727d18ce34d22d9932ecc3c14cb1f5076a",
+      "purpose": "Generic terminal-only rich input with fixed explicit user/control emission, shared native LNM/paste/mouse algorithms, read-only navigation, premutation sizing and IO/same-snapshot mutation fences. Hvir provider, permission, admission and PTY policy stay maintained C/TypeScript."
     }
   ],
   "targets": {

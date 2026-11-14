@@ -3,6 +3,7 @@
 #include "hvir_ghostty_embed.h"
 #include "ghostty.h"
 #include "linux_display.h"
+#include "terminal_internal.h"
 #include <dlfcn.h>
 #include <pthread.h>
 #include <stdbool.h>
@@ -17,63 +18,6 @@
 #include <IOSurface/IOSurface.h>
 #endif
 
-/* One application host caller; IO/render callbacks use only events, never caller
- * admission locks. The byte FIFO is bounded independently of native mailboxes. */
-typedef struct terminal_state terminal_state;
-typedef struct {
-  uint32_t kind;
-  size_t length;
-  uint8_t data[1024];
-} queued_effect;
-struct terminal_state {
-  terminal_state *next;
-  struct hvir_terminal_host *host;
-  uint64_t id, applied_sequence, reply_sequence, requested_geometry, frame_copies, geometry_failure_serial;
-  ghostty_surface_t surface;
-  hvir_terminal_geometry geometry;
-  uint8_t replies[HVIR_TERMINAL_REPLY_MAX];
-  size_t reply_start, reply_count;
-  uint32_t failure, presentation_failure, renderer_health;
-  bool closing;
-  queued_effect events[128];
-  hvir_terminal_event latest[2];
-  bool latest_pending[2];
-  size_t event_start, event_count;
-  hvir_terminal_frame frame;
-  bool frame_available, frame_taken;
-  uint64_t last_released;
-  hvir_terminal_renderer_info renderer_info;
-};
-struct hvir_terminal_host {
-  pthread_t caller;
-  pthread_mutex_t events;
-  pthread_cond_t changed;
-  terminal_state *states;
-  ghostty_app_t app;
-  void *display;
-  hvir_linux_display *owned_display;
-  uint32_t initial_presentation_mode;
-  bool closing;
-  uint64_t next_id, next_lease;
-  int (*init)(uintptr_t, char **);
-  ghostty_config_t (*config_new)(void);
-  void (*config_free)(ghostty_config_t);
-  void (*config_finalize)(ghostty_config_t);
-  ghostty_app_t (*app_new)(const ghostty_runtime_config_s *, ghostty_config_t);
-  void (*app_free)(ghostty_app_t);
-  void (*app_tick)(ghostty_app_t);
-  void (*surface_free)(ghostty_surface_t);
-  ghostty_surface_t (*external_new)(ghostty_app_t, void *, const hvir_ghostty_external_config *,
-                                    uint32_t, uint32_t);
-  bool (*external_feed)(ghostty_surface_t, const uint8_t *, size_t, uint64_t);
-  bool (*external_frame_release)(ghostty_surface_t);
-  bool (*external_presentation_mode)(ghostty_surface_t, uint32_t);
-  bool (*external_resize)(ghostty_surface_t, uint32_t, uint32_t, uint64_t, double);
-  void (*surface_visibility)(ghostty_surface_t, bool);
-  bool (*external_read)(ghostty_surface_t, uint8_t *, size_t, size_t *);
-  bool (*external_key)(ghostty_surface_t, int, uint32_t, int, const uint8_t *, size_t, uint8_t *,
-                       size_t, size_t *);
-};
 static pthread_mutex_t loader_lock = PTHREAD_MUTEX_INITIALIZER;
 static void *initialized_library;
 static char *initialized_path;
@@ -102,23 +46,23 @@ static void renderer_info(void *userdata, const hvir_ghostty_renderer_info *info
   pthread_mutex_unlock(&s->host->events);
 }
 
-static hvir_terminal_result owner(hvir_terminal_host *host) {
+hvir_terminal_result hvir_internal_owner(hvir_terminal_host *host) {
   if (!host || host->closing)
     return HVIR_CLOSED;
   return pthread_equal(host->caller, pthread_self()) ? HVIR_OK : HVIR_WRONG_THREAD;
 }
-static terminal_state *lookup(hvir_terminal_host *host, uint64_t id) {
+terminal_state *hvir_internal_lookup(hvir_terminal_host *host, uint64_t id) {
   for (terminal_state *s = host->states; s; s = s->next)
     if (s->id == id)
       return s;
   return NULL;
 }
-static hvir_terminal_result state_for(hvir_terminal_host *host, uint64_t id, terminal_state **out,
+hvir_terminal_result hvir_internal_state(hvir_terminal_host *host, uint64_t id, terminal_state **out,
                                       bool allow_failure) {
-  hvir_terminal_result result = owner(host);
+  hvir_terminal_result result = hvir_internal_owner(host);
   if (result != HVIR_OK)
     return result;
-  terminal_state *s = lookup(host, id);
+  terminal_state *s = hvir_internal_lookup(host, id);
   if (!s || (s->closing && !allow_failure))
     return HVIR_CLOSED;
   pthread_mutex_lock(&host->events);
@@ -271,7 +215,8 @@ static bool frame_ready(void *userdata, const hvir_ghostty_external_frame *nativ
                                .origin = native->origin,
                                .modifier = native->modifier,
                                .stream_sequence = native->stream,
-                               .geometry_serial = native->geometry};
+                               .geometry_serial = native->geometry,
+                               .snapshot_mutation = native->mutation};
   bool valid = true;
   if (native->kind == 1) {
 #ifdef __APPLE__
@@ -411,6 +356,8 @@ hvir_terminal_result hvir_terminal_open(const char *path, void *display, hvir_te
   LOAD(surface_visibility, "ghostty_surface_set_occlusion");
   LOAD(external_read, "ghostty_external_read");
   LOAD(external_key, "ghostty_external_key");
+  LOAD(external_input, "ghostty_external_input");
+  LOAD(external_input_capacity, "ghostty_external_input_capacity");
   if (!initialized_library) {
     /* ghostty_init installs process-global state without a global shutdown API.
      * Keep even a failed initialization mapped; never call dangling destructors. */
@@ -473,9 +420,18 @@ hvir_terminal_result hvir_terminal_open_linux(const char *path, const char *node
 static bool dimensions(uint32_t width, uint32_t height) {
   return width >= 32 && height >= 32 && width <= 8192 && height <= 8192;
 }
+static void feed_applied(void *userdata, uint64_t sequence) {
+  terminal_state *s = userdata;
+  pthread_mutex_lock(&s->host->events);
+  /* Callback may precede the designated caller returning from external_feed. */
+  if (!s->closing && sequence > s->io_applied_sequence)
+    s->io_applied_sequence = sequence;
+  pthread_cond_broadcast(&s->host->changed);
+  pthread_mutex_unlock(&s->host->events);
+}
 hvir_terminal_result hvir_terminal_create_begin(hvir_terminal_host *h, uint32_t width,
                                                 uint32_t height, hvir_terminal_id *out) {
-  hvir_terminal_result r = owner(h);
+  hvir_terminal_result r = hvir_internal_owner(h);
   if (r)
     return r;
   if (!out || !dimensions(width, height) || h->next_id == UINT64_MAX)
@@ -497,7 +453,10 @@ hvir_terminal_result hvir_terminal_create_begin(hvir_terminal_host *h, uint32_t 
                                             .frame = frame_ready,
                                             .pixel_export_limit = HVIR_TERMINAL_PIXEL_MAX,
                                             .presentation_mode = h->initial_presentation_mode,
-                                            .renderer_info = renderer_info};
+                                            .renderer_info = renderer_info,
+                                            .input = hvir_internal_input,
+                                            .mutation_applied = hvir_internal_mutation_applied,
+                                            .feed_applied = feed_applied};
   s->surface = h->external_new(h->app, h->states ? NULL : h->display, &callbacks, width, height);
   if (!s->surface) {
     /* Native partial initialization has settled its threads before returning.
@@ -520,7 +479,7 @@ hvir_terminal_result hvir_terminal_create(hvir_terminal_host *h, uint32_t width,
   hvir_terminal_result result = hvir_terminal_create_begin(h, width, height, out);
   if (result != HVIR_OK)
     return result;
-  terminal_state *s = lookup(h, *out);
+  terminal_state *s = hvir_internal_lookup(h, *out);
   *out = 0;
   struct timespec deadline;
   clock_gettime(CLOCK_REALTIME, &deadline);
@@ -546,7 +505,7 @@ hvir_terminal_result hvir_terminal_create(hvir_terminal_host *h, uint32_t width,
 hvir_terminal_result hvir_terminal_feed(hvir_terminal_host *h, hvir_terminal_id id,
                                         uint64_t sequence, const uint8_t *bytes, size_t length) {
   terminal_state *s;
-  hvir_terminal_result r = state_for(h, id, &s, false);
+  hvir_terminal_result r = hvir_internal_state(h, id, &s, false);
   if (r)
     return r;
   if ((!bytes && length) || length > HVIR_TERMINAL_FEED_MAX)
@@ -562,7 +521,7 @@ hvir_terminal_result hvir_terminal_feed(hvir_terminal_host *h, hvir_terminal_id 
 hvir_terminal_result hvir_terminal_drain(hvir_terminal_host *h, hvir_terminal_id id, uint8_t *out,
                                          size_t capacity, size_t *written) {
   terminal_state *s;
-  hvir_terminal_result r = state_for(h, id, &s, true);
+  hvir_terminal_result r = hvir_internal_state(h, id, &s, true);
   if (r)
     return r;
   if (!out || !written || capacity > HVIR_TERMINAL_REPLY_MAX)
@@ -581,7 +540,7 @@ hvir_terminal_result hvir_terminal_drain(hvir_terminal_host *h, hvir_terminal_id
 hvir_terminal_result hvir_terminal_next_event(hvir_terminal_host *h, hvir_terminal_id id,
                                               hvir_terminal_event *out) {
   terminal_state *s;
-  hvir_terminal_result r = state_for(h, id, &s, true);
+  hvir_terminal_result r = hvir_internal_state(h, id, &s, true);
   if (r)
     return r;
   if (!out)
@@ -613,7 +572,7 @@ hvir_terminal_result hvir_terminal_next_event(hvir_terminal_host *h, hvir_termin
 hvir_terminal_result hvir_terminal_read(hvir_terminal_host *h, hvir_terminal_id id, uint8_t *out,
                                         size_t capacity, size_t *written) {
   terminal_state *s;
-  hvir_terminal_result r = state_for(h, id, &s, false);
+  hvir_terminal_result r = hvir_internal_state(h, id, &s, false);
   if (r)
     return r;
   if (!out || !written || !capacity || capacity > HVIR_TERMINAL_TEXT_MAX)
@@ -629,7 +588,7 @@ hvir_terminal_result hvir_terminal_resize_scaled(hvir_terminal_host *h, hvir_ter
                                                  uint64_t serial, uint32_t width, uint32_t height,
                                                  double backing_scale) {
   terminal_state *s;
-  hvir_terminal_result r = state_for(h, id, &s, false);
+  hvir_terminal_result r = hvir_internal_state(h, id, &s, false);
   if (r) return r;
   if (!dimensions(width, height) || !isfinite(backing_scale) || backing_scale < 1 || backing_scale > 4)
     return HVIR_BOUND;
@@ -652,7 +611,7 @@ hvir_terminal_result hvir_terminal_resize_scaled(hvir_terminal_host *h, hvir_ter
 hvir_terminal_result hvir_terminal_visibility(hvir_terminal_host *h, hvir_terminal_id id,
                                               uint32_t visible) {
   terminal_state *s;
-  hvir_terminal_result result = state_for(h, id, &s, false);
+  hvir_terminal_result result = hvir_internal_state(h, id, &s, false);
   if (result != HVIR_OK) return result;
   if (visible > 1) return HVIR_INVALID;
   h->surface_visibility(s->surface, visible != 0);
@@ -661,7 +620,7 @@ hvir_terminal_result hvir_terminal_visibility(hvir_terminal_host *h, hvir_termin
 hvir_terminal_result hvir_terminal_inspect(hvir_terminal_host *h, hvir_terminal_id id,
                                            hvir_terminal_status *out) {
   terminal_state *s;
-  hvir_terminal_result r = state_for(h, id, &s, true);
+  hvir_terminal_result r = hvir_internal_state(h, id, &s, true);
   if (r)
     return r;
   if (!out)
@@ -669,6 +628,8 @@ hvir_terminal_result hvir_terminal_inspect(hvir_terminal_host *h, hvir_terminal_
   h->app_tick(h->app);
   pthread_mutex_lock(&h->events);
   *out = (hvir_terminal_status){.applied_sequence = s->applied_sequence,
+    .io_applied_mutation = s->io_applied_mutation, .input_failure = s->input_failure,
+    .io_applied_sequence = s->io_applied_sequence,
                                 .frame_copies = s->frame_copies,
                                 .geometry_failure_serial = s->geometry_failure_serial,
                                 .reply_sequence = s->reply_sequence,
@@ -685,7 +646,7 @@ hvir_terminal_result hvir_terminal_key(hvir_terminal_host *h, hvir_terminal_id i
                                        uint32_t mods, uint32_t action_value, const char *text,
                                        uint8_t *out, size_t capacity, size_t *written) {
   terminal_state *s;
-  hvir_terminal_result r = state_for(h, id, &s, false);
+  hvir_terminal_result r = hvir_internal_state(h, id, &s, false);
   if (r)
     return r;
   if (!text || !out || !written || capacity > HVIR_TERMINAL_FEED_MAX)
@@ -702,7 +663,7 @@ hvir_terminal_result hvir_terminal_key(hvir_terminal_host *h, hvir_terminal_id i
 hvir_terminal_result hvir_terminal_take_frame(hvir_terminal_host *h, hvir_terminal_id id,
                                               hvir_terminal_frame *out) {
   terminal_state *s;
-  hvir_terminal_result r = state_for(h, id, &s, false);
+  hvir_terminal_result r = hvir_internal_state(h, id, &s, false);
   if (r)
     return r;
   if (!out)
@@ -732,7 +693,7 @@ hvir_terminal_result hvir_terminal_copy_frame(hvir_terminal_host *h, hvir_termin
                                               uint64_t lease, uint8_t *out, size_t capacity,
                                               size_t *written, uint32_t *stride) {
   terminal_state *s;
-  hvir_terminal_result result = state_for(h, id, &s, true);
+  hvir_terminal_result result = hvir_internal_state(h, id, &s, true);
   if (result != HVIR_OK) return result;
   if (!out || !written || !stride) return HVIR_INVALID;
   *written = 0; *stride = 0;
@@ -788,7 +749,7 @@ hvir_terminal_result hvir_terminal_copy_frame(hvir_terminal_host *h, hvir_termin
 hvir_terminal_result hvir_terminal_presentation_mode(hvir_terminal_host *h, hvir_terminal_id id,
                                                      uint32_t mode) {
   terminal_state *s;
-  hvir_terminal_result result = state_for(h, id, &s, false);
+  hvir_terminal_result result = hvir_internal_state(h, id, &s, false);
   if (result != HVIR_OK) return result;
   if (mode > 1) return HVIR_INVALID;
 #ifndef __linux__
@@ -800,7 +761,7 @@ hvir_terminal_result hvir_terminal_presentation_mode(hvir_terminal_host *h, hvir
 hvir_terminal_result hvir_terminal_renderer_info_get(hvir_terminal_host *h, hvir_terminal_id id,
                                                      hvir_terminal_renderer_info *out) {
   terminal_state *s;
-  hvir_terminal_result result = state_for(h, id, &s, true);
+  hvir_terminal_result result = hvir_internal_state(h, id, &s, true);
   if (result != HVIR_OK) return result;
   if (!out) return HVIR_INVALID;
   pthread_mutex_lock(&h->events);
@@ -811,7 +772,7 @@ hvir_terminal_result hvir_terminal_renderer_info_get(hvir_terminal_host *h, hvir
 hvir_terminal_result hvir_terminal_release_frame(hvir_terminal_host *h, hvir_terminal_id id,
                                                  uint64_t lease) {
   terminal_state *s;
-  hvir_terminal_result r = state_for(h, id, &s, true);
+  hvir_terminal_result r = hvir_internal_state(h, id, &s, true);
   if (r)
     return r;
   pthread_mutex_lock(&h->events);
@@ -832,7 +793,7 @@ hvir_terminal_result hvir_terminal_release_frame(hvir_terminal_host *h, hvir_ter
 }
 hvir_terminal_result hvir_terminal_destroy(hvir_terminal_host *h, hvir_terminal_id id) {
   terminal_state *s;
-  hvir_terminal_result r = state_for(h, id, &s, true);
+  hvir_terminal_result r = hvir_internal_state(h, id, &s, true);
   if (r)
     return r;
   pthread_mutex_lock(&h->events);
@@ -857,7 +818,7 @@ hvir_terminal_result hvir_terminal_destroy(hvir_terminal_host *h, hvir_terminal_
   return HVIR_OK;
 }
 hvir_terminal_result hvir_terminal_close(hvir_terminal_host *h) {
-  hvir_terminal_result r = owner(h);
+  hvir_terminal_result r = hvir_internal_owner(h);
   if (r)
     return r;
   if (h->states)

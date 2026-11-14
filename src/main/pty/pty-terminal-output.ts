@@ -1,5 +1,5 @@
 import type { PtyExit, PtyProcess } from '../project-host/project-host'
-import type { PtyPreparedTerminal } from './pty-contract'
+import type { PtyPreparedTerminal, PtyTerminalInputPrefix } from './pty-contract'
 
 const SESSION_BYTES = 128 * 1024
 const TOTAL_BYTES = 1024 * 1024
@@ -36,6 +36,14 @@ export class PtyTerminalOutput {
   private draining?: Promise<void>
   private disposed?: Promise<void>
   private ended?: Promise<void>
+  private accepted = 0
+  private parsedBytes = 0
+  private repliedBytes = 0
+  private readonly prefixes = new Set<{
+    offset: number
+    phase: 'parsed' | 'replies'
+    settle(error?: Error): void
+  }>()
   constructor(
     private readonly source: Pick<PtyProcess, 'pause' | 'resume'>,
     private readonly terminal: PtyPreparedTerminal,
@@ -55,6 +63,7 @@ export class PtyTerminalOutput {
       return
     }
     this.bytes += bytes
+    this.accepted += bytes
     this.text += decoded
     this.textBytes += bytes
     if (!this.paused) {
@@ -85,6 +94,7 @@ export class PtyTerminalOutput {
   dispose(): Promise<void> {
     if (this.disposed) return this.disposed
     this.disposing = true
+    this.rejectPrefixes(new Error('pty-native-output-closed'))
     this.accepting = false
     this.clearPending()
     this.resume()
@@ -93,6 +103,65 @@ export class PtyTerminalOutput {
       await this.terminal.dispose()
     })()
     return this.disposed
+  }
+  /** A finite source-admitted prefix; only an already-reserved input waits here. */
+  capturePrefix(): PtyTerminalInputPrefix {
+    const offset = this.accepted
+    return {
+      parsed: (signal) => this.waitPrefix(offset, 'parsed', signal),
+      replies: (signal) => this.waitPrefix(offset, 'replies', signal),
+    }
+  }
+  private waitPrefix(
+    offset: number,
+    phase: 'parsed' | 'replies',
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (signal.aborted || this.disposing || this.failed)
+      return Promise.reject(new Error('pty-native-output-closed'))
+    if ((phase === 'parsed' ? this.parsedBytes : this.repliedBytes) >= offset)
+      return Promise.resolve()
+    return new Promise<void>((resolve, reject) => {
+      const cancel = () => waiter.settle(new Error('cancelled'))
+      const waiter = {
+        offset,
+        phase,
+        settle: (error?: Error) => {
+          if (!this.prefixes.delete(waiter)) return
+          signal.removeEventListener('abort', cancel)
+          if (error) reject(error)
+          else resolve()
+        },
+      }
+      this.prefixes.add(waiter)
+      signal.addEventListener('abort', cancel, { once: true })
+    })
+  }
+  parsed(bytes: number): void {
+    if (
+      !Number.isSafeInteger(bytes) ||
+      bytes < 0 ||
+      bytes > this.accepted - this.parsedBytes
+    )
+      throw new Error('pty-native-progress-invalid')
+    this.parsedBytes += bytes
+    for (const prefix of this.prefixes)
+      if (prefix.phase === 'parsed' && prefix.offset <= this.parsedBytes) prefix.settle()
+  }
+  repliesDispatched(bytes: number): void {
+    if (
+      !Number.isSafeInteger(bytes) ||
+      bytes < 0 ||
+      bytes > this.parsedBytes - this.repliedBytes
+    )
+      throw new Error('pty-native-reply-progress-invalid')
+    this.repliedBytes += bytes
+    for (const prefix of this.prefixes)
+      if (prefix.phase === 'replies' && prefix.offset <= this.repliedBytes)
+        prefix.settle()
+  }
+  private rejectPrefixes(error: Error): void {
+    for (const prefix of this.prefixes) prefix.settle(error)
   }
   private start(): void {
     if (this.active || !this.text || this.failed || this.disposing) return
@@ -128,6 +197,7 @@ export class PtyTerminalOutput {
   private fail(error: unknown): void {
     if (this.failed || this.disposing) return
     this.failed = true
+    this.rejectPrefixes(new Error('pty-native-output-failed'))
     this.accepting = false
     this.clearPending()
     try {

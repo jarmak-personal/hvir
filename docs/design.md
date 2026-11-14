@@ -899,6 +899,15 @@ physical completion. Retain bounded immutable resources through application shut
 only proven pre-import rejection may select same-state pixel compatibility.
 
 
+### [ADR-088 — Native terminal input and reply completion](adr/ADR-088-native-terminal-input-and-reply-completion.md)
+
+> Lifecycle: Active
+
+Encode against the same native Surface/parser while main retains provider and PTY authority.
+Distinguish parsed output, native feed IO, reply dispatch and input mutation/frame completion;
+keep browser focus/composition, readonly navigation and physical result capacity explicit.
+
+
 ---
 
 ## 5. Architecture

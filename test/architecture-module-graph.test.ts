@@ -83,6 +83,8 @@ describe('maintained module graph', () => {
     const inputs = [
       'packages/native-terminal/host_binding.c',
       'packages/native-terminal/terminal.c',
+      'packages/native-terminal/terminal_input.c',
+      'packages/native-terminal/terminal_internal.h',
       'packages/native-terminal/linux_display.c',
       'packages/native-terminal/linux_display.h',
       'packages/native-terminal/terminal.h',

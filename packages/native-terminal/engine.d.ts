@@ -1,3 +1,4 @@
+import type { NativeTerminalInputOperation } from '../../src/shared/native-terminal-input'
 export interface Geometry {
   serial: bigint
   backingScale: number
@@ -13,6 +14,9 @@ export interface Geometry {
   paddingTop: number
 }
 export interface Status {
+  ioAppliedMutation: bigint
+  ioAppliedSequence: bigint
+  inputFailure: number
   appliedSequence: bigint
   frameCopies: bigint
   geometryFailureSerial: bigint
@@ -28,6 +32,7 @@ export interface Frame {
   lease: bigint
   streamSequence: bigint
   geometrySerial: bigint
+  snapshotMutation: bigint
   kind: number
   width: number
   height: number
@@ -58,8 +63,26 @@ export interface RendererInfo {
   pixelFrames: bigint
   dmaBufFrames: bigint
 }
+export interface InputResult extends Result {
+  data?: Buffer
+  capacity?: number
+  source?: 'user' | 'terminal-response'
+  requestedMutation?: bigint
+  captured?: boolean
+  caret?: { x: number; y: number; width: number; height: number; geometrySerial: bigint }
+}
 declare const engine: {
-  open(path: string, options?: { renderNode?: string; presentationMode?: 'auto' | 'pixels' }): Result & { host?: Host }
+  input(
+    host: Host,
+    id: bigint,
+    operation: NativeTerminalInputOperation,
+    readOnly?: boolean,
+    keyEncodingFallback?: 'csi-u' | 'modify-other-keys',
+  ): InputResult
+  open(
+    path: string,
+    options?: { renderNode?: string; presentationMode?: 'auto' | 'pixels' },
+  ): Result & { host?: Host }
   presentationMode(host: Host, id: bigint, mode: 0 | 1): Result
   rendererInfo(host: Host, id: bigint): Result & { info?: RendererInfo }
   createBegin(host: Host, width: number, height: number): Result & { id?: bigint }

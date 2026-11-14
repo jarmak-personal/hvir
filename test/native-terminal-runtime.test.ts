@@ -58,6 +58,9 @@ async function complete(value: unknown, call = last()): Promise<void> {
 }
 function status(): Status {
   return {
+    ioAppliedSequence: 0n,
+    ioAppliedMutation: 0n,
+    inputFailure: 0,
     appliedSequence: 0n,
     replySequence: 0n,
     queuedReplyBytes: 0,
@@ -86,6 +89,7 @@ function status(): Status {
 function frame(): Frame {
   return {
     lease: 9007199254740993n,
+    snapshotMutation: 0n,
     streamSequence: 2n,
     geometrySerial: 1n,
     kind: 1,
@@ -140,6 +144,36 @@ afterEach(async () => {
 })
 
 describe('native utility owner', () => {
+  it('reports only premutation native capacity refusal as recoverable admission', async () => {
+    port.send(1, {
+      kind: 'input',
+      state: '7',
+      readOnly: false,
+      input: {
+        kind: 'wheel',
+        x: 1,
+        y: 2,
+        deltaX: 0,
+        deltaY: 1,
+        precision: true,
+        modifiers: 0,
+      },
+    })
+    await complete({ result: 6, requestedMutation: 0n })
+    expect(port.result(1)).toMatchObject({ ok: false, error: 'native-admission-bound' })
+    port.send(2, { kind: 'input', state: '7', readOnly: false, input: { kind: 'caret' } })
+    await complete({ result: 6, requestedMutation: 0n })
+    expect(port.result(2)).toMatchObject({ ok: true, value: { busy: true } })
+    port.send(3, {
+      kind: 'input',
+      state: '7',
+      readOnly: false,
+      input: { kind: 'focus', focused: true },
+    })
+    await complete({ result: 6, requestedMutation: 1n })
+    expect(port.result(3)).toMatchObject({ ok: false, error: 'native-operation-failed' })
+  })
+
   it('forwards validated Linux initialization before any engine work', () => {
     const linux = {
       device: { kind: 'default' as const },
@@ -506,5 +540,105 @@ describe('native utility owner', () => {
     port.send(10, { kind: 'feed', state: '7', sequence: 10, bytes: Uint8Array.of(10) })
     await complete({ result: 0 })
     expect(port.result(10)).toMatchObject({ ok: true })
+  })
+  it.each([5, 7])(
+    'returns premutation native code%s as an immediate resource refusal without allocator retry',
+    async (result) => {
+      port.send(1, {
+        kind: 'input',
+        state: '7',
+        readOnly: false,
+        input: { kind: 'paste', text: 'fixed' },
+      })
+      await complete({ result, requestedMutation: 0n, capacity: 0 })
+      expect(port.result(1)).toMatchObject({
+        ok: false,
+        error: 'native-input-resource-refused',
+      })
+      expect(engine.calls).toHaveLength(1)
+      port.send(2, { kind: 'inspect', state: '7' })
+      await complete({ result: 0, status: status() })
+      expect(port.result(2)).toMatchObject({ ok: true })
+    },
+  )
+  it.each([
+    { result: 2, requestedMutation: 0n },
+    { result: 7, requestedMutation: 1n },
+    { result: 7 },
+  ])(
+    'never labels unproven native failure as unsent resource refusal',
+    async (result) => {
+      port.send(1, {
+        kind: 'input',
+        state: '7',
+        readOnly: false,
+        input: { kind: 'paste', text: 'fixed' },
+      })
+      await complete(result)
+      expect(port.result(1)).toMatchObject({
+        ok: false,
+        error: 'native-operation-failed',
+      })
+    },
+  )
+  it('keeps oversized paste physical queue credit after cancellation and admits normal queued work', async () => {
+    port.send(1, {
+      kind: 'input',
+      state: '7',
+      readOnly: false,
+      input: { kind: 'paste', text: 'p'.repeat(33 * 1024 * 1024) },
+    })
+    expect(last().operation).toBe('input')
+    port.cancel(1)
+    port.send(2, {
+      kind: 'input',
+      state: '8',
+      readOnly: false,
+      input: { kind: 'paste', text: 'other' },
+    })
+    await flush()
+    expect(port.result(1)).toBeUndefined()
+    expect(port.result(2)).toMatchObject({ ok: false, error: 'native-admission-bound' })
+    port.send(3, {
+      kind: 'input',
+      state: '8',
+      readOnly: false,
+      input: { kind: 'focus', focused: true },
+    })
+    expect(engine.calls).toHaveLength(1)
+    await complete({
+      result: 0,
+      data: Buffer.from([1]),
+      capacity: 2 * 33 * 1024 * 1024 + 12,
+      requestedMutation: 1n,
+      source: 'user',
+    })
+    expect(port.result(1)).toMatchObject({
+      ok: true,
+      value: { requestedMutation: 1, capacity: 2 * 33 * 1024 * 1024 + 12 },
+    })
+    expect(engine.calls).toHaveLength(2)
+    await complete({
+      result: 0,
+      data: Buffer.alloc(0),
+      capacity: 0,
+      requestedMutation: 1n,
+      source: 'terminal-response',
+    })
+    expect(port.result(3)).toMatchObject({ ok: true })
+    port.send(4, {
+      kind: 'input',
+      state: '8',
+      readOnly: false,
+      input: { kind: 'paste', text: 'fresh' },
+    })
+    await complete({
+      result: 0,
+      data: Buffer.from([1]),
+      capacity: 22,
+      requestedMutation: 2n,
+      source: 'user',
+    })
+    expect(port.result(4)).toMatchObject({ ok: true })
   })
 })

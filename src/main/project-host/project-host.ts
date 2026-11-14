@@ -259,6 +259,9 @@ export interface PtyExit {
 export class PtyWriteIndeterminateError extends Error {
   override readonly name = 'PtyWriteIndeterminateError'
 }
+/** Bytes were confirmed; delivery authority expired before the caller resumed.
+ * Conservative callers still treat this as non-retryable through the base class. */
+export class PtyWriteConfirmedRevokedError extends PtyWriteIndeterminateError {}
 
 export function isPtyWriteIndeterminateError(
   value: unknown,

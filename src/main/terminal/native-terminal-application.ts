@@ -1,4 +1,16 @@
+import {
+  NativeTerminalInput,
+  type NativeTerminalInputContext,
+  type NativeTerminalInputState,
+} from './native-terminal-input'
+import {
+  validNativeTerminalInput,
+  nativeTerminalKeyOperation,
+  NativeTerminalInputResourceRefused,
+  type NativeTerminalInputOperation,
+} from '../../shared/native-terminal-input'
 import { hostPathEquals } from '../../shared/host-path'
+import { NativeTerminalAdmissionError } from '../../shared/native-terminal'
 import { nativeTerminalLinuxOptionsFromEnvironment } from '../../shared/native-terminal-linux'
 import type { ManagedPty } from '../pty/pty-contract'
 import { app, sharedTexture, type WebFrameMain } from 'electron'
@@ -76,6 +88,7 @@ type OwnedPty = Pick<
 >
 export class NativeTerminalApplication {
   private readonly stopPtyObservation: import('../project-host/project-host').Disposer
+  private readonly inputOwner: NativeTerminalInput
   private readonly views = new Map<
     string,
     {
@@ -84,16 +97,26 @@ export class NativeTerminalApplication {
       owner: RendererOwner
       revision: number
       visible: boolean
+      geometrySerial: number
+      input: NativeTerminalInputState
     }
   >()
   constructor(
     readonly sessions: Pick<
       NativeTerminalSessions,
-      'prepare' | 'get' | 'resolve' | 'remove' | 'transferOwner'
+      | 'prepare'
+      | 'get'
+      | 'resolve'
+      | 'remove'
+      | 'transferOwner'
+      | 'writeControl'
+      | 'blockInput'
+      | 'inputSettled'
+      | 'retainInput'
     >,
     private readonly host: Pick<
       NativeTerminalHost,
-      'inspectProducer' | 'readProducer' | 'encodeKey' | 'rendererInfo' | 'dispose'
+      'inspectProducer' | 'readProducer' | 'input' | 'rendererInfo' | 'dispose'
     >,
     private readonly presenter: Pick<
       NativeTerminalPresenter,
@@ -105,13 +128,14 @@ export class NativeTerminalApplication {
     >,
     private readonly ptys: Pick<
       PtySupervisor,
-      'resize' | 'writeConfirmed' | 'observe'
+      'resize' | 'writeConfirmed' | 'observe' | 'inputPrefix' | 'inputPolicy'
     > & {
       get(id: string): OwnedPty | undefined
       list(): readonly OwnedPty[]
     },
     private readonly isCurrent: (owner: RendererOwner) => boolean,
   ) {
+    this.inputOwner = new NativeTerminalInput(host)
     this.stopPtyObservation = ptys.observe(() => this.refreshOwnership())
     this.refreshOwnership()
   }
@@ -158,7 +182,7 @@ export class NativeTerminalApplication {
     // Replacing the current input view revokes old IDs before asynchronous work.
     for (const [viewId, view] of this.views) {
       if (view.sessionId === id && view.instanceId === record.session.instanceId)
-        this.views.delete(viewId)
+        await this.detach(viewId, view.owner)
     }
     const viewId = await this.presenter.attach(
       record.handle,
@@ -196,6 +220,8 @@ export class NativeTerminalApplication {
       owner,
       revision: 0,
       visible: false,
+      geometrySerial: 0,
+      input: { revoked: false },
     })
     return viewId
   }
@@ -210,8 +236,12 @@ export class NativeTerminalApplication {
     },
   ): Promise<void> {
     const view = this.requireView(viewId, owner)
+    const cleanup = !layout.visible
+      ? this.inputOwner.blur(this.inputContext(viewId, owner, true))
+      : undefined
     if (!layout.visible) view.visible = false
     const revision = ++view.revision
+    await cleanup
     const grant = await this.presenter.update(viewId, layout)
     this.requireView(viewId, owner)
     if (!grant || view.revision !== revision) return
@@ -220,6 +250,7 @@ export class NativeTerminalApplication {
     this.requireView(viewId, owner)
     if (view.revision !== revision || status.geometry.serial !== grant.geometrySerial)
       return
+    view.geometrySerial = status.geometry.serial
     view.visible = layout.visible
     // Only acknowledged native cells notify the existing PTY transport.
     const current = this.requireSession(view.sessionId, owner)
@@ -251,42 +282,141 @@ export class NativeTerminalApplication {
     const record = this.requireSession(id, owner)
     return this.host.readProducer(record.handle, record.session.instanceId)
   }
+  input(viewId: string, owner: RendererOwner, input: NativeTerminalInputOperation) {
+    if (!validNativeTerminalInput(input)) throw new Error('native-input-invalid')
+    let cleanup = input.kind === 'focus' && !input.focused
+    if (input.kind === 'preedit' && input.text === null) {
+      try {
+        this.requireInput(viewId, owner)
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          ![
+            'native-view-hidden',
+            'native-presentation-unavailable',
+            'native-session-readonly',
+            'native-input-unavailable',
+          ].includes(error.message)
+        )
+          throw error
+        cleanup = true
+      }
+    }
+    if (cleanup) {
+      const context = this.inputContext(viewId, owner, true)
+      return this.inputOwner.blur(context).then(() => ({ requestedMutation: 0 }))
+    }
+    if (input.kind !== 'wheel' && input.kind !== 'pointer' && input.kind !== 'caret')
+      this.requireInput(viewId, owner)
+    const context = this.inputContext(viewId, owner)
+    if (context.readOnly && input.kind === 'pointer' && input.button !== undefined)
+      throw new Error('native-session-readonly')
+    try {
+      return this.inputOwner.dispatch(context, input).catch((error: unknown) => {
+        if (
+          error instanceof NativeTerminalAdmissionError ||
+          error instanceof NativeTerminalInputResourceRefused
+        )
+          return { requestedMutation: 0, refused: 'capacity' as const }
+        throw error
+      })
+    } catch (error) {
+      if (
+        error instanceof NativeTerminalAdmissionError ||
+        error instanceof NativeTerminalInputResourceRefused
+      )
+        return Promise.resolve({ requestedMutation: 0, refused: 'capacity' as const })
+      throw error
+    }
+  }
+  inputUnavailable(viewId: string, owner: RendererOwner): boolean {
+    const view = this.requireView(viewId, owner)
+    return this.requireSession(view.sessionId, owner).inputUnavailable
+  }
   async key(
     viewId: string,
     owner: RendererOwner,
-    input: {
-      key: number
-      modifiers: number
-      action: number
-      text: string
-    },
+    input: { key: number; modifiers: number; action: number; text: string },
   ): Promise<void> {
-    const { view, record } = this.requireInput(viewId, owner)
-    const bytes = await this.host.encodeKey(record.handle, view.instanceId, input)
-    this.requireInput(viewId, owner)
-    if (bytes.byteLength)
-      await this.ptys.writeConfirmed(
-        view.sessionId,
-        owner.id,
-        bytes,
-        owner.generation,
-        'user',
-      )
+    await this.input(viewId, owner, nativeTerminalKeyOperation(input))
+  }
+
+  private inputContext(
+    viewId: string,
+    owner: RendererOwner,
+    captured = false,
+  ): NativeTerminalInputContext {
+    const view = captured ? this.views.get(viewId) : this.requireView(viewId, owner)
+    if (!view || view.owner.id !== owner.id || view.owner.generation !== owner.generation)
+      throw new Error('native-view-foreign')
+    const record = captured
+      ? this.sessions.get(view.sessionId)
+      : this.requireSession(view.sessionId, owner)
+    if (!record || record.session.instanceId !== view.instanceId)
+      throw new Error('native-view-stale')
+    const revision = view.revision
+    const readOnly =
+      record.readonly ||
+      record.inputClosed ||
+      record.inputUnavailable ||
+      this.ptys.get(view.sessionId)?.instanceId !== view.instanceId
+    return {
+      handle: record.handle,
+      instanceId: view.instanceId,
+      geometrySerial: view.geometrySerial,
+      state: view.input,
+      inputSettled: () => this.sessions.inputSettled(view.sessionId, view.instanceId),
+      retainInput: (pending) =>
+        this.sessions.retainInput(view.sessionId, view.instanceId, pending),
+      readOnly,
+      policy:
+        readOnly || captured
+          ? undefined
+          : this.ptys.inputPolicy(view.sessionId, owner.id, owner.generation),
+      assertCurrent: () => {
+        const current = readOnly
+          ? { view: this.requireView(viewId, owner) }
+          : this.requireInput(viewId, owner)
+        if (!view.visible || !this.presenter.isInputCurrent(viewId))
+          throw new Error('native-view-hidden')
+        if (current.view !== view || view.revision !== revision)
+          throw new Error('native-view-stale')
+      },
+      prefix: () =>
+        !record.unavailable &&
+        this.ptys.get(view.sessionId)?.instanceId === view.instanceId
+          ? this.ptys.inputPrefix(view.sessionId, view.instanceId)
+          : { parsed: () => Promise.resolve(), replies: () => Promise.resolve() },
+      writeUser: (bytes) =>
+        this.ptys.writeConfirmed(
+          view.sessionId,
+          owner.id,
+          bytes,
+          owner.generation,
+          'user',
+        ),
+      writeControl: (bytes) =>
+        this.sessions.writeControl(view.sessionId, view.instanceId, bytes),
+      blockInput: () => this.sessions.blockInput(view.sessionId, view.instanceId),
+    }
   }
   async detach(viewId: string, owner: RendererOwner): Promise<void> {
     const view = this.views.get(viewId)
     if (!view) return
     if (view.owner.id !== owner.id || view.owner.generation !== owner.generation)
       throw new Error('native-view-foreign')
+    const context = this.inputContext(viewId, owner, true)
     this.views.delete(viewId)
-    await this.presenter.detach(viewId)
+    const results = await Promise.allSettled([this.inputOwner.revoke(context)])
+    results.push(...(await Promise.allSettled([this.presenter.detach(viewId)])))
+    const failure = results.find((result) => result.status === 'rejected')
+    if (failure?.status === 'rejected') throw failure.reason
   }
   async remove(id: string, instanceId: string): Promise<void> {
     const detaching: Promise<void>[] = []
     for (const [viewId, view] of this.views) {
       if (view.sessionId === id && view.instanceId === instanceId) {
-        this.views.delete(viewId)
-        detaching.push(this.presenter.detach(viewId))
+        detaching.push(this.detach(viewId, view.owner))
       }
     }
     const results = await Promise.allSettled(detaching)
@@ -310,8 +440,10 @@ export class NativeTerminalApplication {
     const view = this.requireView(id, owner)
     const record = this.requireSession(view.sessionId, owner)
     const live = this.ptys.get(view.sessionId)
+    if (record.inputUnavailable) throw new Error('native-input-unavailable')
     if (
       record.readonly ||
+      record.inputClosed ||
       live?.instanceId !== view.instanceId ||
       live.ownerId !== owner.id ||
       live.ownerGeneration !== owner.generation

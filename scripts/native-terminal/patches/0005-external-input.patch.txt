@@ -1,0 +1,852 @@
+--- a/src/main_c.zig
++++ b/src/main_c.zig
+@@ -266,5 +266,5 @@
+ 
+ // Version of the pinned upstream hooks consumed by hvir's maintained C facade.
+ export fn hvir_ghostty_embed_abi() u32 {
+-    return 5;
+-}
++    return 6;
++}
+--- a/src/termio/External.zig
++++ b/src/termio/External.zig
+@@ -16,6 +16,7 @@
+     modifier: u64 = 0,
+     stream: u64 = 0,
+     geometry: u64 = 0,
++    mutation: u64 = 0,
+     surface: ?*anyopaque = null,
+     fds: [4]i32 = @splat(-1),
+     strides: [4]u32 = @splat(0),
+@@ -36,6 +37,36 @@
+     egl_version_len: usize,
+     egl_display: ?*anyopaque,
+ };
++pub const InputOrigin = enum(u32) { user = 1, control = 2 };
++pub const InputEvent = extern struct {
++    kind: u32,
++    key: u32,
++    mods: u32,
++    consumed_mods: u32,
++    action: u32,
++    unshifted_codepoint: u32,
++    option_as_alt: u32,
++    encoding_fallback: u32,
++    composing: u32,
++    focused: u32,
++    precision: u32,
++    has_button: u32,
++    button: u32,
++    x: f64,
++    y: f64,
++    delta_x: f64,
++    delta_y: f64,
++    text: ?[*]const u8,
++    text_len: usize,
++};
++pub const InputResult = extern struct {
++    captured: bool = false,
++    x: f64 = 0,
++    y: f64 = 0,
++    width: f64 = 0,
++    height: f64 = 0,
++    required_capacity: usize = 0,
++};
+ pub const Config = extern struct {
+     userdata: ?*anyopaque,
+     write: *const fn (?*anyopaque, [*]const u8, usize) callconv(.c) bool,
+@@ -50,10 +81,15 @@
+     /// 0: prefer native exports; 1: start with CPU presentation before any frame.
+     presentation_mode: u32,
+     renderer_info: ?*const fn (?*anyopaque, *const RendererInfo) callconv(.c) void,
++    input: ?*const fn (?*anyopaque, u32, [*]const u8, usize) callconv(.c) bool,
++    mutation_applied: ?*const fn (?*anyopaque, u64) callconv(.c) void,
++    feed_applied: ?*const fn (?*anyopaque, u64) callconv(.c) void,
+ };
+ config: Config,
+ failed: std.atomic.Value(bool) = .init(false),
+ frame_held: std.atomic.Value(bool) = .init(false),
++/// Only the designated synchronous input caller accesses this operation failure.
++input_failed: bool = false,
+ pub const ThreadData = struct {
+     pub fn deinit(_: *ThreadData, _: std.mem.Allocator) void {}
+ };
+@@ -67,21 +103,34 @@
+ pub fn resize(_: *External, _: renderer.GridSize, _: renderer.ScreenSize) !void {}
+ pub fn queueWrite(self: *External, _: std.mem.Allocator, _: *termio.Termio.ThreadData, data: []const u8, linefeed: bool) !void {
+     if (self.failed.load(.acquire)) return error.ExternalTransportFailed;
+-    if (!linefeed) {
+-        if (!self.config.write(self.config.userdata, data.ptr, data.len)) {
+-            self.fail(1);
+-            return error.ExternalOutputFull;
++    try self.writeEncoded(data, linefeed, null);
++}
++/// Same native LNM transformation, with explicit synchronous input provenance.
++pub fn writeInput(self: *External, data: []const u8, linefeed: bool, origin: InputOrigin) !void {
++    try self.writeEncoded(data, linefeed, origin);
++}
++fn writePart(self: *External, data: []const u8, origin: ?InputOrigin) !void {
++    if (origin) |source| {
++        const callback = self.config.input orelse {
++            self.input_failed = true;
++            return error.ExternalInputFull;
++        };
++        if (!callback(self.config.userdata, @backingInt(source), data.ptr, data.len)) {
++            self.input_failed = true;
++            return error.ExternalInputFull;
+         }
+-        return;
++    } else if (!self.config.write(self.config.userdata, data.ptr, data.len)) {
++        self.fail(1);
++        return error.ExternalOutputFull;
+     }
++}
++fn writeEncoded(self: *External, data: []const u8, linefeed: bool, origin: ?InputOrigin) !void {
++    if (!linefeed) return self.writePart(data, origin);
+     var buffer: [512]u8 = undefined;
+     var used: usize = 0;
+     for (data) |byte| {
+         if (used + 2 > buffer.len) {
+-            if (!self.config.write(self.config.userdata, &buffer, used)) {
+-                self.fail(1);
+-                return error.ExternalOutputFull;
+-            }
++            try self.writePart(buffer[0..used], origin);
+             used = 0;
+         }
+         buffer[used] = byte;
+@@ -91,10 +140,7 @@
+             used += 1;
+         }
+     }
+-    if (used > 0 and !self.config.write(self.config.userdata, &buffer, used)) {
+-        self.fail(1);
+-        return error.ExternalOutputFull;
+-    }
++    if (used > 0) try self.writePart(buffer[0..used], origin);
+ }
+ pub fn fail(self: *External, reason: u32) void {
+     if (!self.failed.swap(true, .acq_rel)) self.config.failed(self.config.userdata, reason);
+--- a/src/renderer/State.zig
++++ b/src/renderer/State.zig
+@@ -22,6 +22,7 @@
+ /// External mutation observations, sampled under the same parser-state mutex.
+ external_stream: u64 = 0,
+ external_geometry: u64 = 0,
++external_mutation: u64 = 0,
+ 
+ /// The terminal inspector, if any. This will be null while the inspector
+ /// is not active and will be set when it is active.
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -122,6 +122,7 @@
+         surface_mailbox: apprt.surface.Mailbox,
+         external_stream: u64 = 0,
+         external_geometry: u64 = 0,
++        external_mutation: u64 = 0,
+         external_snapshot_valid: bool = false,
+ 
+         /// The latest exported frame ready to be consumed by an apprt
+@@ -1093,6 +1094,7 @@
+             var frame = value;
+             frame.stream = self.external_stream;
+             frame.geometry = self.external_geometry;
++            frame.mutation = self.external_mutation;
+             if (!external.config.frame(external.config.userdata, &frame)) external.frame_held.store(false, .release);
+             return true;
+         }
+@@ -1444,6 +1446,7 @@
+                 overlay_features: []const Overlay.Feature,
+                 external_stream: u64,
+                 external_geometry: u64,
++                external_mutation: u64,
+             };
+ 
+             // Update all our data as tightly as possible within the mutex.
+@@ -1601,6 +1604,7 @@
+                     .overlay_features = overlay_features,
+                     .external_stream = state.external_stream,
+                     .external_geometry = state.external_geometry,
++                    .external_mutation = state.external_mutation,
+                 };
+             };
+ 
+@@ -1752,6 +1756,7 @@
+                 self.updateCustomShaderUniformsFromState();
+                 self.external_stream = critical.external_stream;
+                 self.external_geometry = critical.external_geometry;
++                self.external_mutation = critical.external_mutation;
+                 self.external_snapshot_valid = true;
+             }
+ 
+--- a/src/renderer/Thread.zig
++++ b/src/renderer/Thread.zig
+@@ -399,6 +399,11 @@
+                 grid.set.deref(grid.old_key);
+             },
+ 
++            .external_mutation => |serial| {
++                self.state.mutex.lockUncancelable(global.io());
++                self.state.external_mutation = @max(self.state.external_mutation, serial);
++                self.state.mutex.unlock(global.io());
++            },
+             .presentation_health => |v| self.renderer.setPresentationHealth(v),
+ 
+             .resize => |v| self.renderer.setScreenSize(v),
+--- a/src/renderer/message.zig
++++ b/src/renderer/message.zig
+@@ -25,6 +25,8 @@
+     /// Reset the cursor blink by immediately showing the cursor then
+     /// restarting the timer.
+     reset_cursor_blink,
++    /// Ordered after input IO effects and prior renderer focus/state messages.
++    external_mutation: u64,
+ 
+     /// Change the font grid. This can happen for any number of reasons
+     /// including a font size change, family change, etc.
+--- a/src/termio/Thread.zig
++++ b/src/termio/Thread.zig
+@@ -324,6 +324,21 @@
+             },
+             .inspector => |v| self.flags.has_inspector = v,
+             .resize => |v| self.handleResize(cb, v),
++            .external_feed => |sequence| {
++                if (io.backend == .external) {
++                    const external = &io.backend.external;
++                    if (external.config.feed_applied) |callback|
++                        callback(external.config.userdata, sequence);
++                }
++            },
++            .external_input => |serial| {
++                if (io.backend == .external) {
++                    const external = &io.backend.external;
++                    if (external.config.mutation_applied) |callback|
++                        callback(external.config.userdata, serial);
++                    _ = io.renderer_mailbox.push(global.io(), .{ .external_mutation = serial }, .forever);
++                }
++            },
+             .external_resize => |v| {
+                 self.coalesce_data.resize = null;
+                 io.external_resize_serial = v.serial;
+--- a/src/termio/message.zig
++++ b/src/termio/message.zig
+@@ -50,6 +50,9 @@
+ 
+     /// External parser geometry fence; never coalesced with ordinary requests.
+     external_resize: struct { size: renderer.Size, serial: u64, backing_scale: f64 },
++    /// Ordered after input viewport effects; never waits for a presented image.
++    external_input: u64,
++    external_feed: u64,
+ 
+     /// Request a size report is sent to the PTY ([in-band
+     /// size report, mode 2048](https://gist.github.com/rockorager/e695fb2924d36b2bcf1fff4a3704bd83) and
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -926,6 +926,195 @@
+     self.io.queueMessage(msg, mutex);
+ }
+ 
++/// Explicit terminal-only input over the same native state. No app bindings or
++/// local selection/link actions are dispatched by pointer input here.
++fn externalInputText(event: *const termio.External.InputEvent) ![]const u8 {
++    if (event.text_len == 0) return "";
++    return (event.text orelse return error.InvalidInput)[0..event.text_len];
++}
++fn externalKeyEvent(event: *const termio.External.InputEvent) !input.KeyEvent {
++    return .{
++        .key = std.enums.fromInt(input.Key, event.key) orelse return error.InvalidInput,
++        .action = std.enums.fromInt(input.Action, event.action) orelse return error.InvalidInput,
++        .mods = @bitCast(@as(input.Mods.Backing, @truncate(event.mods))),
++        .consumed_mods = @bitCast(@as(input.Mods.Backing, @truncate(event.consumed_mods))),
++        .utf8 = try externalInputText(event),
++        .unshifted_codepoint = std.math.cast(u21, event.unshifted_codepoint) orelse return error.InvalidInput,
++        .composing = event.composing != 0,
++    };
++}
++fn externalOption(event: *const termio.External.InputEvent) !@import("input/config.zig").OptionAsAlt {
++    return std.enums.fromInt(@import("input/config.zig").OptionAsAlt, event.option_as_alt) orelse error.InvalidInput;
++}
++fn externalPosition(self: *const Surface, event: *const termio.External.InputEvent) !apprt.CursorPos {
++    const scale = try self.rt_surface.getContentScale();
++    return .{ .x = @floatCast(event.x * scale.x), .y = @floatCast(event.y * scale.y) };
++}
++fn externalOffsets(self: *const Surface, event: *const termio.External.InputEvent) !struct { x: f64, y: f64 } {
++    const scale = try self.rt_surface.getContentScale();
++    // Browser down/right becomes native negative: vertical down reports65,
++    // horizontal right reports67 (native six/positive reports66, left).
++    return .{ .x = -event.delta_x * (if (event.precision != 0) scale.x else 1), .y = -event.delta_y * (if (event.precision != 0) scale.y else 1) };
++}
++fn lnmLength(data: []const u8, linefeed: bool) !usize {
++    return std.math.add(usize, data.len, if (linefeed) std.mem.count(u8, data, "\r") else 0);
++}
++/// Pure preflight. Only local copies of the native pending scroll accumulators
++/// are touched; the executing path reuses the exact same scrollAmounts helper.
++pub fn externalInputCapacity(self: *Surface, event: *const termio.External.InputEvent, read_only: bool) !usize {
++    if (self.io.backend != .external) return error.NotExternal;
++    if (event.kind == 3 or event.kind == 7 or read_only) return 0;
++    const text = try externalInputText(event);
++    if (event.kind == 2) {
++        if (text.len == 0) return 0;
++        return std.math.add(usize, try std.math.mul(usize, text.len, 2), input.paste.max_frame_size);
++    }
++    if (event.kind == 1) {
++        const key_event = try externalKeyEvent(event);
++        if (try self.encodeKey(key_event, null, try externalOption(event), event.encoding_fallback)) |request| {
++            defer request.deinit();
++            self.renderer_state.mutex.lockUncancelable(global.io());
++            defer self.renderer_state.mutex.unlock(global.io());
++            if (self.config.vt_kam_allowed and self.io.terminal.modes.get(.disable_keyboard)) return 0;
++            return lnmLength(request.slice(), self.io.terminal.modes.get(.linefeed));
++        }
++        return 0;
++    }
++    if (event.kind == 4) {
++        // At most one held key plus8 modifier releases and11 native buttons,
++        // with the native encoder's38-byte small-record bound and focus report.
++        return if (self.focused != (event.focused != 0) or self.pressed_key != null) 4096 else held: {
++            for (self.mouse.click_state) |state| if (state == .press) break :held 4096;
++            break :held 0;
++        };
++    }
++    if (event.kind != 5 and event.kind != 6) return error.InvalidInput;
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    const reporting = self.isMouseReporting();
++    if (event.kind == 5) return if (reporting) 4 * @sizeOf(termio.Message.WriteReq.Small.Array) else 0;
++    const offsets = try self.externalOffsets(event);
++    var pending_x = self.mouse.pending_scroll_x;
++    var pending_y = self.mouse.pending_scroll_y;
++    const amount = self.scrollAmounts(offsets.x, offsets.y, .{ .precision = event.precision != 0 }, &pending_x, &pending_y);
++    if (self.io.terminal.screens.active_key == .alternate and self.io.terminal.flags.mouse_event == .none and
++        self.io.terminal.modes.get(.mouse_alternate_scroll))
++        return std.math.mul(usize, amount.y.magnitude(), 3);
++    if (!reporting) return 0;
++    const reports = try std.math.add(usize, amount.x.magnitude(), amount.y.magnitude());
++    // Native mouse reports fit the existing38-byte WriteReq scratch. Use its
++    // full size, conservative LNM expansion, and one position motion report so
++    // IO reflow/coordinate clamping cannot invalidate the premutation bound.
++    return std.math.mul(usize, try std.math.add(usize, reports, 1), 2 * @sizeOf(termio.Message.WriteReq.Small.Array));
++}
++pub fn externalPointerCallback(self: *Surface, pos: apprt.CursorPos, mods: input.Mods, button: ?input.MouseButton, action: input.MouseButtonState, read_only: bool) !bool {
++    self.modsChanged(mods);
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    if (button) |value| self.mouse.click_state[@intCast(@backingInt(value))] = action;
++    if (read_only or !self.isMouseReporting()) return false;
++    if (mods.shift and !self.mouseShiftCapture(button != null)) return false;
++    const route: InputRoute = .{ .external = .{} };
++    if (button) |value| {
++        self.mouseReport(value, if (action == .press) .press else .release, mods, pos, route);
++    } else {
++        const held: ?input.MouseButton = held: for (self.mouse.click_state, 0..) |state, index| {
++            if (state == .press) break :held @fromBackingInt(@intCast(index));
++        } else null;
++        self.mouseReport(held, .motion, mods, pos, route);
++    }
++    if (self.externalInputFailed(route)) return error.ExternalInputFull;
++    return true;
++}
++pub fn externalInputCallback(self: *Surface, event: *const termio.External.InputEvent, read_only: bool, result: *termio.External.InputResult) !void {
++    if (self.io.backend != .external) return error.NotExternal;
++    const text = try externalInputText(event);
++    const mods: input.Mods = @bitCast(@as(input.Mods.Backing, @truncate(event.mods)));
++    switch (event.kind) {
++        1 => {
++            if (read_only) return error.ReadOnly;
++            _ = try self.externalKeyCallback(try externalKeyEvent(event), .{ .option_as_alt = try externalOption(event), .encoding_fallback = event.encoding_fallback });
++        },
++        2 => {
++            if (read_only) return error.ReadOnly;
++            if (text.len == 0) return;
++            const mutable = try self.alloc.dupe(u8, text);
++            defer self.alloc.free(mutable);
++            self.renderer_state.mutex.lockUncancelable(global.io());
++            const options: input.paste.Options = .fromTerminal(&self.io.terminal);
++            const linefeed = self.io.terminal.modes.get(.linefeed);
++            self.scrollToBottom() catch {};
++            self.renderer_state.mutex.unlock(global.io());
++            const pieces = input.paste.encode(mutable, options);
++            for (pieces) |piece| if (piece.len != 0) try self.io.backend.external.writeInput(piece, linefeed, .user);
++        },
++        3 => {
++            if (read_only and text.len != 0) return error.ReadOnly;
++            try self.preeditCallback(if (text.len == 0) null else text);
++        },
++        4 => {
++            if (read_only and event.focused != 0) return error.ReadOnly;
++            try self.externalFocusCallback(event.focused != 0, read_only);
++        },
++        5, 6 => {
++            const pos = try self.externalPosition(event);
++            const button: ?input.MouseButton = if (event.has_button != 0)
++                (std.enums.fromInt(input.MouseButton, event.button) orelse return error.InvalidInput)
++            else
++                null;
++            const action = std.enums.fromInt(input.MouseButtonState, event.action) orelse return error.InvalidInput;
++            result.captured = try self.externalPointerCallback(pos, mods, button, action, read_only);
++            if (event.kind == 6) {
++                const offsets = try self.externalOffsets(event);
++                try self.externalScrollCallback(offsets.x, offsets.y, .{ .precision = event.precision != 0 }, read_only);
++            }
++        },
++        7 => {
++            const point = self.imePoint();
++            const scale = try self.rt_surface.getContentScale();
++            result.x = point.x;
++            result.y = point.y;
++            result.width = point.width / scale.x;
++            result.height = point.height;
++        },
++        else => return error.InvalidInput,
++    }
++}
++
++pub const ExternalInputRoute = struct {
++    origin: termio.External.InputOrigin = .user,
++    read_only: bool = false,
++    option_as_alt: @import("input/config.zig").OptionAsAlt = .false,
++    encoding_fallback: u32 = 0,
++};
++const InputRoute = union(enum) { normal, external: ExternalInputRoute };
++
++fn queueTerminalInput(self: *Surface, request: termio.Message.WriteReq, mutex: termio.Termio.MutexState, route: InputRoute) !void {
++    if (route == .normal) {
++        self.queueIo(switch (request) {
++            .small => |v| .{ .write_small = v },
++            .stable => |v| .{ .write_stable = v },
++            .alloc => |v| .{ .write_alloc = v },
++        }, mutex);
++        return;
++    }
++    defer request.deinit();
++    if (self.readonly or route.external.read_only) return;
++    if (self.io.backend != .external) return error.NotExternal;
++    const linefeed = switch (mutex) {
++        .locked => self.io.terminal.modes.get(.linefeed),
++        .unlocked => linefeed: {
++            self.renderer_state.mutex.lockUncancelable(global.io());
++            defer self.renderer_state.mutex.unlock(global.io());
++            break :linefeed self.io.terminal.modes.get(.linefeed);
++        },
++    };
++    try self.io.backend.external.writeInput(request.slice(), linefeed, route.external.origin);
++}
++fn externalInputFailed(self: *Surface, route: InputRoute) bool {
++    return route == .external and self.io.backend == .external and self.io.backend.external.input_failed;
++}
++
+ /// Forces the surface to render. This is useful for when the surface
+ /// is in the middle of animation (such as a resize, etc.) or when
+ /// the render timer is managed manually by the apprt.
+@@ -2798,16 +2987,20 @@
+ 
+ /// Called for any key events. This handles keybindings, encoding and
+ /// sending to the terminal, etc.
+-pub fn keyCallback(
+-    self: *Surface,
+-    event_orig: input.KeyEvent,
+-) !InputEffect {
++pub fn keyCallback(self: *Surface, event: input.KeyEvent) !InputEffect {
++    return self.keyCallbackRoute(event, .normal);
++}
++pub fn externalKeyCallback(self: *Surface, event: input.KeyEvent, route: ExternalInputRoute) !InputEffect {
++    return self.keyCallbackRoute(event, .{ .external = route });
++}
++fn keyCallbackRoute(self: *Surface, event_orig: input.KeyEvent, route: InputRoute) !InputEffect {
++    if (route == .external and route.external.read_only) return .ignored;
+     // log.warn("text keyCallback event={}", .{event_orig});
+ 
+     // Apply key remappings to transform modifiers before any processing.
+     // This allows users to remap modifier keys at the app level.
+     var event = event_orig;
+-    if (self.config.key_remaps.isRemapped(event_orig.mods)) {
++    if (route == .normal and self.config.key_remaps.isRemapped(event_orig.mods)) {
+         event.mods = self.config.key_remaps.apply(event_orig.mods);
+     }
+ 
+@@ -2843,10 +3036,9 @@
+     // Handle keybindings first. We need to handle this on all events
+     // (press, repeat, release) because a press may perform a binding but
+     // a release should not encode if we consumed the press.
+-    if (try self.maybeHandleBinding(
+-        event,
+-        if (insp_ev) |*ev| ev else null,
+-    )) |v| return v;
++    if (route == .normal) {
++        if (try self.maybeHandleBinding(event, if (insp_ev) |*ev| ev else null)) |v| return v;
++    }
+     // If we allow KAM and KAM is enabled then we do nothing.
+     if (self.config.vt_kam_allowed) {
+         self.renderer_state.mutex.lockUncancelable(global.io());
+@@ -2949,6 +3141,8 @@
+     if (try self.encodeKey(
+         event,
+         if (insp_ev) |*ev| ev else null,
++        if (route == .external) route.external.option_as_alt else null,
++        if (route == .external) route.external.encoding_fallback else 0,
+     )) |write_req| {
+         // If our process is exited and we press a key that results in
+         // an encoded value, we close the surface. We want to eventually
+@@ -2959,11 +3153,7 @@
+             return .closed;
+         }
+ 
+-        self.queueIo(switch (write_req) {
+-            .small => |v| .{ .write_small = v },
+-            .stable => |v| .{ .write_stable = v },
+-            .alloc => |v| .{ .write_alloc = v },
+-        }, .unlocked);
++        try self.queueTerminalInput(write_req, .unlocked, route);
+     } else {
+         // No valid request means that we didn't encode anything.
+         return .ignored;
+@@ -3079,7 +3269,7 @@
+             // Store this event so that we can drain and encode on invalid.
+             // We don't need to cap this because it is naturally capped by
+             // the config validation.
+-            if (try self.encodeKey(event, insp_ev)) |req| {
++            if (try self.encodeKey(event, insp_ev, null, 0)) |req| {
+                 self.keyboard.sequence_queued.append(self.alloc, req) catch |err| {
+                     req.deinit();
+                     return err;
+@@ -3336,10 +3526,12 @@
+     self: *Surface,
+     event: input.KeyEvent,
+     insp_ev: ?*inspectorpkg.KeyEvent,
++    option_as_alt: ?@import("input/config.zig").OptionAsAlt,
++    encoding_fallback: u32,
+ ) !?termio.Message.WriteReq {
+     const write_req: termio.Message.WriteReq = req: {
+         // Build our encoding options, which requires the lock.
+-        const encoding_opts = self.encodeKeyOpts();
++        const encoding_opts = self.encodeKeyOpts(option_as_alt, encoding_fallback);
+ 
+         // Try to write the input into a small array. This fits almost
+         // every scenario. Larger situations can happen due to long
+@@ -3405,12 +3597,21 @@
+     return write_req;
+ }
+ 
+-fn encodeKeyOpts(self: *const Surface) input.key_encode.Options {
++fn encodeKeyOpts(self: *const Surface, external_option: ?@import("input/config.zig").OptionAsAlt, encoding_fallback: u32) input.key_encode.Options {
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     defer self.renderer_state.mutex.unlock(global.io());
+     const t = &self.io.terminal;
+ 
+     var opts: input.key_encode.Options = .fromTerminal(t);
++    if (external_option) |option| {
++        opts.macos_option_as_alt = option;
++        if (opts.kitty_flags.int() == 0 and !opts.modify_other_keys_state_2) switch (encoding_fallback) {
++            1 => opts.kitty_flags.disambiguate = true,
++            2 => opts.modify_other_keys_state_2 = true,
++            else => {},
++        };
++        return opts;
++    }
+     if (comptime builtin.target.os.tag != .macos) return opts;
+ 
+     opts.macos_option_as_alt = self.config.macos_option_as_alt orelse detect: {
+@@ -3473,6 +3674,24 @@
+ }
+ 
+ pub fn focusCallback(self: *Surface, focused: bool) !void {
++    return self.focusCallbackRoute(focused, .normal);
++}
++pub fn externalFocusCallback(self: *Surface, focused: bool, read_only: bool) !void {
++    const route: InputRoute = .{ .external = .{ .origin = .control, .read_only = read_only } };
++    try self.focusCallbackRoute(focused, route);
++    if (!focused) self.modsChanged(.{});
++    // Use the authoritative native button array; no local selection/link action.
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    if (!focused) for (&self.mouse.click_state, 0..) |*state, index| {
++        if (state.* != .press) continue;
++        state.* = .release;
++        if (!read_only and self.isMouseReporting())
++            self.mouseReport(@fromBackingInt(@intCast(index)), .release, self.mouse.mods, try self.rt_surface.getCursorPos(), route);
++        if (self.externalInputFailed(route)) return error.ExternalInputFull;
++    };
++}
++fn focusCallbackRoute(self: *Surface, focused: bool, route: InputRoute) !void {
+     // Crash metadata in case we crash in here
+     crash.sentry.thread_state = self.crashThreadState();
+     defer crash.sentry.thread_state = null;
+@@ -3482,11 +3701,12 @@
+     if (focused) self.app.focusSurface(self);
+ 
+     // If our focus state is unchanged we do nothing else.
+-    if (self.focused == focused) return;
++    const changed = self.focused != focused;
++    if (!changed and !(route == .external and !focused)) return;
+     self.focused = focused;
+ 
+     // Notify our render thread of the new state
+-    _ = self.renderer_thread.mailbox.push(global.io(), .{
++    if (changed) _ = self.renderer_thread.mailbox.push(global.io(), .{
+         .focus = focused,
+     }, .{ .forever = {} });
+ 
+@@ -3503,7 +3723,7 @@
+ 
+         // Release the full key first
+         if (pressed_key.key != .unidentified) {
+-            assert(self.keyCallback(pressed_key) catch |err| err: {
++            assert(self.keyCallbackRoute(pressed_key, route) catch |err| err: {
+                 log.warn("error releasing key on focus loss err={}", .{err});
+                 break :err .ignored;
+             } != .closed);
+@@ -3532,7 +3752,7 @@
+                     };
+                     pressed_key.key = @field(input.Key, keyname ++ "_" ++ side);
+                     if (pressed_key.key != original_key) {
+-                        assert(self.keyCallback(pressed_key) catch |err| err: {
++                        assert(self.keyCallbackRoute(pressed_key, route) catch |err| err: {
+                             log.warn("error releasing key on focus loss err={}", .{err});
+                             break :err .ignored;
+                         } != .closed);
+@@ -3555,8 +3775,16 @@
+     {
+         self.renderer_state.mutex.lockUncancelable(global.io());
+         self.io.terminal.flags.focused = focused;
++        const report = self.io.terminal.modes.get(.focus_event);
+         self.renderer_state.mutex.unlock(global.io());
+-        self.queueIo(.{ .focused = focused }, .unlocked);
++        if (route == .normal) {
++            self.queueIo(.{ .focused = focused }, .unlocked);
++        } else if (changed and report and !route.external.read_only) {
++            var buffer: [terminal.focus.max_encode_size]u8 = undefined;
++            var writer: std.Io.Writer = .fixed(&buffer);
++            try terminal.focus.encode(&writer, if (focused) .gained else .lost);
++            try self.io.backend.external.writeInput(writer.buffered(), false, .control);
++        }
+     }
+ }
+ 
+@@ -3590,21 +3818,7 @@
+ /// "Natural scrolling" is a macOS term for inverting the scroll direction.
+ /// This should be handled by the apprt implementation. At this layer,
+ /// negative is always down, left.
+-pub fn scrollCallback(
+-    self: *Surface,
+-    xoff: f64,
+-    yoff: f64,
+-    scroll_mods: input.ScrollMods,
+-) !void {
+-    // log.info("SCROLL: xoff={} yoff={} mods={}", .{ xoff, yoff, scroll_mods });
+-
+-    // Crash metadata in case we crash in here
+-    crash.sentry.thread_state = self.crashThreadState();
+-    defer crash.sentry.thread_state = null;
+-
+-    // Always show the mouse again if it is hidden
+-    if (self.mouse.hidden) self.showMouse();
+-
++fn scrollAmounts(self: *const Surface, xoff: f64, yoff: f64, scroll_mods: input.ScrollMods, pending_x: *f64, pending_y: *f64) struct { x: ScrollAmount, y: ScrollAmount } {
+     const y: ScrollAmount = if (yoff == 0) .{} else y: {
+         // We use cell_size to determine if we have accumulated enough to trigger a scroll
+         const cell_size: f64 = @floatFromInt(self.size.cell.height);
+@@ -3641,19 +3855,19 @@
+         // so that we move further away from zero, but we don't assert
+         // this because in theory a user could scroll in the opposite
+         // direction and undo a pending scroll.
+-        const poff: f64 = self.mouse.pending_scroll_y + yoff_adjusted;
++        const poff: f64 = pending_y.* + yoff_adjusted;
+ 
+         // If the new offset is less than a single unit of scroll, we save
+         // the new pending value and do not scroll yet.
+         if (@abs(poff) < cell_size) {
+-            self.mouse.pending_scroll_y = poff;
++            pending_y.* = poff;
+             break :y .{};
+         }
+ 
+         // We scroll by the number of rows in the offset and save the remainder
+         const amount = poff / cell_size;
+         assert(@abs(amount) >= 1);
+-        self.mouse.pending_scroll_y = poff - (amount * cell_size);
++        pending_y.* = poff - (amount * cell_size);
+ 
+         // Round towards zero.
+         const delta: isize = @intFromFloat(@trunc(amount));
+@@ -3669,21 +3883,44 @@
+             break :x .{ .delta = x_delta_isize };
+         }
+ 
+-        const poff: f64 = self.mouse.pending_scroll_x + xoff;
++        const poff: f64 = pending_x.* + xoff;
+         const cell_size: f64 = @floatFromInt(self.size.cell.width);
+         if (@abs(poff) < cell_size) {
+-            self.mouse.pending_scroll_x = poff;
++            pending_x.* = poff;
+             break :x .{};
+         }
+ 
+         const amount = poff / cell_size;
+         assert(@abs(amount) >= 1);
+-        self.mouse.pending_scroll_x = poff - (amount * cell_size);
++        pending_x.* = poff - (amount * cell_size);
+         const delta: isize = @intFromFloat(@trunc(amount));
+         assert(@abs(delta) >= 1);
+         break :x .{ .delta = delta };
+     };
+ 
++    return .{ .x = x, .y = y };
++}
++
++pub fn scrollCallback(self: *Surface, xoff: f64, yoff: f64, scroll_mods: input.ScrollMods) !void {
++    return self.scrollCallbackRoute(xoff, yoff, scroll_mods, .normal);
++}
++pub fn externalScrollCallback(self: *Surface, xoff: f64, yoff: f64, scroll_mods: input.ScrollMods, read_only: bool) !void {
++    return self.scrollCallbackRoute(xoff, yoff, scroll_mods, .{ .external = .{ .read_only = read_only } });
++}
++fn scrollCallbackRoute(self: *Surface, xoff: f64, yoff: f64, scroll_mods: input.ScrollMods, route: InputRoute) !void {
++    // log.info("SCROLL: xoff={} yoff={} mods={}", .{ xoff, yoff, scroll_mods });
++
++    // Crash metadata in case we crash in here
++    crash.sentry.thread_state = self.crashThreadState();
++    defer crash.sentry.thread_state = null;
++
++    // Always show the mouse again if it is hidden
++    if (self.mouse.hidden) self.showMouse();
++
++    const amounts = self.scrollAmounts(xoff, yoff, scroll_mods, &self.mouse.pending_scroll_x, &self.mouse.pending_scroll_y);
++    const x = amounts.x;
++    const y = amounts.y;
++
+     // log.info("SCROLL: delta_y={} delta_x={}", .{ y.delta, x.delta });
+ 
+     {
+@@ -3693,15 +3930,14 @@
+         // If we have an active mouse reporting mode, clear the selection.
+         // The selection can occur if the user uses the shift mod key to
+         // override mouse grabbing from the window.
+-        if (self.isMouseReporting()) {
++        if ((route != .external or !route.external.read_only) and self.isMouseReporting()) {
+             try self.setSelection(null);
+         }
+-
+         // If we're in alternate screen with alternate scroll enabled, then
+         // we convert to cursor keys. This only happens if we're:
+         // (1) alt screen (2) no explicit mouse reporting and (3) alt
+         // scroll mode enabled.
+-        if (self.io.terminal.screens.active_key == .alternate and
++        if ((route != .external or !route.external.read_only) and self.io.terminal.screens.active_key == .alternate and
+             self.io.terminal.flags.mouse_event == .none and
+             self.io.terminal.modes.get(.mouse_alternate_scroll))
+         {
+@@ -3724,7 +3960,7 @@
+                     };
+                 };
+                 for (0..y.magnitude()) |_| {
+-                    self.queueIo(.{ .write_stable = seq }, .locked);
++                    try self.queueTerminalInput(.{ .stable = seq }, .locked, route);
+                 }
+             }
+ 
+@@ -3736,13 +3972,14 @@
+         // the normal logic.
+ 
+         // If we're scrolling up or down, then send a mouse event.
+-        if (self.isMouseReporting()) {
++        if ((route != .external or !route.external.read_only) and self.isMouseReporting()) {
+             for (0..@abs(y.delta)) |_| {
+                 const pos = try self.rt_surface.getCursorPos();
+                 self.mouseReport(switch (y.direction()) {
+                     .up_right => .four,
+                     .down_left => .five,
+-                }, .press, self.mouse.mods, pos);
++                }, .press, self.mouse.mods, pos, route);
++                if (self.externalInputFailed(route)) return error.ExternalInputFull;
+             }
+ 
+             for (0..@abs(x.delta)) |_| {
+@@ -3750,7 +3987,8 @@
+                 self.mouseReport(switch (x.direction()) {
+                     .up_right => .six,
+                     .down_left => .seven,
+-                }, .press, self.mouse.mods, pos);
++                }, .press, self.mouse.mods, pos, route);
++                if (self.externalInputFailed(route)) return error.ExternalInputFull;
+             }
+ 
+             // If mouse reporting is on, we do not want to scroll the
+@@ -3825,6 +4063,7 @@
+     action: input.MouseAction,
+     mods: input.Mods,
+     pos: apprt.CursorPos,
++    route: InputRoute,
+ ) void {
+     // Mouse reporting must be enabled by both config and terminal state
+     assert(self.config.mouse_reporting);
+@@ -3877,10 +4116,10 @@
+     const written = writer.buffered();
+     if (written.len == 0) return;
+ 
+-    self.queueIo(.{ .write_small = .{
++    self.queueTerminalInput(.{ .small = .{
+         .data = data,
+         .len = @intCast(written.len),
+-    } }, .locked);
++    } }, .locked, route) catch return;
+ }
+ 
+ /// Returns true if the shift modifier is allowed to be captured by modifier
+@@ -4094,6 +4333,7 @@
+                 report_action,
+                 self.mouse.mods,
+                 pos,
++                .normal,
+             );
+ 
+             // If we're doing mouse reporting, we do not support any other
+@@ -4802,7 +5042,7 @@
+                 break :button @fromBackingInt(@intCast(i));
+         } else null;
+ 
+-        self.mouseReport(button, .motion, self.mouse.mods, pos);
++        self.mouseReport(button, .motion, self.mouse.mods, pos, .normal);
+ 
+         // If we're doing mouse motion tracking, we do not support text
+         // selection.
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1546,6 +1546,9 @@
+         const io = &surface.core_surface.io;
+         if (io.backend != .external or io.backend.external.failed.load(.acquire)) return false;
+         io.externalFeed(data[0..len], sequence);
++        // The parser has queued every response before this FIFO fence. Parsing
++        // completion alone does not mean those IO writes reached the host sink.
++        io.queueMessage(.{ .external_feed = sequence }, .unlocked);
+         return !io.backend.external.failed.load(.acquire);
+     }
+ 
+@@ -1590,6 +1593,29 @@
+         formatter.format(&writer) catch return false;
+         written.* = writer.buffered().len;
+         return true;
++    }
++
++    export fn ghostty_external_input_capacity(surface: *Surface, event: *const termio.External.InputEvent, read_only: bool, capacity: *usize) bool {
++        capacity.* = surface.core_surface.externalInputCapacity(event, read_only) catch return false;
++        return true;
++    }
++    /// 2 is a proven premutation capacity refusal; no input, callback or fence ran.
++    export fn ghostty_external_input(surface: *Surface, event: *const termio.External.InputEvent, serial: u64, read_only: bool, capacity: usize, result: *termio.External.InputResult) u32 {
++        const core = &surface.core_surface;
++        result.* = .{};
++        if (core.io.backend != .external) return 1;
++        result.required_capacity = core.externalInputCapacity(event, read_only) catch return 1;
++        if (result.required_capacity > capacity) return 2;
++        core.io.backend.external.input_failed = false;
++        if (event.kind == 5 or event.kind == 6)
++            surface.cursor_pos = surface.cursorPosToPixels(.{ .x = @floatCast(event.x), .y = @floatCast(event.y) }) catch return 1;
++        core.externalInputCallback(event, read_only, result) catch {
++            core.io.backend.external.input_failed = true;
++        };
++        if (event.kind != 7) {
++            core.io.queueMessage(.{ .external_input = serial }, .unlocked);
++        }
++        return if (core.io.backend.external.input_failed) 1 else 0;
+     }
+ 
+     export fn ghostty_external_key(surface: *Surface, key: c_int, mods: u32, action: c_int, text: [*]const u8, text_len: usize, out: [*]u8, capacity: usize, written: *usize) bool {

@@ -14,12 +14,24 @@ import {
 } from '../../shared/native-terminal-linux'
 import { spawnUtilityWorker, workerPath } from '../worker-host'
 import type { NativeTerminalProcessPort } from './native-terminal-host'
+import {
+  NativeTerminalInputPhysicalFailure,
+  NativeTerminalInputResourceRefused,
+  nativeTerminalInputCleanup,
+  nativeTerminalInputResultCapacity,
+} from '../../shared/native-terminal-input'
+import {
+  NativeTerminalInputResultCredits,
+  type NativeTerminalInputResultCredit,
+} from '../../shared/native-terminal-input-admission'
 
 interface Pending {
   readonly state: string
   readonly command: NativeTerminalCommand
   readonly feed: boolean
   readonly bytes: number
+  readonly inputCredit?: NativeTerminalInputResultCredit
+  readonly physicalInput: boolean
   sent: boolean
   cancelled: boolean
   complete(value: unknown): void
@@ -34,7 +46,12 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
   private starting?: Promise<void>
   private stopping?: Promise<void>
   private settled?: () => void
-  private readonly waiting = new Set<{ state: string; bytes: number; feed: boolean }>()
+  private readonly waiting = new Set<{
+    state: string
+    bytes: number
+    feed: boolean
+    inputCredit?: NativeTerminalInputResultCredit
+  }>()
   private disposed = false
   private failure?: Error
   private exitedEpoch?: string
@@ -42,6 +59,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
   private nextId = 0
   private readonly pending = new Map<number, Pending>()
   private bytes = 0
+  private readonly resultCredits = new NativeTerminalInputResultCredits()
   private ready?: () => void
   private startupFailure?: (error: Error) => void
   private readonly linux?: NativeTerminalLinuxOptions
@@ -98,19 +116,35 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
   release(receipt: Receipt): void {
     resource.release(receipt)
   }
-  request(command: NativeTerminalCommand, signal?: AbortSignal): Promise<unknown> {
+  request(
+    command: NativeTerminalCommand,
+    signal?: AbortSignal,
+    eligible?: (signal: AbortSignal) => Promise<void>,
+    physicalInput?: true,
+  ): Promise<unknown> {
     return this.submit(
       command,
       signal,
       command.kind === 'release' ||
         command.kind === 'destroy' ||
-        (command.kind === 'visibility' && !command.visible),
+        (command.kind === 'visibility' && !command.visible) ||
+        // NativeSessions serializes feed -> drain -> discard for each state.
+        // Each physical credit is freed before the producer continuation runs;
+        // waiting input therefore cannot consume its prerequisite progress slot.
+        (command.kind === 'input' && nativeTerminalInputCleanup(command.input)) ||
+        command.kind === 'producer-inspect' ||
+        command.kind === 'drain' ||
+        command.kind === 'discard-events',
+      eligible,
+      physicalInput === true && command.kind === 'input',
     )
   }
   private submit(
     command: NativeTerminalCommand,
     signal: AbortSignal | undefined,
     cleanup: boolean,
+    eligible?: (signal: AbortSignal) => Promise<void>,
+    physicalInput = false,
   ): Promise<unknown> {
     if (!this.available)
       return Promise.reject(this.failure ?? new Error('native-host-closed'))
@@ -125,6 +159,12 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
     const admitted = [...this.pending.values(), ...this.waiting]
     const controls = admitted.filter((item) => !item.feed)
     const byteCount = nativeTerminalCommandBytes(command)
+    const capacity =
+      command.kind === 'input'
+        ? nativeTerminalInputResultCapacity(command.input, command.readOnly, (text) =>
+            Buffer.byteLength(text),
+          )
+        : 0
     const same = admitted.filter((p) => p.state === state)
     if (
       this.pending.size + this.waiting.size >=
@@ -140,30 +180,50 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
       same.reduce((n, p) => n + p.bytes, 0) + byteCount > limits.queuedBytesPerState
     )
       return Promise.reject(new NativeTerminalAdmissionError('native-command-bound'))
+    let inputCredit: NativeTerminalInputResultCredit | undefined
+    try {
+      if (command.kind === 'input')
+        inputCredit = this.resultCredits.reserve(
+          capacity,
+          command.input.kind === 'paste',
+          cleanup,
+        )
+    } catch (error) {
+      return Promise.reject(
+        error instanceof Error ? error : new Error('native-input-admission-failed'),
+      )
+    }
     const snapshot =
       command.kind === 'feed'
         ? { ...command, bytes: command.bytes.slice() }
-        : { ...command }
+        : command.kind === 'input'
+          ? { ...command, input: { ...command.input } }
+          : { ...command }
     if (this.stopping && command.kind !== 'shutdown' && !cleanup) {
-      const reservation = { state, bytes: byteCount, feed }
+      const reservation = { state, bytes: byteCount, feed, inputCredit }
       this.waiting.add(reservation)
       this.bytes += byteCount
       const release = (): void => {
-        if (this.waiting.delete(reservation)) this.bytes -= byteCount
+        if (this.waiting.delete(reservation)) {
+          this.bytes -= byteCount
+          inputCredit?.release()
+        }
       }
       return this.stopping
         .then(() => {
           release()
-          return this.submit(snapshot, signal, false)
+          return this.submit(snapshot, signal, false, eligible, physicalInput)
         })
         .finally(release)
     }
     const id = ++this.nextId
     if (!Number.isSafeInteger(id)) {
+      inputCredit?.release()
       this.lose(new Error('native-request-bound'))
       return Promise.reject(this.failure ?? new Error('native-request-bound'))
     }
     return new Promise((resolve, reject) => {
+      const eligibility = new AbortController()
       let delivered = false
       const settle = (error?: Error, value?: unknown): void => {
         if (delivered) return
@@ -175,7 +235,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
         const item = this.pending.get(id)
         if (!item || item.cancelled) return
         item.cancelled = true
-        settle(new Error('cancelled'))
+        if (!item.sent || !item.physicalInput) settle(new Error('cancelled'))
         if (item.sent) this.child?.postMessage({ kind: 'cancel', epoch: this.epoch, id })
         else this.finish(id)
       }
@@ -188,11 +248,14 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
         command: snapshot,
         feed,
         bytes: byteCount,
+        inputCredit,
+        physicalInput,
         sent: false,
         cancelled: false,
         complete: (value) => settle(undefined, value),
         fail: (error) => settle(error),
         cleanup: () => {
+          eligibility.abort()
           clearTimeout(timer)
           signal?.removeEventListener('abort', cancel)
         },
@@ -200,7 +263,14 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
       this.bytes += byteCount
       signal?.addEventListener('abort', cancel, { once: true })
       void this.start().then(
-        () => {
+        async () => {
+          try {
+            await eligible?.(eligibility.signal)
+          } catch (error) {
+            settle(error instanceof Error ? error : new Error('native-prefix-failed'))
+            this.finish(id)
+            return
+          }
           const item = this.pending.get(id)
           if (!item || item.cancelled) return
           if (!this.available || !this.child) {
@@ -328,6 +398,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
             this.exitedEpoch = epoch
             if (!this.disposed && this.stoppingChild !== child)
               this.lose(new Error('native-host-lost'))
+            for (const [id, item] of this.pending) if (item.physicalInput) this.finish(id)
           }
         })
         const complete = this.ready
@@ -400,13 +471,16 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
       )
       return
     }
+    if (item.cancelled && item.physicalInput) item.fail(new Error('cancelled'))
     if (!item.cancelled) {
       if (message.ok) item.complete(message.value)
       else
         item.fail(
-          message.error === 'native-admission-bound'
-            ? new NativeTerminalAdmissionError()
-            : new Error('native-operation-failed'),
+          message.error === 'native-input-resource-refused'
+            ? new NativeTerminalInputResourceRefused()
+            : message.error === 'native-admission-bound'
+              ? new NativeTerminalAdmissionError()
+              : new Error('native-operation-failed'),
         )
     }
     this.finish(message.id)
@@ -416,6 +490,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
     if (!item) return
     this.pending.delete(id)
     this.bytes -= item.bytes
+    item.inputCredit?.release()
     item.cleanup()
     if (!this.pending.size) {
       this.settled?.()
@@ -432,8 +507,13 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
     this.startupFailure = undefined
     this.ready = undefined
     for (const [id, item] of this.pending) {
-      item.fail(error)
-      this.finish(id)
+      if (item.physicalInput && item.sent && !this.hasExited(this.epoch)) {
+        item.fail(new NativeTerminalInputPhysicalFailure(error.message))
+        item.cleanup()
+      } else {
+        item.fail(error)
+        this.finish(id)
+      }
     }
     this.child?.kill()
     if (this.endpoint) {

@@ -24,6 +24,7 @@ function source() {
   return {
     metadata: {
       lease: '1',
+      snapshotMutation: 0,
       streamSequence: 7,
       geometrySerial: 2,
       kind: 1,

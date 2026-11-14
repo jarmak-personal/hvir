@@ -180,6 +180,8 @@ export function collectModuleGraph(
             ? [
                 'host_binding.c',
                 'terminal.c',
+                'terminal_input.c',
+                'terminal_internal.h',
                 'linux_display.c',
                 'linux_display.h',
                 'terminal.h',

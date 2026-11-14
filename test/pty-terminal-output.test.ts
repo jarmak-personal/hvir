@@ -37,6 +37,73 @@ async function flush() {
 }
 
 describe('supervisor-owned native PTY output ingress', () => {
+  it('separates parsed and reply-dispatched progress without freeing physical tail credit', async () => {
+    const f = fixture(), physical = deferred()
+    f.terminal.output.mockReturnValueOnce(physical.promise)
+    f.stream.output('tail')
+    await flush()
+    const prefix = f.stream.capturePrefix()
+    const replyDone = vi.fn()
+    const replying = prefix.replies(new AbortController().signal).then(replyDone)
+    f.stream.parsed(4)
+    await prefix.parsed(new AbortController().signal)
+    expect(replyDone).not.toHaveBeenCalled()
+    f.stream.repliesDispatched(4)
+    await replying
+    expect(f.budget.queuedBytes).toBe(4)
+    const exited = f.stream.exited({ exitCode: 0, signal: undefined })
+    expect(f.terminal.exited).not.toHaveBeenCalled()
+    physical.resolve()
+    await exited
+    expect(f.terminal.exited).toHaveBeenCalledOnce()
+    expect(f.budget.queuedBytes).toBe(0)
+    await f.stream.dispose()
+  })
+  it('waits for a captured finite parsed prefix, including admitted coalesced output', async () => {
+    const f = fixture(),
+      first = deferred(),
+      second = deferred()
+    f.terminal.output
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    f.stream.output('é')
+    await flush()
+    f.stream.output('🙂')
+    const captured = f.stream.capturePrefix()
+    const complete = vi.fn()
+    const waiting = captured.parsed(new AbortController().signal).then(complete)
+    f.stream.parsed(2)
+    first.resolve()
+    await flush()
+    expect(complete).not.toHaveBeenCalled()
+    f.stream.output('future')
+    f.stream.parsed(4)
+    await waiting
+    expect(complete).toHaveBeenCalledOnce()
+    expect(f.stream.queuedBytes).toBeGreaterThan(0)
+    second.resolve()
+    await f.stream.dispose()
+  })
+  it('revokes prefix subscribers on cancellation and disposal without releasing active output', async () => {
+    const f = fixture(),
+      active = deferred(),
+      abort = new AbortController()
+    f.terminal.output.mockReturnValueOnce(active.promise)
+    f.stream.output('tail')
+    await flush()
+    const cancelled = f.stream.capturePrefix().parsed(abort.signal)
+    const cancelledResult = expect(cancelled).rejects.toThrow('cancelled')
+    abort.abort()
+    await cancelledResult
+    const closing = f.stream.capturePrefix().parsed(new AbortController().signal)
+    const closed = expect(closing).rejects.toThrow('pty-native-output-closed')
+    const disposed = f.stream.dispose()
+    await closed
+    expect(f.budget.queuedBytes).toBe(4)
+    active.resolve()
+    await disposed
+    expect(f.budget.queuedBytes).toBe(0)
+  })
   it('pauses physical delivery and serializes decoded text with active byte credit', async () => {
     const f = fixture(),
       first = deferred(),

@@ -1,3 +1,4 @@
+import { PtyWriteConfirmedRevokedError } from '../src/main/project-host/project-host'
 import { EventEmitter } from 'node:events'
 
 import type { Client } from 'ssh2'
@@ -30,6 +31,34 @@ const FakePty = TestPtyProcess
 const fixture = createPtySupervisorFixture
 
 describe('PtySupervisor', () => {
+  it('distinguishes a confirmed transport ACK after renderer rollover from an indeterminate write', async () => {
+    const f = fixture({ provider: plainShellProvider })
+    const info = await f.spawn({ ownerGeneration: 4 })
+    f.supervisor.attach(info.id, OWNER_ID, { onData: () => undefined }, 4)
+    let confirm!: () => void
+    f.pty.writeConfirmed.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        confirm = resolve
+      }),
+    )
+    const written = f.supervisor.writeConfirmed(
+      info.id,
+      OWNER_ID,
+      new Uint8Array([0, 255]),
+      4,
+    )
+    const settled = expect(written).rejects.toBeInstanceOf(PtyWriteConfirmedRevokedError)
+    expect(f.supervisor.transferRendererSession(info.id, OWNER_ID, 4, OWNER_ID, 5)).toBe(
+      true,
+    )
+    confirm()
+    await settled
+    expect(f.pty.writeConfirmed).toHaveBeenCalledExactlyOnceWith(new Uint8Array([0, 255]))
+    expect(f.pty.kill).not.toHaveBeenCalled()
+    await f.supervisor.writeConfirmed(info.id, OWNER_ID, new Uint8Array([1]), 5)
+    expect(f.pty.writeConfirmed).toHaveBeenCalledTimes(2)
+  })
+
   it('publishes bounded lifecycle observations without subscribing to PTY output', async () => {
     const { supervisor, pty, spawn } = fixture({ provider: plainShellProvider })
     const listener = vi.fn()

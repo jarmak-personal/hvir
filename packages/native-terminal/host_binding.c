@@ -37,7 +37,8 @@ typedef enum {
   VISIBILITY,
   COPY_FRAME,
   PRESENTATION_MODE,
-  RENDERER_INFO
+  RENDERER_INFO,
+  INPUT
 } operation;
 static bool checked(napi_env env, napi_status status) {
   if (status == napi_ok)
@@ -190,6 +191,9 @@ static napi_value status_value(napi_env env, const hvir_terminal_status *s) {
   if (!put(env, result, "appliedSequence", big(env, s->applied_sequence)) ||
       !put(env, result, "frameCopies", big(env, s->frame_copies)) ||
       !put(env, result, "geometryFailureSerial", big(env, s->geometry_failure_serial)) ||
+      !put(env, result, "ioAppliedMutation", big(env, s->io_applied_mutation)) ||
+      !put(env, result, "ioAppliedSequence", big(env, s->io_applied_sequence)) ||
+      !put(env, result, "inputFailure", number(env, s->input_failure)) ||
       !put(env, result, "replySequence", big(env, s->reply_sequence)) ||
       !put(env, result, "queuedReplyBytes", number(env, (uint32_t)s->queued_reply_bytes)) ||
       !put(env, result, "failure", number(env, s->failure)) ||
@@ -217,6 +221,7 @@ static napi_value frame_value(napi_env env, const hvir_terminal_frame *f) {
   FRAME_BIG("lease", lease);
   FRAME_BIG("streamSequence", stream_sequence);
   FRAME_BIG("geometrySerial", geometry_serial);
+  FRAME_BIG("snapshotMutation", snapshot_mutation);
   FRAME_BIG("modifier", modifier);
   FRAME_NUMBER("kind", kind);
   FRAME_NUMBER("width", width);
@@ -330,15 +335,154 @@ static napi_value read_bytes(napi_env env, binding_host *h, uint64_t id, uint32_
   free(data);
   return result;
 }
+static napi_value input_property(napi_env env, napi_value object, const char *name) {
+  napi_value value;
+  return checked(env, napi_get_named_property(env, object, name, &value)) ? value : NULL;
+}
+static bool input_number(napi_env env, napi_value object, const char *name, uint32_t *out) {
+  napi_value value = input_property(env, object, name);
+  return value && u32(env, value, out);
+}
+static bool input_bool(napi_env env, napi_value object, const char *name, bool *out) {
+  napi_value value = input_property(env, object, name);
+  if (!value || napi_get_value_bool(env, value, out) != napi_ok) { bad_argument(env); return false; }
+  return true;
+}
+static bool input_coordinate(napi_env env, napi_value object, const char *name, double *out) {
+  napi_value value = input_property(env, object, name);
+  napi_valuetype type;
+  if (!value || napi_typeof(env, value, &type) != napi_ok || type != napi_number ||
+      napi_get_value_double(env, value, out) != napi_ok) { bad_argument(env); return false; }
+  return true; /* C facade validates finite/range before native work. */
+}
+static bool input_keys(napi_env env, napi_value object, const char *allowed) {
+  napi_value keys;
+  uint32_t length;
+  if (!checked(env, napi_get_property_names(env, object, &keys)) ||
+      !checked(env, napi_get_array_length(env, keys, &length))) return false;
+  for (uint32_t i = 0; i < length; i++) {
+    napi_value key;
+    if (!checked(env, napi_get_element(env, keys, i, &key))) return false;
+    char *name = text(env, key, 64);
+    if (!name) return false;
+    char token[68];
+    size_t n = strlen(name);
+    token[0] = '|'; memcpy(token + 1, name, n); token[n + 1] = '|'; token[n + 2] = 0;
+    free(name);
+    if (!strstr(allowed, token)) { bad_argument(env); return false; }
+  }
+  return true;
+}
+static bool input_text(napi_env env, napi_value object, hvir_terminal_input_event *event) {
+  napi_value value = input_property(env, object, "text");
+  napi_valuetype type;
+  if (!value || napi_typeof(env, value, &type) != napi_ok) return false;
+  if (event->kind == HVIR_INPUT_PREEDIT && type == napi_null) return true;
+  size_t length, written;
+  if (napi_get_value_string_utf8(env, value, NULL, 0, &length) != napi_ok || length == SIZE_MAX ||
+      (event->kind != HVIR_INPUT_PASTE && length > 4096)) { bad_argument(env); return false; }
+  uint8_t *data = malloc(length + 1);
+  if (!data) { napi_throw_error(env, "HVIR_INPUT_ALLOCATION_UNSENT", "Native terminal input allocation failed"); return false; }
+  if (!checked(env, napi_get_value_string_utf8(env, value, (char *)data, length + 1, &written)) ||
+      written != length || (event->kind != HVIR_INPUT_PASTE && memchr(data, 0, length))) {
+    free(data); bad_argument(env); return false;
+  }
+  event->text = data; event->text_length = length;
+  return true;
+}
+static napi_value input_operation(napi_env env, binding_host *host, uint64_t id, napi_value value, bool read_only, uint32_t fallback) {
+  hvir_terminal_input_event event = {.encoding_fallback = fallback};
+  char *kind = text(env, input_property(env, value, "kind"), 16);
+  if (!kind) return NULL;
+  const char *allowed = NULL;
+  if (!strcmp(kind, "key")) {
+    event.kind = HVIR_INPUT_KEY;
+    allowed = "|kind|key|modifiers|consumedModifiers|action|text|unshiftedCodepoint|composing|optionAsAlt|";
+  } else if (!strcmp(kind, "paste")) { event.kind = HVIR_INPUT_PASTE; allowed = "|kind|text|"; }
+  else if (!strcmp(kind, "preedit")) { event.kind = HVIR_INPUT_PREEDIT; allowed = "|kind|text|"; }
+  else if (!strcmp(kind, "focus")) { event.kind = HVIR_INPUT_FOCUS; allowed = "|kind|focused|"; }
+  else if (!strcmp(kind, "pointer")) { event.kind = HVIR_INPUT_POINTER; allowed = "|kind|x|y|modifiers|button|action|"; }
+  else if (!strcmp(kind, "wheel")) { event.kind = HVIR_INPUT_WHEEL; allowed = "|kind|x|y|deltaX|deltaY|precision|modifiers|"; }
+  else if (!strcmp(kind, "caret")) { event.kind = HVIR_INPUT_CARET; allowed = "|kind|"; }
+  free(kind);
+  if (!allowed || !input_keys(env, value, allowed)) goto invalid;
+  if (event.kind == HVIR_INPUT_KEY || event.kind == HVIR_INPUT_PASTE || event.kind == HVIR_INPUT_PREEDIT)
+    if (!input_text(env, value, &event)) goto failed;
+  if (event.kind == HVIR_INPUT_KEY) {
+    if (!input_number(env, value, "key", &event.key) ||
+        !input_number(env, value, "modifiers", &event.modifiers) ||
+        !input_number(env, value, "consumedModifiers", &event.consumed_modifiers) ||
+        !input_number(env, value, "action", &event.action) ||
+        !input_number(env, value, "unshiftedCodepoint", &event.unshifted_codepoint) ||
+        !input_bool(env, value, "composing", &event.composing)) goto failed;
+    napi_value option = input_property(env, value, "optionAsAlt");
+    napi_valuetype type;
+    if (!option || napi_typeof(env, option, &type) != napi_ok) goto invalid;
+    if (type == napi_boolean) {
+      bool alt; if (napi_get_value_bool(env, option, &alt) != napi_ok) goto invalid;
+      event.option_as_alt = alt ? 1 : 0;
+    } else {
+      char *side = text(env, option, 5);
+      if (!side) goto failed;
+      event.option_as_alt = !strcmp(side, "left") ? 2 : !strcmp(side, "right") ? 3 : 4;
+      free(side); if (event.option_as_alt == 4) goto invalid;
+    }
+  } else if (event.kind == HVIR_INPUT_FOCUS) {
+    if (!input_bool(env, value, "focused", &event.focused)) goto failed;
+  } else if (event.kind == HVIR_INPUT_POINTER || event.kind == HVIR_INPUT_WHEEL) {
+    if (!input_coordinate(env, value, "x", &event.x) || !input_coordinate(env, value, "y", &event.y) ||
+        !input_number(env, value, "modifiers", &event.modifiers)) goto failed;
+    if (event.kind == HVIR_INPUT_WHEEL) {
+      if (!input_coordinate(env, value, "deltaX", &event.delta_x) ||
+          !input_coordinate(env, value, "deltaY", &event.delta_y) ||
+          !input_bool(env, value, "precision", &event.precision)) goto failed;
+    } else {
+      bool has_action;
+      if (napi_has_named_property(env, value, "button", &event.has_button) != napi_ok ||
+          napi_has_named_property(env, value, "action", &has_action) != napi_ok ||
+          has_action != event.has_button) goto invalid;
+      if (event.has_button && (!input_number(env, value, "button", &event.button) ||
+          !input_number(env, value, "action", &event.action))) goto failed;
+    }
+  }
+  hvir_terminal_input_result output = {0};
+  hvir_terminal_result code = hvir_terminal_input(host->native, id, &event, read_only, &output);
+  free((void *)event.text); event.text = NULL;
+  if (code == HVIR_NOMEM && !output.requested_mutation) output.capacity = 0;
+  napi_value result = outcome(env, code), source;
+  const char *origin = output.source == 1 ? "user" : "terminal-response";
+  if (!result || !put(env, result, "requestedMutation", big(env, output.requested_mutation)) ||
+      !put(env, result, "capacity", real(env, (double)output.capacity))) goto output_failed;
+  if (code != HVIR_OK) { hvir_terminal_input_result_free(&output); return result; }
+  if (!checked(env, napi_create_string_utf8(env, origin, NAPI_AUTO_LENGTH, &source)) ||
+      !put(env, result, "source", source) || !put(env, result, "data", bytes(env, output.data, output.length))) goto output_failed;
+  if ((event.kind == HVIR_INPUT_POINTER || event.kind == HVIR_INPUT_WHEEL) &&
+      !put(env, result, "captured", boolean(env, output.captured))) goto output_failed;
+  if (output.has_caret) {
+    napi_value caret = object(env);
+    if (!put(env, caret, "x", real(env, output.caret_x)) || !put(env, caret, "y", real(env, output.caret_y)) ||
+        !put(env, caret, "width", real(env, output.caret_width)) || !put(env, caret, "height", real(env, output.caret_height)) ||
+        !put(env, caret, "geometrySerial", big(env, output.geometry_serial)) || !put(env, result, "caret", caret)) goto output_failed;
+  }
+  hvir_terminal_input_result_free(&output);
+  return result;
+output_failed:
+  hvir_terminal_input_result_free(&output); return NULL;
+invalid:
+  bad_argument(env);
+failed:
+  free((void *)event.text); return NULL;
+}
+
 static napi_value invoke(napi_env env, napi_callback_info info) {
-  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4, 3, 2};
+  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4, 3, 2, 3};
   size_t argc = 8;
   napi_value args[8];
   void *data;
   if (!checked(env, napi_get_cb_info(env, info, &argc, args, NULL, &data)))
     return NULL;
   operation op = (operation)(uintptr_t)data;
-  if (op == OPEN ? (argc != 1 && argc != 2) : op == RESIZE ? (argc != 5 && argc != 6) : argc != counts[op]) {
+  if (op == OPEN ? (argc != 1 && argc != 2) : op == RESIZE ? (argc != 5 && argc != 6) : op == INPUT ? (argc < 3 || argc > 5) : argc != counts[op]) {
     bad_argument(env);
     return NULL;
   }
@@ -353,6 +497,27 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
   uint32_t width = 0, height = 0, capacity = 0;
   if (op != CREATE && op != CLOSE && !u64(env, args[1], &id))
     return NULL;
+  if (op == INPUT) {
+    bool read_only = false;
+    if (argc >= 4) {
+      napi_valuetype type;
+      if (napi_typeof(env, args[3], &type) != napi_ok) return NULL;
+      if (type != napi_undefined && napi_get_value_bool(env, args[3], &read_only) != napi_ok) { bad_argument(env); return NULL; }
+    }
+    uint32_t fallback = 0;
+    if (argc == 5) {
+      napi_valuetype type;
+      if (napi_typeof(env, args[4], &type) != napi_ok) return NULL;
+      if (type != napi_undefined) {
+        char *name = text(env, args[4], 17);
+        if (!name) return NULL;
+        fallback = !strcmp(name, "csi-u") ? 1 : !strcmp(name, "modify-other-keys") ? 2 : 3;
+        free(name);
+        if (fallback == 3) { bad_argument(env); return NULL; }
+      }
+    }
+    return input_operation(env, h, id, args[2], read_only, fallback);
+  }
   if (op == CREATE) {
     if (!u32(env, args[1], &width) || !u32(env, args[2], &height))
       return NULL;
@@ -533,7 +698,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
 static napi_value initialize(napi_env env, napi_value exports) {
   static const char *names[] = {"open",         "createBegin", "feed", "resize", "inspect",
                                 "read",         "drain",       "key",  "event",  "takeFrame",
-                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame", "presentationMode", "rendererInfo"};
+                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame", "presentationMode", "rendererInfo", "input"};
   for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
     napi_value function;
     if (!checked(env, napi_create_function(env, names[i], NAPI_AUTO_LENGTH, invoke,

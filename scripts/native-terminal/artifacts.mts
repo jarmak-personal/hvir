@@ -166,6 +166,8 @@ export async function verifyArtifact(
       'terminal.h',
       'facade-probe',
       'facade-proof.json',
+      'input-probe',
+      'input-proof.json',
       'frame-metadata-probe',
       'frame-metadata-proof.json',
       ...(selected.platform === 'linux'

@@ -18,15 +18,18 @@ function fixture() {
   )
   const api = { mount: vi.fn(), unmount: vi.fn(), onStatus: vi.fn(() => vi.fn()) }
   const port = {
-    attach: vi.fn(() => Promise.resolve({ viewId: 'native-view' })),
+    attach: vi.fn<ConstructorParameters<typeof NativeTerminalPane>[1]['attach']>(() =>
+      Promise.resolve({ viewId: 'native-view' }),
+    ),
     update: vi.fn<ConstructorParameters<typeof NativeTerminalPane>[1]['update']>(() =>
       Promise.resolve(),
     ),
     demand: vi.fn(() => Promise.resolve()),
     detach: vi.fn(() => Promise.resolve()),
-    key: vi.fn<ConstructorParameters<typeof NativeTerminalPane>[1]['key']>(() =>
-      Promise.resolve(),
+    input: vi.fn<ConstructorParameters<typeof NativeTerminalPane>[1]['input']>(() =>
+      Promise.resolve({ requestedMutation: 1 }),
     ),
+    clipboardPaste: vi.fn(),
   }
   const pane = new NativeTerminalPane(api, port)
   panes.push(pane)
@@ -60,6 +63,67 @@ afterEach(() => {
 })
 
 describe('native retained pane adapter', () => {
+  it('stops frame demand immediately while captured input cleanup still awaits acknowledgement', async () => {
+    const frames = new Map<number, FrameRequestCallback>()
+    let next = 0
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++next, callback)
+      return next
+    })
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+      frames.delete(id)
+    })
+    const f = fixture(),
+      demand = deferred<void>(),
+      cleanup =
+        deferred<
+          import('../src/shared/native-terminal-input').NativeTerminalInputCompletion
+        >()
+    f.port.demand.mockReturnValue(demand.promise)
+    f.port.input.mockImplementation(({ input }) =>
+      input.kind === 'focus' && !input.focused
+        ? cleanup.promise
+        : Promise.resolve({ requestedMutation: 1 }),
+    )
+    await f.pane.bind('session')
+    const frame = frames.entries().next().value!
+    frames.delete(frame[0])
+    frame[1](0)
+    await vi.waitFor(() => expect(f.port.demand).toHaveBeenCalledOnce())
+    f.pane.focus()
+    await vi.waitFor(() =>
+      expect(f.port.input).toHaveBeenCalledWith(
+        expect.objectContaining({ input: { kind: 'focus', focused: true } }),
+      ),
+    )
+    f.pane.dispose()
+    expect(frames.size).toBe(0)
+    expect(f.api.unmount).not.toHaveBeenCalled()
+    demand.resolve()
+    await vi.waitFor(() =>
+      expect(f.port.input).toHaveBeenCalledWith(
+        expect.objectContaining({ input: { kind: 'focus', focused: false } }),
+      ),
+    )
+    expect(frames.size).toBe(0)
+    expect(f.port.demand).toHaveBeenCalledOnce()
+    cleanup.resolve({ requestedMutation: 2 })
+    await vi.waitFor(() => expect(f.api.unmount).toHaveBeenCalledOnce())
+    expect(frames.size).toBe(0)
+  })
+  it('retains display and navigation while a main-issued instance input block disables typing', async () => {
+    const f = fixture()
+    f.port.attach.mockResolvedValue({ viewId: 'native-view', inputUnavailable: true })
+    await f.ready()
+    expect(f.api.mount).toHaveBeenCalledOnce()
+    const textarea = f.element.querySelector('textarea')!
+    expect(textarea.disabled).toBe(true)
+    expect(f.element.textContent).toContain('Native input unavailable')
+    f.key('KeyA', 'a')
+    expect(
+      f.port.input.mock.calls.some(([request]) => request.input.kind === 'key'),
+    ).toBe(false)
+  })
   it('measures physical initial geometry and binds one retained view after launch', async () => {
     vi.spyOn(window, 'devicePixelRatio', 'get').mockReturnValue(2)
     const f = fixture()
@@ -78,7 +142,7 @@ describe('native retained pane adapter', () => {
     expect(f.port.attach).toHaveBeenCalledTimes(1)
     expect(f.api.mount).toHaveBeenCalledTimes(1)
     f.pane.focus()
-    expect(document.activeElement).toBe(f.element)
+    expect(document.activeElement).toBe(f.element.querySelector('textarea'))
     expect(f.element.textContent).toContain('unfinished')
     expect('write' in f.pane).toBe(false)
     expect('searchRetainedBuffer' in f.pane).toBe(false)
@@ -106,30 +170,44 @@ describe('native retained pane adapter', () => {
     f.key('KeyC', 'c', { ctrlKey: true })
     f.key('Enter', 'Enter')
     f.key('ArrowUp', 'ArrowUp')
-    await vi.waitFor(() => expect(f.port.key).toHaveBeenCalledTimes(3))
-    expect(f.port.key.mock.calls.map(([request]) => request)).toEqual([
-      { viewId: 'native-view', key: 22, modifiers: 2, action: 1, text: 'c' },
-      { viewId: 'native-view', key: 58, modifiers: 0, action: 1, text: '' },
-      { viewId: 'native-view', key: 78, modifiers: 0, action: 1, text: '' },
+    await vi.waitFor(() =>
+      expect(
+        f.port.input.mock.calls.filter(([request]) => request.input.kind === 'key'),
+      ).toHaveLength(3),
+    )
+    expect(
+      f.port.input.mock.calls
+        .filter(([request]) => request.input.kind === 'key')
+        .map(([request]) => request.input),
+    ).toEqual([
+      expect.objectContaining({ key: 22, modifiers: 2, action: 1, text: 'c' }),
+      expect.objectContaining({ key: 58, modifiers: 0, action: 1, text: '' }),
+      expect.objectContaining({ key: 78, modifiers: 0, action: 1, text: '' }),
     ])
     expect(input.mock.calls).toEqual([['c'], ['\r'], ['']])
     f.pane.setReadonly()
     f.key('KeyA', 'a')
-    expect(f.port.key).toHaveBeenCalledTimes(3)
+    expect(
+      f.port.input.mock.calls.filter(([request]) => request.input.kind === 'key'),
+    ).toHaveLength(3)
     expect(f.element.getAttribute('aria-readonly')).toBe('true')
   })
 
-  it('bounds pending keys and fails visibly without an unhandled rejection', async () => {
+  it('bounds pending keys with a visible recoverable refusal', async () => {
     const f = fixture()
     await f.ready()
-    const pending = deferred<void>()
-    f.port.key.mockReturnValue(pending.promise)
+    const pending = deferred<{ requestedMutation: number }>()
+    f.port.input.mockReturnValue(pending.promise)
     for (let i = 0; i < 35; i++) f.key('KeyA', 'a')
-    expect(f.port.key).toHaveBeenCalledTimes(1)
+    expect(f.port.input).toHaveBeenCalledTimes(1)
     expect(f.element.textContent).toContain('input capacity')
-    pending.resolve()
-    await Promise.resolve()
-    expect(f.port.key).toHaveBeenCalledTimes(1)
+    pending.resolve({ requestedMutation: 1 })
+    await vi.waitFor(() =>
+      expect(
+        f.port.input.mock.calls.filter(([request]) => request.input.kind === 'key'),
+      ).toHaveLength(30),
+    )
+    expect(f.element.getAttribute('aria-readonly')).not.toBe('true')
   })
 
   it('holds initial input until visible native geometry is acknowledged', async () => {
@@ -139,37 +217,42 @@ describe('native retained pane adapter', () => {
     await f.pane.bind('session')
     f.key('KeyA', 'a')
     await vi.waitFor(() => expect(f.port.update).toHaveBeenCalledTimes(1))
-    expect(f.port.key).not.toHaveBeenCalled()
+    expect(f.port.input).not.toHaveBeenCalled()
     geometry.resolve()
-    await vi.waitFor(() => expect(f.port.key).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() =>
+      expect(
+        f.port.input.mock.calls.filter(([request]) => request.input.kind === 'key'),
+      ).toHaveLength(1),
+    )
   })
 
-  it('revokes queued keys on hide and exposes unfinished paste and IME', async () => {
+  it('revokes queued keys on hide and blocks hidden clipboard gestures', async () => {
     const f = fixture()
     await f.ready()
-    const pending = deferred<void>()
-    f.port.key.mockReturnValueOnce(pending.promise)
+    const pending = deferred<{ requestedMutation: number }>()
+    f.port.input.mockReturnValueOnce(pending.promise)
     f.key('KeyA', 'a')
     f.key('KeyB', 'b')
     f.pane.setPresentation('hidden')
-    pending.resolve()
+    pending.resolve({ requestedMutation: 1 })
     await Promise.resolve()
-    expect(f.port.key).toHaveBeenCalledTimes(1)
+    expect(f.port.input).toHaveBeenCalledTimes(1)
     const paste = new Event('paste', { cancelable: true })
     f.element.dispatchEvent(paste)
-    expect(paste.defaultPrevented).toBe(true)
-    expect(f.element.textContent).toContain('IME are not available')
+    expect(f.port.clipboardPaste).not.toHaveBeenCalled()
   })
 
   it('keeps failed native input explicit and releases the view once on disposal', async () => {
     const f = fixture()
     await f.ready()
-    f.port.key.mockRejectedValueOnce(new Error('revoked'))
+    f.port.input.mockRejectedValueOnce(new Error('revoked'))
     f.key('Enter', 'Enter')
     await vi.waitFor(() => expect(f.element.textContent).toContain('input unavailable'))
     f.pane.dispose()
     f.pane.dispose()
-    expect(f.api.unmount).toHaveBeenCalledExactlyOnceWith('native-view')
+    await vi.waitFor(() =>
+      expect(f.api.unmount).toHaveBeenCalledExactlyOnceWith('native-view'),
+    )
     expect(f.port.detach).toHaveBeenCalledExactlyOnceWith('native-view')
   })
 
@@ -178,8 +261,8 @@ describe('native retained pane adapter', () => {
     await f.ready()
     const input = vi.fn()
     f.pane.onInput(input)
-    const pending = deferred<void>()
-    f.port.key.mockReturnValueOnce(pending.promise)
+    const pending = deferred<{ requestedMutation: number }>()
+    f.port.input.mockReturnValueOnce(pending.promise)
     f.key('KeyA', 'a')
     f.key('KeyB', 'b')
     f.pane.setPresentation('hidden')
@@ -191,10 +274,18 @@ describe('native retained pane adapter', () => {
       ).toHaveLength(2),
     )
     f.key('KeyC', 'c')
-    expect(f.port.key).toHaveBeenCalledTimes(1)
+    expect(f.port.input).toHaveBeenCalledTimes(1)
     pending.reject(new Error('native-view-hidden'))
-    await vi.waitFor(() => expect(f.port.key).toHaveBeenCalledTimes(2))
-    expect(f.port.key.mock.calls.map(([request]) => request.text)).toEqual(['a', 'c'])
+    await vi.waitFor(() =>
+      expect(
+        f.port.input.mock.calls.filter(([request]) => request.input.kind === 'key'),
+      ).toHaveLength(2),
+    )
+    expect(
+      f.port.input.mock.calls
+        .filter(([request]) => request.input.kind === 'key')
+        .map(([request]) => (request.input.kind === 'key' ? request.input.text : '')),
+    ).toEqual(['a', 'c'])
     expect(input.mock.calls).toEqual([['c']])
     expect(f.element.getAttribute('aria-readonly')).not.toBe('true')
     expect(f.element.textContent).not.toContain('input unavailable')

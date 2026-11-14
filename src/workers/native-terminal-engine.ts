@@ -66,6 +66,27 @@ parentPort.on(
             65536,
           )
           break
+        case 'input':
+          try {
+            value = engine.input(
+              host,
+              BigInt(String(args[0])),
+              args[1] as Parameters<typeof engine.input>[2],
+              args[2] === true,
+              args[3] as Parameters<typeof engine.input>[4],
+            )
+          } catch (error) {
+            // This reserved NAPI code is emitted only by input_text's allocation
+            // before the facade is called. Do not extend this catch to cloning.
+            if (
+              !(error instanceof Error) ||
+              !('code' in error) ||
+              error.code !== 'HVIR_INPUT_ALLOCATION_UNSENT'
+            )
+              throw error
+            value = { result: 7, requestedMutation: 0n, capacity: 0 }
+          }
+          break
         case 'visibility':
           value = engine.visibility(host, BigInt(String(args[0])), args[1] === true)
           break
