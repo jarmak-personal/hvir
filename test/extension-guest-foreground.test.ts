@@ -2,8 +2,117 @@ import { describe, expect, it, vi } from 'vitest'
 import { exampleManifest } from './fixtures/extension-package'
 import { fixture } from './fixtures/extension-guest'
 import { DEFAULT_EXTENSION_PRESENTATION } from '../src/main/extensions/guest-owner'
+import { ExtensionGuestLifecycle } from '../src/main/extensions/guest-lifecycle'
 
 describe('native foreground admission and finite guest work', () => {
+  it('keeps an issued freeze and latest hidden target when a shown top window loses foreground', async () => {
+    let foreground = true,
+      holdFreeze = false,
+      releaseFreeze: (() => void) | undefined
+    const commands: Array<'active' | 'frozen'> = []
+    const active = vi.fn(),
+      failed = vi.fn()
+    const lifecycle = new ExtensionGuestLifecycle(
+      (state) => {
+        commands.push(state)
+        if (state === 'frozen' && holdFreeze) {
+          holdFreeze = false
+          return new Promise<'applied'>((resolve) => {
+            releaseFreeze = () => resolve('applied')
+          })
+        }
+        return Promise.resolve('applied')
+      },
+      active,
+      failed,
+    )
+    const visibility = vi.fn((_guestId: number, visible: boolean) =>
+      lifecycle.setVisible(visible),
+    )
+    const data = fixture(
+      { foreground: () => foreground, windowVisible: () => true, visibility },
+      {
+        views: [
+          { ...exampleManifest().views[0]!, navigation: 'top', placement: 'application' },
+        ],
+      },
+    )
+    try {
+      const view = await data.owner.open(
+        data.renderer,
+        'installation',
+        'reference',
+        undefined,
+        { context: { surface: 'top' } },
+      )
+      expect(data.owner.claim(data.renderer, view.partition, view.url, view.id)).toEqual(
+        view,
+      )
+      expect(data.owner.bind(data.renderer, view.partition, 10)).toEqual(view)
+      data.owner.presentation(
+        data.renderer,
+        view.id,
+        DEFAULT_EXTENSION_PRESENTATION,
+        true,
+        false,
+      )
+      await vi.waitFor(() => expect(lifecycle.isActive).toBe(true))
+      const initialActive = commands.filter((state) => state === 'active').length
+      const initialPublications = active.mock.calls.length
+      const beforeFreeze = commands.length
+      holdFreeze = true
+      data.owner.presentation(
+        data.renderer,
+        view.id,
+        DEFAULT_EXTENSION_PRESENTATION,
+        false,
+        false,
+      )
+      await vi.waitFor(() => expect(releaseFreeze).toBeTypeOf('function'))
+      expect(commands.slice(beforeFreeze)).toEqual(['frozen'])
+      foreground = false
+      data.owner.foregroundChanged(data.renderer)
+      // A shown native document is not foreground authority for a top placement.
+      expect(data.surface.windowVisible(data.renderer)).toBe(true)
+      expect(data.owner.ownerForeground(data.renderer)).toBe(false)
+      data.owner.presentation(
+        data.renderer,
+        view.id,
+        DEFAULT_EXTENSION_PRESENTATION,
+        true,
+        false,
+      )
+      expect(visibility).toHaveBeenLastCalledWith(10, false)
+      expect(lifecycle.isActive).toBe(false)
+      releaseFreeze!()
+      await vi.waitFor(() =>
+        expect(commands.slice(beforeFreeze)).toEqual(['frozen', 'frozen']),
+      )
+      expect(commands.filter((state) => state === 'active')).toHaveLength(initialActive)
+      expect(active).toHaveBeenCalledTimes(initialPublications)
+      expect(lifecycle.isActive).toBe(false)
+      expect(failed).not.toHaveBeenCalled()
+      foreground = true
+      data.owner.foregroundChanged(data.renderer)
+      expect(lifecycle.isActive).toBe(false)
+      data.owner.presentation(
+        data.renderer,
+        view.id,
+        DEFAULT_EXTENSION_PRESENTATION,
+        true,
+        false,
+      )
+      await vi.waitFor(() => expect(lifecycle.isActive).toBe(true))
+      expect(commands.at(-1)).toBe('active')
+      expect(active.mock.calls.length).toBeGreaterThan(initialPublications)
+      expect(failed).not.toHaveBeenCalled()
+    } finally {
+      releaseFreeze?.()
+      lifecycle.dispose()
+      await data.owner.dispose()
+    }
+  })
+
   it.each(['top', 'left'] as const)(
     'fences ordinary %s reads and stale visibility before background renderer publication',
     async (placement) => {

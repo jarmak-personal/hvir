@@ -356,6 +356,19 @@ async function verifyExtensionPlacementRenderResume(
   const { fixture, owner } = createExtensionGuestFixture(extensions, scopes)
   const guests: WebContents[] = []
   fixture.webContents.on('did-attach-webview', (_event, guest) => guests.push(guest))
+  const events: { event: string; at: number }[] = []
+  const started = Date.now()
+  const mark = (event: string): void => {
+    events.push({ event, at: Date.now() - started })
+    if (events.length > 16) events.shift()
+  }
+  fixture.on('show', () => mark('show'))
+  fixture.on('hide', () => mark('hide'))
+  fixture.on('focus', () => mark('focus'))
+  fixture.on('blur', () => mark('blur'))
+  fixture.on('minimize', () => mark('minimize'))
+  fixture.on('restore', () => mark('restore'))
+  let snapshot: () => object = () => ({ surface })
   let release: (() => void) | undefined
   let releaseActive: (() => void) | undefined
   const wait = async (
@@ -367,6 +380,9 @@ async function verifyExtensionPlacementRenderResume(
       if (await ready()) return
       await pause(20)
     }
+    console.log(
+      `[smoke] native restoration timeout ${JSON.stringify({ label, ...snapshot(), events })}`,
+    )
     throw new Error(`Native render restoration timed out: ${label}`)
   }
   const read = async (guest: WebContents) => {
@@ -473,6 +489,27 @@ async function verifyExtensionPlacementRenderResume(
     let activeAcks = 0
     let frozenAcks = 0
     let holdActive = false
+    let activeSent = 0
+    let frozenSent = 0
+    let currentBackground: boolean | undefined
+    let diagnosticPreviousActive = 0
+    let previousFrozenAck = 0
+    snapshot = () => ({
+      surface,
+      background: currentBackground,
+      activeSent,
+      frozenSent,
+      activeAcks,
+      frozenAcks,
+      previousActive: diagnosticPreviousActive,
+      previousFrozen: previousFrozenAck,
+      foreground: extensions.surface.foreground(owner),
+      shown: !fixture.isDestroyed() && fixture.isVisible(),
+      focused: !fixture.isDestroyed() && fixture.isFocused(),
+      minimized: !fixture.isDestroyed() && fixture.isMinimized(),
+      guestAlive: !guest.isDestroyed(),
+      throttled: guest.isDestroyed() ? null : guest.getBackgroundThrottling(),
+    })
     const send = guest.debugger.sendCommand.bind(guest.debugger)
     guest.debugger.sendCommand = async (...args: Parameters<typeof send>) => {
       const state = (args[1] as { state?: string } | undefined)?.state
@@ -480,7 +517,13 @@ async function verifyExtensionPlacementRenderResume(
         hold = false
         await new Promise<void>((resolve) => {
           release = resolve
+          mark('held-freeze')
         })
+      }
+      if (args[0] === 'Page.setWebLifecycleState') {
+        if (state === 'active') activeSent++
+        if (state === 'frozen') frozenSent++
+        mark(state === 'active' ? 'active-sent' : 'frozen-sent')
       }
       const result: unknown = await send(...args)
       if (args[0] === 'Page.setWebLifecycleState' && state === 'active') {
@@ -491,21 +534,38 @@ async function verifyExtensionPlacementRenderResume(
           })
         }
         activeAcks++
+        mark('active-ack')
       }
-      if (args[0] === 'Page.setWebLifecycleState' && state === 'frozen') frozenAcks++
+      if (args[0] === 'Page.setWebLifecycleState' && state === 'frozen') {
+        frozenAcks++
+        mark('frozen-ack')
+      }
       return result
     }
     for (const background of [false, true]) {
+      currentBackground = background
+      // Establish native authority before the transaction, never during restoration.
+      fixture.focus()
+      await wait('transaction native foreground', () =>
+        extensions.surface.foreground(owner),
+      )
       hold = true
       release = undefined
       placement(false)
       await display(false)
       await wait('real frozen dispatch held', () => !!release)
       await display(true)
+      fixture.focus()
+      await wait('native foreground before visible placement', () =>
+        extensions.surface.foreground(owner),
+      )
       placement(true)
       await wait(
         'native show before frozen dispatch',
         async () => (await read(guest)).visible === 'visible',
+      )
+      await wait('native foreground before focus capture', () =>
+        extensions.surface.foreground(owner),
       )
       focus = webContents.getFocusedWebContents()?.id
       if (background) {
@@ -518,6 +578,9 @@ async function verifyExtensionPlacementRenderResume(
       }
       const previousAcks = activeAcks
       const previousFrozen = frozenAcks
+      diagnosticPreviousActive = previousAcks
+      previousFrozenAck = previousFrozen
+      mark('release-freeze')
       release!()
       if (background) {
         await wait('background native command', () =>
