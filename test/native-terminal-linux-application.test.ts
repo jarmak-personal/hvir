@@ -3,7 +3,12 @@ import { localPath } from '../src/shared/host-path'
 import { createNativeTerminalApplication } from '../src/main/terminal/native-terminal-application'
 import type { PtySupervisor } from '../src/main/pty/pty-supervisor'
 
-const mocks = vi.hoisted(() => ({ start: vi.fn(), dispose: vi.fn(), packaged: false }))
+const mocks = vi.hoisted(() => ({
+  start: vi.fn(),
+  dispose: vi.fn(),
+  packaged: false,
+  clipboardWrite: vi.fn<(text: string) => void>(),
+}))
 vi.mock('electron', () => ({
   app: {
     get isPackaged() {
@@ -11,6 +16,7 @@ vi.mock('electron', () => ({
     },
   },
   sharedTexture: {},
+  clipboard: { writeText: mocks.clipboardWrite },
 }))
 vi.mock('../src/main/terminal/native-terminal-process', () => ({
   NativeTerminalProcess: class {
@@ -33,6 +39,7 @@ beforeEach(() => {
   vi.stubEnv('HVIR_NATIVE_TERMINAL_PRESENTATION', 'auto')
 })
 afterEach(() => {
+  expect(mocks.clipboardWrite).not.toHaveBeenCalled()
   Object.defineProperty(process, 'platform', platform)
   vi.unstubAllEnvs()
 })

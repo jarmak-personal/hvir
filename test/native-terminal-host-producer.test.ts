@@ -30,6 +30,31 @@ describe('native PTY producer operations', () => {
       'native-producer-revoked',
     )
   })
+  it.each([
+    'readProducer',
+    'drainEffectsProducer',
+    'readLinkProducer',
+    'drainReplies',
+  ] as const)(
+    'rejects stale immutable-instance authority asynchronously at %s without dispatch',
+    async (method) => {
+      const f = await prepared()
+      const calls = f.request.mock.calls.length
+      const pending =
+        method === 'readLinkProducer'
+          ? f.host.readLinkProducer(f.handle, 'other', {
+              row: 0,
+              column: 0,
+              screen: 0,
+              expectedSequence: 0,
+              expectedMutation: 0,
+              expectedGeometrySerial: 1,
+            })
+          : f.host[method](f.handle, 'other')
+      await expect(pending).rejects.toThrow('native-producer-revoked')
+      expect(f.request).toHaveBeenCalledTimes(calls)
+    },
+  )
   it('applies acknowledged scale before initial PTY geometry and refuses invalid geometry before mutation', async () => {
     const f = await prepared()
     f.request.mockImplementation((command) =>

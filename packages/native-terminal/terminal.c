@@ -135,36 +135,6 @@ static void renderer_health(void *userdata, uint32_t health) {
   pthread_cond_broadcast(&s->host->changed);
   pthread_mutex_unlock(&s->host->events);
 }
-static bool effect(void *userdata, uint32_t kind, const uint8_t *bytes, size_t length) {
-  terminal_state *s = userdata;
-  hvir_terminal_host *h = s->host;
-  pthread_mutex_lock(&h->events);
-  bool accepted = !s->closing && !s->failure;
-  if (accepted && (kind == 1 || kind == 2)) {
-    const size_t slot = kind - 1;
-    hvir_terminal_event *event = &s->latest[slot];
-    event->kind = kind;
-    event->truncated = length > sizeof(event->data);
-    event->length = length < sizeof(event->data) ? length : sizeof(event->data);
-    if (event->length)
-      memcpy(event->data, bytes, event->length);
-    s->latest_pending[slot] = true;
-  } else if (accepted && length <= 1024 && s->event_count < 128) {
-    queued_effect *event = &s->events[(s->event_start + s->event_count) % 128];
-    event->kind = kind;
-    event->length = length;
-    if (length)
-      memcpy(event->data, bytes, length);
-    s->event_count++;
-  } else {
-    accepted = false;
-    if (!s->closing && !s->failure)
-      s->failure = 3;
-  }
-  pthread_cond_broadcast(&h->changed);
-  pthread_mutex_unlock(&h->events);
-  return accepted;
-}
 static void clear_frame(terminal_state *s) {
 #ifdef __APPLE__
   if (s->frame.kind == 1 && s->frame.surface)
@@ -354,6 +324,7 @@ hvir_terminal_result hvir_terminal_open(const char *path, void *display, hvir_te
   LOAD(external_feed, "ghostty_external_feed");
   LOAD(external_resize, "ghostty_external_resize");
   LOAD(surface_visibility, "ghostty_surface_set_occlusion");
+  LOAD(external_link, "ghostty_external_link");
   LOAD(external_read, "ghostty_external_read");
   LOAD(external_key, "ghostty_external_key");
   LOAD(external_input, "ghostty_external_input");
@@ -448,7 +419,7 @@ hvir_terminal_result hvir_terminal_create_begin(hvir_terminal_host *h, uint32_t 
                                             .applied = applied,
                                             .failed = failed,
                                             .scrollback_limit = 10000000,
-                                            .effect = effect,
+                                            .effect = hvir_internal_effect,
                                             .health = renderer_health,
                                             .frame = frame_ready,
                                             .pixel_export_limit = HVIR_TERMINAL_PIXEL_MAX,
@@ -462,6 +433,7 @@ hvir_terminal_result hvir_terminal_create_begin(hvir_terminal_host *h, uint32_t 
     /* Native partial initialization has settled its threads before returning.
      * A completed-resource callback may already have acquired C references. */
     clear_frame(s);
+    hvir_internal_clear_effects(s);
     free(s);
     return HVIR_FAILED;
   }
@@ -535,38 +507,6 @@ hvir_terminal_result hvir_terminal_drain(hvir_terminal_host *h, hvir_terminal_id
   s->reply_count -= count;
   pthread_mutex_unlock(&h->events);
   *written = count;
-  return HVIR_OK;
-}
-hvir_terminal_result hvir_terminal_next_event(hvir_terminal_host *h, hvir_terminal_id id,
-                                              hvir_terminal_event *out) {
-  terminal_state *s;
-  hvir_terminal_result r = hvir_internal_state(h, id, &s, true);
-  if (r)
-    return r;
-  if (!out)
-    return HVIR_INVALID;
-  pthread_mutex_lock(&h->events);
-  for (size_t i = 0; i < 2; i++) {
-    if (!s->latest_pending[i])
-      continue;
-    *out = s->latest[i];
-    s->latest_pending[i] = false;
-    pthread_mutex_unlock(&h->events);
-    return HVIR_OK;
-  }
-  if (!s->event_count) {
-    pthread_mutex_unlock(&h->events);
-    return HVIR_BUSY;
-  }
-  const queued_effect *event = &s->events[s->event_start];
-  out->kind = event->kind;
-  out->length = event->length;
-  out->truncated = 0;
-  if (event->length)
-    memcpy(out->data, event->data, event->length);
-  s->event_start = (s->event_start + 1) % 128;
-  s->event_count--;
-  pthread_mutex_unlock(&h->events);
   return HVIR_OK;
 }
 hvir_terminal_result hvir_terminal_read(hvir_terminal_host *h, hvir_terminal_id id, uint8_t *out,
@@ -814,6 +754,7 @@ hvir_terminal_result hvir_terminal_destroy(hvir_terminal_host *h, hvir_terminal_
   while (*link != s)
     link = &(*link)->next;
   *link = s->next;
+  hvir_internal_clear_effects(s);
   free(s);
   return HVIR_OK;
 }

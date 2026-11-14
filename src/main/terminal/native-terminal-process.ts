@@ -134,7 +134,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
         (command.kind === 'input' && nativeTerminalInputCleanup(command.input)) ||
         command.kind === 'producer-inspect' ||
         command.kind === 'drain' ||
-        command.kind === 'discard-events',
+        command.kind === 'effects',
       eligible,
       physicalInput === true && command.kind === 'input',
     )

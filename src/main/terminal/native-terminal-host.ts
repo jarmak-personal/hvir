@@ -1,3 +1,9 @@
+import {
+  readNativeTerminalProducer,
+  drainNativeTerminalProducerEffects,
+  readNativeTerminalProducerLink,
+} from './native-terminal-producer'
+import type { NativeTerminalLinkQuery } from '../../shared/native-terminal-link'
 import { randomUUID } from 'node:crypto'
 import {
   NativeTerminalCaretPending,
@@ -344,45 +350,39 @@ export class NativeTerminalHost {
     return (await this.input(handle, instanceId, nativeTerminalKeyOperation(input))).bytes
   }
   async readProducer(handle: string, instanceId: string): Promise<Uint8Array> {
-    const binding = this.requireProducer(handle, instanceId)
-    const value = await this.process.request(
-      { kind: 'read', state: binding.state },
-      binding.abort.signal,
+    return readNativeTerminalProducer(
+      this.process,
+      this.requireProducer(handle, instanceId),
+      () => this.requireProducer(handle, instanceId),
+      'read',
     )
-    this.requireProducer(handle, instanceId)
-    if (!(value instanceof Uint8Array) || value.byteLength > limits.responseBytes)
-      throw new Error('native-read-bound')
-    return value
   }
-  /** Preview housekeeping only; M11 replaces this with the one policy consumer. */
-  async discardEffectsProducer(handle: string, instanceId: string): Promise<number> {
-    const binding = this.requireProducer(handle, instanceId)
-    const value = await this.process.request(
-      { kind: 'discard-events', state: binding.state },
-      binding.abort.signal,
+  async drainEffectsProducer(handle: string, instanceId: string) {
+    return drainNativeTerminalProducerEffects(
+      this.process,
+      this.requireProducer(handle, instanceId),
+      () => this.requireProducer(handle, instanceId),
     )
-    this.requireProducer(handle, instanceId)
-    const result = value as { result?: number; discarded?: number } | undefined
-    if (
-      result?.result !== 0 ||
-      !Number.isSafeInteger(result.discarded) ||
-      typeof result.discarded !== 'number' ||
-      result.discarded < 0 ||
-      result.discarded > 130
+  }
+  async readLinkProducer(
+    handle: string,
+    instanceId: string,
+    query: NativeTerminalLinkQuery,
+  ) {
+    return readNativeTerminalProducerLink(
+      this.process,
+      this.requireProducer(handle, instanceId),
+      () => this.requireProducer(handle, instanceId),
+      query,
     )
-      throw new Error('native-effect-drain-invalid')
-    return result.discarded
   }
   async drainReplies(handle: string, instanceId: string): Promise<Uint8Array> {
-    const binding = this.requireProducer(handle, instanceId)
-    const value = await this.process.request(
-      { kind: 'drain', state: binding.state },
-      binding.abort.signal,
+    return readNativeTerminalProducer(
+      this.process,
+      this.requireProducer(handle, instanceId),
+      () => this.requireProducer(handle, instanceId),
+      'drain',
     )
-    this.requireProducer(handle, instanceId)
-    if (!(value instanceof Uint8Array) || value.byteLength > limits.responseBytes)
-      throw new Error('native-reply-bound')
-    return value
   }
   async resizeProducer(
     handle: string,

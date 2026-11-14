@@ -283,8 +283,13 @@ describe('native process admission around actual parsed-prefix eligibility', () 
       expect(drain.id).toBeGreaterThan(first.id)
       reply(f.child, drain, new Uint8Array())
       await flush()
-      const discard = request(f.child, 'discard-events')
-      reply(f.child, discard, { result: 0, discarded: 0 })
+      const discard = request(f.child, 'effects')
+      reply(f.child, discard, {
+        result: 0,
+        effects: [],
+        droppedEffects: 0,
+        semanticGeneration: 0,
+      })
       await flush()
       const second = request(f.child, 'feed')
       expect(second.command).toMatchObject({ state: '1', sequence: 2 })
@@ -305,7 +310,12 @@ describe('native process admission around actual parsed-prefix eligibility', () 
       await expect(waiting).resolves.toEqual(result)
       reply(f.child, lastDrain, new Uint8Array())
       await flush()
-      reply(f.child, request(f.child, 'discard-events'), { result: 0, discarded: 0 })
+      reply(f.child, request(f.child, 'effects'), {
+        result: 0,
+        effects: [],
+        droppedEffects: 0,
+        semanticGeneration: 0,
+      })
       reply(f.child, release, { result: 0 })
       await cleanup
       await flush()
@@ -342,7 +352,12 @@ describe('native process admission around actual parsed-prefix eligibility', () 
     await appliedIo(f.child, 1)
     reply(f.child, request(f.child, 'drain'), new Uint8Array())
     await flush()
-    reply(f.child, request(f.child, 'discard-events'), { result: 0, discarded: 0 })
+    reply(f.child, request(f.child, 'effects'), {
+      result: 0,
+      effects: [],
+      droppedEffects: 0,
+      semanticGeneration: 0,
+    })
     await flush()
     const later = request(f.child, 'feed')
     expect(later.command).toMatchObject({
@@ -372,7 +387,12 @@ describe('native process admission around actual parsed-prefix eligibility', () 
     await appliedIo(f.child, 1)
     reply(f.child, request(f.child, 'drain'), new Uint8Array())
     await flush()
-    reply(f.child, request(f.child, 'discard-events'), { result: 0, discarded: 0 })
+    reply(f.child, request(f.child, 'effects'), {
+      result: 0,
+      effects: [],
+      droppedEffects: 0,
+      semanticGeneration: 0,
+    })
     await flush()
     const pending = request(f.child, 'feed')
     expect(pending.command).toMatchObject({
@@ -459,7 +479,12 @@ describe('native process admission around actual parsed-prefix eligibility', () 
     expect(repliesReady).toBe(true)
     expect(confirmed).toBe(false)
     expect(f.output.queuedBytes).toBe(4)
-    reply(f.child, request(f.child, 'discard-events'), { result: 0, discarded: 0 })
+    reply(f.child, request(f.child, 'effects'), {
+      result: 0,
+      effects: [],
+      droppedEffects: 0,
+      semanticGeneration: 0,
+    })
     await flush()
     expect(f.output.queuedBytes).toBe(4)
     expect(f.source.resume).not.toHaveBeenCalled()

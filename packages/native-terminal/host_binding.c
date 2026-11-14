@@ -38,7 +38,8 @@ typedef enum {
   COPY_FRAME,
   PRESENTATION_MODE,
   RENDERER_INFO,
-  INPUT
+  INPUT,
+  LINK
 } operation;
 static bool checked(napi_env env, napi_status status) {
   if (status == napi_ok)
@@ -475,7 +476,7 @@ failed:
 }
 
 static napi_value invoke(napi_env env, napi_callback_info info) {
-  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4, 3, 2, 3};
+  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4, 3, 2, 3, 3};
   size_t argc = 8;
   napi_value args[8];
   void *data;
@@ -644,17 +645,49 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
   }
   if (op == EVENT) {
     hvir_terminal_event event;
+    hvir_terminal_effect_status status = {0};
     hvir_terminal_result code = hvir_terminal_next_event(h->native, id, &event);
+    hvir_terminal_result info = hvir_terminal_effects_status(h->native, id, &status);
     napi_value result = outcome(env, code);
-    if (code != HVIR_OK)
-      return result;
+    if (info == HVIR_OK && (!put(env, result, "droppedEffects", big(env, status.dropped_effects)) ||
+      !put(env, result, "semanticGeneration", big(env, status.semantic_generation)))) return NULL;
+    if (code != HVIR_OK) return result;
     napi_value value = object(env);
     return put(env, value, "kind", number(env, event.kind)) &&
-                   put(env, value, "truncated", boolean(env, event.truncated != 0)) &&
-                   put(env, value, "data", bytes(env, event.data, event.length)) &&
-                   put(env, result, "event", value)
-               ? result
-               : NULL;
+      put(env, value, "action", number(env, event.action)) &&
+      put(env, value, "screen", number(env, event.screen)) &&
+      put(env, value, "row", number(env, event.row)) &&
+      put(env, value, "column", number(env, event.column)) &&
+      put(env, value, "sequence", big(env, event.sequence)) &&
+      put(env, value, "eventSerial", big(env, event.event_serial)) &&
+      put(env, value, "truncated", boolean(env, event.truncated != 0)) &&
+      put(env, value, "data", bytes(env, event.data, event.length)) &&
+      put(env, value, "extra", bytes(env, event.extra, event.extra_length)) &&
+      put(env, result, "event", value) ? result : NULL;
+  }
+  if (op == LINK) {
+    napi_value query = args[2], field;
+    hvir_terminal_link_query value = {0};
+    if (!input_number(env, query, "row", &value.row) ||
+      !input_number(env, query, "column", &value.column) ||
+      !input_number(env, query, "screen", &value.screen)) return NULL;
+    if (!checked(env, napi_get_named_property(env, query, "expectedSequence", &field)) ||
+      !u64(env, field, &value.sequence) ||
+      !checked(env, napi_get_named_property(env, query, "expectedMutation", &field)) ||
+      !u64(env, field, &value.mutation) ||
+      !checked(env, napi_get_named_property(env, query, "expectedGeometrySerial", &field)) ||
+      !u64(env, field, &value.geometry)) return NULL;
+    uint8_t uri[65536]; size_t length = 0;
+    hvir_terminal_result code = hvir_terminal_link(h->native, id, &value, uri, sizeof(uri), &length);
+    napi_value result = outcome(env, code);
+    if (code != HVIR_OK || !length) return result;
+    napi_value link = object(env);
+    return put(env, link, "uri", bytes(env, uri, length)) &&
+      put(env, link, "row", number(env, value.row)) && put(env, link, "column", number(env, value.column)) &&
+      put(env, link, "screen", number(env, value.screen)) &&
+      put(env, link, "streamSequence", big(env, value.sequence)) &&
+      put(env, link, "snapshotMutation", big(env, value.mutation)) &&
+      put(env, link, "geometrySerial", big(env, value.geometry)) && put(env, result, "link", link) ? result : NULL;
   }
   if (op == TAKE_FRAME) {
     hvir_terminal_frame frame;
@@ -698,7 +731,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
 static napi_value initialize(napi_env env, napi_value exports) {
   static const char *names[] = {"open",         "createBegin", "feed", "resize", "inspect",
                                 "read",         "drain",       "key",  "event",  "takeFrame",
-                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame", "presentationMode", "rendererInfo", "input"};
+                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame", "presentationMode", "rendererInfo", "input", "link"};
   for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
     napi_value function;
     if (!checked(env, napi_create_function(env, names[i], NAPI_AUTO_LENGTH, invoke,

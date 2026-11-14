@@ -201,6 +201,7 @@ await run(
     '-fno-omit-frame-pointer',
     join(repository, 'packages/native-terminal/terminal.c'),
     join(repository, 'packages/native-terminal/terminal_input.c'),
+    join(repository, 'packages/native-terminal/terminal_effects.c'),
     join(repository, 'packages/native-terminal/linux_display.c'),
     join(repository, 'packages/native-terminal/facade_probe.c'),
     '-pthread',
@@ -246,47 +247,50 @@ await writeFile(
   JSON.stringify(facadeResult, null, 2) + '\n',
 )
 console.log(facade.stdout.trim())
-// Input proof uses the same Surface/parser and records only contract counts.
-await run(
-  'cc',
-  [
-    '-std=c11',
-    '-Wall',
-    '-Wextra',
-    '-Werror',
-    ...nativeIncludes,
-    join(repository, 'packages/native-terminal/terminal.c'),
-    join(repository, 'packages/native-terminal/terminal_input.c'),
-    join(repository, 'packages/native-terminal/linux_display.c'),
-    join(repository, 'packages/native-terminal/input_probe.c'),
-    '-pthread',
-    ...nativeLibraries,
-    '-o',
-    join(output, 'input-probe'),
-  ],
-  repository,
-)
-const input = await execute(
-  join(output, 'input-probe'),
-  [join(output, selected.library)],
-  {
-    timeout: 60_000,
-  },
-)
-const inputResult = JSON.parse(input.stdout) as {
-  kind?: unknown
-  passed?: unknown
-  checks?: unknown
+// Both proofs use the same real Surface; they report contract counts, never contents.
+for (const capability of ['input', 'effects']) {
+  await run(
+    'cc',
+    [
+      '-std=c11',
+      '-Wall',
+      '-Wextra',
+      '-Werror',
+      ...nativeIncludes,
+      ...[
+        'terminal.c',
+        'terminal_input.c',
+        'terminal_effects.c',
+        'linux_display.c',
+        `${capability}_probe.c`,
+      ].map((file) => join(repository, 'packages/native-terminal', file)),
+      '-pthread',
+      ...nativeLibraries,
+      '-o',
+      join(output, `${capability}-probe`),
+    ],
+    repository,
+  )
+  const proof = await execute(
+    join(output, `${capability}-probe`),
+    [join(output, selected.library)],
+    { timeout: 60_000 },
+  )
+  const result = JSON.parse(proof.stdout) as {
+    kind?: unknown
+    passed?: unknown
+    checks?: unknown
+  }
+  if (
+    result.kind !== `native-${capability}` ||
+    result.passed !== true ||
+    typeof result.checks !== 'number' ||
+    result.checks < (capability === 'input' ? 100 : 30)
+  )
+    throw new Error(`native-${capability}: incomplete proof`)
+  await writeFile(join(output, `${capability}-proof.json`), proof.stdout)
+  console.log(proof.stdout.trim())
 }
-if (
-  inputResult.kind !== 'native-input' ||
-  inputResult.passed !== true ||
-  typeof inputResult.checks !== 'number' ||
-  inputResult.checks < 100
-)
-  throw new Error('native-input: incomplete proof')
-await writeFile(join(output, 'input-proof.json'), input.stdout)
-console.log(input.stdout.trim())
 await run(
   'cc',
   [
@@ -339,6 +343,7 @@ if (selected.platform === 'linux') {
           ? [
               join(repository, 'packages/native-terminal/terminal.c'),
               join(repository, 'packages/native-terminal/terminal_input.c'),
+              join(repository, 'packages/native-terminal/terminal_effects.c'),
               join(repository, 'packages/native-terminal/linux_display.c'),
             ]
           : []),

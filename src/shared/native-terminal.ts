@@ -146,13 +146,17 @@ export type NativeTerminalCommand =
   | { kind: 'presentation-mode'; state: string; mode: NativeTerminalExportMode }
   | { kind: 'pixels'; state: string; lease: string }
   | {
+      kind: 'link'
+      state: string
+      query: import('./native-terminal-link').NativeTerminalLinkQuery
+    }
+  | {
       kind:
         | 'inspect'
         | 'producer-inspect'
         | 'read'
         | 'drain'
-        | 'event'
-        | 'discard-events'
+        | 'effects'
         | 'renderer-info'
         | 'destroy'
       state: string

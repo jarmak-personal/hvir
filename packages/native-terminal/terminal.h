@@ -34,11 +34,20 @@ typedef struct {
   uint64_t pixel_frames, dma_buf_frames;
 } hvir_terminal_renderer_info;
 typedef struct {
-  uint32_t kind;
-  size_t length;
-  uint32_t truncated; /* latest-value payload exceeded the returned 4096-byte bound */
-  uint8_t data[4096];
+  uint32_t kind, action, screen, row, column;
+  uint64_t sequence, event_serial;
+  size_t length, extra_length;
+  uint32_t truncated; /* accepted payloads are complete; malformed/oversized are refused */
+  uint8_t data[65536], extra[65536];
 } hvir_terminal_event;
+typedef struct { uint64_t dropped_effects, semantic_generation; size_t queued_bytes; } hvir_terminal_effect_status;
+hvir_terminal_result hvir_terminal_effects_status(hvir_terminal_host *, hvir_terminal_id, hvir_terminal_effect_status *);
+typedef struct {
+  uint32_t row, column, screen;
+  uint64_t sequence, mutation, geometry;
+} hvir_terminal_link_query;
+hvir_terminal_result hvir_terminal_link(hvir_terminal_host *, hvir_terminal_id,
+  const hvir_terminal_link_query *, uint8_t *, size_t, size_t *);
 /* width/height are physical pixels; native metrics determine columns/rows. */
 typedef struct {
   uint64_t serial;

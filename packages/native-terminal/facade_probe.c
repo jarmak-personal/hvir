@@ -774,17 +774,29 @@ static void *run_probe(void *context) {
           !memcmp(event.data, "title-199", 9) &&
           hvir_terminal_next_event(host, events, &event) == HVIR_BUSY,
           "title-pressure-coalesces-without-parser-failure");
-  char cwd[1537];
+  char cwd[1801];
   for (size_t i = 0; i < sizeof(cwd) - 1; i++) cwd[i] = i % 128 ? 'a' : '/';
   cwd[sizeof(cwd) - 1] = 0;
+  char cwd_uri[sizeof(cwd) + 16];
+  const int uri_bytes = snprintf(cwd_uri,sizeof(cwd_uri),"file://localhost%s",cwd);
   const int cwd_bytes = snprintf((char *)requests, 200 * 32,
-    "\x1b]7;file://localhost%s\x07", cwd);
+    "\x1b]7;%s\x07", cwd_uri);
   REQUIRE(cwd_bytes > 0 && cwd_bytes < 200 * 32 &&
           hvir_terminal_feed(host, events, 3, requests, (size_t)cwd_bytes) == HVIR_OK &&
           hvir_terminal_next_event(host, events, &event) == HVIR_OK &&
-          event.kind == 2 && !event.truncated && event.length == sizeof(cwd) - 1 &&
-          !memcmp(event.data, cwd, sizeof(cwd) - 1), "long-osc7-cwd-remains-exact");
-  REQUIRE(hvir_terminal_feed(host, events, 4,
+          event.kind == 2 && !event.truncated && uri_bytes > 1024 &&
+          event.length == (size_t)uri_bytes &&
+          !memcmp(event.data, cwd_uri, (size_t)uri_bytes), "long-osc7-uri-remains-complete");
+  memset(requests,7,200);
+  hvir_terminal_effect_status effect_status;
+  REQUIRE(hvir_terminal_feed(host,events,4,requests,200)==HVIR_OK &&
+          hvir_terminal_next_event(host,events,&event)==HVIR_OK && event.kind==3 &&
+          hvir_terminal_next_event(host,events,&event)==HVIR_BUSY &&
+          hvir_terminal_effects_status(host,events,&effect_status)==HVIR_OK &&
+          !effect_status.dropped_effects && !effect_status.queued_bytes &&
+          hvir_terminal_inspect(host,events,&status)==HVIR_OK && !status.failure,
+          "bell-pressure-coalesces-without-parser-failure-or-payload-leak");
+  REQUIRE(hvir_terminal_feed(host, events, 5,
           (const uint8_t *)"metadata-still-usable", 21) == HVIR_OK &&
           text_is(host, events, "metadata-still-usable"),
           "coalesced-metadata-preserves-feed-and-read");

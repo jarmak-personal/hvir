@@ -105,10 +105,47 @@ declare const engine: {
   inspect(host: Host, id: bigint): Result & { status?: Status }
   read(host: Host, id: bigint, capacity: number): Result & { data?: Buffer }
   drain(host: Host, id: bigint, capacity: number): Result & { data?: Buffer }
+  link(
+    host: Host,
+    id: bigint,
+    query: {
+      row: number
+      column: number
+      screen: number
+      expectedSequence: bigint
+      expectedMutation: bigint
+      expectedGeometrySerial: bigint
+    },
+  ): Result & {
+    link?: {
+      uri: Buffer
+      screen: number
+      row: number
+      column: number
+      streamSequence: bigint
+      snapshotMutation: bigint
+      geometrySerial: bigint
+    }
+  }
   event(
     host: Host,
     id: bigint,
-  ): Result & { event?: { kind: number; truncated: boolean; data: Buffer } }
+  ): Result & {
+    droppedEffects: bigint
+    semanticGeneration: bigint
+    event?: {
+      kind: number
+      action: number
+      screen: number
+      row: number
+      column: number
+      sequence: bigint
+      eventSerial: bigint
+      truncated: boolean
+      data: Buffer
+      extra: Buffer
+    }
+  }
   key(
     host: Host,
     id: bigint,

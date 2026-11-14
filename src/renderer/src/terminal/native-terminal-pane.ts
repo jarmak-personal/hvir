@@ -1,3 +1,6 @@
+import { NativeTerminalPaneEffects } from './native-terminal-pane-effects'
+import type { NativeTerminalProductEffect } from '../../../shared/native-terminal-effects'
+import type { TerminalEvent } from './terminal-pane'
 import type {
   NativeTerminalInputOperation,
   NativeTerminalInputCompletion,
@@ -11,12 +14,21 @@ import {
 import type { NativeTerminalPanePort, TerminalPresentation } from './terminal-pane'
 
 interface NativePanePort extends NativeTerminalSurfacePort {
-  attach(sessionId: string): Promise<{ viewId: string; inputUnavailable?: boolean }>
+  attach(sessionId: string): Promise<{
+    viewId: string
+    instanceId?: string
+    inputUnavailable?: boolean
+    title?: { title: string; eventSerial: number }
+  }>
   input(request: {
     viewId: string
     input: NativeTerminalInputOperation
   }): Promise<NativeTerminalInputCompletion>
   clipboardPaste(sessionId: string, fallback: string): void
+  metadata?(
+    id: string,
+  ): Promise<import('../../../shared/native-terminal-effects').NativeTerminalMetadata>
+  effects?(listener: (effect: NativeTerminalProductEffect) => void): () => void
 }
 
 /** Retains one DOM/presentation surface without a renderer parser or output mirror. */
@@ -33,12 +45,20 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
   private inputReady = false
   private inputRevision = 0
   private sessionId?: string
+  private readonly effectEvents = new NativeTerminalPaneEffects(() => ({
+    sessionId: this.sessionId,
+    instanceId: this.instanceId,
+    disposed: this.disposed,
+  }))
+  private instanceId?: string
+  private readonly stopEffects?: () => void
   private readonly input: NativeTerminalDomInput
 
   constructor(
     private readonly api: NativeTerminalPresentationApi,
     private readonly port: NativePanePort,
   ) {
+    this.stopEffects = this.port.effects?.((effect) => this.effectEvents.accept(effect))
     this.element.className = 'terminal-engine-host native-terminal-pane'
     this.element.style.cssText =
       'position:relative;width:100%;height:100%;overflow:hidden'
@@ -108,13 +128,27 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
       throw new Error('native-pane-bind-stale')
     this.binding = true
     try {
-      const { viewId, inputUnavailable } = await this.port.attach(sessionId)
+      const { viewId, instanceId, inputUnavailable, title } =
+        await this.port.attach(sessionId)
       if (this.disposed) {
         await this.port.detach(viewId)
         return
       }
+      this.instanceId = instanceId
       this.viewId = viewId
       this.sessionId = sessionId
+      this.effectEvents.restoreTitle(title)
+      if (this.port.metadata && instanceId) {
+        const metadata = await this.port.metadata(sessionId)
+        if (this.disposed) {
+          this.viewId = undefined
+          await this.port.detach(viewId)
+          return
+        }
+        if (this.viewId !== viewId || metadata.instanceId !== instanceId)
+          throw new Error('native-pane-binding-stale')
+        this.effectEvents.restoreTitle(metadata.title)
+      }
       if (inputUnavailable)
         this.fail('Native input unavailable; terminal output remains visible')
       this.surface = new NativeTerminalSurface(viewId, this.api, {
@@ -134,6 +168,19 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
       this.surface.mount(this.element)
       this.surface.setPresentation(this.presentation)
     } catch (error) {
+      if (this.viewId && !this.surface) {
+        const view = this.viewId
+        this.viewId = undefined
+        try {
+          await this.port.detach(view)
+        } catch (cleanup) {
+          throw new AggregateError(
+            [error, cleanup],
+            'Native terminal binding cleanup failed',
+            { cause: cleanup },
+          )
+        }
+      }
       this.fail('Native terminal unavailable')
       throw error
     } finally {
@@ -148,6 +195,9 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
     this.inputListeners.add(listener)
     return () => this.inputListeners.delete(listener)
   }
+  onEffect(listener: (event: TerminalEvent) => void): () => void {
+    return this.effectEvents.subscribe(listener)
+  }
   focus(): void {
     if (!this.disposed) this.input.focus()
   }
@@ -157,6 +207,8 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
     // Logical occlusion stops demand now; physical input/resource cleanup may wait.
     this.surface?.setPresentation('hidden')
     this.inputListeners.clear()
+    this.stopEffects?.()
+    this.effectEvents.clear()
     void this.input.dispose().finally(() => this.surface?.dispose())
     this.element.remove()
   }
@@ -168,6 +220,8 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
 
 export function createNativeTerminalPane(): NativeTerminalPane {
   return new NativeTerminalPane(window.hvir.nativeTerminalPresentation, {
+    metadata: (id) => window.hvir.invoke('native-terminal:metadata', { id }),
+    effects: (listener) => window.hvir.on('native-terminal:effect', listener),
     attach: (id) => window.hvir.invoke('native-terminal:attach', { id }),
     update: (viewId, geometry) =>
       window.hvir.invoke('native-terminal:update', { viewId, ...geometry }),

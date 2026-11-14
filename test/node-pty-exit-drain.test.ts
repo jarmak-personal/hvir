@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 interface Terminal {
+  readonly inputClosed: boolean
   pause(): unknown
   resume(): unknown
   write(data: string): void
@@ -151,6 +152,26 @@ afterEach(() => {
 })
 
 describe('installed node-pty Unix exit drain', () => {
+  it('exposes physical input closure while paused tail remains owned and public exit is pending', async () => {
+    const f = fixture()
+    const exits = vi.fn(),
+      data = vi.fn()
+    f.terminal.onExit(exits)
+    f.terminal.onData(data)
+    expect(f.terminal.inputClosed).toBe(false)
+    f.terminal.pause()
+    f.socket.incoming('retained tail')
+    f.physicalExit(7)
+    expect(f.terminal.inputClosed).toBe(true)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(exits).not.toHaveBeenCalled()
+    expect(data).not.toHaveBeenCalled()
+    f.terminal.resume()
+    expect(data).toHaveBeenCalledExactlyOnceWith('retained tail')
+    f.socket.eof()
+    expect(exits).toHaveBeenCalledExactlyOnceWith({ exitCode: 7, signal: 0 })
+    expect(f.terminal.inputClosed).toBe(true)
+  })
   it('preserves unread final bytes through a pause longer than the idle guard', async () => {
     const f = fixture()
     const baseline = f.baseline()

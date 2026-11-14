@@ -168,6 +168,8 @@ export async function verifyArtifact(
       'facade-proof.json',
       'input-probe',
       'input-proof.json',
+      'effects-probe',
+      'effects-proof.json',
       'frame-metadata-probe',
       'frame-metadata-proof.json',
       ...(selected.platform === 'linux'

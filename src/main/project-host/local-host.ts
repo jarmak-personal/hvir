@@ -423,6 +423,12 @@ export class LocalHost implements ProjectHost {
       get pid() {
         return proc.pid
       },
+      get inputClosed() {
+        // Optional public Unix capability; other node-pty platforms remain unknown.
+        return 'inputClosed' in proc && typeof proc.inputClosed === 'boolean'
+          ? proc.inputClosed
+          : undefined
+      },
       onData(cb) {
         const sub = proc.onData(cb)
         return () => sub.dispose()

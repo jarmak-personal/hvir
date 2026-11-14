@@ -1,3 +1,8 @@
+import {
+  nativeTerminalWorkingDirectory,
+  type NativeTerminalEffectBatch,
+} from '../../shared/native-terminal-effects'
+import type { NativeTerminalEffectPolicy } from './native-terminal-effect-policy'
 import type { PtyPreparedTerminal, PtyTerminalReservation } from '../pty/pty-contract'
 import {
   NATIVE_TERMINAL_LIMITS,
@@ -31,7 +36,10 @@ interface SessionHost {
   ): Promise<NativeTerminalStatus>
   feed(handle: string, instanceId: string, bytes: Uint8Array): Promise<void>
   drainReplies(handle: string, instanceId: string): Promise<Uint8Array>
-  discardEffectsProducer(handle: string, instanceId: string): Promise<number>
+  drainEffectsProducer(
+    handle: string,
+    instanceId: string,
+  ): Promise<NativeTerminalEffectBatch>
   end(handle: string, instanceId: string): Promise<void>
 }
 interface NativeSession {
@@ -44,6 +52,10 @@ interface NativeSession {
   writer?: Parameters<PtyPreparedTerminal['connect']>[0]
   feeding: boolean
   inputUnavailable: boolean
+  effectSerial?: number
+  title?: { readonly title: string; readonly eventSerial: number }
+  cwd?: HostPath
+  effectState?: { readonly droppedEffects: number; readonly semanticGeneration: number }
   inputSettlement?: Promise<void>
   disposing?: Promise<void>
 }
@@ -62,6 +74,7 @@ export class NativeTerminalSessions {
     private readonly host: SessionHost,
     private readonly isRendererCurrent: (ownerId: number, generation: number) => boolean,
     private readonly onUnavailable?: (sessionId: string, instanceId: string) => void,
+    private readonly effectPolicy?: Pick<NativeTerminalEffectPolicy, 'consume'>,
   ) {}
 
   resolve(sessionId: string): NativeTerminalSession | undefined {
@@ -77,6 +90,12 @@ export class NativeTerminalSessions {
         inputClosed: boolean
         inputUnavailable: boolean
         unavailable: boolean
+        title?: { readonly title: string; readonly eventSerial: number }
+        cwd?: HostPath
+        effectState?: {
+          readonly droppedEffects: number
+          readonly semanticGeneration: number
+        }
       }
     | undefined {
     const record = this.sessions.get(sessionId)
@@ -84,6 +103,9 @@ export class NativeTerminalSessions {
       return
     return {
       handle: record.handle,
+      title: record.title,
+      cwd: record.cwd,
+      effectState: record.effectState,
       session: record.session,
       readonly: record.phase !== 'live',
       inputClosed: record.phase !== 'live' || record.writer?.live === false,
@@ -269,6 +291,7 @@ export class NativeTerminalSessions {
         offset += NATIVE_TERMINAL_LIMITS.feedChunkBytes
       ) {
         this.assertCurrent(record)
+        const producingSession = record.session
         await this.retryUnsent(record, () =>
           this.host.feed(
             record.handle!,
@@ -292,12 +315,62 @@ export class NativeTerminalSessions {
             ? record.writer.writeReply(replies)
             : Promise.resolve()
         const effects = this.retryUnsent(record, () =>
-          this.host.discardEffectsProducer(record.handle!, record.session.instanceId),
+          this.host.drainEffectsProducer(record.handle!, record.session.instanceId),
         )
         record.writer?.repliesDispatched(
           Math.min(NATIVE_TERMINAL_LIMITS.feedChunkBytes, encoded.byteLength - offset),
         )
-        const outcomes = await Promise.allSettled([writing, effects])
+        const consuming = effects.then((batch) => {
+          this.assertCurrent(record)
+          const previous = record.effectSerial ?? 0
+          // Copied facts belong to the current native instance, not its presentation owner.
+          record.effectState = {
+            droppedEffects: batch.droppedEffects,
+            semanticGeneration: batch.semanticGeneration,
+          }
+          for (const effect of batch.effects) {
+            if (effect.eventSerial <= previous) continue
+            if (effect.kind === 'title')
+              record.title = { title: effect.title, eventSerial: effect.eventSerial }
+            if (effect.kind === 'cwd')
+              record.cwd = nativeTerminalWorkingDirectory(
+                producingSession.workspaceRoot.hostId,
+                effect.uri,
+              )
+          }
+          this.effectPolicy?.consume(
+            producingSession,
+            {
+              ...batch,
+              effects: batch.effects.filter((effect) => effect.eventSerial > previous),
+            },
+            {
+              current: () => {
+                try {
+                  this.assertCurrent(record)
+                } catch {
+                  return false
+                }
+                return (
+                  record.session === producingSession &&
+                  this.isRendererCurrent(
+                    producingSession.ownerId,
+                    producingSession.ownerGeneration,
+                  )
+                )
+              },
+              live: () =>
+                record.phase === 'live' &&
+                !record.inputUnavailable &&
+                record.writer?.live === true,
+            },
+          )
+          record.effectSerial = Math.max(
+            previous,
+            ...batch.effects.map((effect) => effect.eventSerial),
+          )
+        })
+        const outcomes = await Promise.allSettled([writing, consuming])
         const failure = outcomes.find((outcome) => outcome.status === 'rejected')
         if (failure?.status === 'rejected') throw failure.reason
       }

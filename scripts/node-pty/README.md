@@ -15,7 +15,11 @@ consumer forcibly, buffer output, or increase the timeout. Public exit continues
 to follow stream close, allowing the existing supervisor to settle admitted output.
 
 An explicit physical-exit flag prevents `kill()` from signalling an already-reaped
-PID while public exit awaits drain. In that case explicit termination closes only
+PID while public exit awaits drain. A public read-only Unix `inputClosed` getter
+exposes that existing physical-exit fact while the readable tail is still owned.
+`LocalHost` projects the optional capability so response/effect authority closes
+immediately; platforms without it retain an unknown value. This adds no exit
+notification, timer, signal or new lifecycle owner. In that case explicit termination closes only
 the owned stream and pending write immediate. Destroying a live stream still
 signals its live child through the existing path.
 

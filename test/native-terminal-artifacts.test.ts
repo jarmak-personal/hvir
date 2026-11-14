@@ -26,6 +26,8 @@ beforeEach(async () => {
     'facade-proof.json',
     'input-probe',
     'input-proof.json',
+    'effects-probe',
+    'effects-proof.json',
     'frame-metadata-probe',
     'frame-metadata-proof.json',
   ]) {
@@ -76,6 +78,8 @@ describe('native artifact admission before loader execution', () => {
     'facade-proof.json',
     'input-probe',
     'input-proof.json',
+    'effects-probe',
+    'effects-proof.json',
     'frame-metadata-probe',
     'frame-metadata-proof.json',
   ])('rejects incomplete facade input %s before loading', async (name) => {

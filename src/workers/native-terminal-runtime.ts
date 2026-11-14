@@ -1,3 +1,4 @@
+import { validNativeTerminalLinkQuery } from '../shared/native-terminal-link'
 import { Worker } from 'node:worker_threads'
 import { join } from 'node:path'
 import resource from '@hvir/native-terminal/resource'
@@ -42,6 +43,8 @@ interface NativeResult {
   event?: unknown
   stride?: number
   info?: unknown
+  link?: unknown
+  unavailable?: number
   source?: 'user' | 'terminal-response'
   requestedMutation?: bigint
   captured?: boolean
@@ -238,10 +241,14 @@ export function runNativeTerminalHost(
       case 'read':
       case 'drain':
         return requireOk(await invoke(state, command.kind, [state])).data
-      case 'discard-events':
-        return requireOk(await invoke(state, 'discard-events', [state]))
-      case 'event':
-        return requireOk(await invoke(state, 'event', [state])).event
+      case 'effects':
+        return requireOk(await invoke(state, 'effects', [state]))
+      case 'link': {
+        const result = requireOk(await invoke(state, 'link', [state, command.query]))
+        return result.unavailable
+          ? { unavailable: result.unavailable }
+          : plain(result.link ?? {})
+      }
       case 'frame': {
         const taken = await invoke(state, 'frame', [state])
         if (taken.result) return { unavailable: taken.result }
@@ -431,6 +438,8 @@ function validCommand(value: NativeTerminalCommand): boolean {
         (value.kind === 'create' ||
           (Number.isSafeInteger(value.serial) && value.serial > 0))
       )
+    case 'link':
+      return validNativeTerminalLinkQuery(value.query)
     case 'key':
       return validNativeTerminalKeyInput(value)
     case 'input':
@@ -458,8 +467,7 @@ function validCommand(value: NativeTerminalCommand): boolean {
     case 'producer-inspect':
     case 'read':
     case 'drain':
-    case 'event':
-    case 'discard-events':
+    case 'effects':
     case 'renderer-info':
     case 'destroy':
       return true

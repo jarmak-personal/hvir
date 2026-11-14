@@ -12,7 +12,12 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 const panes: NativeTerminalPane[] = []
-function fixture() {
+function fixture(
+  overrides: Pick<
+    ConstructorParameters<typeof NativeTerminalPane>[1],
+    'metadata' | 'effects'
+  > = {},
+) {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
     new DOMRect(0, 0, 640, 400),
   )
@@ -30,6 +35,7 @@ function fixture() {
       Promise.resolve({ requestedMutation: 1 }),
     ),
     clipboardPaste: vi.fn(),
+    ...overrides,
   }
   const pane = new NativeTerminalPane(api, port)
   panes.push(pane)
@@ -63,6 +69,55 @@ afterEach(() => {
 })
 
 describe('native retained pane adapter', () => {
+  it('keeps a newer live title when metadata bootstrap settles with an older snapshot', async () => {
+    const metadata =
+      deferred<import('../src/shared/native-terminal-effects').NativeTerminalMetadata>()
+    let receive!: (
+      effect: import('../src/shared/native-terminal-effects').NativeTerminalProductEffect,
+    ) => void
+    const f = fixture({
+      metadata: () => metadata.promise,
+      effects: (listener) => {
+        receive = listener
+        return vi.fn()
+      },
+    })
+    f.port.attach.mockResolvedValueOnce({ viewId: 'native-view', instanceId: 'instance' })
+    const events = vi.fn()
+    f.pane.onEffect(events)
+    const binding = f.pane.bind('session')
+    await vi.waitFor(() => expect(f.port.attach).toHaveBeenCalled())
+    receive({
+      id: 'session',
+      instanceId: 'instance',
+      eventSerial: 9,
+      effect: { kind: 'title', title: 'new live title' },
+    })
+    metadata.resolve({
+      instanceId: 'instance',
+      title: { title: 'older bootstrap', eventSerial: 8 },
+    })
+    await binding
+    expect(events).toHaveBeenCalledExactlyOnceWith({
+      type: 'title',
+      title: 'new live title',
+    })
+  })
+  it('delivers retained pre-attach title metadata only after exact instance binding', async () => {
+    const f = fixture(),
+      listener = vi.fn()
+    f.pane.onEffect(listener)
+    f.port.attach.mockResolvedValueOnce({
+      viewId: 'native-view',
+      instanceId: 'instance',
+      title: { title: 'x'.repeat(600), eventSerial: 5 },
+    })
+    await f.ready()
+    expect(listener).toHaveBeenCalledExactlyOnceWith({
+      type: 'title',
+      title: 'x'.repeat(600),
+    })
+  })
   it('stops frame demand immediately while captured input cleanup still awaits acknowledgement', async () => {
     const frames = new Map<number, FrameRequestCallback>()
     let next = 0

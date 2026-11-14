@@ -403,7 +403,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       harnessProbes: harnessProbeManager,
       remoteImagePaste: createSmokeImagePasteFallback(supervisor),
       // A scenario must not overwrite the clipboard of the machine running it.
-      systemClipboard: { writeText: () => undefined },
+      systemClipboard: native.systemClipboard ?? { writeText: () => undefined },
       updateAttention: () => undefined,
       updateWebPaneBindings: (owner, bindings) =>
         updateWebPaneBindings(owner.id, bindings),

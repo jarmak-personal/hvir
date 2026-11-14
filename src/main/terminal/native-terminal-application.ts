@@ -1,3 +1,5 @@
+import { NativeTerminalEffectPolicy } from './native-terminal-effect-policy'
+import type { NativeTerminalProductEffect } from '../../shared/native-terminal-effects'
 import {
   NativeTerminalInput,
   type NativeTerminalInputContext,
@@ -13,7 +15,7 @@ import { hostPathEquals } from '../../shared/host-path'
 import { NativeTerminalAdmissionError } from '../../shared/native-terminal'
 import { nativeTerminalLinuxOptionsFromEnvironment } from '../../shared/native-terminal-linux'
 import type { ManagedPty } from '../pty/pty-contract'
-import { app, sharedTexture, type WebFrameMain } from 'electron'
+import { app, clipboard, sharedTexture, type WebFrameMain } from 'electron'
 import type { RendererOwner } from '../renderer-resource-scopes'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { NativeTerminalViewport } from './native-terminal-sessions'
@@ -45,6 +47,7 @@ export async function installNativeTerminalApplication(
 export async function createNativeTerminalApplication(
   ptys: PtySupervisor,
   isCurrent: (owner: RendererOwner) => boolean,
+  systemClipboard: { writeText(text: string): void } = clipboard,
 ): Promise<NativeTerminalApplication | undefined> {
   const library = process.env['HVIR_NATIVE_TERMINAL_LIBRARY']
   if (!library || app.isPackaged) return
@@ -60,10 +63,14 @@ export async function createNativeTerminalApplication(
     resolve: (id) => sessions?.resolve(id),
     isRendererCurrent: (id, generation) => isCurrent({ id, generation }),
   })
+  const effects = new NativeTerminalEffectPolicy(systemClipboard, (session, effect) =>
+    application?.publishEffect(session, effect),
+  )
   const sessions: NativeTerminalSessions = new NativeTerminalSessions(
     host,
     (id, generation) => isCurrent({ id, generation }),
     (id, instance) => application?.unavailable(id, instance),
+    effects,
   )
   const targets = new NativeTerminalPresentationTargets()
   const presenter = new NativeTerminalPresenter(
@@ -78,6 +85,7 @@ export async function createNativeTerminalApplication(
     targets,
     ptys,
     isCurrent,
+    effects,
   )
   return application
 }
@@ -99,6 +107,7 @@ export class NativeTerminalApplication {
       visible: boolean
       geometrySerial: number
       input: NativeTerminalInputState
+      frame: WebFrameMain
     }
   >()
   constructor(
@@ -116,7 +125,12 @@ export class NativeTerminalApplication {
     >,
     private readonly host: Pick<
       NativeTerminalHost,
-      'inspectProducer' | 'readProducer' | 'input' | 'rendererInfo' | 'dispose'
+      | 'inspectProducer'
+      | 'readProducer'
+      | 'readLinkProducer'
+      | 'input'
+      | 'rendererInfo'
+      | 'dispose'
     >,
     private readonly presenter: Pick<
       NativeTerminalPresenter,
@@ -134,6 +148,7 @@ export class NativeTerminalApplication {
       list(): readonly OwnedPty[]
     },
     private readonly isCurrent: (owner: RendererOwner) => boolean,
+    readonly effects?: NativeTerminalEffectPolicy,
   ) {
     this.inputOwner = new NativeTerminalInput(host)
     this.stopPtyObservation = ptys.observe(() => this.refreshOwnership())
@@ -176,6 +191,74 @@ export class NativeTerminalApplication {
       reservation: Parameters<NativeTerminalSessions['prepare']>[0],
       signal: AbortSignal,
     ) => this.sessions.prepare(reservation, signal, viewport)
+  }
+  metadata(
+    id: string,
+    owner: RendererOwner,
+  ): import('../../shared/native-terminal-effects').NativeTerminalMetadata {
+    const record = this.requireSession(id, owner)
+    return { instanceId: record.session.instanceId, title: record.title }
+  }
+  async readLink(
+    id: string,
+    owner: RendererOwner,
+    query: import('../../shared/native-terminal-link').NativeTerminalLinkQuery,
+  ) {
+    const record = this.requireSession(id, owner)
+    const result = await this.host.readLinkProducer(
+      record.handle,
+      record.session.instanceId,
+      query,
+    )
+    const current = this.requireSession(id, owner)
+    if (
+      current.handle !== record.handle ||
+      current.session.instanceId !== record.session.instanceId
+    )
+      throw new Error('native-link-stale')
+    return result && { ...result, workspaceRoot: record.session.workspaceRoot }
+  }
+  /** Only an explicit user-intent caller supplies the existing navigation owner. */
+  async activateLink(
+    id: string,
+    owner: RendererOwner,
+    query: import('../../shared/native-terminal-link').NativeTerminalLinkQuery,
+    activate: (
+      link: import('../../shared/native-terminal-link').NativeTerminalLink,
+    ) => void,
+  ): Promise<void> {
+    const link = await this.readLink(id, owner, query)
+    if (link) activate(link)
+  }
+  publishEffect(
+    session: import('../../shared/native-terminal').NativeTerminalSession,
+    effect: NativeTerminalProductEffect,
+  ): void {
+    for (const view of this.views.values()) {
+      if (
+        view.sessionId !== session.sessionId ||
+        view.instanceId !== session.instanceId ||
+        view.owner.id !== session.ownerId ||
+        view.owner.generation !== session.ownerGeneration ||
+        !this.isCurrent(view.owner) ||
+        view.frame.isDestroyed()
+      )
+        continue
+      const current = this.sessions.get(session.sessionId)
+      if (
+        !current ||
+        current.session.instanceId !== session.instanceId ||
+        current.session.ownerId !== session.ownerId ||
+        current.session.ownerGeneration !== session.ownerGeneration ||
+        (effect.effect.kind !== 'title' &&
+          (current.readonly ||
+            current.inputClosed ||
+            current.unavailable ||
+            current.inputUnavailable))
+      )
+        continue
+      view.frame.send('native-terminal:effect', effect)
+    }
   }
   async attach(id: string, owner: RendererOwner, frame: WebFrameMain): Promise<string> {
     const record = this.requireSession(id, owner)
@@ -222,6 +305,7 @@ export class NativeTerminalApplication {
       visible: false,
       geometrySerial: 0,
       input: { revoked: false },
+      frame,
     })
     return viewId
   }

@@ -5,7 +5,7 @@
 #include <stdint.h>
 /* Pinned full-core hooks, separate from stable libghostty-vt. Local pointers/FDs
  * belong to this process; M4 must transfer real OS rights across processes. */
-#define HVIR_GHOSTTY_EMBED_ABI 6u
+#define HVIR_GHOSTTY_EMBED_ABI 7u
 typedef uint32_t (*hvir_ghostty_embed_abi_fn)(void);
 typedef struct {
   uint32_t kind, width, height, fourcc, plane_count, premultiplied, color_space, origin;
@@ -34,13 +34,19 @@ typedef struct {
 } hvir_ghostty_input_event;
 typedef struct { bool captured; double x, y, width, height; size_t required_capacity; } hvir_ghostty_input_result;
 typedef struct {
+  uint32_t kind, action, screen, row, column;
+  uint64_t sequence, serial;
+  const uint8_t *data; size_t data_len;
+  const uint8_t *extra; size_t extra_len;
+} hvir_ghostty_external_effect;
+typedef struct {
   void *userdata;
   bool (*write)(void *, const uint8_t *, size_t);
   void (*applied)(void *, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
                   uint32_t, uint32_t, uint32_t, uint32_t, double);
   void (*failed)(void *, uint32_t);
   size_t scrollback_limit;
-  bool (*effect)(void *, uint32_t, const uint8_t *, size_t);
+  bool (*effect)(void *, const hvir_ghostty_external_effect *);
   void (*health)(void *, uint32_t);
   bool (*frame)(void *, const hvir_ghostty_external_frame *);
   size_t pixel_export_limit; /* zero disables external CPU export */

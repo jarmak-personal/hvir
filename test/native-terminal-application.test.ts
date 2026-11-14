@@ -37,6 +37,7 @@ function fixture() {
     inputUnavailable: false,
     unavailable: false,
     inputSettlement: undefined as Promise<void> | undefined,
+    title: undefined as { title: string; eventSerial: number } | undefined,
   }
   const sessions = {
     get: vi.fn((_id?: string): typeof state | undefined => state),
@@ -74,6 +75,9 @@ function fixture() {
   )
   const host = {
     rendererInfo: vi.fn(),
+    readLinkProducer: vi.fn<NativeTerminalHost['readLinkProducer']>(() =>
+      Promise.resolve(undefined),
+    ),
     inspectProducer: vi.fn(() => Promise.resolve(nativeTerminalStatus())),
     readProducer: vi.fn(() => Promise.resolve(new Uint8Array())),
     encodeKey,
@@ -92,7 +96,12 @@ function fixture() {
     ),
     dispose: vi.fn(),
   }
-  const frame = { isDestroyed: () => false } as WebFrameMain
+  const frameSend = vi.fn<WebFrameMain['send']>()
+  const framePort: Pick<WebFrameMain, 'isDestroyed' | 'send'> = {
+    isDestroyed: () => false,
+    send: frameSend,
+  }
+  const frame = framePort as WebFrameMain
   const target = {
     frame,
     ready: true,
@@ -171,6 +180,7 @@ function fixture() {
     ptys,
     current,
     frame,
+    frameSend,
     owner,
     layout,
     grant,
@@ -179,6 +189,122 @@ function fixture() {
 }
 
 describe('native workbench application ownership', () => {
+  it('publishes a current readonly title and restores its latest metadata on reattachment without attention replay', async () => {
+    const f = fixture()
+    await f.app.attach('session', f.owner, f.frame)
+    f.state.readonly = true
+    f.state.inputClosed = true
+    f.state.title = { title: 'finished title', eventSerial: 5 }
+    f.ptys.get.mockReturnValue(undefined)
+    f.app.publishEffect(f.state.session, {
+      id: 'session',
+      instanceId: 'instance',
+      eventSerial: 5,
+      effect: { kind: 'title', title: 'finished title' },
+    })
+    f.app.publishEffect(f.state.session, {
+      id: 'session',
+      instanceId: 'instance',
+      eventSerial: 6,
+      effect: { kind: 'bell' },
+    })
+    expect(f.frameSend).toHaveBeenCalledExactlyOnceWith('native-terminal:effect', {
+      id: 'session',
+      instanceId: 'instance',
+      eventSerial: 5,
+      effect: { kind: 'title', title: 'finished title' },
+    })
+    await f.app.detach('view', f.owner)
+    await f.app.attach('session', f.owner, f.frame)
+    expect(f.app.metadata('session', f.owner)).toEqual({
+      instanceId: 'instance',
+      title: { title: 'finished title', eventSerial: 5 },
+    })
+    expect(f.frameSend).toHaveBeenCalledTimes(1)
+    const oldProducer = f.state.session
+    f.state.session = { ...oldProducer, ownerId: 2, ownerGeneration: 2 }
+    f.app.publishEffect(oldProducer, {
+      id: 'session',
+      instanceId: 'instance',
+      eventSerial: 7,
+      effect: { kind: 'title', title: 'old owner title' },
+    })
+    expect(f.frameSend).toHaveBeenCalledTimes(1)
+  })
+  it('restores owner B metadata from the retained native instance without publishing owner A callbacks', async () => {
+    const f = fixture()
+    const oldProducer = f.state.session
+    const ownerB = { id: 2, generation: 2 }
+    f.state.session = {
+      ...oldProducer,
+      ownerId: ownerB.id,
+      ownerGeneration: ownerB.generation,
+    }
+    f.state.title = { title: 'native fact retained through transfer', eventSerial: 3 }
+    f.state.readonly = true
+    f.state.inputClosed = true
+    f.ptys.get.mockReturnValue(undefined)
+    await f.app.attach('session', ownerB, f.frame)
+    expect(f.app.metadata('session', ownerB)).toEqual({
+      instanceId: 'instance',
+      title: { title: 'native fact retained through transfer', eventSerial: 3 },
+    })
+    f.app.publishEffect(oldProducer, {
+      id: 'session',
+      instanceId: 'instance',
+      eventSerial: 3,
+      effect: { kind: 'title', title: 'native fact retained through transfer' },
+    })
+    expect(f.frameSend).not.toHaveBeenCalled()
+    expect(() => f.app.metadata('session', f.owner)).toThrow('native-session-foreign')
+    await f.app.detach('view', ownerB)
+    await f.app.attach('session', ownerB, f.frame)
+    expect(f.app.metadata('session', ownerB).title).toEqual({
+      title: 'native fact retained through transfer',
+      eventSerial: 3,
+    })
+    expect(f.frameSend).not.toHaveBeenCalled()
+    expect(f.ptys.writeConfirmed).not.toHaveBeenCalled()
+  })
+  it('queries copied links without activation and delegates only explicit current user intent with its source host', async () => {
+    const f = fixture(),
+      activate = vi.fn()
+    const query = {
+      row: 0,
+      column: 0,
+      screen: 0 as const,
+      expectedSequence: 2,
+      expectedMutation: 1,
+      expectedGeometrySerial: 1,
+    }
+    const link = {
+      uri: 'file:///outside/file.txt',
+      row: 0,
+      column: 0,
+      screen: 0 as const,
+      streamSequence: 2,
+      snapshotMutation: 1,
+      geometrySerial: 1,
+    }
+    f.host.readLinkProducer.mockResolvedValue(link)
+    await expect(f.app.readLink('session', f.owner, query)).resolves.toEqual({
+      ...link,
+      workspaceRoot: f.state.session.workspaceRoot,
+    })
+    expect(activate).not.toHaveBeenCalled()
+    await f.app.activateLink('session', f.owner, query, activate)
+    expect(activate).toHaveBeenCalledExactlyOnceWith({
+      ...link,
+      workspaceRoot: f.state.session.workspaceRoot,
+    })
+    const pending = deferred<typeof link | undefined>()
+    f.host.readLinkProducer.mockReturnValueOnce(pending.promise)
+    const activation = watched(f.app.activateLink('session', f.owner, query, activate))
+    f.current.mockReturnValue(false)
+    pending.resolve(link)
+    await expect(activation).rejects.toThrow()
+    expect(activate).toHaveBeenCalledTimes(1)
+  })
   it.each(['keyEncodingFallback', 'policy', 'readOnly', 'source'])(
     'rejects renderer-selected private %s before native work',
     async (field) => {
