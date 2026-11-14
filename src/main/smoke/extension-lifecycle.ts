@@ -462,10 +462,39 @@ async function verifyExtensionPlacementRenderResume(
         visible,
         false,
       )
-    const display = (visible: boolean) =>
-      fixture.webContents.executeJavaScript(
-        `document.getElementById(${JSON.stringify(view.id)}).style.display=${JSON.stringify(visible ? 'flex' : 'none')}`,
-      )
+    const display = async (visible: boolean): Promise<void> => {
+      const layout: unknown = await fixture.webContents
+        .executeJavaScript(`new Promise((resolve,reject)=>{
+        const target=document.getElementById(${JSON.stringify(view.id)}),shown=${JSON.stringify(visible)};
+        let observer,timer;
+        const finish=(error,value)=>{observer?.disconnect();clearTimeout(timer);if(error)reject(error);else resolve(value);};
+        try {
+          if(!target?.isConnected)throw new Error('Extension layout target unavailable');
+          const requestedAt=performance.now();
+          observer=new IntersectionObserver(entries=>{
+            try {
+              const entry=entries.find(value=>value.target===target&&value.time>=requestedAt);
+              if(!entry)return;
+              const positive=entry.isIntersecting&&entry.intersectionRect.width>0&&entry.intersectionRect.height>0;
+              if(shown?!positive:entry.isIntersecting)return;
+              finish(undefined,{shown,intersecting:entry.isIntersecting,width:entry.boundingClientRect.width,height:entry.boundingClientRect.height,intersectionWidth:entry.intersectionRect.width,intersectionHeight:entry.intersectionRect.height,requestedAt,observedAt:entry.time,epochMs:performance.timeOrigin+entry.time});
+            } catch(error){finish(error);}
+          });
+          observer.observe(target);
+          timer=setTimeout(()=>finish(new Error('Extension layout acknowledgement timed out')),${EXTENSION_LIMITS.requestTimeoutMs});
+          target.style.display=shown?'flex':'none';
+        } catch(error){finish(error);}
+      })`)
+      // Embedder geometry acknowledgement, not a browser-side native visibility ACK.
+      mark(visible ? 'layout-intersecting' : 'layout-nonintersecting', { layout })
+      try {
+        console.log(
+          `[smoke] extension layout acknowledgement ${JSON.stringify({ surface, visible, layout })}`,
+        )
+      } catch {
+        // Optional logging must not change the acknowledged setup.
+      }
+    }
     let positiveControl: Awaited<ReturnType<typeof read>> | undefined
     snapshot = () => ({
       surface,

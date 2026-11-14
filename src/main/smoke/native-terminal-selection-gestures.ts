@@ -64,7 +64,15 @@ export async function verifyNativePendingPointer(
   managed: ManagedPty,
   browser: Browser,
   copy: Copy,
+  onPhase?: (phase: string) => void,
 ) {
+  const markPhase = (phase: string) => {
+    try {
+      onPhase?.(phase)
+    } catch {
+      // Optional timing must not alter the gesture or its cleanup.
+    }
+  }
   const previousInput = Object.getOwnPropertyDescriptor(native, 'input')
   const original = native.input.bind(native),
     viewId = (await browser.layout()).bounds.viewId
@@ -87,6 +95,7 @@ export async function verifyNativePendingPointer(
       if (!pressed && args[0] === viewId && input.button === 1 && input.action === 1) {
         pressed = true
         record({ kind: 'press', originalView: true })
+        markPhase('real-native-press-complete-ack-held')
         await acknowledgement
       } else if (pressed) {
         record({
@@ -104,11 +113,13 @@ export async function verifyNativePendingPointer(
     const start = await browser.point(4.9, 4.5),
       layout = await browser.layout()
     outside = { x: layout.bounds.x - 12, y: start.y }
+    markPhase('clear-setup-complete')
     browser.mouse('mouseMove', start.x, start.y)
     browser.mouse('mouseDown', start.x, start.y)
     await browser.wait(() => pressed, 'pending-real-press-completion')
     browser.mouse('mouseMove', outside.x, outside.y, 'left', 1, ['leftbuttondown'])
     browser.mouse('mouseUp', outside.x, outside.y)
+    markPhase('outside-events-sent')
     let before!: GestureObservation
     await browser.wait(async () => {
       before = await observe(win)
@@ -135,12 +146,15 @@ export async function verifyNativePendingPointer(
       !before.connected
     )
       throw new Error('native-selection-pending-outside-observation')
+    markPhase('trusted-outside-up-observed')
+    markPhase('ack-release')
     released = true
     release()
     await browser.wait(
       () => nativeEvents.some((event) => event.kind === 'release'),
       'pending-native-release',
     )
+    markPhase('native-release-observed')
     const after = await observe(win),
       kinds = nativeEvents.map((event) => event.kind),
       nativeOriginalViewOrder =
@@ -151,7 +165,9 @@ export async function verifyNativePendingPointer(
     if (!nativeOriginalViewOrder || nativeOverflow || after.captured || !after.connected)
       throw new Error('native-selection-pending-route-or-capture')
     await finish(win)
+    markPhase('copy-context-menu-start')
     const selected = await copy()
+    markPhase('copy-context-menu-complete')
     return {
       pointerId: before.pointerId,
       trustedOutsideMove,
@@ -178,11 +194,13 @@ export async function verifyNativePendingPointer(
     )
     throw error
   } finally {
+    markPhase('cleanup-start')
     release()
     if (previousInput) Object.defineProperty(native, 'input', previousInput)
     else Reflect.deleteProperty(native, 'input')
     if (outside) browser.mouse('mouseUp', outside.x, outside.y)
     await restore(win).catch(() => undefined)
+    markPhase('cleanup-complete')
   }
 }
 

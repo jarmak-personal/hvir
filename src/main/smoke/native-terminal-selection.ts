@@ -316,6 +316,7 @@ export async function verifyNativeTerminalSelection(
       managed,
       browser,
       () => browser.copied('alpha', () => browser.menu('Copy Selection'), isolated),
+      (name) => recordPhase('pending-press-ack:' + name),
     )
     stage('drag')
     await browser.drag(4.5, 0.25, 4.9)
