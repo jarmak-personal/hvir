@@ -8,326 +8,28 @@ import { NativeTerminalSelectionRefused } from '../../shared/native-terminal-sel
 import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
 import { terminalProbeSourceDelivery } from './terminal-probe-source'
 import { closeWebPaneSmokeServer } from './web-pane-boundary'
+import {
+  nativeSelectionBrowser,
+  nativeSelectionPointerObservation,
+  nativeSelectionHitCensusScript,
+  paneScript,
+  clipboardInstall,
+} from './native-terminal-selection-browser'
 
-const PREFIX = '__HVIR_NATIVE_SELECTION_'
-export const NATIVE_SELECTION_RETENTION_MARKER = 'HVIR_M9_RETENTION_EPOCH'
-export const NATIVE_READONLY_SELECTION = 'HVIR_READONLY_SELECTION'
-const LARGE_ROWS = 4096
+import {
+  PREFIX,
+  NATIVE_SELECTION_RETENTION_MARKER,
+  NATIVE_READONLY_SELECTION,
+  nativeSelectionFixture,
+  nativeSelectionLargeExpected,
+  nativeSelectionRecorderSource,
+} from './native-terminal-selection-fixture'
+export {
+  NATIVE_SELECTION_RETENTION_MARKER,
+  NATIVE_READONLY_SELECTION,
+} from './native-terminal-selection-fixture'
+
 const digest = (text: string) => createHash('sha256').update(text).digest('hex')
-
-/** Synthetic goldens come from the fixture, never from observed selected text. */
-export function nativeSelectionFixture(columns: number) {
-  const word = 'alpha beta',
-    unicode = '  A界e\u0301B  ',
-    wrap = 'w'.repeat(columns) + 'tail'
-  const plain = './package.json',
-    external = 'https://example.com/native-selection'
-  return { word, unicode, wrap, plain, external }
-}
-export function nativeSelectionLargeRow(columns: number, row: number): string {
-  const prefix = 'L' + String(row).padStart(4, '0') + ':'
-  return prefix + 'x'.repeat(columns - prefix.length)
-}
-export function nativeSelectionLargeExpected(columns: number) {
-  const hash = createHash('sha256')
-  let bytes = 0
-  for (let row = 0; row < LARGE_ROWS; row++) {
-    const text =
-      nativeSelectionLargeRow(columns, row) + (row + 1 === LARGE_ROWS ? '' : '\n')
-    hash.update(text)
-    bytes += Buffer.byteLength(text)
-  }
-  return { bytes, sha256: hash.digest('hex') }
-}
-
-/** One raw recorder in the already-owned Shell PTY. Only fixed protocol markers are observed. */
-export function nativeSelectionRecorderSource(
-  columns: number,
-  rows: number,
-  fileUri: string,
-  loopback: string,
-): string {
-  const fixture = nativeSelectionFixture(columns)
-  return `
-const prefix=${JSON.stringify(PREFIX)}, fixture=${JSON.stringify(fixture)}, columns=${columns}, rows=${rows}, fileUri=${JSON.stringify(fileUri)}, loopback=${JSON.stringify(loopback)};
-let command=null, waiting=false, query='', phase='', producing=false, produced=0, producerTimer, producerDeadline, largeRow=0, closed=false;
-const marker=text=>process.stdout.write('\\x1b]0;'+prefix+text+'__\\x07');
-const stopProducer=()=>{producing=false;clearTimeout(producerTimer);clearTimeout(producerDeadline);process.stdout.off('drain',produce);};
-const stop=code=>{if(closed)return;closed=true;stopProducer();clearTimeout(deadline);process.stdin.setRawMode(false);process.stdin.pause();process.stdout.write('\\x1b[?1000l\\x1b[?1006l\\x1b[?1049l',()=>process.exit(code));};
-const fail=reason=>{marker('FAILED_'+reason);stop(2);};
-const row=(n,text)=>'\\x1b['+(n+1)+';1H'+text;
-const setup=()=>{process.stdout.write('\\x1b[?1049h\\x1b[?25l\\x1b[?1000l\\x1b[?1006l\\x1b[?1004l\\x1b[?2004l\\x1b[2J'+row(4,'\\x1b[48;2;0;0;255;97m'+fixture.word+'\\x1b[0m')+row(6,fixture.unicode)+row(8,fixture.wrap)+row(11,'\\x1b]8;;'+fileUri+'\\x1b\\\\OSC8-file\\x1b]8;;\\x1b\\\\')+row(13,fixture.plain)+row(15,loopback)+row(17,fixture.external));};
-function produce(){if(!producing||closed)return;if(produced>=262144)return fail('continuous-cap');const ready=produced>=65536&&phase==='continuous-warmup';if(ready){phase='continuous';marker('CONTINUOUS_TRIGGER_'+produced);}let body=('\\x1b7'+row(rows-2,'\\r\\x1b[2Kunrelated-output')+'\\x1b8').repeat(16);produced+=Buffer.byteLength(body);if(process.stdout.write(body)===false)process.stdout.once('drain',produce);else producerTimer=setTimeout(produce,0);}
-function large(){while(largeRow<${LARGE_ROWS}){const n=largeRow++,head='L'+String(n).padStart(4,'0')+':',body=head+'x'.repeat(columns-head.length)+(largeRow===${LARGE_ROWS}?'':'\\r\\n');if(!process.stdout.write(body)){process.stdout.once('drain',large);return;}}waiting=true;query='';process.stdout.write('\\x1b[5n');}
-const start=name=>{stopProducer();phase=name;if(name==='quit'){marker('CLOSED');stop(0);return;}if(name==='grid'||name==='continuous-warmup'){setup();waiting=true;query='';process.stdout.write('\\x1b[5n');return;}if(name==='primary'){process.stdout.write('\\x1b[?1049l');waiting=true;query='';process.stdout.write('\\x1b[5n');return;}if(name==='large'){process.stdout.write('\\x1b[?1049l');largeRow=0;large();return;}fail('command');};
-process.stdin.setRawMode(true);process.stdin.resume();
-process.stdin.on('data',data=>{for(const byte of data){if(command!==null){if(byte===29){const name=command;command=null;start(name);}else command+=String.fromCharCode(byte);continue;}if(byte===29){command='';continue;}if(waiting){query+=String.fromCharCode(byte);if(query.length===4){if(query!=='\\x1b[0n')return fail('query');waiting=false;marker(phase.toUpperCase()+'_READY');if(phase==='continuous-warmup'){producing=true;producerDeadline=setTimeout(()=>fail('continuous-deadline'),2000);produce();}}continue;}if(byte===3&&phase==='continuous'){const active=producing;stopProducer();if(!active)return fail('continuous-inactive');marker('CONTINUOUS_INTERRUPTED_'+produced);continue;}if(byte===3&&phase==='large'){process.stdout.write('\\x1b[Hchanged');marker('LARGE_INTERRUPTED');continue;}if(byte===97&&phase==='large'){marker('LARGE_KEY');continue;}return fail('unexpected-input');}});
-const deadline=setTimeout(()=>fail('deadline'),45000);marker('READY');
-`
-}
-
-/** Closed synthetic-gesture diagnostics; never includes text, URI or host paths. */
-export function nativeSelectionPointerObservation(
-  input: Extract<
-    import('../../shared/native-terminal-input').NativeTerminalInputOperation,
-    { kind: 'pointer' }
-  >,
-  result: import('../../shared/native-terminal-input').NativeTerminalInputCompletion,
-  phase: string,
-) {
-  return {
-    phase,
-    x: input.x,
-    y: input.y,
-    button: input.button,
-    action: input.action,
-    modifiers: input.modifiers,
-    captured: result.captured,
-    selectionResult: result.selectionResult,
-    linkCandidate: result.linkCandidate,
-  }
-}
-
-export function nativeSelectionHitCensusScript(
-  session: string,
-  x: number,
-  y: number,
-): string {
-  return `(()=>{const panel=[...document.querySelectorAll('.terminal-surface')].find(n=>n.getAttribute('data-terminal-session')===${JSON.stringify(session)}),pane=panel?.querySelector('.native-terminal-pane');
-const describe=n=>({tag:n?.tagName??null,role:n?.getAttribute('role')?.slice(0,32)??null,classes:typeof n?.className==='string'?n.className.slice(0,128):null});
-const bounds=n=>{if(!n)return null;const r=n.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height};};
-const menus=[...document.querySelectorAll('.terminal-context-menu')],canvas=pane?.querySelector('canvas');return{viewport:{width:globalThis.innerWidth??null,height:globalThis.innerHeight??null,dpr:globalThis.devicePixelRatio??null},paneBounds:bounds(pane),canvasBounds:bounds(canvas),canvasBacking:canvas?{width:canvas.width,height:canvas.height}:null,point:{x:${x},y:${y}},menus:menus.length,menuBounds:menus.slice(0,4).map(bounds),hits:document.elementsFromPoint(${x},${y}).slice(0,8).map(describe),active:describe(document.activeElement),pane:!!pane,readonly:pane?.getAttribute('aria-readonly')==='true',canvas:!!pane?.querySelector('canvas'),nativeHit:!!pane&&pane.contains(document.elementsFromPoint(${x},${y})[0]),statusCount:pane?.querySelectorAll('[role="status"]').length??0,hidden:panel?.hidden??null};})()`
-}
-
-function paneScript(session: string): string {
-  return `const panel=[...document.querySelectorAll('.terminal-surface')].find(node=>node.getAttribute('data-terminal-session')===${JSON.stringify(session)}),pane=panel?.querySelector('.native-terminal-pane'),surface=pane?.querySelector('[id^="native-terminal-"]'),canvas=surface?.querySelector('canvas'),input=pane?.querySelector('textarea');if(!pane||!surface||!canvas||!input)throw new Error('native-selection-elements');const viewId=surface.id.slice('native-terminal-'.length);`
-}
-const clipboardInstall = (isolated: boolean) => `(() => {
- const clipboard=navigator.clipboard;if(!clipboard?.writeText)throw new Error('native-selection-clipboard-unavailable');
- const descriptor=Object.getOwnPropertyDescriptor(clipboard,'writeText'),write=clipboard.writeText.bind(clipboard),open=window.open;
- const probe={writes:[],opens:[],active:true,frames:0,last:performance.now(),maxGapMs:0};
- Object.defineProperty(clipboard,'writeText',{configurable:true,value:async text=>{const bytes=new TextEncoder().encode(text),hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');if(${isolated})await write(text);probe.writes.push({bytes:bytes.length,sha256:hash});if(probe.writes.length>64)throw new Error('native-selection-clipboard-observation-bound');}});
- window.open=(target,frame,features)=>{probe.opens.push({target:String(target),frame,features});return null;};
- const tick=now=>{if(!probe.active)return;probe.frames++;probe.maxGapMs=Math.max(probe.maxGapMs,now-probe.last);probe.last=now;requestAnimationFrame(tick);};requestAnimationFrame(tick);
- probe.restore=()=>{probe.active=false;window.open=open;if(descriptor)Object.defineProperty(clipboard,'writeText',descriptor);else delete clipboard.writeText;delete window.nativeSelectionProbe;};window.nativeSelectionProbe=probe;return true;
-})()`
-interface ClipboardProof {
-  writes: { bytes: number; sha256: string }[]
-  opens: { target: string; frame: string; features: string }[]
-  frames: number
-  maxGapMs: number
-}
-
-export function nativeSelectionBrowser(
-  win: BrowserWindow,
-  native: NativeTerminalApplication,
-  managed: ManagedPty,
-) {
-  const owner = { id: managed.ownerId, generation: managed.ownerGeneration },
-    scope = paneScript(managed.id)
-  const wait = async (check: () => boolean | Promise<boolean>, phase: string) => {
-    const deadline = Date.now() + 15000
-    do {
-      if (await check()) return
-      await new Promise<void>((resolve) => setTimeout(resolve, 25))
-    } while (Date.now() < deadline)
-    throw new Error('native-selection-' + phase + '-timeout')
-  }
-  const layout = async () => {
-    const geometry = (await native.inspectRetained(managed.id, owner)).geometry
-    const bounds = (await win.webContents.executeJavaScript(
-      `(()=>{${scope}const r=pane.getBoundingClientRect();return{x:r.x,y:r.y,viewId,width:r.width,height:r.height};})()`,
-    )) as { x: number; y: number; viewId: string; width: number; height: number }
-    if (Math.round(bounds.width * geometry.backingScale) !== geometry.width)
-      throw new Error('native-selection-layout-not-current')
-    return { geometry, bounds }
-  }
-  const mouse = (
-    type: 'mouseDown' | 'mouseUp' | 'mouseMove',
-    x: number,
-    y: number,
-    button: 'left' | 'right' = 'left',
-    clickCount = 1,
-    modifiers: ('control' | 'meta' | 'shift')[] = [],
-  ) =>
-    win.webContents.sendInputEvent({
-      type,
-      x: Math.round(x),
-      y: Math.round(y),
-      button,
-      clickCount,
-      modifiers,
-    })
-  const point = async (column: number, row: number) => {
-    const { geometry: g, bounds: b } = await layout()
-    return {
-      x: b.x + (g.paddingLeft + g.cellWidth * column) / g.backingScale,
-      y: b.y + (g.paddingTop + g.cellHeight * row) / g.backingScale,
-    }
-  }
-  const clear = async (): Promise<unknown> =>
-    win.webContents.executeJavaScript(
-      `(async()=>{${scope}return window.hvir.invoke('native-terminal:selection',{viewId,action:'selection-clear'});})()`,
-    )
-  const ready = () =>
-    wait(async () => {
-      try {
-        await win.webContents.executeJavaScript(
-          `(async()=>{${scope}return window.hvir.invoke('native-terminal:selection',{viewId,action:'state'});})()`,
-        )
-        return true
-      } catch (error) {
-        if (/native-selection-(stale|unavailable|not-drawn)/.test(String(error)))
-          return false
-        throw error
-      }
-    }, 'drawn-current-screen')
-  const painted = () =>
-    wait(async () => {
-      const { geometry: g, bounds: b } = await layout()
-      const image = await win.webContents.capturePage({
-        x: Math.ceil(b.x + g.paddingLeft / g.backingScale),
-        y: Math.ceil(b.y + (g.paddingTop + 4 * g.cellHeight) / g.backingScale),
-        width: Math.max(1, Math.floor((10 * g.cellWidth) / g.backingScale)),
-        height: Math.max(1, Math.floor(g.cellHeight / g.backingScale)),
-      })
-      const bytes = image.toBitmap()
-      let blue = 0
-      for (let offset = 0; offset < bytes.length; offset += 4)
-        if (
-          bytes[offset]! > 120 &&
-          bytes[offset]! > bytes[offset + 1]! * 1.4 &&
-          bytes[offset]! > bytes[offset + 2]! * 1.4
-        )
-          blue++
-      return blue >= 50
-    }, 'fixture-pixels')
-  const drag = async (row: number, start: number, end: number) => {
-    await clear()
-    const a = await point(start, row),
-      b = await point(end, row)
-    mouse('mouseMove', a.x, a.y)
-    mouse('mouseDown', a.x, a.y)
-    mouse('mouseMove', b.x, b.y)
-    mouse('mouseUp', b.x, b.y)
-  }
-  const hitObservations: unknown[] = []
-  let intendedPoint: { x: number; y: number; row: number; column: number } | undefined
-  const hitCensus = (): Promise<unknown> | undefined =>
-    intendedPoint &&
-    win.webContents.executeJavaScript(
-      nativeSelectionHitCensusScript(managed.id, intendedPoint.x, intendedPoint.y),
-    )
-  const menuDismissals: { visible: boolean; dismissed: boolean; nativeHit: boolean }[] =
-    []
-  const prepareLink = async () => {
-    const before = (await hitCensus()) as { menus: number; nativeHit: boolean }
-    if (before.menus) {
-      key('Escape')
-      await wait(
-        async () => !((await hitCensus()) as { menus: number }).menus,
-        'link-menu-dismiss',
-      )
-    }
-    const after = (await hitCensus()) as { menus: number; nativeHit: boolean }
-    menuDismissals.push({
-      visible: before.menus > 0,
-      dismissed: after.menus === 0,
-      nativeHit: after.nativeHit,
-    })
-    if (menuDismissals.length > 8) menuDismissals.shift()
-    if (!after.nativeHit) throw new Error('native-selection-link-hit-not-native')
-  }
-  const clicks = async (
-    row: number,
-    column: number,
-    count: number,
-    modifiers: ('control' | 'meta' | 'shift')[] = [],
-  ) => {
-    await clear()
-    const p = await point(column, row)
-    if (modifiers.length) {
-      intendedPoint = { ...p, row, column }
-      await prepareLink()
-      hitObservations.push({ intendedPoint, census: await hitCensus() })
-      if (hitObservations.length > 8) hitObservations.shift()
-    }
-    for (let n = 1; n <= count; n++) {
-      mouse('mouseDown', p.x, p.y, 'left', n, modifiers)
-      mouse('mouseUp', p.x, p.y, 'left', n, modifiers)
-    }
-  }
-  const key = (keyCode: string, modifiers: ('control' | 'meta' | 'shift')[] = []) => {
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
-  }
-  const focus = () =>
-    win.webContents.executeJavaScript(
-      `(()=>{${scope}input.focus({preventScroll:true});return document.activeElement===input;})()`,
-    )
-  const proof = () =>
-    win.webContents.executeJavaScript(
-      `(()=>{const p=window.nativeSelectionProbe;return{writes:p.writes,opens:p.opens,frames:p.frames,maxGapMs:p.maxGapMs};})()`,
-    ) as Promise<ClipboardProof>
-  const menu = async (label: string) => {
-    const p = await point(2.5, 4.5)
-    mouse('mouseDown', p.x, p.y, 'right')
-    mouse('mouseUp', p.x, p.y, 'right')
-    let bounds: { x: number; y: number } | undefined
-    await wait(async () => {
-      bounds = (await win.webContents.executeJavaScript(
-        `(()=>{const button=[...document.querySelectorAll('.terminal-context-menu [role="menuitem"]')].find(node=>node.textContent?.startsWith(${JSON.stringify(label)}));if(!button||button.disabled)return;const r=button.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`,
-      )) as { x: number; y: number } | undefined
-      return !!bounds
-    }, 'menu-' + label)
-    mouse('mouseDown', bounds!.x, bounds!.y)
-    mouse('mouseUp', bounds!.x, bounds!.y)
-  }
-  const copied = async (
-    expected: string,
-    action: () => Promise<unknown> | void,
-    isolated: boolean,
-  ) => {
-    const before = (await proof()).writes.length
-    await action()
-    await wait(async () => {
-      const entries = (await proof()).writes
-      if (entries.length === before) return false
-      const actual = entries.at(-1)!
-      if (
-        entries.length !== before + 1 ||
-        actual.bytes !== Buffer.byteLength(expected) ||
-        actual.sha256 !== digest(expected)
-      )
-        throw new Error('native-selection-clipboard-exact')
-      return true
-    }, 'clipboard')
-    if (isolated) {
-      await wait(() => digest(clipboard.readText()) === digest(expected), 'os-clipboard')
-    }
-    return { bytes: Buffer.byteLength(expected), sha256: digest(expected) }
-  }
-  return {
-    owner,
-    wait,
-    layout,
-    mouse,
-    point,
-    clear,
-    drag,
-    clicks,
-    key,
-    focus,
-    proof,
-    menu,
-    copied,
-    ready,
-    painted,
-    hitObservations,
-    menuDismissals,
-    hitCensus,
-  }
-}
 
 /** Existing workbench, real Chromium gestures, mature native selection, and no user clipboard mutation. */
 export async function verifyNativeTerminalSelection(
@@ -535,6 +237,10 @@ export async function verifyNativeTerminalSelection(
     if (!address || typeof address === 'string')
       throw new Error('native-selection-server-address')
     const loopback = `http://127.0.0.1:${address.port}/native-selection`
+    const gridAccommodation = await browser.accommodateGrid(
+      () => ptys.get(managed.id)?.instanceId === managed.instanceId,
+    )
+    console.log('HVIR_NATIVE_SELECTION_LAYOUT ' + JSON.stringify(gridAccommodation))
     const { geometry } = await browser.layout()
     if (geometry.columns < 40 || geometry.rows < 20) {
       initialGrid = {
@@ -813,6 +519,7 @@ export async function verifyNativeTerminalSelection(
       throw new Error('native-selection-final-owner-or-input')
     return {
       fixtureColumns: geometry.columns,
+      gridAccommodation,
       parserInputAlive: true,
       originalReadyBeforeClear: true,
       clearScreenScrollback: true,

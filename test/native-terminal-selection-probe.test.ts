@@ -2,14 +2,16 @@ import { runInNewContext } from 'node:vm'
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  nativeSelectionFixture,
   nativeSelectionBrowser,
   nativeSelectionHitCensusScript,
   nativeSelectionPointerObservation,
+} from '../src/main/smoke/native-terminal-selection-browser'
+import {
+  nativeSelectionFixture,
   nativeSelectionLargeExpected,
   nativeSelectionLargeRow,
   nativeSelectionRecorderSource,
-} from '../src/main/smoke/native-terminal-selection'
+} from '../src/main/smoke/native-terminal-selection-fixture'
 /** Only the recorder's protocol and synthetic goldens; not a native formatter/TTY proof. */
 function recorder(block = false) {
   const stdin = Object.assign(new EventEmitter(), {
@@ -52,6 +54,132 @@ afterEach(() => {
   vi.useRealTimers()
 })
 describe('same-PTY native selection qualification protocol', () => {
+  it.each([1, 2])(
+    'uses one finite ordinary separator drag at DPR%s and waits for actual new geometry and drawn current canvas',
+    async (scale) => {
+      let serial = 3,
+        rows = 17
+      let finishDraw!: () => void
+      const drawn = new Promise<void>((resolve) => {
+        finishDraw = resolve
+      })
+      const events: { type: string; x?: number; y?: number }[] = []
+      const geometry = () => ({
+        serial,
+        rows,
+        columns: 69,
+        width: 561 * scale,
+        height: (rows * 17 + 6) * scale,
+        cellWidth: 8 * scale,
+        cellHeight: 17 * scale,
+        backingScale: scale,
+      })
+      const win = {
+        webContents: {
+          executeJavaScript: (script: string) => {
+            if (script.includes('const separator='))
+              return Promise.resolve({ x: 265, y: 390 })
+            if (script.includes("action:'state'")) return drawn
+            return Promise.resolve({
+              x: 241,
+              y: 400,
+              width: 561,
+              height: rows * 17 + 6,
+              canvasWidth: geometry().width,
+              canvasHeight: geometry().height,
+              canvasCssWidth: 561,
+              canvasCssHeight: rows * 17 + 6,
+              dpr: scale,
+              viewId: serial === 3 ? 'old' : 'replacement',
+            })
+          },
+          sendInputEvent: (event: (typeof events)[number]) => {
+            events.push(event)
+            if (event.type === 'mouseUp') {
+              serial = 4
+              rows = 21
+            }
+          },
+        },
+      } as unknown as Parameters<typeof nativeSelectionBrowser>[0]
+      const native = {
+        inspectRetained: () => Promise.resolve({ geometry: geometry() }),
+        sessions: { get: () => ({ handle: 'same-native-surface' }) },
+      } as unknown as Parameters<typeof nativeSelectionBrowser>[1]
+      const managed = {
+        id: 's',
+        ownerId: 'o',
+        ownerGeneration: 1,
+      } as unknown as Parameters<typeof nativeSelectionBrowser>[2]
+      const browser = nativeSelectionBrowser(win, native, managed)
+      let settled = false
+      const proof = browser
+        .accommodateGrid(() => true)
+        .then((value) => {
+          settled = true
+          return value
+        })
+      await vi.waitFor(() => expect(events).toHaveLength(4))
+      expect(settled).toBe(false)
+      expect(events.map((value) => value.type)).toEqual([
+        'mouseMove',
+        'mouseDown',
+        'mouseMove',
+        'mouseUp',
+      ])
+      expect(events.at(-1)?.y).toBe(322)
+      finishDraw()
+      expect(await proof).toMatchObject({
+        action: true,
+        before: { rows: 17 },
+        after: { rows: 21 },
+        sameNativeState: true,
+        currentDraw: true,
+      })
+      expect(events).toHaveLength(4)
+    },
+  )
+
+  it('never resends the resize gesture when authority is lost before acknowledgement', async () => {
+    let current = true
+    const events: string[] = []
+    const win = {
+      webContents: {
+        executeJavaScript: (script: string) =>
+          Promise.resolve(
+            script.includes('const separator=')
+              ? { x: 265, y: 390 }
+              : { x: 0, y: 0, width: 561, height: 295 },
+          ),
+        sendInputEvent: (event: { type: string }) => {
+          events.push(event.type)
+          if (event.type === 'mouseUp') current = false
+        },
+      },
+    } as unknown as Parameters<typeof nativeSelectionBrowser>[0]
+    const native = {
+      inspectRetained: () =>
+        Promise.resolve({
+          geometry: {
+            serial: 3,
+            rows: 17,
+            width: 561,
+            columns: 69,
+            backingScale: 1,
+            cellHeight: 17,
+          },
+        }),
+      sessions: { get: () => ({ handle: 'same-native-surface' }) },
+    } as unknown as Parameters<typeof nativeSelectionBrowser>[1]
+    const browser = nativeSelectionBrowser(win, native, {
+      id: 's',
+      ownerId: 'o',
+      ownerGeneration: 1,
+    } as unknown as Parameters<typeof nativeSelectionBrowser>[2])
+    await expect(browser.accommodateGrid(() => current)).rejects.toThrow('resize-owner')
+    expect(events).toEqual(['mouseMove', 'mouseDown', 'mouseMove', 'mouseUp'])
+  })
+
   it('dismisses an existing menu with Escape before the unchanged independent Ctrl-click, and refuses a non-native hit', async () => {
     let menu = true,
       nativeHit = true
