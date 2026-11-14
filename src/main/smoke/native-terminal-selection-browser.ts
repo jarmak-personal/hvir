@@ -110,7 +110,7 @@ export function nativeSelectionBrowser(
     y: number,
     button: 'left' | 'right' = 'left',
     clickCount = 1,
-    modifiers: ('control' | 'meta' | 'shift')[] = [],
+    modifiers: ('control' | 'meta' | 'shift' | 'leftbuttondown')[] = [],
   ) =>
     win.webContents.sendInputEvent({
       type,

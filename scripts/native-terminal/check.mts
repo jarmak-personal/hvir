@@ -40,6 +40,8 @@ const proof = JSON.parse(selection.stdout) as {
   autoscrollCases?: unknown
   largeCopyBytes?: unknown
   largeCopyChunks?: unknown
+  workBoundaryBytes?: unknown
+  workBoundaryChunks?: unknown
   cleanupChecked?: unknown
 }
 if (
@@ -59,6 +61,10 @@ if (
   typeof proof.largeCopyChunks !== 'number' ||
   !Number.isSafeInteger(proof.largeCopyChunks) ||
   proof.largeCopyChunks < 2 ||
+  typeof proof.workBoundaryBytes !== 'number' ||
+  proof.workBoundaryBytes <= 0 ||
+  typeof proof.workBoundaryChunks !== 'number' ||
+  proof.workBoundaryChunks < 2 ||
   proof.cleanupChecked !== true
 )
   throw new Error('native-selection: incomplete check')

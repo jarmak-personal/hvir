@@ -1120,7 +1120,7 @@
 +}
 --- a/src/terminal/formatter.zig
 +++ b/src/terminal/formatter.zig
-@@ -906,6 +906,157 @@
+@@ -906,6 +906,160 @@
  };
  
  /// PageList formatter formats multiple pages as represented by a PageList.
@@ -1236,6 +1236,9 @@
 +                        };
 +                        if (self.spaces > 0) continue;
 +                    }
++                    // A cell visit and its codepoint emission are separate work.
++                    // Keep the initialized cell when the visit exhausts this step.
++                    if (work == budget) break;
 +                    const grapheme: []const u21 = if (cell.content_tag == .codepoint_grapheme)
 +                        page_.lookupGrapheme(cell).?
 +                    else

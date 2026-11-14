@@ -16,6 +16,7 @@ typedef struct {
   unsigned checks, mutations, sources, link_candidates, autoscrolls;
   uint64_t large_bytes, large_chunks, large_visits, large_work;
   unsigned large_columns, large_rows;
+  uint64_t work_boundary_bytes, work_boundary_chunks;
   bool failed;
 } probe;
 static bool check(probe *p, bool value, const char *name) {
@@ -41,8 +42,8 @@ static bool inspect(probe *p, hvir_terminal_status *status) {
     !status->failure && !status->input_failure, "parser-input-healthy");
   return true;
 }
-static bool create(probe *p) {
-  REQUIRE(hvir_terminal_create(p->host, 640, 128, &p->id) == HVIR_OK, "create");
+static bool create_extent(probe *p, uint32_t width, uint32_t height) {
+  REQUIRE(hvir_terminal_create(p->host, width, height, &p->id) == HVIR_OK, "create");
   p->sequence = 0;
   uint64_t deadline = milliseconds() + 5000;
   do {
@@ -53,6 +54,7 @@ static bool create(probe *p) {
   } while (milliseconds() < deadline);
   return check(p, false, "initial-geometry");
 }
+static bool create(probe *p) { return create_extent(p, 640, 128); }
 static bool destroy(probe *p) {
   if (p->cursor) {
     REQUIRE(hvir_terminal_extract_close(p->host, p->id, p->cursor) == HVIR_OK,
@@ -500,6 +502,59 @@ static bool large_copy(probe *p) {
   p->large_bytes = copied;
   return finish(p) && healthy_key(p) && destroy(p);
 }
+static bool work_boundary(probe *p) {
+  if (!create_extent(p, 561, 363)) return false;
+  hvir_terminal_selection_context ctx;
+  hvir_terminal_geometry g;
+  if (!context(p, &ctx, &g)) return false;
+  uint8_t batch[HVIR_TERMINAL_FEED_MAX];
+  size_t row_bytes = g.columns + 4, rows = 4096;
+  REQUIRE(g.columns > 1 && row_bytes <= sizeof(batch), "work-boundary-fixture");
+  size_t batch_rows = sizeof(batch) / row_bytes;
+  for (size_t row = 0; row < batch_rows; row++) {
+    uint8_t *line = batch + row * row_bytes;
+    /* One implicit leading cell changes the work/emission alignment. The old
+     * formatter returned work8193 from its first8192-budget step on macOS. */
+    memcpy(line, "\x1b[C", 3);
+    memset(line + 3, 'a', g.columns - 1);
+    line[row_bytes - 2] = '\r'; line[row_bytes - 1] = '\n';
+  }
+  for (size_t produced = 0; produced < rows;) {
+    size_t count = batch_rows;
+    if (count > rows - produced) count = rows - produced;
+    REQUIRE(hvir_terminal_feed(p->host, p->id, ++p->sequence, batch,
+      count * row_bytes) == HVIR_OK, "work-boundary-source");
+    produced += count;
+  }
+  if (!select_all(p, &ctx)) return false;
+  size_t expected = rows * ((size_t)g.columns + 1) - 2, copied = 0;
+  uint8_t bytes[HVIR_TERMINAL_SELECTION_CHUNK];
+  bool done = false;
+  for (size_t call = 0; !done && call < expected; call++) {
+    hvir_terminal_selection_result out;
+    if (!next(p, bytes, sizeof(bytes), &out)) return false;
+    REQUIRE(out.length <= expected - copied, "work-boundary-length");
+    bool exact = true;
+    for (size_t i = 0; i < out.length; i++) {
+      size_t offset = copied + i;
+      uint8_t byte;
+      if (offset < g.columns - 1) byte = 'a';
+      else if (offset == g.columns - 1) byte = '\n';
+      else {
+        size_t column = (offset - g.columns) % (g.columns + 1);
+        byte = column == 0 ? ' ' : column == g.columns ? '\n' : 'a';
+      }
+      if (bytes[i] != byte) { exact = false; break; }
+    }
+    REQUIRE(exact, "work-boundary-exact-resumed-bytes");
+    copied += out.length;
+    p->work_boundary_chunks++;
+    done = out.done;
+  }
+  REQUIRE(done && copied == expected, "work-boundary-complete");
+  p->work_boundary_bytes = copied;
+  return finish(p) && healthy_key(p) && destroy(p);
+}
 static bool source_proofs(probe *p) {
   if (!source(p, "alpha\r\nA\xe7\x95\x8c" "e\xcc\x81" "B",
       "alpha\nA\xe7\x95\x8c" "e\xcc\x81" "B") ||
@@ -516,7 +571,7 @@ static bool source_proofs(probe *p) {
       !healthy_key(p) || !destroy(p)) return false;
   p->sources++;
   return rectangle(p) && reflow(p) && cancellation(p) && link_candidates(p) &&
-    autoscroll(p) && large_copy(p);
+    autoscroll(p) && large_copy(p) && work_boundary(p);
 }
 static void *run(void *argument) {
   probe *p = argument;
@@ -550,9 +605,10 @@ int main(int argc, char **argv) {
     "\"largeCopyBytes\":%"PRIu64",\"largeCopyChunks\":%"PRIu64","
     "\"largeCopyCells\":%"PRIu64",\"largeCopyWork\":%"PRIu64","
     "\"largeCopyColumns\":%u,\"largeCopyRows\":%u,"
+    "\"workBoundaryBytes\":%"PRIu64",\"workBoundaryChunks\":%"PRIu64","
     "\"cleanupChecked\":true,\"hardwareGpuQualified\":false}\n",
     p.checks, p.mutations, p.sources, p.link_candidates, p.autoscrolls,
     p.large_bytes, p.large_chunks, p.large_visits, p.large_work,
-    p.large_columns, p.large_rows);
+    p.large_columns, p.large_rows, p.work_boundary_bytes, p.work_boundary_chunks);
   return 0;
 }

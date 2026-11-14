@@ -63,7 +63,7 @@
     },
     {
       "file": "patches/0007-external-selection.patch.txt",
-      "sha256": "86a2b6bc5287888a81679bb1b274bf1354acbfb9737cab02c81c8bf46d065ae0",
+      "sha256": "127282752d44050bd5d72dbea0a468cafb9b85b3b539660bc3c2d1357e68a853",
       "purpose": "Generic terminal-only native selection gestures, bounded resumable plaintext extraction with request-owned row mutation tracking and cancellation, current-viewport link/row readback, and actual render-snapshot screen metadata. Clipboard/navigation authority and application policy remain maintained C/TypeScript."
     }
   ],

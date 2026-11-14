@@ -227,7 +227,12 @@ export async function verifyNativeTerminalWorkbench(
   if (ptys.list().length) throw new Error('native-workbench-exit-live-pty')
   console.log('[native-workbench] retained-exit-tail')
   const readonlyInput = await verifyNativeReadonlyInput(win, native, managed)
-  const readonlySelection = await verifyNativeReadonlySelection(win, native, managed)
+  const readonlySelection = await verifyNativeReadonlySelection(
+    win,
+    ptys,
+    native,
+    managed,
+  )
   await native.remove(managed.id, managed.instanceId)
   if (native.sessions.get(managed.id)) throw new Error('native-workbench-removed-state')
   console.log(

@@ -9,6 +9,10 @@ import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
 import { terminalProbeSourceDelivery } from './terminal-probe-source'
 import { closeWebPaneSmokeServer } from './web-pane-boundary'
 import {
+  verifyNativePendingPointer,
+  verifyNativeReadonlyPointerBlur,
+} from './native-terminal-selection-gestures'
+import {
   nativeSelectionBrowser,
   nativeSelectionPointerObservation,
   nativeSelectionHitCensusScript,
@@ -275,6 +279,14 @@ export async function verifyNativeTerminalSelection(
     await wait(() => seen('GRID_READY'), 'grid-ready')
     await browser.ready()
     await browser.painted()
+    stage('pending-press-ack')
+    const pendingPressAck = await verifyNativePendingPointer(
+      win,
+      native,
+      managed,
+      browser,
+      () => browser.copied('alpha', () => browser.menu('Copy Selection'), isolated),
+    )
     stage('drag')
     await browser.drag(4.5, 0.25, 4.9)
     summaries.push({
@@ -521,6 +533,7 @@ export async function verifyNativeTerminalSelection(
       fixtureColumns: geometry.columns,
       gridAccommodation,
       parserInputAlive: true,
+      pendingPressAck,
       originalReadyBeforeClear: true,
       clearScreenScrollback: true,
       resetTerminal: true,
@@ -645,6 +658,7 @@ export async function verifyNativeTerminalSelection(
 /** Native retained state remains selectable after the physical PTY has gone. */
 export async function verifyNativeReadonlySelection(
   win: BrowserWindow,
+  ptys: PtySupervisor,
   native: NativeTerminalApplication,
   managed: ManagedPty,
 ) {
@@ -670,11 +684,19 @@ export async function verifyNativeReadonlySelection(
       'readonly-bottom',
     )
     await browser.ready()
-    await browser.drag(0.5, 0.25, NATIVE_READONLY_SELECTION.length - 0.1)
-    const copied = await browser.copied(
-      NATIVE_READONLY_SELECTION,
-      () => browser.menu('Copy Selection'),
-      isolated,
+    const { copied, gestureBlur } = await verifyNativeReadonlyPointerBlur(
+      win,
+      ptys,
+      native,
+      managed,
+      browser,
+      NATIVE_READONLY_SELECTION.length - 0.1,
+      () =>
+        browser.copied(
+          NATIVE_READONLY_SELECTION,
+          () => browser.menu('Copy Selection'),
+          isolated,
+        ),
     )
     await browser.wait(
       async () => (await browser.proof()).frames >= 2,
@@ -686,6 +708,7 @@ export async function verifyNativeReadonlySelection(
     return {
       rendererSamples: paint.frames,
       rendererMaxMs: paint.maxGapMs,
+      gestureBlur,
       readonlyDrag: true,
       readonlyCopy: true,
       bytes: copied.bytes,

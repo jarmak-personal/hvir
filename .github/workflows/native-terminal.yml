@@ -310,6 +310,13 @@ jobs:
           }
           assert(selection.continuous.producedBytes >= 65536);
           assert.equal(selection.continuous.copiedWhileActive, true);
+          const pendingPress = selection.pendingPressAck;
+          assert(Number.isSafeInteger(pendingPress.pointerId) && pendingPress.pointerId >= 0);
+          for (const field of ['trustedOutsideMove', 'trustedOutsideUp', 'ackHeldUntilOutsideUp',
+            'nativeOriginalViewOrder', 'captureReleasedBeforeAck', 'captureReleasedAfterAck']) assert.equal(pendingPress[field], true);
+          assert.equal(pendingPress.heldMoveButtons, 1);
+          assert.equal(pendingPress.exactSelectedBytes, 5);
+          assert.equal(pendingPress.exactSelectedSha256, crypto.createHash('sha256').update('alpha').digest('hex'));
           const largeCopy = selection.largeCopy;
           assert.equal(largeCopy.fixtureBytes, 4096 * (selection.fixtureColumns + 1) - 1);
           assert(largeCopy.fixtureBytes > 65536);
@@ -329,6 +336,13 @@ jobs:
           const readonlySelection = proof.readonlySelection;
           assert(Number.isSafeInteger(readonlySelection.rendererSamples) && readonlySelection.rendererSamples >= 2);
           assert(Number.isFinite(readonlySelection.rendererMaxMs) && readonlySelection.rendererMaxMs >= 0 && readonlySelection.rendererMaxMs <= 500);
+          const gestureBlur = readonlySelection.gestureBlur;
+          assert(Number.isSafeInteger(gestureBlur.pointerId) && gestureBlur.pointerId >= 0);
+          for (const field of ['acknowledgedDrag', 'tabChangedFocus', 'nativeFocusCleanup',
+            'captureReleased', 'selectedRangePreserved']) assert.equal(gestureBlur[field], true);
+          assert.equal(gestureBlur.heldMoveButtons, 1);
+          assert.equal(gestureBlur.ptyWrites, 0);
+          assert.equal(gestureBlur.ptyCount, 0);
           assert.equal(readonlySelection.readonlyDrag, true);
           assert.equal(readonlySelection.readonlyCopy, true);
           assert.equal(readonlySelection.bytes, Buffer.byteLength('HVIR_READONLY_SELECTION'));

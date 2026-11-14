@@ -288,6 +288,8 @@ for (const capability of ['input', 'effects', 'selection']) {
     autoscrollCases?: unknown
     largeCopyBytes?: unknown
     largeCopyChunks?: unknown
+    workBoundaryBytes?: unknown
+    workBoundaryChunks?: unknown
     cleanupChecked?: unknown
   }
   if (
@@ -310,6 +312,10 @@ for (const capability of ['input', 'effects', 'selection']) {
         typeof result.largeCopyChunks !== 'number' ||
         !Number.isSafeInteger(result.largeCopyChunks) ||
         result.largeCopyChunks < 2 ||
+        typeof result.workBoundaryBytes !== 'number' ||
+        result.workBoundaryBytes <= 0 ||
+        typeof result.workBoundaryChunks !== 'number' ||
+        result.workBoundaryChunks < 2 ||
         result.cleanupChecked !== true))
   )
     throw new Error(`native-${capability}: incomplete proof`)
