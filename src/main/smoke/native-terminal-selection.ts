@@ -57,6 +57,13 @@ export async function verifyNativeTerminalSelection(
   const markers = new Set<string>()
   let initialGrid: unknown
   let phase = 'setup'
+  let lastBeatPhase = phase
+  let worstMainGap: {
+    fromMs: number
+    toMs: number
+    phaseAtStart: string
+    phaseAtEnd: string
+  } | null = null
   const stage = (name: string) => {
     phase = name
     console.log('[native-workbench] selection-' + name)
@@ -64,8 +71,16 @@ export async function verifyNativeTerminalSelection(
   const heartbeat = setInterval(() => {
     const now = performance.now()
     mainSamples++
+    if (now - lastBeat > mainMaxMs)
+      worstMainGap = {
+        fromMs: lastBeat,
+        toMs: now,
+        phaseAtStart: lastBeatPhase,
+        phaseAtEnd: phase,
+      }
     mainMaxMs = Math.max(mainMaxMs, now - lastBeat)
     lastBeat = now
+    lastBeatPhase = phase
   }, 5)
   const stop = ptys.attach(managed.id, owner.id, {
     onData: (data) => {
@@ -513,6 +528,18 @@ export async function verifyNativeTerminalSelection(
       'new-retention-marker',
     )
     const paint = await browser.proof()
+    console.log(
+      'HVIR_NATIVE_SELECTION_RESPONSIVENESS ' +
+        JSON.stringify({
+          phase,
+          mainSamples,
+          mainMaxMs,
+          worstMainGap,
+          rendererSamples: paint.frames,
+          rendererMaxMs: paint.maxGapMs,
+          maximumInclusiveMs: UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs,
+        }),
+    )
     if (
       !paint.frames ||
       !mainSamples ||
@@ -703,6 +730,14 @@ export async function verifyNativeReadonlySelection(
       'readonly-paint-samples',
     )
     const paint = await browser.proof()
+    console.log(
+      'HVIR_NATIVE_SELECTION_READONLY_RESPONSIVENESS ' +
+        JSON.stringify({
+          rendererSamples: paint.frames,
+          rendererMaxMs: paint.maxGapMs,
+          maximumInclusiveMs: UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs,
+        }),
+    )
     if (paint.maxGapMs > UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs)
       throw new Error('native-selection-readonly-paint-budget')
     return {

@@ -98,18 +98,29 @@ export const EXTENSION_LIFECYCLE_PROBE_SCRIPT = `
   });
   document.body.append(renderControl);
   window.extensionLifecycleEvents = [];
+  const nativeVisibility = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState').get;
   document.addEventListener('freeze', () => {
-    window.extensionLifecycleEvents.push({ kind: 'freeze', at: performance.now(), ticks: window.extensionInitialTicks });
+    const observation = { kind: 'freeze', at: performance.now(), ticks: window.extensionInitialTicks };
+    window.extensionLifecycleEvents.push(observation);
     if (window.extensionLifecycleEvents.length > 16) window.extensionLifecycleEvents.shift();
+    try {
+      observation.frames = window.extensionRenderFrames;
+      observation.visible = nativeVisibility.call(document);
+    } catch { observation.visibilityReadFailed = true; }
   });
   document.addEventListener('resume', () => {
-    window.extensionLifecycleEvents.push({ kind: 'resume', at: performance.now(), ticks: window.extensionInitialTicks });
+    const observation = { kind: 'resume', at: performance.now(), ticks: window.extensionInitialTicks };
+    window.extensionLifecycleEvents.push(observation);
     if (window.extensionLifecycleEvents.length > 16) window.extensionLifecycleEvents.shift();
+    try {
+      observation.frames = window.extensionRenderFrames;
+      observation.visible = nativeVisibility.call(document);
+    } catch { observation.visibilityReadFailed = true; }
   });
-  const nativeVisibility = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState').get;
   window.addEventListener('visibilitychange', event => {
-    if (!event.isTrusted || nativeVisibility.call(document) !== 'visible') return;
-    window.extensionLifecycleEvents.push({ kind: 'native-visible', at: performance.now(), ticks: window.extensionInitialTicks });
+    if (!event.isTrusted) return;
+    const visible = nativeVisibility.call(document);
+    window.extensionLifecycleEvents.push({ kind: visible === 'visible' ? 'native-visible' : 'native-hidden', at: performance.now(), ticks: window.extensionInitialTicks, frames: window.extensionRenderFrames, visible });
     if (window.extensionLifecycleEvents.length > 16) window.extensionLifecycleEvents.shift();
   }, true);
   window.addEventListener('visibilitychange', event => {
@@ -125,6 +136,9 @@ interface LifecycleEvent {
   kind: string
   at: number
   ticks: number
+  frames?: number
+  visible?: string
+  visibilityReadFailed?: boolean
 }
 interface LifecycleObservation {
   ticks: number
@@ -387,7 +401,7 @@ async function verifyExtensionPlacementRenderResume(
   }
   const read = async (guest: WebContents) => {
     const result = (await guest.debugger.sendCommand('Runtime.evaluate', {
-      expression: `({visible:Object.getOwnPropertyDescriptor(Document.prototype,'visibilityState').get.call(document),frames:window.extensionRenderFrames,ticks:window.extensionInitialTicks,clicks:window.extensionRenderClicks,replies:window.extensionRenderReplies})`,
+      expression: `({visible:Object.getOwnPropertyDescriptor(Document.prototype,'visibilityState').get.call(document),frames:window.extensionRenderFrames,ticks:window.extensionInitialTicks,clicks:window.extensionRenderClicks,replies:window.extensionRenderReplies,events:window.extensionLifecycleEvents.slice(-16)})`,
       returnByValue: true,
     })) as {
       result: {
@@ -397,6 +411,7 @@ async function verifyExtensionPlacementRenderResume(
           ticks: number
           clicks: number
           replies: number
+          events: LifecycleEvent[]
         }
       }
     }
@@ -622,7 +637,15 @@ async function verifyExtensionPlacementRenderResume(
           after.frames !== before.frames ||
           (surface === 'top' && after.ticks !== before.ticks)
         ) {
-          const evidence = { before, after, nativeBefore, nativeAfter }
+          let parent: unknown = { available: false }
+          try {
+            parent = await fixture.webContents.executeJavaScript(
+              `(()=>{const view=document.getElementById(${JSON.stringify(view.id)}),style=view&&getComputedStyle(view),bounds=view?.getBoundingClientRect();return{available:true,nativeVisibility:Object.getOwnPropertyDescriptor(Document.prototype,'visibilityState').get.call(document),publicVisibility:document.visibilityState,focused:document.hasFocus(),webviewConnected:view?.isConnected??false,display:style?.display??null,visibility:style?.visibility??null,width:bounds?.width??null,height:bounds?.height??null};})()`,
+            )
+          } catch {
+            // A diagnostic failure must not replace the original rendering failure.
+          }
+          const evidence = { before, after, nativeBefore, nativeAfter, parent }
           console.log(
             `[smoke] background native rendering failure ${JSON.stringify(evidence)}`,
           )
