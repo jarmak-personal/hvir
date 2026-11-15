@@ -14,6 +14,7 @@ export interface NativeSelectionEngineResult {
   cursor?: bigint
   column?: number
   clickedByteOffset?: bigint
+  effectSerialCutoff?: bigint
   data?: Uint8Array
   done?: boolean
   visited?: number
@@ -126,6 +127,8 @@ function normalize(
     screen: value.screen as 0 | 1,
     geometrySerial: counter(value.geometrySerial),
     requestedMutation: counter(value.requestedMutation),
+    ...(value.effectSerialCutoff === undefined || value.effectSerialCutoff === 0n
+      ? {} : { effectSerialCutoff: counter(value.effectSerialCutoff) }),
     ...(value.clickedByteOffset === undefined
       ? {}
       : { clickedByteOffset: counter(value.clickedByteOffset) }),

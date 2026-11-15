@@ -1,0 +1,628 @@
+import { app, type BrowserWindow } from 'electron'
+import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
+import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
+import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
+import { CAPACITY_PERFORMANCE_BUDGETS } from './capacity-performance'
+import {
+  clipboardInstall,
+  nativeSelectionBrowser,
+  paneScript,
+} from './native-terminal-selection-browser'
+import { NATIVE_READONLY_SELECTION } from './native-terminal-selection-fixture'
+
+const MATCH = 'hvir-native-query-match'
+
+/** Real retained-query controls and pixels on the same native workbench Surface. */
+export async function verifyNativeTerminalQuery(
+  win: BrowserWindow,
+  ptys: PtySupervisor,
+  native: NativeTerminalApplication,
+  managed: ManagedPty,
+) {
+  const browser = nativeSelectionBrowser(win, native, managed)
+  const scope = paneScript(managed.id)
+  const evaluate = <T>(body: string): Promise<T> =>
+    win.webContents.executeJavaScript(`(async()=>{${scope}${body}})()`) as Promise<T>
+  const click = (label: string) =>
+    evaluate(
+      `const button=panel.querySelector('button[aria-label='+JSON.stringify(${JSON.stringify(label)})+']');if(!(button instanceof HTMLButtonElement)||button.disabled)throw new Error('native-query-action-unavailable');button.click();`,
+    )
+  const status = () =>
+    evaluate<string>(
+      `return panel.querySelector('.terminal-search-status')?.textContent?.trim()??'';`,
+    )
+  const query = (text: string) =>
+    evaluate(
+      `const query=panel.querySelector('[aria-label="Find in terminal"]');if(!(query instanceof HTMLInputElement))throw new Error('native-query-input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(query,${JSON.stringify(text)});query.dispatchEvent(new Event('input',{bubbles:true}));`,
+    )
+  await browser.ready()
+  await browser.focus()
+  await browser.menu('Clear Screen and Scrollback')
+  await win.webContents.executeJavaScript(clipboardInstall(false))
+  let phase = 'initial-query'
+  try {
+    await ptys.writeConfirmed(
+      managed.id,
+      managed.ownerId,
+      `hvir_native_query='hvir-native-''query-match'; printf '\\033[H\\r\\n%s\\r\\n%s\\r\\n%s\\r\\n' "$hvir_native_query" "$hvir_native_query" "$hvir_native_query"\r`,
+      managed.ownerGeneration,
+    )
+    await evaluate(
+      `input.dispatchEvent(new KeyboardEvent('keydown',{key:'f',code:'KeyF',shiftKey:true,...(/Mac/.test(navigator.platform)?{metaKey:true}:{ctrlKey:true}),bubbles:true,cancelable:true}));`,
+    )
+    await browser.wait(
+      () => evaluate(`return !!panel.querySelector('.terminal-search');`),
+      'query-open',
+    )
+    await query(MATCH)
+    await browser.wait(
+      async () => ['1 of 3', '3 matches'].includes(await status()),
+      'query-three',
+    )
+    if ((await status()) === '3 matches') await click('Next terminal match')
+    await browser.wait(async () => (await status()) === '1 of 3', 'query-first')
+    const first = await selectedHighlight(win, managed.id, browser)
+    await click('Next terminal match')
+    await browser.wait(async () => (await status()) === '2 of 3', 'query-next')
+    const second = await selectedHighlight(win, managed.id, browser, first)
+    await click('Previous terminal match')
+    await browser.wait(async () => (await status()) === '1 of 3', 'query-previous')
+    const returned = await selectedHighlight(win, managed.id, browser, second)
+    if (
+      Math.abs(first.top - returned.top) > 1 ||
+      Math.abs(first.left - returned.left) > 1
+    )
+      throw new Error('native-query-highlight-did-not-return')
+    const copy = await browser.copied(
+      MATCH,
+      () =>
+        evaluate(
+          `const button=[...panel.querySelectorAll('.terminal-search button')].find(node=>node.textContent?.trim()==='Copy Match');if(!(button instanceof HTMLButtonElement))throw new Error('native-query-copy');button.click();`,
+        ),
+      false,
+    )
+    phase = 'selected-movement'
+    // True row movement preserves the selected occurrence; no navigation/reveal
+    // action occurs between the parser edit and observing its native pixels.
+    await ptys.writeConfirmed(
+      managed.id,
+      managed.ownerId,
+      `printf '\\0337\\033[1;1H\\033[L\\0338'\r`,
+      managed.ownerGeneration,
+    )
+    const moved = await selectedHighlight(win, managed.id, browser, returned)
+    if (moved.top <= returned.top || (await status()) !== '1 of 3')
+      throw new Error('native-query-selected-row-did-not-follow-insert')
+    const movedCopy = await browser.copied(
+      MATCH,
+      () =>
+        evaluate(
+          `const button=[...panel.querySelectorAll('.terminal-search button')].find(node=>node.textContent?.trim()==='Copy Match');if(!(button instanceof HTMLButtonElement))throw new Error('native-query-moved-copy');button.click();`,
+        ),
+      false,
+    )
+    await click('Close terminal search')
+    phase = 'streaming-setup'
+    // Match the existing streaming fixture: selected occurrences are already
+    // retained history before the producer and acquisition clock begin.
+    let setupOutput = ''
+    const setupMarker = '__HVIR_M10_STREAM_SETUP__'
+    const detachSetup = ptys.attach(managed.id, managed.ownerId, {
+      onData: (data) => {
+        setupOutput = (setupOutput + data).slice(-8192)
+      },
+    })
+    try {
+      const setupDeadline = performance.now() + 3000
+      await ptys.writeConfirmed(
+        managed.id,
+        managed.ownerId,
+        `hvir_m10_setup='__HVIR_M10_STREAM_''SETUP__'; hvir_m10_i=0; while [ "$hvir_m10_i" -lt 120 ]; do printf 'history filler\\r\\n'; hvir_m10_i=$((hvir_m10_i+1)); done; printf '%s\\r\\n' "$hvir_m10_setup"\r`,
+        managed.ownerGeneration,
+      )
+      await browser.wait(() => {
+        if (performance.now() > setupDeadline)
+          throw new Error('native-query-stream-setup-deadline')
+        return setupOutput.includes(setupMarker)
+      }, 'query-stream-setup')
+    } finally {
+      await detachSetup()
+    }
+    phase = 'streaming-evidence'
+    // The unchanged canonical streaming clock includes its own fresh acquisition.
+    const streamingStarted = performance.now(),
+      streamingDeadline = streamingStarted + 2500
+    await evaluate(
+      `input.dispatchEvent(new KeyboardEvent('keydown',{key:'f',code:'KeyF',shiftKey:true,...(/Mac/.test(navigator.platform)?{metaKey:true}:{ctrlKey:true}),bubbles:true,cancelable:true}));`,
+    )
+    await browser.wait(
+      () => evaluate(`return !!panel.querySelector('.terminal-search');`),
+      'query-stream-open',
+    )
+    await query(MATCH)
+    await browser.wait(
+      async () => ['1 of 3', '3 matches'].includes(await status()),
+      'query-stream-three',
+    )
+    if ((await status()) === '3 matches') await click('Next terminal match')
+    await browser.wait(async () => (await status()) === '1 of 3', 'query-stream-first')
+    await click('Next terminal match')
+    await browser.wait(async () => (await status()) === '2 of 3', 'query-stream-second')
+    const streamingSelected = await selectedHighlight(win, managed.id, browser)
+    const checkpoints = {
+      acquiredMs: performance.now() - streamingStarted,
+      countMs: 0,
+      pixelsMs: 0,
+      copyMs: 0,
+      previousClickedMs: 0,
+      previousMs: 0,
+      nextClickedMs: 0,
+    }
+    let streamOutput = '',
+      streamCompleted = false
+    const streamDetach = ptys.attach(managed.id, managed.ownerId, {
+      onData: (data) => {
+        streamOutput = (streamOutput + data).slice(-8192)
+        streamCompleted ||= streamOutput.includes('__HVIR_M10_STREAM_DONE__')
+      },
+    })
+    let streaming: {
+      elapsedMs: number
+      evidenceBudgetMs: number
+      completionBudgetMs: number
+      selectedIndex: number
+      copiedWhileProducing: boolean
+    }
+    const withinStreaming = () => {
+      if (performance.now() > streamingDeadline)
+        throw new Error(
+          'native-query-streaming-absolute-deadline ' +
+            JSON.stringify({
+              elapsedMs: performance.now() - streamingStarted,
+              ...checkpoints,
+            }),
+        )
+      if (streamCompleted)
+        throw new Error('native-query-streaming-evidence-after-producer')
+    }
+    try {
+      await ptys.writeConfirmed(
+        managed.id,
+        managed.ownerId,
+        `hvir_m10_stream_done='__HVIR_M10_STREAM_''DONE__'; sleep 0.2; hvir_m10_i=0; while [ "$hvir_m10_i" -lt 150 ]; do printf 'stream filler %s\\r\\n' "$hvir_m10_i"; if [ "$hvir_m10_i" = 30 ]; then printf '%s\\r\\n' "$hvir_native_query"; fi; hvir_m10_i=$((hvir_m10_i+1)); sleep 0.02; done; printf '%s\\r\\n' "$hvir_m10_stream_done"\r`,
+        managed.ownerGeneration,
+      )
+      await browser.wait(async () => {
+        withinStreaming()
+        return (await status()) === '2 of 4'
+      }, 'query-stream-count')
+      checkpoints.countMs = performance.now() - streamingStarted
+      for (let index = 0; index < 12; index++) {
+        withinStreaming()
+        if ((await status()) !== '2 of 4')
+          throw new Error('native-query-stream-selection-changed')
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+      const stable = await selectedHighlight(win, managed.id, browser)
+      checkpoints.pixelsMs = performance.now() - streamingStarted
+      if (
+        ['top', 'left', 'right', 'bottom'].some(
+          (axis) =>
+            Math.abs(
+              stable[axis as keyof Highlight] -
+                streamingSelected[axis as keyof Highlight],
+            ) > 1,
+        )
+      )
+        throw new Error('native-query-stream-viewport-changed')
+      withinStreaming()
+      await browser.copied(
+        MATCH,
+        () =>
+          evaluate(
+            `const button=[...panel.querySelectorAll('.terminal-search button')].find(node=>node.textContent?.trim()==='Copy Match');if(!(button instanceof HTMLButtonElement))throw new Error('native-query-stream-copy');button.click();`,
+          ),
+        false,
+      )
+      checkpoints.copyMs = performance.now() - streamingStarted
+      withinStreaming()
+      await click('Previous terminal match')
+      checkpoints.previousClickedMs = performance.now() - streamingStarted
+      await browser.wait(async () => {
+        withinStreaming()
+        return (await status()) === '1 of 4'
+      }, 'query-stream-previous')
+      checkpoints.previousMs = performance.now() - streamingStarted
+      await click('Next terminal match')
+      checkpoints.nextClickedMs = performance.now() - streamingStarted
+      await browser.wait(async () => {
+        withinStreaming()
+        return (await status()) === '2 of 4'
+      }, 'query-stream-next')
+      streaming = {
+        elapsedMs: performance.now() - streamingStarted,
+        evidenceBudgetMs: 2500,
+        completionBudgetMs: 7000,
+        selectedIndex: 1,
+        copiedWhileProducing: true,
+      }
+      const completionDeadline = performance.now() + 7000
+      await browser.wait(() => {
+        if (performance.now() > completionDeadline)
+          throw new Error('native-query-stream-completion-deadline')
+        return streamCompleted
+      }, 'query-stream-completion')
+    } finally {
+      await streamDetach()
+    }
+    await click('Close terminal search')
+    phase = 'semantic-query'
+    // Genuine parser boundaries, current-body extraction, and native viewport reveal.
+    await browser.menu('Clear Screen and Scrollback')
+    await ptys.writeConfirmed(
+      managed.id,
+      managed.ownerId,
+      `printf '\\033]133;A\\007prompt\\r\\n\\033]133;B\\007command\\r\\n\\033]133;C\\007output\\r\\n\\033]133;D;0\\007'\r`,
+      managed.ownerGeneration,
+    )
+    await browser.wait(
+      () =>
+        evaluate(
+          `return panel.querySelector('.terminal-container')?.getAttribute('data-terminal-semantic-regions')==='3';`,
+        ),
+      'query-semantic-regions',
+    )
+    await click('Previous transcript region')
+    await browser.wait(
+      () =>
+        evaluate(
+          `return panel.querySelector('.terminal-semantic-region')?.textContent?.trim()==='Output 3 of 3';`,
+        ),
+      'query-output-region',
+    )
+    await click('Previous transcript region')
+    await browser.wait(
+      () =>
+        evaluate(
+          `return panel.querySelector('.terminal-semantic-region')?.textContent?.trim()==='Command 2 of 3';`,
+        ),
+      'query-command-region',
+    )
+    await click('Next transcript region')
+    await browser.wait(
+      () =>
+        evaluate(
+          `return panel.querySelector('.terminal-semantic-region')?.textContent?.trim()==='Output 3 of 3';`,
+        ),
+      'query-next-region',
+    )
+    await evaluate(
+      `input.dispatchEvent(new KeyboardEvent('keydown',{key:'f',code:'KeyF',shiftKey:true,...(/Mac/.test(navigator.platform)?{metaKey:true}:{ctrlKey:true}),bubbles:true,cancelable:true}));`,
+    )
+    await browser.wait(
+      () => evaluate(`return !!panel.querySelector('.terminal-search');`),
+      'query-region-copy-open',
+    )
+    const semanticCopy = await browser.copied(
+      'output\n',
+      () =>
+        evaluate(
+          `const button=[...panel.querySelectorAll('.terminal-search button')].find(node=>node.textContent?.trim()==='Copy Semantic Region');if(!(button instanceof HTMLButtonElement))throw new Error('native-query-semantic-copy');button.click();`,
+        ),
+      false,
+    )
+    phase = 'high-match-setup'
+    // Broad native metadata stays indexed while a finite 50 Hz producer continues.
+    let output = '',
+      completed = false
+    const memoryKiB = () => {
+      const value = app
+        .getAppMetrics()
+        .find((metric) => metric.pid === win.webContents.getOSProcessId())
+        ?.memory.workingSetSize
+      if (value === undefined || !Number.isFinite(value) || value <= 0)
+        throw new Error('native-query-renderer-memory-unavailable')
+      return value
+    }
+    const beforeKiB = memoryKiB()
+    const detach = ptys.attach(managed.id, managed.ownerId, {
+      onData: (data) => {
+        output = (output + data).slice(-8192)
+        completed ||= output.includes('__HVIR_M10_DONE__')
+      },
+    })
+    let highMatch: {
+      initial: number
+      observedReducedCount: number
+      observedAtMs: number
+      observationWindowMs: number
+      latestCount: number
+      latestStatus: string
+      latestAtMs: number
+      selectionUnavailable: boolean
+      sameOpenQuery: boolean
+      removal: string
+      rendererGrowthKiB: number
+    }
+    try {
+      const highStarted = performance.now()
+      const highSetupMarker = '__HVIR_M10_HIGH_SETUP__'
+      try {
+        await ptys.writeConfirmed(
+          managed.id,
+          managed.ownerId,
+          `hvir_m10_high_setup='__HVIR_M10_HIGH_''SETUP__'; hvir_m10_hit='hvir-m10-''hit'; hvir_m10_i=0; while [ "$hvir_m10_i" -lt 1500 ]; do printf '%s %s %s %s %s %s %s %s\\r\\n' "$hvir_m10_hit" "$hvir_m10_hit" "$hvir_m10_hit" "$hvir_m10_hit" "$hvir_m10_hit" "$hvir_m10_hit" "$hvir_m10_hit" "$hvir_m10_hit"; hvir_m10_i=$((hvir_m10_i+1)); done; printf '%s\\r\\n' "$hvir_m10_high_setup"\r`,
+          managed.ownerGeneration,
+        )
+        await browser.wait(() => output.includes(highSetupMarker), 'query-high-setup')
+        await query('hvir-m10-hit')
+        await browser.wait(
+          async () => (await status()) === '1 of 12000',
+          'query-high-match',
+        )
+      } catch (cause) {
+        const observed = await evaluate<{
+          status: string
+          count: number
+          unavailable: boolean
+        }>(
+          `const search=panel.querySelector('.terminal-search');const status=search?.querySelector('.terminal-search-status')?.textContent?.trim()??'';return{status,count:Number(status.match(/of ([0-9]+)/)?.[1]??status.match(/^([0-9]+) matches$/)?.[1]??0),unavailable:!!search?.querySelector('.terminal-search-unavailable')};`,
+        ).catch(() => undefined)
+        const columns = await browser.layout().then(
+          (value) => value.geometry.columns,
+          () => undefined,
+        )
+        throw new Error(
+          'native-query-high-initial-observation ' +
+            JSON.stringify({
+              observed,
+              columns,
+              setupCompleted: output.includes(highSetupMarker),
+              elapsedMs: performance.now() - highStarted,
+            }),
+          { cause },
+        )
+      }
+      phase = 'high-match-selection'
+      await click('Next terminal match')
+      await browser.wait(
+        async () => (await status()) === '2 of 12000',
+        'query-high-match-next',
+      )
+      await evaluate(
+        `window.nativeSelectionProbe.retainedSearch=panel.querySelector('.terminal-search');`,
+      )
+      phase = 'high-match-producer'
+      await ptys.writeConfirmed(
+        managed.id,
+        managed.ownerId,
+        `hvir_m10_done='__HVIR_M10_''DONE__'; hvir_m10_i=0; while [ "$hvir_m10_i" -lt 300 ]; do hvir_m10_j=0; while [ "$hvir_m10_j" -lt 50 ]; do printf 'unrelated output\\r\\n'; hvir_m10_j=$((hvir_m10_j+1)); done; hvir_m10_i=$((hvir_m10_i+1)); sleep 0.02; done; printf '%s\\r\\n' "$hvir_m10_done"\r`,
+        managed.ownerGeneration,
+      )
+      phase = 'high-match-observation'
+      let observedReducedCount = 0,
+        observedAtMs = 0
+      const highMatchStarted = performance.now()
+      const observe = () =>
+        evaluate<{ unavailable: boolean; count: number; status: string }>(
+          `const search=panel.querySelector('.terminal-search');if(search!==window.nativeSelectionProbe.retainedSearch||search?.querySelector('[aria-label="Find in terminal"]')?.value!=='hvir-m10-hit')throw new Error('native-query-loss-replaced-open-query');const text=search.querySelector('.terminal-search-status')?.textContent??'';const match=text.match(/^([0-9]+) match(?:es)?$/);const status=match?'unselected':text==='No matches'?'empty':text==='Searching…'?'pending':'unexpected';return{unavailable:!!search.querySelector('.terminal-search-unavailable'),count:Number(match?.[1]??0),status};`,
+        )
+      await browser.wait(async () => {
+        const observed = await observe()
+        if (completed) throw new Error('native-query-progress-arrived-after-producer')
+        if (
+          !observedReducedCount &&
+          observed.unavailable &&
+          observed.count > 0 &&
+          observed.count < 12000
+        ) {
+          observedReducedCount = observed.count
+          observedAtMs = performance.now() - highMatchStarted
+        }
+        return observedReducedCount > 0 && performance.now() - highMatchStarted >= 3000
+      }, 'query-removed-scrollback-progress')
+      const observationWindowMs = performance.now() - highMatchStarted
+      await browser.wait(() => completed, 'query-producer-completion')
+      const latest = await observe()
+      if (!latest.unavailable || latest.status === 'unexpected')
+        throw new Error('native-query-lost-selection-notice-or-count')
+      const rendererGrowthKiB = Math.max(0, memoryKiB() - beforeKiB)
+      if (rendererGrowthKiB > CAPACITY_PERFORMANCE_BUDGETS.workingSetGrowthKiB)
+        throw new Error('native-query-high-match-memory-budget')
+      highMatch = {
+        initial: 12000,
+        observedReducedCount,
+        observedAtMs,
+        observationWindowMs,
+        latestCount: latest.count,
+        latestStatus: latest.status,
+        latestAtMs: performance.now() - highMatchStarted,
+        selectionUnavailable: true,
+        sameOpenQuery: true,
+        removal: 'capacity-eviction',
+        rendererGrowthKiB,
+      }
+    } finally {
+      await detach()
+    }
+    phase = 'post-query-cleanup'
+    await click('Close terminal search')
+    // Clear this destructive fixture before M9 creates its original READY marker.
+    // Productive copy remains uncapped; the existing diagnostic reader is unchanged.
+    await browser.menu('Clear Screen and Scrollback')
+    await browser.ready()
+    phase = 'query-frame-proof'
+    const proof = await browser.proof()
+    if (proof.frames < 2 || proof.maxGapMs > UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs)
+      throw new Error('native-query-renderer-frame-budget')
+    return {
+      actualNative: true,
+      matches: 3,
+      exactCopy: copy,
+      selectedHighlight: { first, second, returned, moved },
+      movedOccurrence: {
+        rowEdit: 'insert-line',
+        sameSelection: true,
+        noRevealGesture: true,
+        exactCopy: movedCopy,
+      },
+      semanticNavigation: ['Output 3 of 3', 'Command 2 of 3', 'Output 3 of 3'],
+      semanticCopy,
+      highMatch,
+      streaming,
+      frames: proof.frames,
+      maximumFrameGapMs: proof.maxGapMs,
+      existingHighMatchFrameBudgetMs: CAPACITY_PERFORMANCE_BUDGETS.responsivenessMaxMs,
+    }
+  } catch (cause) {
+    throw new Error('native-query-phase ' + phase, { cause })
+  } finally {
+    await win.webContents.executeJavaScript(`window.nativeSelectionProbe?.restore()`)
+  }
+}
+
+interface Highlight {
+  left: number
+  top: number
+  right: number
+  bottom: number
+  pixels: number
+  expectedWidth: number
+  expectedHeight: number
+}
+
+/** Exited PTYs retain native query authority without reviving terminal input. */
+export async function verifyNativeReadonlyQuery(
+  win: BrowserWindow,
+  native: NativeTerminalApplication,
+  managed: ManagedPty,
+) {
+  const browser = nativeSelectionBrowser(win, native, managed)
+  const scope = paneScript(managed.id)
+  const evaluate = <T>(body: string): Promise<T> =>
+    win.webContents.executeJavaScript(`(async()=>{${scope}${body}})()`) as Promise<T>
+  if (!native.sessions.get(managed.id)?.readonly)
+    throw new Error('native-query-not-readonly')
+  await browser.menu('Search Terminal…')
+  await browser.wait(
+    () => evaluate(`return !!panel.querySelector('.terminal-search');`),
+    'readonly-query-open',
+  )
+  await win.webContents.executeJavaScript(clipboardInstall(false))
+  try {
+    await evaluate(
+      `const query=panel.querySelector('[aria-label="Find in terminal"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(query,${JSON.stringify(NATIVE_READONLY_SELECTION)});query.dispatchEvent(new Event('input',{bubbles:true}));`,
+    )
+    let count = 0
+    await browser.wait(async () => {
+      const status = await evaluate<string>(
+        `return panel.querySelector('.terminal-search-status')?.textContent??'';`,
+      )
+      count = Number(
+        status.match(/of ([0-9]+)/)?.[1] ?? status.match(/^([0-9]+) matches$/)?.[1] ?? 0,
+      )
+      return count > 0
+    }, 'readonly-query-count')
+    await evaluate(
+      `const copy=[...panel.querySelectorAll('.terminal-search button')].find(node=>node.textContent?.trim()==='Copy Match');if(copy?.disabled)panel.querySelector('[aria-label="Next terminal match"]').click();`,
+    )
+    await browser.wait(
+      () =>
+        evaluate(
+          `return [...panel.querySelectorAll('.terminal-search button')].some(node=>node.textContent?.trim()==='Copy Match'&&!node.disabled);`,
+        ),
+      'readonly-query-selected',
+    )
+    const copy = await browser.copied(
+      NATIVE_READONLY_SELECTION,
+      () =>
+        evaluate(
+          `[...panel.querySelectorAll('.terminal-search button')].find(node=>node.textContent?.trim()==='Copy Match').click();`,
+        ),
+      false,
+    )
+    await evaluate(`panel.querySelector('[aria-label="Close terminal search"]').click();`)
+    const timing = await browser.proof()
+    if (
+      timing.frames < 2 ||
+      timing.maxGapMs > UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs
+    )
+      throw new Error('native-readonly-query-renderer-frame-budget')
+    return {
+      retainedAfterExit: true,
+      matches: count,
+      exactCopy: copy,
+      frames: timing.frames,
+      maximumFrameGapMs: timing.maxGapMs,
+    }
+  } finally {
+    await win.webContents.executeJavaScript(`window.nativeSelectionProbe?.restore()`)
+  }
+}
+async function selectedHighlight(
+  win: BrowserWindow,
+  session: string,
+  browser: ReturnType<typeof nativeSelectionBrowser>,
+  previous?: Highlight,
+): Promise<Highlight> {
+  let observed: Highlight | undefined, latest: Highlight | undefined
+  try {
+    await browser.wait(async () => {
+      const { geometry, bounds } = await browser.layout()
+      const rect = (await win.webContents.executeJavaScript(
+        `(()=>{${paneScript(session)}const r=canvas.getBoundingClientRect();return{x:Math.ceil(r.x),y:Math.ceil(r.y),width:Math.floor(r.width),height:Math.floor(r.height)};})()`,
+      )) as { x: number; y: number; width: number; height: number }
+      const image = await win.webContents.capturePage(rect)
+      const { width, height } = image.getSize(1)
+      const pixels = image.toBitmap({ scaleFactor: 1 })
+      const result = {
+        left: width,
+        top: height,
+        right: -1,
+        bottom: -1,
+        pixels: 0,
+        expectedWidth: (geometry.cellWidth * MATCH.length * width) / bounds.canvasWidth,
+        expectedHeight: (geometry.cellHeight * height) / bounds.canvasHeight,
+      }
+      for (let y = 0; y < height; y++)
+        for (let x = 0; x < width; x++) {
+          const offset = (y * width + x) * 4
+          // Pinned native default search-selected-background, not a DOM overlay.
+          if (
+            Math.abs(pixels[offset]! - 0x7e) > 8 ||
+            Math.abs(pixels[offset + 1]! - 0xa5) > 8 ||
+            Math.abs(pixels[offset + 2]! - 0xf2) > 8
+          )
+            continue
+          result.pixels++
+          result.left = Math.min(result.left, x)
+          result.right = Math.max(result.right, x)
+          result.top = Math.min(result.top, y)
+          result.bottom = Math.max(result.bottom, y)
+        }
+      latest = result
+      if (
+        result.pixels < MATCH.length * 8 ||
+        (previous && result.top === previous.top && result.left === previous.left)
+      )
+        return false
+      if (
+        Math.abs(result.right - result.left + 1 - result.expectedWidth) > 3 ||
+        Math.abs(result.bottom - result.top + 1 - result.expectedHeight) > 3
+      )
+        throw new Error('native-query-highlight-cell-grid')
+      observed = result
+      return true
+    }, 'query-native-highlight')
+  } catch (cause) {
+    const status = (await win.webContents.executeJavaScript(
+      `(()=>{${paneScript(session)}return { status:panel.querySelector('.terminal-search-status')?.textContent?.trim()??'', unavailable:!!panel.querySelector('.terminal-search-unavailable') };})()`,
+    )) as { status: string; unavailable: boolean }
+    throw new Error(
+      'native-query-highlight-observation ' +
+        JSON.stringify({ previous, latest, status }),
+      { cause },
+    )
+  }
+  return observed!
+}

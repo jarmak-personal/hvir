@@ -37,7 +37,7 @@ typedef struct {
 } hvir_terminal_renderer_info;
 typedef struct {
   uint32_t kind, action, screen, row, column;
-  uint64_t sequence, event_serial;
+  uint64_t sequence, event_serial, boundary;
   size_t length, extra_length;
   uint32_t truncated; /* accepted payloads are complete; malformed/oversized are refused */
   uint8_t data[65536], extra[65536];
@@ -153,6 +153,23 @@ void hvir_terminal_input_result_free(hvir_terminal_input_result *);
 typedef enum { HVIR_SELECTION_STATE = 0, HVIR_SELECTION_ALL, HVIR_SELECTION_CLEAR,
   HVIR_SELECTION_TERMINAL_CLEAR, HVIR_SELECTION_RESET } hvir_terminal_selection_action;
 typedef struct { uint32_t screen; uint64_t geometry_serial; } hvir_terminal_selection_context;
+/* Query coordinates are observations; only query-owned opaque IDs authenticate. */
+typedef struct {
+  uint64_t occurrence, index;
+  uint32_t screen, row, column, end_row, end_column;
+} hvir_terminal_query_match;
+typedef struct {
+  uint64_t query, revision, count;
+  uint32_t status; /* 0 running, 1 source feed required, 2 caught up */
+  bool stale;
+  size_t work, visited;
+} hvir_terminal_query_status;
+typedef struct { bool stale; uint64_t revision, count; size_t length; } hvir_terminal_query_page_result;
+typedef struct {
+  uint64_t boundary;
+  uint32_t screen, row, column;
+  bool stale;
+} hvir_terminal_boundary;
 typedef struct {
   bool stale, has_selection;
   uint32_t screen, column;
@@ -160,6 +177,11 @@ typedef struct {
   bool done, has_clicked_offset;
   size_t visited, work, length;
   uint64_t clicked_offset;
+  uint32_t resolution_kind; /* 0 ordinary read, 1 match, 2 semantic location */
+  bool resolved, revealed;
+  hvir_terminal_query_match match;
+  hvir_terminal_boundary boundary;
+  uint64_t effect_serial_cutoff;
 } hvir_terminal_selection_result;
 hvir_terminal_result hvir_terminal_selection(hvir_terminal_host *, hvir_terminal_id,
   uint32_t action, const hvir_terminal_selection_context *, hvir_terminal_selection_result *);
@@ -175,6 +197,30 @@ hvir_terminal_result hvir_terminal_link_current(hvir_terminal_host *, hvir_termi
 hvir_terminal_result hvir_terminal_link_row_begin(hvir_terminal_host *, hvir_terminal_id,
   double x, double y, const hvir_terminal_selection_context *, hvir_terminal_selection_result *,
   hvir_terminal_link_query *, uint8_t *, size_t, size_t *);
+#define HVIR_TERMINAL_QUERY_PAGE 128u
+hvir_terminal_result hvir_terminal_query_context(hvir_terminal_host *, hvir_terminal_id,
+  uint32_t *screen, uint64_t *geometry_serial);
+hvir_terminal_result hvir_terminal_query_begin(hvir_terminal_host *, hvir_terminal_id,
+  const uint8_t *, size_t, bool, uint64_t *);
+hvir_terminal_result hvir_terminal_query_step(hvir_terminal_host *, hvir_terminal_id,
+  uint64_t, hvir_terminal_query_status *);
+hvir_terminal_result hvir_terminal_query_page(hvir_terminal_host *, hvir_terminal_id,
+  uint64_t, uint64_t revision, size_t offset, hvir_terminal_query_match *, size_t,
+  hvir_terminal_query_page_result *);
+hvir_terminal_result hvir_terminal_query_resolve_begin(hvir_terminal_host *, hvir_terminal_id,
+  uint64_t query, uint64_t occurrence, bool reveal, const hvir_terminal_selection_context *,
+  hvir_terminal_selection_result *);
+hvir_terminal_result hvir_terminal_query_clear_reveal(hvir_terminal_host *, hvir_terminal_id, uint64_t);
+hvir_terminal_result hvir_terminal_query_close(hvir_terminal_host *, hvir_terminal_id, uint64_t);
+/* kind1 match(query+occurrence); kind2 semantic(start+optional end0=current end). */
+hvir_terminal_result hvir_terminal_range_begin(hvir_terminal_host *, hvir_terminal_id,
+  uint32_t kind, uint64_t first, uint64_t second, const hvir_terminal_selection_context *,
+  hvir_terminal_selection_result *);
+hvir_terminal_result hvir_terminal_boundary_capture_end(hvir_terminal_host *, hvir_terminal_id,
+  const hvir_terminal_selection_context *, hvir_terminal_boundary *);
+hvir_terminal_result hvir_terminal_boundary_resolve_begin(hvir_terminal_host *, hvir_terminal_id,
+  uint64_t, bool reveal, const hvir_terminal_selection_context *, hvir_terminal_selection_result *);
+hvir_terminal_result hvir_terminal_boundary_close(hvir_terminal_host *, hvir_terminal_id, uint64_t);
 /* Encode a Unicode text/key event using current native modes. key is a Ghostty key
  * enum from the pinned header; modifiers/action stay at this private native edge. */
 hvir_terminal_result hvir_terminal_key(hvir_terminal_host *, hvir_terminal_id, uint32_t key,

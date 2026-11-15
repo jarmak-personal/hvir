@@ -48,6 +48,8 @@ interface SemanticRegion {
 }
 
 interface MarkerSignature {
+  readonly provenanceId: number
+  readonly boundaryId?: string
   readonly action: TerminalSemanticAction
   readonly row: number
   readonly column: number
@@ -78,12 +80,15 @@ export class TerminalSemanticRegions {
     if (
       last?.action === action &&
       last.row === provenance.row &&
-      last.column === provenance.column
+      last.column === provenance.column &&
+      last.boundaryId === provenance.boundaryId
     ) {
       return false
     }
     this.lastMarkerByScreen.set(provenance.screen, {
+      provenanceId: provenance.id,
       action,
+      boundaryId: provenance.boundaryId,
       row: provenance.row,
       column: provenance.column,
     })
@@ -114,6 +119,30 @@ export class TerminalSemanticRegions {
 
     this.enforceBound()
     return beforeAvailable !== this.regions.length > 0 || beforeActive !== this.activeId
+  }
+
+  async navigationPlanAsync(
+    direction: TerminalSemanticRegionDirection,
+    screen: TerminalEventScreen,
+    resolve: (
+      boundary: TerminalEventProvenance,
+    ) => Promise<TerminalEventLocation | undefined>,
+    signal: AbortSignal,
+  ): Promise<TerminalSemanticNavigationPlan> {
+    const locations = new Map<
+      TerminalEventProvenance,
+      TerminalEventLocation | undefined
+    >()
+    for (const region of this.regions) {
+      for (const boundary of [region.start, region.end]) {
+        if (!boundary || locations.has(boundary)) continue
+        const location = await resolve(boundary)
+        if (signal.aborted)
+          throw new DOMException('Semantic navigation cancelled', 'AbortError')
+        locations.set(boundary, location)
+      }
+    }
+    return this.navigationPlan(direction, screen, (boundary) => locations.get(boundary))
   }
 
   navigationPlan(
@@ -161,6 +190,10 @@ export class TerminalSemanticRegions {
     return { candidates, resolved, changed }
   }
 
+  boundary(id: number): TerminalEventProvenance | undefined {
+    return this.regions.find((region) => region.id === id)?.start
+  }
+
   activate(
     id: number,
     screen: TerminalEventScreen,
@@ -181,10 +214,15 @@ export class TerminalSemanticRegions {
     const active =
       this.activeId === undefined
         ? undefined
-        : this.regions.find((region) => region.id === this.activeId && region.screen === screen)
+        : this.regions.find(
+            (region) => region.id === this.activeId && region.screen === screen,
+          )
     const region =
-      active ?? [...this.regions].reverse().find((candidate) => candidate.screen === screen)
-    return region ? { kind: region.kind, start: region.start, end: region.end } : undefined
+      active ??
+      [...this.regions].reverse().find((candidate) => candidate.screen === screen)
+    return region
+      ? { kind: region.kind, start: region.start, end: region.end }
+      : undefined
   }
 
   clear(): void {
@@ -194,12 +232,28 @@ export class TerminalSemanticRegions {
     this.activeId = undefined
   }
 
+  /** Native control cutoffs are parser serials; they do not erase later prompts. */
+  clearThrough(cutoff: number): void {
+    this.regions = this.regions.filter((region) => region.start.id > cutoff)
+    for (const [screen, id] of this.openByScreen)
+      if (!this.regions.some((region) => region.id === id))
+        this.openByScreen.delete(screen)
+    for (const [screen, marker] of this.lastMarkerByScreen)
+      if (marker.provenanceId <= cutoff) this.lastMarkerByScreen.delete(screen)
+    if (
+      this.activeId !== undefined &&
+      !this.regions.some((region) => region.id === this.activeId)
+    )
+      this.activeId = undefined
+  }
+
   private startPrompt(provenance: TerminalEventProvenance): void {
     const open = this.open(provenance.screen)
     if (
       open?.kind === 'prompt' &&
       open.start.row === provenance.row &&
-      open.start.column === provenance.column
+      open.start.column === provenance.column &&
+      open.start.boundaryId === provenance.boundaryId
     ) {
       return
     }

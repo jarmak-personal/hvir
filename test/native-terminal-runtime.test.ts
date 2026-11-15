@@ -145,6 +145,69 @@ afterEach(async () => {
 })
 
 describe('native utility owner', () => {
+  it('keeps physical late-query cleanup owned through BUSY before ordinary cancellation', async () => {
+    await create()
+    port.send(2, {
+      kind: 'query',
+      state: '7',
+      operation: { kind: 'query-begin', text: 'hit', caseSensitive: false },
+    })
+    port.cancel(2)
+    await complete({ result: 0, query: 71n })
+    expect(last()).toMatchObject({
+      operation: 'query',
+      args: ['7', { kind: 'query-close', query: '71' }],
+    })
+    await complete({ result: 6, stale: false })
+    await vi.advanceTimersByTimeAsync(1)
+    expect(last()).toMatchObject({
+      operation: 'query',
+      args: ['7', { kind: 'query-close', query: '71' }],
+    })
+    await complete({ result: 0 })
+    expect(exited).toBe(false)
+    expect(port.result(2)).toMatchObject({ ok: false, error: 'cancelled' })
+    expect(engine.calls.filter((call) => call.operation === 'query')).toHaveLength(3)
+  })
+  it.each([
+    [6, true],
+    [7, false],
+  ] as const)(
+    'fences the host when late physical cleanup is unprovable (%s/stale=%s)',
+    async (result, stale) => {
+      await create()
+      port.send(2, {
+        kind: 'query',
+        state: '7',
+        operation: { kind: 'query-begin', text: 'hit', caseSensitive: false },
+      })
+      port.cancel(2)
+      await complete({ result: 0, query: 71n })
+      expect(last()).toMatchObject({
+        operation: 'query',
+        args: ['7', { kind: 'query-close', query: '71' }],
+      })
+      await complete({ result, stale })
+      expect(exited).toBe(true)
+      expect(vi.spyOn(process, 'exit')).toHaveBeenCalledWith(1)
+      expect(engine.calls.filter((call) => call.operation === 'query')).toHaveLength(2)
+    },
+  )
+  it('does not fence the host for ordinary query allocation refusal with no acquisition', async () => {
+    await create()
+    port.send(2, {
+      kind: 'query',
+      state: '7',
+      operation: { kind: 'query-begin', text: 'hit', caseSensitive: false },
+    })
+    await complete({ result: 7, stale: false })
+    expect(exited).toBe(false)
+    expect(port.result(2)).toMatchObject({
+      ok: true,
+      value: { unavailable: 7, stale: false },
+    })
+    expect(engine.calls.filter((call) => call.operation === 'query')).toHaveLength(1)
+  })
   it('admits a closed selection command through the real utility request boundary', async () => {
     const operation = {
       kind: 'command',

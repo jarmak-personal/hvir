@@ -54,6 +54,8 @@ export type NativeTerminalSelectionOperation =
     }
 
 export interface NativeTerminalSelectionNativeResult extends NativeTerminalSelectionState {
+  /** Private actual-control cutoff, never a later sampled latest-event counter. */
+  readonly effectSerialCutoff?: number
   readonly screen: 0 | 1
   readonly geometrySerial: number
   readonly requestedMutation: number

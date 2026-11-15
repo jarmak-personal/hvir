@@ -1,4 +1,9 @@
 import { drainNativeTerminalEffects } from './native-terminal-effects'
+import {
+  validNativeTerminalQueryOperation,
+  type NativeTerminalQueryOperation,
+} from '../shared/native-terminal-query-operations'
+import type { NativeQueryEngineResult } from './native-terminal-query'
 /** One real caller thread. This entry never imports Electron or project capabilities. */
 import { parentPort, workerData } from 'node:worker_threads'
 import engine, { type Host } from '@hvir/native-terminal/engine'
@@ -38,6 +43,9 @@ parentPort.on(
       const { operation, args } = request
       let value: unknown
       switch (operation) {
+        case 'query':
+          value = invokeNativeQueryEngine(host, BigInt(String(args[0])), args[1])
+          break
         case 'create':
           value = engine.createBegin(host, Number(args[0]), Number(args[1]))
           break
@@ -245,3 +253,85 @@ parentPort.on(
     }
   },
 )
+
+/** The existing designated native caller owns every borrowed result and physical cursor. */
+function invokeNativeQueryEngine(
+  host: Host,
+  id: bigint,
+  value: unknown,
+): NativeQueryEngineResult {
+  if (!validNativeTerminalQueryOperation(value))
+    throw new Error('native-query-operation-invalid')
+  const operation: NativeTerminalQueryOperation = value
+  const context =
+    'context' in operation
+      ? {
+          screen: operation.context.screen,
+          geometrySerial: BigInt(operation.context.geometrySerial),
+        }
+      : undefined
+  switch (operation.kind) {
+    case 'query-context':
+      return engine.queryContext(host, id)
+    case 'query-begin':
+      return engine.queryBegin(host, id, operation.text, operation.caseSensitive)
+    case 'query-step':
+      return engine.queryStep(host, id, BigInt(operation.query))
+    case 'query-page':
+      return engine.queryPage(
+        host,
+        id,
+        BigInt(operation.query),
+        BigInt(operation.revision),
+        operation.offset,
+        operation.capacity,
+      )
+    case 'query-close':
+      return engine.queryClose(host, id, BigInt(operation.query))
+    case 'query-clear-reveal':
+      return engine.queryClearReveal(host, id, BigInt(operation.query))
+    case 'resolve-begin':
+      return engine.queryResolveBegin(
+        host,
+        id,
+        BigInt(operation.query),
+        BigInt(operation.occurrence),
+        operation.reveal,
+        context!,
+      )
+    case 'range-begin': {
+      const source = operation.source
+      const range =
+        source.kind === 'match'
+          ? {
+              kind: 'match' as const,
+              query: BigInt(source.query),
+              occurrence: BigInt(source.occurrence),
+            }
+          : {
+              kind: 'semantic' as const,
+              start: BigInt(source.start),
+              ...(source.end === undefined ? {} : { end: BigInt(source.end) }),
+            }
+      return engine.rangeBegin(host, id, range, context!)
+    }
+    case 'boundary-capture':
+      return engine.semanticBoundaryCaptureEnd(host, id, context!)
+    case 'boundary-resolve-begin':
+      return engine.semanticBoundaryResolveBegin(
+        host,
+        id,
+        BigInt(operation.boundary),
+        operation.reveal,
+        context!,
+      )
+    case 'boundary-close':
+      return engine.semanticBoundaryClose(host, id, BigInt(operation.boundary))
+    case 'next':
+      return engine.extractNext(host, id, BigInt(operation.cursor))
+    case 'finish':
+      return engine.extractFinish(host, id, BigInt(operation.cursor))
+    case 'close':
+      return engine.extractClose(host, id, BigInt(operation.cursor))
+  }
+}

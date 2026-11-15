@@ -1,3 +1,7 @@
+import {
+  NativeTerminalRetained,
+  type NativeTerminalRetainedPort,
+} from './native-terminal-retained'
 import { NativeTerminalLinks } from './native-terminal-links'
 import type {
   NativeTerminalLinkIntent,
@@ -57,6 +61,9 @@ interface NativePanePort extends NativeTerminalSurfacePort {
   metadata?(
     id: string,
   ): Promise<import('../../../shared/native-terminal-effects').NativeTerminalMetadata>
+  query?: NativeTerminalRetainedPort['invoke']
+  cancelQuery?: NativeTerminalRetainedPort['cancel']
+  queryUpdates?: NativeTerminalRetainedPort['updates']
   effects?(listener: (effect: NativeTerminalProductEffect) => void): () => void
 }
 
@@ -81,6 +88,7 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
   }))
   private instanceId?: string
   private readonly stopEffects?: () => void
+  readonly retained?: NativeTerminalRetained
   private readonly input: NativeTerminalDomInput
   private readonly links: NativeTerminalLinks
   private readonly linkListeners = new Set<(link: TerminalLinkActivation) => void>()
@@ -93,6 +101,17 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
     private readonly api: NativeTerminalPresentationApi,
     private readonly port: NativePanePort,
   ) {
+    if (port.query && port.cancelQuery && port.queryUpdates) {
+      this.retained = new NativeTerminalRetained({
+        view: () =>
+          !this.disposed && this.inputReady && this.presentation === 'visible'
+            ? this.viewId
+            : undefined,
+        invoke: port.query,
+        cancel: port.cancelQuery,
+        updates: port.queryUpdates,
+      })
+    }
     this.stopEffects = this.port.effects?.((effect) => this.effectEvents.accept(effect))
     this.element.className = 'terminal-engine-host native-terminal-pane'
     this.element.style.cssText =
@@ -103,8 +122,9 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
     this.notice.style.cssText =
       'position:absolute;top:2px;left:4px;right:4px;z-index:2;font-size:10px;pointer-events:none'
     this.notice.setAttribute('role', 'status')
-    this.notice.textContent =
-      'Native preview: search, semantic navigation and live settings are unfinished.'
+    this.notice.textContent = this.retained
+      ? 'Native preview: live settings are unfinished.'
+      : 'Native preview: search, semantic navigation and live settings are unfinished.'
     this.element.appendChild(this.notice)
     this.selectionOwner = new NativeTerminalSelection({
       view: () =>
@@ -179,6 +199,7 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
   setPresentation(presentation: TerminalPresentation): void {
     this.presentation = presentation
     if (presentation === 'hidden') {
+      this.retained?.revoke()
       this.selectionOwner.revoke()
       this.links.revoke()
       this.inputReady = false
@@ -209,6 +230,7 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
     if (this.disposed || this.binding || this.viewId)
       throw new Error('native-pane-bind-stale')
     this.binding = true
+    this.effectEvents.beginBootstrap(sessionId)
     try {
       const { viewId, instanceId, inputUnavailable, title } =
         await this.port.attach(sessionId)
@@ -220,6 +242,9 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
       this.viewId = viewId
       this.sessionId = sessionId
       this.effectEvents.restoreTitle(title)
+      let semanticSnapshot:
+        | import('../../../shared/native-terminal-effects').NativeTerminalSemanticSnapshot
+        | undefined
       if (this.port.metadata && instanceId) {
         const metadata = await this.port.metadata(sessionId)
         if (this.disposed) {
@@ -230,7 +255,9 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
         if (this.viewId !== viewId || metadata.instanceId !== instanceId)
           throw new Error('native-pane-binding-stale')
         this.effectEvents.restoreTitle(metadata.title)
+        semanticSnapshot = metadata.semanticSnapshot
       }
+      this.effectEvents.restoreSemantics(semanticSnapshot)
       if (inputUnavailable)
         this.fail('Native input unavailable; terminal output remains visible')
       this.surface = new NativeTerminalSurface(viewId, this.api, {
@@ -295,6 +322,7 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.retained?.dispose()
     this.selectionOwner.revoke()
     this.links.revoke()
     // Logical occlusion stops demand now; physical input/resource cleanup may wait.
@@ -315,6 +343,10 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
 export function createNativeTerminalPane(): NativeTerminalPane {
   return new NativeTerminalPane(window.hvir.nativeTerminalPresentation, {
     metadata: (id) => window.hvir.invoke('native-terminal:metadata', { id }),
+    query: (request) => window.hvir.invoke('native-terminal:query', request),
+    cancelQuery: (viewId, requestId) =>
+      window.hvir.send('native-terminal:query-cancel', { viewId, requestId }),
+    queryUpdates: (listener) => window.hvir.on('native-terminal:query-update', listener),
     effects: (listener) => window.hvir.on('native-terminal:effect', listener),
     attach: (id) => window.hvir.invoke('native-terminal:attach', { id }),
     update: (viewId, geometry) =>

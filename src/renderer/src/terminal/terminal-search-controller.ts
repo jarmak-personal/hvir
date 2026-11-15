@@ -1,8 +1,11 @@
+import type { Disposer } from '../../../shared'
+import { legacyTerminalRetainedQuery } from './terminal-retained-query'
+import { isNativeTerminalPane, type TerminalRuntimePane } from './terminal-pane'
 import type {
-  TerminalPane,
-  TerminalRetainedBufferRange,
-  TerminalRetainedBufferSearch,
-} from './terminal-pane'
+  TerminalRetainedQueryCapability,
+  TerminalRetainedQuery,
+  TerminalRetainedOccurrence,
+} from './terminal-retained-query'
 
 export interface TerminalSearchSnapshot {
   readonly open: boolean
@@ -23,16 +26,20 @@ const CLOSED_SEARCH: TerminalSearchSnapshot = {
   unavailable: false,
 }
 
-/** Owns one pane's query subscription and selected logical occurrence. */
+/** Owns one pane's live query and one selected occurrence, never a result list. */
 export class TerminalSearchController {
-  private pane?: TerminalPane
-  private result?: TerminalRetainedBufferSearch
-  private resultUpdates?: () => void
-  private selected?: TerminalRetainedBufferRange
-  private matches?: readonly TerminalRetainedBufferRange[]
+  private pane?: TerminalRuntimePane
+  private capability?: TerminalRetainedQueryCapability
+  private result?: TerminalRetainedQuery
+  private resultUpdates?: Disposer
+  private selected?: TerminalRetainedOccurrence
   private searchAbort?: AbortController
   private extractionAbort?: AbortController
   private generation = 0
+  private navigation = 0
+  private initialSelection = false
+  private refreshRunning = false
+  private refreshAgain = false
   private available = true
   private currentSnapshot = CLOSED_SEARCH
   private readonly listeners = new Set<() => void>()
@@ -40,11 +47,10 @@ export class TerminalSearchController {
   constructor(
     private readonly restoreFocus: () => void,
     private readonly extractRegion: (
-      pane: TerminalPane,
+      pane: TerminalRuntimePane,
       signal: AbortSignal,
     ) => Promise<string>,
   ) {}
-
   snapshot = (): TerminalSearchSnapshot => this.currentSnapshot
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
@@ -52,18 +58,20 @@ export class TerminalSearchController {
       this.listeners.delete(listener)
     }
   }
-
-  bind(pane: TerminalPane): void {
+  bind(pane: TerminalRuntimePane): void {
     if (this.pane === pane) return
     this.revoke()
     this.pane = pane
+    this.capability =
+      pane.retained ??
+      (!isNativeTerminalPane(pane) ? legacyTerminalRetainedQuery(pane) : undefined)
   }
   setAvailable(available: boolean): void {
     this.available = available
     if (!available) this.close(false)
   }
   open(): boolean {
-    if (!this.pane || !this.available) return false
+    if (!this.capability || !this.available) return false
     if (!this.currentSnapshot.open) this.publish({ ...CLOSED_SEARCH, open: true })
     return true
   }
@@ -75,6 +83,7 @@ export class TerminalSearchController {
   revoke(): void {
     this.close(false)
     this.pane = undefined
+    this.capability = undefined
   }
   setQuery(query: string): void {
     if (!this.currentSnapshot.open || query === this.currentSnapshot.query) return
@@ -104,47 +113,90 @@ export class TerminalSearchController {
     })
     this.startSearch(true)
   }
-
-  navigate(direction: 'previous' | 'next'): void {
+  async navigate(direction: 'previous' | 'next'): Promise<void> {
     const result = this.result
-    const count = result?.matches.length ?? 0
-    if (!result || count === 0) return
-    const current = this.selected
-      ? result.matches.findIndex((match) => match.id === this.selected?.id)
-      : -1
-    const index =
-      current < 0
-        ? direction === 'next'
-          ? 0
-          : count - 1
-        : direction === 'previous'
-          ? (current - 1 + count) % count
-          : (current + 1) % count
-    const match = result.matches[index]
-    if (!match || !result.reveal(match)) {
-      if (this.selected && !result.resolve(this.selected)) this.loseSelection()
-      return
+    if (!result || !result.snapshot().matchCount) return
+    this.initialSelection = false
+    const navigation = ++this.navigation
+    const generation = this.generation
+    const signal = this.searchAbort?.signal
+    const selected = this.selected
+    try {
+      const current = selected ? await result.resolve(selected, signal) : undefined
+      if (!this.current(result, generation) || navigation !== this.navigation) return
+      const count = result.snapshot().matchCount
+      if (!count) return
+      const index =
+        current === undefined
+          ? direction === 'next'
+            ? 0
+            : count - 1
+          : direction === 'previous'
+            ? (current.index - 1 + count) % count
+            : (current.index + 1) % count
+      const match = await result.at(index, signal)
+      if (!this.current(result, generation) || navigation !== this.navigation) return
+      if (!match || !(await result.reveal(match, signal))) {
+        if (
+          selected &&
+          !(await result.resolve(selected, signal)) &&
+          this.current(result, generation)
+        )
+          this.loseSelection()
+        return
+      }
+      if (!this.current(result, generation) || navigation !== this.navigation) return
+      this.selected = match
+      const resolved = await result.resolve(match, signal)
+      if (!this.current(result, generation) || navigation !== this.navigation) return
+      if (!resolved) {
+        this.loseSelection()
+        return
+      }
+      this.publish({
+        ...this.currentSnapshot,
+        matchIndex: resolved.index,
+        unavailable: false,
+      })
+    } catch {
+      // Revoked navigation is an operation outcome, not terminal input failure.
     }
-    this.selected = match
-    this.publish({ ...this.currentSnapshot, matchIndex: index, unavailable: false })
   }
-
-  currentMatchText(): string {
-    const text = this.selected ? this.result?.extract(this.selected) : undefined
+  async currentMatchText(): Promise<string> {
+    const selected = this.selected
+    const result = this.result
+    const generation = this.generation
+    const text =
+      selected && result
+        ? await result.read(selected, this.searchAbort?.signal)
+        : undefined
+    if (!result || !this.current(result, generation) || this.selected !== selected)
+      throw new Error('Terminal search is no longer current')
     if (text === undefined) {
       this.loseSelection()
       throw new Error('The current terminal match is no longer retained')
     }
     return text
   }
-
+  /** Captured immediately before extraction; caller checks again before clipboard invocation. */
+  copyGuard(): () => boolean {
+    const generation = this.generation
+    const navigation = this.navigation
+    const pane = this.pane
+    const selected = this.selected
+    return () =>
+      this.currentSnapshot.open &&
+      this.pane === pane &&
+      this.generation === generation &&
+      this.navigation === navigation &&
+      this.selected === selected
+  }
   extractCurrentRegion(): Promise<string> {
     const pane = this.pane
-    if (!pane || !this.currentSnapshot.open) {
+    if (!pane || !this.currentSnapshot.open)
       return Promise.reject(new Error('Terminal search is no longer current'))
-    }
     this.extractionAbort?.abort()
-    pane.cancelRetainedBufferExtraction()
+    this.capability?.cancelExtraction()
     const controller = new AbortController()
     this.extractionAbort = controller
     let extraction: Promise<string>
@@ -159,20 +211,17 @@ export class TerminalSearchController {
       if (this.extractionAbort === controller) this.extractionAbort = undefined
     })
   }
-
   retainedBufferChanged(): void {
-    // Revalidate presentation-only changes. Writes and refresh scheduling are
-    // observed through the engine query subscription.
-    if (this.result) this.updateResult()
+    this.refresh()
   }
-
   private startSearch(selectInitial: boolean): void {
-    const pane = this.pane
-    const query = this.currentSnapshot.query
     this.releaseResult()
     this.cancelSearchRequest()
+    this.initialSelection = selectInitial
+    const capability = this.capability
+    const query = this.currentSnapshot.query
     const generation = this.generation
-    if (!pane || !this.currentSnapshot.open || query.length === 0) {
+    if (!capability || !this.currentSnapshot.open || !query.length) {
       this.publish({
         ...this.currentSnapshot,
         pending: false,
@@ -183,8 +232,8 @@ export class TerminalSearchController {
     }
     const controller = new AbortController()
     this.searchAbort = controller
-    void pane
-      .searchRetainedBuffer(query, {
+    void capability
+      .search(query, {
         caseSensitive: this.currentSnapshot.caseSensitive,
         signal: controller.signal,
       })
@@ -192,7 +241,6 @@ export class TerminalSearchController {
         (result) => {
           if (
             controller.signal.aborted ||
-            this.pane !== pane ||
             generation !== this.generation ||
             !this.currentSnapshot.open
           ) {
@@ -200,21 +248,12 @@ export class TerminalSearchController {
             return
           }
           this.result = result
-          this.resultUpdates = result.onUpdate(() => {
-            if (this.result === result && generation === this.generation)
-              this.updateResult()
-          })
-          const first = selectInitial ? result.matches[0] : undefined
-          if (first) {
-            if (result.reveal(first)) this.selected = first
-            else this.loseSelection()
-          }
-          this.updateResult()
+          this.resultUpdates = result.onUpdate(() => this.refresh())
+          this.refresh()
         },
         () => {
           if (
             controller.signal.aborted ||
-            this.pane !== pane ||
             generation !== this.generation ||
             !this.currentSnapshot.open
           )
@@ -229,32 +268,103 @@ export class TerminalSearchController {
         },
       )
   }
-
-  private updateResult(): void {
-    const result = this.result
-    if (!result) return
-    if (result.invalidated) {
-      this.loseSelection()
-      this.publish({ ...this.currentSnapshot, pending: true, matchCount: 0 })
-      this.startSearch(false)
-      return
-    }
-    if (this.selected && !result.resolve(this.selected)) this.loseSelection()
-    const index = this.selected
-      ? result.matches === this.matches
-        ? (this.currentSnapshot.matchIndex ?? -1)
-        : result.matches.findIndex((match) => match.id === this.selected?.id)
-      : -1
-    this.matches = result.matches
-    // Updates adjust counts and coordinates without revealing any occurrence.
-    this.publish({
-      ...this.currentSnapshot,
-      pending: result.pending,
-      matchCount: result.matches.length,
-      matchIndex: index >= 0 ? index : undefined,
+  private current(result: TerminalRetainedQuery, generation: number): boolean {
+    return (
+      this.result === result &&
+      this.generation === generation &&
+      this.currentSnapshot.open
+    )
+  }
+  private refresh(): void {
+    this.refreshAgain = true
+    if (this.refreshRunning) return
+    this.refreshRunning = true
+    void this.refreshLoop().finally(() => {
+      this.refreshRunning = false
+      if (this.refreshAgain) this.refresh()
     })
   }
-
+  private async refreshLoop(): Promise<void> {
+    while (this.refreshAgain) {
+      this.refreshAgain = false
+      const result = this.result
+      if (!result) return
+      const generation = this.generation
+      const snapshot = result.snapshot()
+      if (snapshot.unavailable) {
+        this.loseSelection()
+        this.releaseResult()
+        this.publish({
+          ...this.currentSnapshot,
+          pending: false,
+          matchCount: 0,
+          matchIndex: undefined,
+          unavailable: true,
+        })
+        return
+      }
+      if (snapshot.invalidated) {
+        this.loseSelection()
+        this.publish({ ...this.currentSnapshot, pending: true, matchCount: 0 })
+        this.startSearch(false)
+        return
+      }
+      this.publish({
+        ...this.currentSnapshot,
+        pending: snapshot.pending,
+        matchCount: snapshot.matchCount,
+      })
+      const selected = this.selected
+      const navigation = this.navigation
+      try {
+        if (selected) {
+          const resolved = await result.resolve(selected, this.searchAbort?.signal)
+          if (
+            !this.current(result, generation) ||
+            this.selected !== selected ||
+            navigation !== this.navigation
+          )
+            continue
+          if (!resolved) this.loseSelection()
+          else this.publish({ ...this.currentSnapshot, matchIndex: resolved.index })
+        } else if (
+          this.initialSelection &&
+          (snapshot.initialComplete || !snapshot.pending) &&
+          snapshot.matchCount > 0
+        ) {
+          this.initialSelection = false
+          const match = await result.at(0, this.searchAbort?.signal)
+          if (!this.current(result, generation) || navigation !== this.navigation)
+            continue
+          if (
+            match &&
+            (await result.reveal(match, this.searchAbort?.signal)) &&
+            this.current(result, generation) &&
+            navigation === this.navigation
+          ) {
+            this.selected = match
+            const resolved = await result.resolve(match, this.searchAbort?.signal)
+            if (
+              this.current(result, generation) &&
+              this.selected === match &&
+              navigation === this.navigation
+            ) {
+              if (resolved)
+                this.publish({
+                  ...this.currentSnapshot,
+                  matchIndex: resolved.index,
+                  unavailable: false,
+                })
+              else this.loseSelection()
+            }
+          }
+        }
+      } catch {
+        // A refusal/transport failure is not proof that the occurrence was overwritten.
+        // Only an authoritative undefined resolution retires its identity.
+      }
+    }
+  }
   private loseSelection(): void {
     const lost = this.selected !== undefined
     this.selected = undefined
@@ -265,40 +375,36 @@ export class TerminalSearchController {
       unavailable: this.currentSnapshot.unavailable || lost,
     })
   }
-
   private cancelOwnedWork(): void {
     this.releaseResult()
     this.cancelSearchRequest()
     this.extractionAbort?.abort()
     this.extractionAbort = undefined
-    this.pane?.cancelRetainedBufferSearch()
-    this.pane?.cancelRetainedBufferExtraction()
+    this.capability?.cancelExtraction()
   }
   private cancelSearchRequest(): void {
-    this.generation += 1
+    this.generation++
+    this.navigation++
     this.searchAbort?.abort()
     this.searchAbort = undefined
-    this.pane?.cancelRetainedBufferSearch()
+    this.capability?.cancelSearch()
   }
   private releaseResult(): void {
-    this.resultUpdates?.()
+    void this.resultUpdates?.()
     this.resultUpdates = undefined
     const result = this.result
     this.result = undefined
     this.selected = undefined
-    this.matches = undefined
     result?.dispose()
   }
   private publish(snapshot: TerminalSearchSnapshot): void {
     const current = this.currentSnapshot
     if (
-      current.open === snapshot.open &&
-      current.query === snapshot.query &&
-      current.caseSensitive === snapshot.caseSensitive &&
-      current.pending === snapshot.pending &&
-      current.matchCount === snapshot.matchCount &&
-      current.matchIndex === snapshot.matchIndex &&
-      current.unavailable === snapshot.unavailable
+      Object.keys(snapshot).every(
+        (key) =>
+          current[key as keyof TerminalSearchSnapshot] ===
+          snapshot[key as keyof TerminalSearchSnapshot],
+      )
     )
       return
     this.currentSnapshot = snapshot

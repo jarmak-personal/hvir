@@ -53,6 +53,45 @@ export function buildInputFlags(preparedInputs: PreparedNativeInputs, dirty: boo
   }
 }
 
+/** Closed numerical proof from the maintained real-Surface query executable. */
+export function validQueryProof(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const proof = value as Record<string, unknown>
+  const count = (n: unknown): n is number =>
+    typeof n === 'number' && Number.isSafeInteger(n) && n >= 0
+  return (
+    proof.kind === 'native-query' &&
+    proof.passed === true &&
+    count(proof.checks) &&
+    proof.checks >= 100 &&
+    count(proof.queryCases) &&
+    proof.queryCases >= 30 &&
+    count(proof.maxWork) &&
+    proof.maxWork > 0 &&
+    proof.maxWork <= 8192 &&
+    count(proof.maxVisited) &&
+    proof.maxVisited <= 8192 &&
+    count(proof.maxChunkBytes) &&
+    proof.maxChunkBytes > 0 &&
+    proof.maxChunkBytes <= 65536 &&
+    count(proof.partialCounts) &&
+    proof.partialCounts > 0 &&
+    count(proof.streamedBatches) &&
+    proof.streamedBatches > 0 &&
+    proof.initialCompletedBeforeProducerEnd === true &&
+    count(proof.largeSemanticBytes) &&
+    proof.largeSemanticBytes > 1024 * 1024 &&
+    count(proof.largeChunks) &&
+    proof.largeChunks >= 2 &&
+    count(proof.validatedBytes) &&
+    proof.validatedBytes >= proof.largeSemanticBytes &&
+    typeof proof.copyDigestFnv1a64 === 'string' &&
+    /^[a-f0-9]{16}$/.test(proof.copyDigestFnv1a64) &&
+    proof.frameAcquisitions === 0 &&
+    proof.hardwareGpuQualified === false
+  )
+}
+
 async function artifactRead<T>(
   read: () => Promise<T>,
   stage: 'directory' | 'manifest' | 'file' | 'loader',
@@ -172,6 +211,8 @@ export async function verifyArtifact(
       'effects-proof.json',
       'selection-probe',
       'selection-proof.json',
+      'query-probe',
+      'query-proof.json',
       'frame-metadata-probe',
       'frame-metadata-proof.json',
       ...(selected.platform === 'linux'

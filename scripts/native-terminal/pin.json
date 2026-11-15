@@ -7,7 +7,7 @@
     "sha256": "2c276d3e62cb15fb38f0d7f621f199029d1d4df86538096c6bec2a107cad7159",
     "applicationVersion": "1.4.1-dev",
     "vtVersion": "1.0.1",
-    "embedAbi": 8
+    "embedAbi": 9
   },
   "zig": {
     "version": "0.17.0",
@@ -65,6 +65,11 @@
       "file": "patches/0007-external-selection.patch.txt",
       "sha256": "127282752d44050bd5d72dbea0a468cafb9b85b3b539660bc3c2d1357e68a853",
       "purpose": "Generic terminal-only native selection gestures, bounded resumable plaintext extraction with request-owned row mutation tracking and cancellation, current-viewport link/row readback, and actual render-snapshot screen metadata. Clipboard/navigation authority and application policy remain maintained C/TypeScript."
+    },
+    {
+      "file": "patches/0008-external-query.patch.txt",
+      "sha256": "6d248cead14e0de6e10c134eb41b8f0ccaf6d71c0dae10a541e0baee17fc3c21",
+      "purpose": "Generic same-Terminal bounded literal query continuations, compact native occurrence metadata, exact retained-cell write identity, parser-origin logical boundary tokens, and independent-screen bounded range/resolver cursors. Product authority, UI search state and clipboard policy remain maintained C/TypeScript."
     }
   ],
   "targets": {

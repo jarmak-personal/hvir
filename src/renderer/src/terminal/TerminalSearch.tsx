@@ -41,26 +41,39 @@ export function TerminalSearch({
     }
   }, [snapshot.open])
 
+  useEffect(() => {
+    operation.current += 1
+    setPendingCopy(undefined)
+    setFeedback(undefined)
+  }, [snapshot.query, snapshot.caseSensitive])
+
   const copy = (kind: 'match' | 'region'): void => {
     if (pendingCopy) return
     const id = (operation.current += 1)
     setPendingCopy(kind)
     setFeedback(undefined)
+    const current = controller.copyGuard()
     const text =
       kind === 'match'
         ? Promise.resolve().then(() => controller.currentMatchText())
         : controller.extractCurrentRegion()
     void text
-      .then((value) => writeText(value))
+      .then((value) => {
+        if (operation.current !== id || !current())
+          throw new Error('Terminal copy is no longer current')
+        return writeText(value)
+      })
       .then(
         () => {
           if (operation.current !== id || !controller.snapshot().open) return
           setPendingCopy(undefined)
+          if (!current()) return
           setFeedback(kind === 'match' ? 'Copied match.' : 'Copied terminal region.')
         },
         () => {
           if (operation.current !== id || !controller.snapshot().open) return
           setPendingCopy(undefined)
+          if (!current()) return
           setFeedback(
             kind === 'match'
               ? 'Could not copy the current match to the clipboard.'
@@ -95,7 +108,7 @@ export function TerminalSearch({
           controller.close(true)
         } else if (event.key === 'Enter' && event.target === inputRef.current) {
           event.preventDefault()
-          controller.navigate(event.shiftKey ? 'previous' : 'next')
+          void controller.navigate(event.shiftKey ? 'previous' : 'next')
         }
       }}
     >
@@ -118,7 +131,9 @@ export function TerminalSearch({
           aria-label="Previous terminal match"
           title="Previous match (Shift+Enter)"
           disabled={snapshot.matchCount === 0}
-          onClick={() => controller.navigate('previous')}
+          onClick={() => {
+            void controller.navigate('previous')
+          }}
           className="hvir-button"
         >
           ↑
@@ -128,7 +143,9 @@ export function TerminalSearch({
           aria-label="Next terminal match"
           title="Next match (Enter)"
           disabled={snapshot.matchCount === 0}
-          onClick={() => controller.navigate('next')}
+          onClick={() => {
+            void controller.navigate('next')
+          }}
           className="hvir-button"
         >
           ↓

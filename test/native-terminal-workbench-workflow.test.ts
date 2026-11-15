@@ -37,6 +37,13 @@ function executeQualification(
     | 'readonly-cleanup'
     | 'readonly-write'
     | 'held-buttons',
+  badQuery?:
+    | 'clipboard'
+    | 'pixels'
+    | 'progress'
+    | 'responsiveness'
+    | 'lost-selection'
+    | 'streaming-deadline',
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'hvir-native-workbench-report-'))
   try {
@@ -56,9 +63,11 @@ const proof = {
   rendererCanvas: true, nativeEncodedKeyboard: true, capturedAnsiRedPixels: 501,
   resizeAcknowledgedByStty: {rows: 21, columns: 80}, development: true,
   hardwareQualified: process.env.HVIR_TEST_INVALID === 'true',
+  nativeQuery:{actualNative:true,matches:3,exactCopy:{bytes:23,sha256:require('node:crypto').createHash('sha256').update('hvir-native-query-match').digest('hex')},semanticCopy:{bytes:7,sha256:require('node:crypto').createHash('sha256').update('output\\n').digest('hex')},semanticNavigation:['Output 3 of 3','Command 2 of 3','Output 3 of 3'],selectedHighlight:{first:{left:1,top:1,right:200,bottom:16,pixels:300,expectedWidth:200,expectedHeight:16},second:{left:1,top:20,right:200,bottom:35,pixels:300,expectedWidth:200,expectedHeight:16},returned:{left:1,top:1,right:200,bottom:16,pixels:300,expectedWidth:200,expectedHeight:16},moved:{left:1,top:20,right:200,bottom:35,pixels:300,expectedWidth:200,expectedHeight:16}},movedOccurrence:{rowEdit:'insert-line',sameSelection:true,noRevealGesture:true,exactCopy:{bytes:23,sha256:require('node:crypto').createHash('sha256').update('hvir-native-query-match').digest('hex')}},frames:10,maximumFrameGapMs:20,existingHighMatchFrameBudgetMs:500,highMatch:{initial:12000,observedReducedCount:16,observedAtMs:1000,observationWindowMs:3000,latestCount:0,latestStatus:'empty',latestAtMs:6200,selectionUnavailable:true,sameOpenQuery:true,removal:'capacity-eviction',rendererGrowthKiB:100},streaming:{elapsedMs:1000,evidenceBudgetMs:2500,completionBudgetMs:7000,selectedIndex:1,copiedWhileProducing:true}},
   nativeEffects:{phases:10,causalEventSerials:true,titleProductDelivery:true,remoteCwdCopied:true,readQueriesRefused:true,newClipboardProtocolsRefused:true,queriesExact:true,linkUserIntentPortHostCorrect:true,semanticObservations:4,semanticOccurrenceIdentityQualified:false,linkGestureQualified:false,hardwareQualified:false,nativeOsActionsQualified:false,osc777AndProgressDisposition:'ignored',quietAttentionEvents:2,clipboardWrites:['native-effects','a'.repeat(49152)].map(text=>({bytes:Buffer.byteLength(text),sha256:require('node:crypto').createHash('sha256').update(text).digest('hex')})),responsiveness:{maximumMs:500,main:{samples:4,maxMs:10},renderer:{samples:4,maxMs:18}}},
   nativeSelection:{pendingPressAck:{pointerId:1,heldMoveButtons:1,trustedOutsideMove:true,trustedOutsideUp:true,ackHeldUntilOutsideUp:true,nativeOriginalViewOrder:true,captureReleasedBeforeAck:true,captureReleasedAfterAck:true,exactSelectedBytes:5,exactSelectedSha256:require('node:crypto').createHash('sha256').update('alpha').digest('hex')},samePty:true,originalReadyBeforeClear:true,clearScreenScrollback:true,resetTerminal:true,parserInputAlive:true,drag:true,word:true,line:true,unicodeWhitespace:true,softwrap:true,selectAll:true,menu:true,metaCopy:true,controlShiftCopy:true,fileUriAndPlainIntent:true,linkRootsMatched:true,loopbackRouteContent:true,externalOpenerObserved:true,osExternalOpenerInvoked:false,hardwareGpuQualified:false,retentionEpoch:'HVIR_M9_RETENTION_EPOCH',fixtureColumns:80,linkIntents:4,copies:[['drag','alpha'],['word','alpha'],['line','alpha beta'],['unicode-whitespace','  A界e\\u0301B  '],['all-softwrap','w'.repeat(100)],['continuous-drag','alpha']].map(([name,text])=>({name,bytes:Buffer.byteLength(text),sha256:require('node:crypto').createHash('sha256').update(text).digest('hex')})),continuous:{producedBytes:65536,copiedWhileActive:true},largeCopy:{fixtureBytes:4096*81-1,copyFinished:false,copyStale:true,refusalCode:6,inputWhilePending:false,writeWhilePending:false,userWrites:1,mutation:8},mainSamples:4,mainMaxMs:20,rendererSamples:4,rendererMaxMs:20,isolatedOsClipboardReadback:process.env.RUNNER_OS==='Linux'&&process.env.HVIR_NATIVE_TERMINAL_ISOLATED_CLIPBOARD==='1',clipboardIntercepted:process.env.RUNNER_OS!=='Linux'},
   readonlySelection:{gestureBlur:{pointerId:1,heldMoveButtons:1,acknowledgedDrag:true,tabChangedFocus:true,nativeFocusCleanup:true,captureReleased:true,ptyWrites:0,ptyCount:0,selectedRangePreserved:true},rendererSamples:4,rendererMaxMs:20,readonlyDrag:true,readonlyCopy:true,bytes:Buffer.byteLength('HVIR_READONLY_SELECTION'),sha256:require('node:crypto').createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex'),isolatedOsClipboardReadback:process.env.RUNNER_OS==='Linux'&&process.env.HVIR_NATIVE_TERMINAL_ISOLATED_CLIPBOARD==='1'},
+  readonlyQuery:{retainedAfterExit:true,matches:1,exactCopy:{bytes:Buffer.byteLength('HVIR_READONLY_SELECTION'),sha256:require('node:crypto').createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex')},frames:10,maximumFrameGapMs:20},
   diagnosticPadding: 'x'.repeat(90000),
 };
 if(process.env.HVIR_TEST_BAD_EFFECT==='clipboard')proof.nativeEffects.clipboardWrites[1].sha256='incorrect';
@@ -75,6 +84,12 @@ if(process.env.HVIR_TEST_BAD_SELECTION==='pointer-capture')proof.nativeSelection
 if(process.env.HVIR_TEST_BAD_SELECTION==='readonly-cleanup')proof.readonlySelection.gestureBlur.nativeFocusCleanup=false;
 if(process.env.HVIR_TEST_BAD_SELECTION==='readonly-write')proof.readonlySelection.gestureBlur.ptyWrites=1;
 if(process.env.HVIR_TEST_BAD_SELECTION==='held-buttons')proof.nativeSelection.pendingPressAck.heldMoveButtons=0;
+if(process.env.HVIR_TEST_BAD_QUERY==='clipboard')proof.nativeQuery.semanticCopy.sha256='incorrect';
+if(process.env.HVIR_TEST_BAD_QUERY==='pixels')proof.nativeQuery.selectedHighlight.second.top=1;
+if(process.env.HVIR_TEST_BAD_QUERY==='progress')proof.nativeQuery.streaming.copiedWhileProducing=false;
+if(process.env.HVIR_TEST_BAD_QUERY==='responsiveness')proof.nativeQuery.maximumFrameGapMs=501;
+if(process.env.HVIR_TEST_BAD_QUERY==='lost-selection')proof.nativeQuery.highMatch.observedReducedCount=12000;
+if(process.env.HVIR_TEST_BAD_QUERY==='streaming-deadline')proof.nativeQuery.streaming.elapsedMs=2501;
 const line = 'HVIR_NATIVE_WORKBENCH_OK ' + JSON.stringify(proof) + '\\n';
 process.stdout.write(line.slice(0, 65536), () => {
   process.stderr.write('controlled native cleanup diagnostic\\n', () => {
@@ -110,6 +125,7 @@ exec "$HVIR_TEST_NODE" "$@"
         HVIR_TEST_INVALID: String(invalid),
         HVIR_TEST_BAD_EFFECT: badEffect ?? '',
         HVIR_TEST_BAD_SELECTION: badSelection ?? '',
+        HVIR_TEST_BAD_QUERY: badQuery ?? '',
       },
     })
     const proof = readFileSync(
@@ -123,6 +139,26 @@ exec "$HVIR_TEST_NODE" "$@"
 }
 
 describe('native workbench machine-readable workflow stream', () => {
+  it.each([
+    'clipboard',
+    'pixels',
+    'progress',
+    'responsiveness',
+    'lost-selection',
+    'streaming-deadline',
+  ] as const)('rejects false native retained-query evidence: %s', (kind) => {
+    const result = executeQualification(
+      qualification,
+      'macOS',
+      false,
+      undefined,
+      undefined,
+      kind,
+    )
+    expect(result.error).toBeUndefined()
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('AssertionError')
+  })
   it.each(['macOS', 'Linux'] as const)(
     'keeps interleaved %s diagnostics out of a large stdout receipt',
     (platform) => {

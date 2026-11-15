@@ -230,9 +230,12 @@ async function deliver(
   expect(runtime.interactions.search.open()).toBe(true)
   runtime.interactions.search.setQuery('exact text')
   await vi.waitFor(() =>
-    expect(runtime.interactions.search.snapshot().matchCount).toBe(1),
+    expect(runtime.interactions.search.snapshot()).toMatchObject({
+      matchCount: 1,
+      matchIndex: 0,
+    }),
   )
-  const searchText = runtime.interactions.search.currentMatchText()
+  const searchText = await runtime.interactions.search.currentMatchText()
   runtime.interactions.search.close()
   runtime.update({
     ...options,

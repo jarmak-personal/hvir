@@ -10,6 +10,10 @@ import {
 } from './native-terminal-effects'
 import { verifyNativeTerminalPaste } from './native-terminal-paste'
 import {
+  verifyNativeTerminalQuery,
+  verifyNativeReadonlyQuery,
+} from './native-terminal-query'
+import {
   verifyNativeTerminalInput,
   verifyNativeReadonlyInput,
 } from './native-terminal-input'
@@ -120,6 +124,8 @@ export async function verifyNativeTerminalWorkbench(
   }
   const text = async () =>
     new TextDecoder().decode(await native.readRetained(managed.id, owner))
+  // M10's destructive fixture precedes M9's original-ready/retention lifetime.
+  const nativeQuery = await verifyNativeTerminalQuery(win, ptys, native, managed)
   await ptys.writeConfirmed(
     managed.id,
     owner.id,
@@ -233,6 +239,8 @@ export async function verifyNativeTerminalWorkbench(
     native,
     managed,
   )
+  const readonlyQuery = await verifyNativeReadonlyQuery(win, native, managed)
+  if (ptys.list().length) throw new Error('native-query-readonly-revived-pty')
   await native.remove(managed.id, managed.instanceId)
   if (native.sessions.get(managed.id)) throw new Error('native-workbench-removed-state')
   console.log(
@@ -254,7 +262,9 @@ export async function verifyNativeTerminalWorkbench(
       nativeInput,
       nativeEffects,
       nativeSelection,
+      nativeQuery,
       readonlySelection,
+      readonlyQuery,
       largePaste,
       readonlyInput,
       resizeControl: 'terminal-rail',

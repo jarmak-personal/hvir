@@ -8,6 +8,7 @@ import {
   pinPath,
   repository,
   verifyArtifact,
+  validQueryProof,
 } from './artifacts.mts'
 import { execute, prepareSource, prepareZig } from './source.mts'
 import { inspectBinary } from './binary.mts'
@@ -203,6 +204,7 @@ await run(
     join(repository, 'packages/native-terminal/terminal_input.c'),
     join(repository, 'packages/native-terminal/terminal_effects.c'),
     join(repository, 'packages/native-terminal/terminal_selection.c'),
+    join(repository, 'packages/native-terminal/terminal_query.c'),
     join(repository, 'packages/native-terminal/linux_display.c'),
     join(repository, 'packages/native-terminal/facade_probe.c'),
     '-pthread',
@@ -249,7 +251,7 @@ await writeFile(
 )
 console.log(facade.stdout.trim())
 // Each proof uses the same real Surface; it reports contract counts, never contents.
-for (const capability of ['input', 'effects', 'selection']) {
+for (const capability of ['input', 'effects', 'selection', 'query']) {
   await run(
     'cc',
     [
@@ -263,6 +265,7 @@ for (const capability of ['input', 'effects', 'selection']) {
         'terminal_input.c',
         'terminal_effects.c',
         'terminal_selection.c',
+        'terminal_query.c',
         'linux_display.c',
         `${capability}_probe.c`,
       ].map((file) => join(repository, 'packages/native-terminal', file)),
@@ -316,7 +319,8 @@ for (const capability of ['input', 'effects', 'selection']) {
         result.workBoundaryBytes <= 0 ||
         typeof result.workBoundaryChunks !== 'number' ||
         result.workBoundaryChunks < 2 ||
-        result.cleanupChecked !== true))
+        result.cleanupChecked !== true)) ||
+    (capability === 'query' && !validQueryProof(result))
   )
     throw new Error(`native-${capability}: incomplete proof`)
   await writeFile(join(output, `${capability}-proof.json`), proof.stdout)
@@ -376,6 +380,7 @@ if (selected.platform === 'linux') {
               join(repository, 'packages/native-terminal/terminal_input.c'),
               join(repository, 'packages/native-terminal/terminal_effects.c'),
               join(repository, 'packages/native-terminal/terminal_selection.c'),
+              join(repository, 'packages/native-terminal/terminal_query.c'),
               join(repository, 'packages/native-terminal/linux_display.c'),
             ]
           : []),

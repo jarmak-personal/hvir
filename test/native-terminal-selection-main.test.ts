@@ -66,6 +66,10 @@ function fixture() {
     if (!current || instance !== 'instance' || geometry !== 3)
       throw new Error('source-stale')
   })
+  const controlApplied = vi.fn<
+    (_action: 'clear' | 'reset', _cutoff: number, _mutation: number) => Promise<void>
+  >(() => Promise.resolve())
+  const retainControl = vi.fn<(pending: Promise<unknown>) => void>()
   const source = vi.fn((view: string, caller: typeof owner) => {
     if (
       view !== viewId ||
@@ -78,6 +82,8 @@ function fixture() {
       instanceId: 'instance',
       workspaceRoot: root,
       geometry: context,
+      controlApplied,
+      retainControl,
       assertCurrent,
       prefix: () => ({
         parsed: async (signal: AbortSignal) => {
@@ -98,6 +104,8 @@ function fixture() {
     request,
     operations,
     source,
+    controlApplied,
+    retainControl,
     set: (handler: typeof implementation) => {
       implementation = handler
     },
@@ -113,6 +121,70 @@ function fixture() {
   }
 }
 describe('main native selection request ownership', () => {
+  it('publishes a sent control cutoff after revocation and retains its full physical callback', async () => {
+    const f = fixture(),
+      gate = deferred<unknown>(),
+      callback = deferred<void>()
+    f.controlApplied.mockImplementation(() => callback.promise)
+    let dispatched = false
+    f.set(() => {
+      dispatched = true
+      return gate.promise
+    })
+    const action = f.selection.action({ viewId, action: 'clear' }, owner)
+    const rejected = expect(action).rejects.toThrow()
+    await vi.waitFor(() => expect(dispatched).toBe(true))
+    expect(f.host.selection.mock.calls[0]![3]).toBeUndefined()
+    f.revoke()
+    f.selection.revoke(viewId)
+    gate.resolve(
+      state({
+        screen: 1,
+        geometrySerial: 4,
+        requestedMutation: 9,
+        effectSerialCutoff: 41,
+      }),
+    )
+    await vi.waitFor(() => expect(f.controlApplied).toHaveBeenCalledWith('clear', 41, 9))
+    let physicallySettled = false
+    void f.retainControl.mock.calls[0]![0].then(() => {
+      physicallySettled = true
+    })
+    expect(physicallySettled).toBe(false)
+    callback.resolve()
+    await rejected
+    expect(physicallySettled).toBe(true)
+  })
+  it('preserves a typed resource refusal without publishing a control cutoff', async () => {
+    const f = fixture()
+    f.set(() => ({ unavailable: 7, stale: false }))
+    await expect(
+      f.selection.action({ viewId, action: 'clear' }, owner),
+    ).rejects.toMatchObject({
+      code: 7,
+      stale: false,
+      message: 'native-selection-unavailable',
+    })
+    expect(f.controlApplied).not.toHaveBeenCalled()
+  })
+  it('does not post a control revoked before its captured-prefix eligibility', async () => {
+    const f = fixture(),
+      gate = deferred<void>()
+    f.host.selection.mockImplementation(
+      async (_handle, _instance, op, _signal, eligible) => {
+        await gate.promise
+        await eligible?.(new AbortController().signal)
+        throw new Error(`unexpected-post-${op.kind}`)
+      },
+    )
+    const action = f.selection.action({ viewId, action: 'reset' }, owner)
+    const rejected = expect(action).rejects.toThrow()
+    f.selection.revoke(viewId)
+    gate.resolve()
+    await rejected
+    expect(f.controlApplied).not.toHaveBeenCalled()
+  })
+
   it('returns only actual Begin acknowledgement, then copies bounded chunks and Finish before exact cleanup', async () => {
     const f = fixture(),
       request = f.request()

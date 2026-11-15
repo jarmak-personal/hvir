@@ -78,6 +78,24 @@ describe('terminal semantic regions', () => {
     ).toEqual(['prompt', 'command', 'output'])
   })
 
+  it('does not treat two different authenticated native boundaries at identical coordinates as duplicate occurrences', () => {
+    const regions = new TerminalSemanticRegions()
+    regions.consume({
+      ...marker('prompt-start', 1, 4),
+      provenance: { ...marker('prompt-start', 1, 4).provenance, boundaryId: 'first' },
+    })
+    regions.consume({
+      ...marker('prompt-start', 2, 4),
+      provenance: {
+        ...marker('prompt-start', 2, 4).provenance,
+        boundaryId: 'replacement',
+      },
+    })
+    const plan = regions.navigationPlan('next', 'normal', retain)
+    expect(plan.resolved).toHaveLength(1)
+    expect(regions.currentCopyRange('normal')?.start.boundaryId).toBe('replacement')
+  })
+
   it('keeps alternate and normal screen transitions independent', () => {
     const regions = new TerminalSemanticRegions()
     regions.consume(marker('fresh-line-new-prompt', 1, 1, 'normal'))

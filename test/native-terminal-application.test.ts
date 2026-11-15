@@ -40,6 +40,12 @@ function fixture() {
     inputSettlement: undefined as Promise<void> | undefined,
     title: undefined as { title: string; eventSerial: number } | undefined,
   }
+  function currentSession(id: string, instance: string): typeof state {
+    const record = sessions.get(id)
+    if (!record || record.session.instanceId !== instance)
+      throw new Error('native-session-instance-stale')
+    return record
+  }
   const sessions = {
     get: vi.fn((_id?: string): typeof state | undefined => state),
     resolve: vi.fn(() => session),
@@ -49,17 +55,12 @@ function fixture() {
     blockInput: vi.fn(() => {
       state.inputUnavailable = true
     }),
-    inputSettled: vi.fn((id: string, instance: string): Promise<void> | undefined => {
-      const record = sessions.get(id)
-      if (!record || record.session.instanceId !== instance)
-        throw new Error('native-session-instance-stale')
-      return record.inputSettlement
-    }),
+    inputSettled: vi.fn(
+      (id: string, instance: string) => currentSession(id, instance).inputSettlement,
+    ),
     retainInput: vi.fn(
       (id: string, instance: string, pending: Promise<unknown>): void => {
-        const record = sessions.get(id)
-        if (!record || record.session.instanceId !== instance)
-          throw new Error('native-session-instance-stale')
+        const record = currentSession(id, instance)
         const settlement = Promise.allSettled([record.inputSettlement, pending]).then(
           () => undefined,
         )
@@ -70,11 +71,13 @@ function fixture() {
       },
     ),
     writeControl: vi.fn(() => Promise.resolve()),
+    controlApplied: vi.fn(() => Promise.resolve()),
   }
   const encodeKey = vi.fn((_operation?: NativeTerminalInputOperation) =>
     Promise.resolve(new Uint8Array([0, 128, 255])),
   )
   const host = {
+    query: vi.fn(() => Promise.resolve({ result: 0 })),
     rendererInfo: vi.fn(),
     selection: vi.fn<NativeTerminalHost['selection']>(
       async (_handle, _instance, operation, signal, eligible) => {
@@ -166,6 +169,10 @@ function fixture() {
   let observePtys = () => undefined as void
   const stopObserving = vi.fn()
   const managed = { id: 'session', ...session }
+  const appliedPrefix = (signal: AbortSignal) => {
+    signal.throwIfAborted()
+    return Promise.resolve()
+  }
   const ptys = {
     get: vi.fn((_id?: string): typeof managed | undefined => managed),
     list: vi.fn(() => [managed]),
@@ -174,14 +181,8 @@ function fixture() {
       return stopObserving
     }),
     inputPrefix: vi.fn(() => ({
-      parsed: (signal: AbortSignal) => {
-        signal.throwIfAborted()
-        return Promise.resolve()
-      },
-      replies: (signal: AbortSignal) => {
-        signal.throwIfAborted()
-        return Promise.resolve()
-      },
+      parsed: appliedPrefix,
+      replies: appliedPrefix,
     })),
     inputPolicy: vi.fn(() => ({
       composerSubmitMode: 'enter' as const,
@@ -333,7 +334,7 @@ describe('native workbench application ownership', () => {
     })
     await f.app.detach('view', f.owner)
     await f.app.attach('session', f.owner, f.frame)
-    expect(f.app.metadata('session', f.owner)).toEqual({
+    expect(await f.app.metadata('session', f.owner)).toEqual({
       instanceId: 'instance',
       title: { title: 'finished title', eventSerial: 5 },
     })
@@ -362,7 +363,7 @@ describe('native workbench application ownership', () => {
     f.state.inputClosed = true
     f.ptys.get.mockReturnValue(undefined)
     await f.app.attach('session', ownerB, f.frame)
-    expect(f.app.metadata('session', ownerB)).toEqual({
+    expect(await f.app.metadata('session', ownerB)).toEqual({
       instanceId: 'instance',
       title: { title: 'native fact retained through transfer', eventSerial: 3 },
     })
@@ -373,10 +374,12 @@ describe('native workbench application ownership', () => {
       effect: { kind: 'title', title: 'native fact retained through transfer' },
     })
     expect(f.frameSend).not.toHaveBeenCalled()
-    expect(() => f.app.metadata('session', f.owner)).toThrow('native-session-foreign')
+    await expect(f.app.metadata('session', f.owner)).rejects.toThrow(
+      'native-session-foreign',
+    )
     await f.app.detach('view', ownerB)
     await f.app.attach('session', ownerB, f.frame)
-    expect(f.app.metadata('session', ownerB).title).toEqual({
+    expect((await f.app.metadata('session', ownerB)).title).toEqual({
       title: 'native fact retained through transfer',
       eventSerial: 3,
     })

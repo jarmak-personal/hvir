@@ -4,8 +4,10 @@ import {
   readNativeTerminalProducerLink,
   inputNativeTerminalProducer,
   selectionNativeTerminalProducer,
+  queryNativeTerminalProducer,
 } from './native-terminal-producer'
 import type { NativeTerminalLinkQuery } from '../../shared/native-terminal-link'
+import type { NativeTerminalQueryOperation } from '../../shared/native-terminal-query-operations'
 import { randomUUID } from 'node:crypto'
 import {
   nativeTerminalKeyOperation,
@@ -349,6 +351,16 @@ export class NativeTerminalHost {
       signal,
       eligible,
     )
+  }
+  async query(
+    handle: string,
+    instanceId: string,
+    operation: NativeTerminalQueryOperation,
+    signal?: AbortSignal,
+    eligible?: (signal: AbortSignal) => Promise<void>,
+  ): Promise<unknown> {
+    const producer = this.producerContext(handle, instanceId)
+    return queryNativeTerminalProducer(producer, operation, signal, eligible)
   }
   async readProducer(handle: string, instanceId: string): Promise<Uint8Array> {
     return readNativeTerminalProducer(this.producerContext(handle, instanceId), 'read')

@@ -45,6 +45,12 @@ export interface NativeTerminalSelectionSource {
   readonly geometry: NativeTerminalSelectionContext
   assertCurrent(): void
   prefix(): PtyTerminalInputPrefix
+  controlApplied?(
+    action: 'clear' | 'reset',
+    cutoff: number,
+    mutation: number,
+  ): Promise<void>
+  retainControl?(pending: Promise<unknown>): void
 }
 interface ReadRequest {
   readonly viewId: string
@@ -318,13 +324,54 @@ export class NativeTerminalSelection {
   ): Promise<unknown> {
     record.abort.signal.throwIfAborted()
     record.source.assertCurrent()
-    record.native = this.host.selection(
+    const control =
+      operation.kind === 'command' &&
+      (operation.action === 'clear' || operation.action === 'reset')
+        ? operation
+        : undefined
+    const physical = this.host.selection(
       record.source.handle,
       record.source.instanceId,
       operation,
-      record.abort.signal,
-      eligible,
+      control ? undefined : record.abort.signal,
+      control
+        ? async (signal) => {
+            await eligible?.(signal)
+            record.abort.signal.throwIfAborted()
+            record.source.assertCurrent()
+          }
+        : eligible,
     )
+    record.native = control
+      ? physical.then(async (value) => {
+          // Refusals have no successful-control geometry and retain their typed outcome.
+          if (value && typeof value === 'object' && 'unavailable' in value)
+            nativeSelectionState(value, control.context)
+          if (
+            !value ||
+            typeof value !== 'object' ||
+            !('screen' in value) ||
+            !('geometrySerial' in value) ||
+            (value.screen !== 0 && value.screen !== 1) ||
+            typeof value.geometrySerial !== 'number' ||
+            !Number.isSafeInteger(value.geometrySerial) ||
+            value.geometrySerial <= 0
+          )
+            throw new Error('native-selection-control-result-invalid')
+          // Preserve the physical fact before validating delivery against the old drawn view.
+          const state = nativeSelectionState(value, {
+            screen: value.screen,
+            geometrySerial: value.geometrySerial,
+          })
+          await record.source.controlApplied?.(
+            control.action as 'clear' | 'reset',
+            state.effectSerialCutoff ?? 0,
+            state.requestedMutation,
+          )
+          return value
+        })
+      : physical
+    if (control) record.source.retainControl?.(record.native)
     const value = await record.native
     // Resource-producing results are captured before authority can reject delivery.
     if (

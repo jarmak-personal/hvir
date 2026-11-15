@@ -18,6 +18,7 @@ interface NativeEventResult {
     data: Uint8Array
     extra: Uint8Array
     truncated: boolean
+    boundary?: bigint
   }
 }
 function counter(value: bigint): number {
@@ -107,6 +108,13 @@ export function drainNativeTerminalEffects(
           event.column < 0
         )
           throw new Error('native-semantic-invalid')
+        if (
+          event.boundary !== undefined &&
+          (typeof event.boundary !== 'bigint' ||
+            event.boundary < 0n ||
+            event.boundary > 0xffffffffffffffffn)
+        )
+          throw new Error('native-semantic-boundary-invalid')
         effect = {
           ...provenance,
           kind: 'semantic',
@@ -115,6 +123,9 @@ export function drainNativeTerminalEffects(
           screen,
           row: event.row,
           column: event.column,
+          ...(event.boundary === undefined || event.boundary === 0n
+            ? {}
+            : { boundary: event.boundary.toString() }),
         }
         break
       case 7:
@@ -161,12 +172,12 @@ export function drainNativeTerminalEffects(
         }
         break
       case 8:
-        if (!screen || (event.action !== 0 && event.action !== 1))
+        if (!screen || ![0, 1, 2].includes(event.action))
           throw new Error('native-screen-effect-invalid')
         effect = {
           ...provenance,
           kind: 'screen',
-          action: event.action === 0 ? 'screen-change' : 'reset',
+          action: event.action === 0 ? 'screen-change' : event.action === 1 ? 'reset' : 'clear',
           screen,
         }
         break

@@ -1,4 +1,5 @@
 import { hostPath, type HostId, type HostPath } from './host-path'
+import { validNativeTerminalSelectionCursor } from './native-terminal-selection'
 /** Copied parser facts. Coordinates observe native state; they are not retained identities. */
 export interface NativeTerminalEffectProvenance {
   readonly sequence: number
@@ -28,6 +29,8 @@ export type NativeTerminalEffect = NativeTerminalEffectProvenance &
         readonly screen: 'normal' | 'alternate'
         readonly row: number
         readonly column: number
+        /** Parser-time native boundary token; Main must qualify it before publication. */
+        readonly boundary?: string
       }
     | {
         readonly kind: 'palette'
@@ -40,7 +43,7 @@ export type NativeTerminalEffect = NativeTerminalEffectProvenance &
     | { readonly kind: 'progress'; readonly action: number; readonly percentage?: number }
     | {
         readonly kind: 'screen'
-        readonly action: 'screen-change' | 'reset'
+        readonly action: 'screen-change' | 'reset' | 'clear'
         readonly screen: 'normal' | 'alternate'
       }
   )
@@ -54,11 +57,32 @@ export interface NativeTerminalProductEffect {
   readonly instanceId: string
   readonly eventSerial: number
   readonly effect:
-    { readonly kind: 'title'; readonly title: string } | { readonly kind: 'bell' }
+    | { readonly kind: 'title'; readonly title: string }
+    | { readonly kind: 'bell' }
+    | {
+        readonly kind: 'semantic'
+        readonly action: number
+        readonly screen: 'normal' | 'alternate'
+        readonly row: number
+        readonly column: number
+        readonly boundaryId: string
+        readonly options: string
+      }
+    | {
+        readonly kind: 'semantic-gap'
+        /** Genuine ordered control acknowledgement; later parser facts remain valid. */
+        readonly controlCutoff?: number
+      }
 }
 export interface NativeTerminalMetadata {
   readonly instanceId: string
   readonly title?: { readonly title: string; readonly eventSerial: number }
+  /** Bounded parser metadata, not terminal text or a reconstructed transcript. */
+  readonly semanticSnapshot?: NativeTerminalSemanticSnapshot
+}
+export interface NativeTerminalSemanticSnapshot {
+  readonly effects: readonly NativeTerminalProductEffect[]
+  readonly throughSerial: number
 }
 export const NATIVE_TERMINAL_EFFECT_LIMITS = {
   records: 131,
@@ -119,6 +143,8 @@ export function validNativeTerminalEffectBatch(
           effect.action > 7 ||
           !nativeTerminalEffectCounter(effect.row) ||
           !nativeTerminalEffectCounter(effect.column) ||
+          (effect.boundary !== undefined &&
+            !validNativeTerminalSelectionCursor(effect.boundary)) ||
           (effect.screen !== 'normal' && effect.screen !== 'alternate')
         )
           return false
@@ -157,7 +183,9 @@ export function validNativeTerminalEffectBatch(
         break
       case 'screen':
         if (
-          (effect.action !== 'screen-change' && effect.action !== 'reset') ||
+          (effect.action !== 'screen-change' &&
+            effect.action !== 'reset' &&
+            effect.action !== 'clear') ||
           (effect.screen !== 'normal' && effect.screen !== 'alternate')
         )
           return false

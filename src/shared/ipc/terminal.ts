@@ -261,6 +261,10 @@ export const terminalIpc = {
       import('../native-terminal-selection').NativeTerminalSelectionRequest,
       import('../native-terminal-selection').NativeTerminalSelectionResponse
     >(),
+    'native-terminal:query': invoke<
+      import('../native-terminal-query').NativeTerminalQueryRequest,
+      import('../native-terminal-query').NativeTerminalQueryResponse
+    >(),
     'native-terminal:selection-read': invoke<
       import('../native-terminal-selection').NativeTerminalSelectionReadRequest,
       import('../native-terminal-selection').NativeTerminalSelectionResponse
@@ -276,6 +280,8 @@ export const terminalIpc = {
     'pty:start': invoke<StartPtyRequest, StartPtyResponse>(),
   },
   send: {
+    'native-terminal:query-cancel':
+      payload<import('../native-terminal-query').NativeTerminalQueryCancellation>(),
     'native-terminal:selection-cancel':
       payload<
         import('../native-terminal-selection').NativeTerminalSelectionCancellation
@@ -296,6 +302,8 @@ export const terminalIpc = {
     'terminal:clipboard-write': payload<{ readonly text: string }>(),
   },
   event: {
+    'native-terminal:query-update':
+      payload<import('../native-terminal-query').NativeTerminalQueryUpdate>(),
     'native-terminal:effect':
       payload<import('../native-terminal-effects').NativeTerminalProductEffect>(),
     'native-terminal:presentation-grant': payload<{

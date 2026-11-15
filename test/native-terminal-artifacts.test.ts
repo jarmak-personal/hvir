@@ -8,6 +8,7 @@ import {
   pin,
   pinPath,
   verifyArtifact,
+  validQueryProof,
   type NativeArtifact,
 } from '../scripts/native-terminal/artifacts.mts'
 
@@ -30,6 +31,8 @@ beforeEach(async () => {
     'effects-proof.json',
     'selection-probe',
     'selection-proof.json',
+    'query-probe',
+    'query-proof.json',
     'frame-metadata-probe',
     'frame-metadata-proof.json',
   ]) {
@@ -84,6 +87,8 @@ describe('native artifact admission before loader execution', () => {
     'effects-proof.json',
     'selection-probe',
     'selection-proof.json',
+    'query-probe',
+    'query-proof.json',
     'frame-metadata-probe',
     'frame-metadata-proof.json',
   ])('rejects incomplete facade input %s before loading', async (name) => {
@@ -246,4 +251,55 @@ describe('native prepared-input provenance', () => {
       })
     },
   )
+})
+
+describe('real query probe numerical receipt admission', () => {
+  const proof = {
+    kind: 'native-query',
+    passed: true,
+    checks: 1000,
+    queryCases: 30,
+    maxWork: 8192,
+    maxVisited: 8192,
+    maxChunkBytes: 65536,
+    partialCounts: 2,
+    streamedBatches: 3,
+    initialCompletedBeforeProducerEnd: true,
+    largeSemanticBytes: 1048577,
+    largeChunks: 20,
+    validatedBytes: 1048700,
+    copyDigestFnv1a64: '0123456789abcdef',
+    frameAcquisitions: 0,
+    hardwareGpuQualified: false,
+  }
+  it('admits a complete bounded software proof and future additional cases', () => {
+    expect(validQueryProof(proof)).toBe(true)
+    expect(validQueryProof({ ...proof, queryCases: 31 })).toBe(true)
+  })
+  it.each([
+    ['kind', 'native-selection'],
+    ['passed', false],
+    ['checks', 99],
+    ['queryCases', 29],
+    ['maxWork', 8193],
+    ['maxVisited', 8193],
+    ['maxChunkBytes', 65537],
+    ['partialCounts', 0],
+    ['streamedBatches', 0],
+    ['initialCompletedBeforeProducerEnd', false],
+    ['largeSemanticBytes', 1048576],
+    ['largeChunks', 1],
+    ['validatedBytes', 0],
+    ['copyDigestFnv1a64', 'terminal payload'],
+    ['frameAcquisitions', 1],
+    ['hardwareGpuQualified', true],
+    ['maxWork', NaN],
+    ['largeChunks', 1.5],
+    ['validatedBytes', Number.MAX_SAFE_INTEGER + 1],
+  ] as const)('rejects missing or invalid %s evidence', (field, value) => {
+    expect(validQueryProof({ ...proof, [field]: value })).toBe(false)
+    const missing: Record<string, unknown> = { ...proof }
+    delete missing[field]
+    expect(validQueryProof(missing)).toBe(false)
+  })
 })

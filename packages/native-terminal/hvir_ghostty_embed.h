@@ -5,7 +5,7 @@
 #include <stdint.h>
 /* Pinned full-core hooks, separate from stable libghostty-vt. Local pointers/FDs
  * belong to this process; M4 must transfer real OS rights across processes. */
-#define HVIR_GHOSTTY_EMBED_ABI 8u
+#define HVIR_GHOSTTY_EMBED_ABI 9u
 typedef uint32_t (*hvir_ghostty_embed_abi_fn)(void);
 typedef struct {
   uint32_t kind, width, height, fourcc, plane_count, premultiplied, color_space, origin, screen;
@@ -40,6 +40,23 @@ typedef struct {
   uint32_t selection_result;
   uint64_t selection_serial;
 } hvir_ghostty_input_result;
+/* Query coordinates are observations; only query-owned opaque IDs authenticate. */
+typedef struct {
+  uint64_t occurrence, index;
+  uint32_t screen, row, column, end_row, end_column;
+} hvir_ghostty_query_match;
+typedef struct {
+  uint64_t query, revision, count;
+  uint32_t status; /* 0 running, 1 source feed required, 2 caught up */
+  bool stale;
+  size_t work, visited;
+} hvir_ghostty_query_status;
+typedef struct { bool stale; uint64_t revision, count; size_t length; } hvir_ghostty_query_page_result;
+typedef struct {
+  uint64_t boundary;
+  uint32_t screen, row, column;
+  bool stale;
+} hvir_ghostty_boundary;
 typedef struct {
   bool stale, has_selection;
   uint32_t screen, column;
@@ -47,6 +64,11 @@ typedef struct {
   bool done, has_clicked_offset;
   size_t visited, work, written;
   uint64_t clicked_offset;
+  uint32_t resolution_kind;
+  bool resolved, revealed;
+  hvir_ghostty_query_match match;
+  hvir_ghostty_boundary boundary;
+  uint64_t effect_serial_cutoff;
 } hvir_ghostty_selection_result;
 typedef struct {
   uint32_t screen, row, column;
@@ -54,7 +76,7 @@ typedef struct {
 } hvir_ghostty_link_current_result;
 typedef struct {
   uint32_t kind, action, screen, row, column;
-  uint64_t sequence, serial;
+  uint64_t sequence, serial, boundary;
   const uint8_t *data; size_t data_len;
   const uint8_t *extra; size_t extra_len;
 } hvir_ghostty_external_effect;

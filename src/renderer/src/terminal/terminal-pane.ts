@@ -4,6 +4,13 @@
  */
 
 import type { Disposer, HostPath } from '../../../shared'
+import type { TerminalRetainedQueryCapability } from './terminal-retained-query'
+export type {
+  TerminalRetainedQueryCapability,
+  TerminalRetainedQuery,
+  TerminalRetainedOccurrence,
+  TerminalRetainedQuerySnapshot,
+} from './terminal-retained-query'
 import type { TerminalInputSource } from '../../../shared/terminal-input'
 
 export interface TerminalSize {
@@ -59,6 +66,7 @@ export type TerminalEventScreen = 'normal' | 'alternate'
 
 export interface TerminalEventProvenance {
   readonly id: number
+  readonly boundaryId?: string
   readonly screen: TerminalEventScreen
   readonly row: number
   readonly column: number
@@ -155,6 +163,7 @@ export type TerminalEvent =
   | { readonly type: 'title'; readonly title: string }
   | { readonly type: 'working-directory'; readonly uri: string }
   | { readonly type: 'bell' }
+  | { readonly type: 'semantic-gap'; readonly controlCutoff?: number }
   | {
       readonly type: 'notification'
       readonly source: TerminalNotificationSource
@@ -217,6 +226,7 @@ export interface TerminalSelectionCapability {
 }
 
 export interface TerminalPane {
+  readonly retained?: TerminalRetainedQueryCapability
   readonly selection?: TerminalSelectionCapability
   /** Attach the pane to a DOM container and begin rendering. */
   mount(container: HTMLElement): void
@@ -285,6 +295,7 @@ export interface TerminalPane {
  * rather than pretending to implement the legacy synchronous parser contract. */
 export interface NativeTerminalPanePort {
   readonly engine: 'native'
+  readonly retained?: TerminalRetainedQueryCapability
   readonly selection: TerminalSelectionCapability
   paste(data: string): void
   mount(container: HTMLElement): void

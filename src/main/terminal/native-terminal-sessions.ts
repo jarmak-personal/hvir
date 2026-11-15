@@ -57,6 +57,7 @@ interface NativeSession {
   cwd?: HostPath
   effectState?: { readonly droppedEffects: number; readonly semanticGeneration: number }
   inputSettlement?: Promise<void>
+  effectDrain?: Promise<void>
   disposing?: Promise<void>
 }
 export interface NativeTerminalViewport {
@@ -75,6 +76,11 @@ export class NativeTerminalSessions {
     private readonly isRendererCurrent: (ownerId: number, generation: number) => boolean,
     private readonly onUnavailable?: (sessionId: string, instanceId: string) => void,
     private readonly effectPolicy?: Pick<NativeTerminalEffectPolicy, 'consume'>,
+    private readonly onParsed?: (
+      session: NativeTerminalSession,
+      handle: string,
+      batch: NativeTerminalEffectBatch,
+    ) => void | Promise<void>,
   ) {}
 
   resolve(sessionId: string): NativeTerminalSession | undefined {
@@ -314,62 +320,10 @@ export class NativeTerminalSessions {
           !record.inputUnavailable && replies.byteLength && record.writer?.live
             ? record.writer.writeReply(replies)
             : Promise.resolve()
-        const effects = this.retryUnsent(record, () =>
-          this.host.drainEffectsProducer(record.handle!, record.session.instanceId),
-        )
+        const consuming = this.drainEffects(record, producingSession)
         record.writer?.repliesDispatched(
           Math.min(NATIVE_TERMINAL_LIMITS.feedChunkBytes, encoded.byteLength - offset),
         )
-        const consuming = effects.then((batch) => {
-          this.assertCurrent(record)
-          const previous = record.effectSerial ?? 0
-          // Copied facts belong to the current native instance, not its presentation owner.
-          record.effectState = {
-            droppedEffects: batch.droppedEffects,
-            semanticGeneration: batch.semanticGeneration,
-          }
-          for (const effect of batch.effects) {
-            if (effect.eventSerial <= previous) continue
-            if (effect.kind === 'title')
-              record.title = { title: effect.title, eventSerial: effect.eventSerial }
-            if (effect.kind === 'cwd')
-              record.cwd = nativeTerminalWorkingDirectory(
-                producingSession.workspaceRoot.hostId,
-                effect.uri,
-              )
-          }
-          this.effectPolicy?.consume(
-            producingSession,
-            {
-              ...batch,
-              effects: batch.effects.filter((effect) => effect.eventSerial > previous),
-            },
-            {
-              current: () => {
-                try {
-                  this.assertCurrent(record)
-                } catch {
-                  return false
-                }
-                return (
-                  record.session === producingSession &&
-                  this.isRendererCurrent(
-                    producingSession.ownerId,
-                    producingSession.ownerGeneration,
-                  )
-                )
-              },
-              live: () =>
-                record.phase === 'live' &&
-                !record.inputUnavailable &&
-                record.writer?.live === true,
-            },
-          )
-          record.effectSerial = Math.max(
-            previous,
-            ...batch.effects.map((effect) => effect.eventSerial),
-          )
-        })
         const outcomes = await Promise.allSettled([writing, consuming])
         const failure = outcomes.find((outcome) => outcome.status === 'rejected')
         if (failure?.status === 'rejected') throw failure.reason
@@ -380,6 +334,96 @@ export class NativeTerminalSessions {
     } finally {
       record.feeding = false
     }
+  }
+
+  /** Physically applied controls use the same sole effect consumer as output. */
+  async controlApplied(
+    sessionId: string,
+    instanceId: string,
+    handle: string,
+    mutation: number,
+  ): Promise<void> {
+    const record = this.sessions.get(sessionId)
+    if (!record || record.session.instanceId !== instanceId || record.handle !== handle)
+      throw new Error('native-session-instance-stale')
+    const deadline = performance.now() + NATIVE_TERMINAL_LIMITS.requestMs
+    for (;;) {
+      const status = await this.retryUnsent(record, () =>
+        this.host.inspectProducer(handle, instanceId, true),
+      )
+      if (status.failure) throw new Error('native-control-state-failed')
+      if (status.ioAppliedMutation >= mutation) break
+      if (performance.now() >= deadline) throw new Error('native-control-apply-timeout')
+      await new Promise<void>((resolve) => setTimeout(resolve, 1))
+    }
+    await this.drainEffects(record, record.session)
+  }
+
+  private drainEffects(
+    record: NativeSession,
+    producingSession: NativeTerminalSession,
+  ): Promise<void> {
+    const previousDrain = record.effectDrain ?? Promise.resolve()
+    const consuming = previousDrain.then(async () => {
+      const batch = await this.retryUnsent(record, () =>
+        this.host.drainEffectsProducer(record.handle!, record.session.instanceId),
+      )
+      this.assertCurrent(record)
+      const previous = record.effectSerial ?? 0
+      // Copied facts belong to the current native instance, not its presentation owner.
+      record.effectState = {
+        droppedEffects: batch.droppedEffects,
+        semanticGeneration: batch.semanticGeneration,
+      }
+      for (const effect of batch.effects) {
+        if (effect.eventSerial <= previous) continue
+        if (effect.kind === 'title')
+          record.title = { title: effect.title, eventSerial: effect.eventSerial }
+        if (effect.kind === 'cwd')
+          record.cwd = nativeTerminalWorkingDirectory(
+            producingSession.workspaceRoot.hostId,
+            effect.uri,
+          )
+      }
+      const copied = {
+        ...batch,
+        effects: batch.effects.filter((effect) => effect.eventSerial > previous),
+      }
+      this.effectPolicy?.consume(producingSession, copied, {
+        current: () => {
+          try {
+            this.assertCurrent(record)
+          } catch {
+            return false
+          }
+          return (
+            record.session === producingSession &&
+            this.isRendererCurrent(
+              producingSession.ownerId,
+              producingSession.ownerGeneration,
+            )
+          )
+        },
+        live: () =>
+          record.phase === 'live' &&
+          !record.inputUnavailable &&
+          record.writer?.live === true,
+      })
+      record.effectSerial = Math.max(
+        previous,
+        ...batch.effects.map((effect) => effect.eventSerial),
+      )
+      await this.onParsed?.(record.session, record.handle!, copied)
+    })
+    record.effectDrain = consuming
+    // Keep the failed tail: subsequent consumers must not bypass a physical error.
+    void consuming.then(
+      () => {
+        if (record.effectDrain === consuming) record.effectDrain = undefined
+      },
+      () => undefined,
+    )
+    return consuming
   }
 
   private failed(record: NativeSession): void {

@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include "terminal.h"
+#include "host_query_binding.h"
 
 /* This module is loaded only by the utility's dedicated Node worker. It adds no
  * scheduler: the C facade's caller affinity remains authoritative. The wrapper
@@ -41,95 +41,6 @@ typedef enum {
   INPUT,
   LINK, SELECTION, EXTRACT_BEGIN, EXTRACT_NEXT, EXTRACT_FINISH, EXTRACT_CLOSE, LINK_CURRENT, LINK_ROW_BEGIN
 } operation;
-static bool checked(napi_env env, napi_status status) {
-  if (status == napi_ok)
-    return true;
-  bool pending = false;
-  napi_is_exception_pending(env, &pending);
-  if (!pending)
-    napi_throw_error(env, NULL, "Native terminal binding operation failed");
-  return false;
-}
-static void bad_argument(napi_env env) {
-  napi_throw_type_error(env, NULL, "Invalid native terminal binding argument");
-}
-static napi_value number(napi_env env, uint32_t value) {
-  napi_value result;
-  return checked(env, napi_create_uint32(env, value, &result)) ? result : NULL;
-}
-static napi_value real(napi_env env, double value) {
-  napi_value result;
-  return checked(env, napi_create_double(env, value, &result)) ? result : NULL;
-}
-static napi_value integer(napi_env env, int32_t value) {
-  napi_value result;
-  return checked(env, napi_create_int32(env, value, &result)) ? result : NULL;
-}
-static napi_value big(napi_env env, uint64_t value) {
-  napi_value result;
-  return checked(env, napi_create_bigint_uint64(env, value, &result)) ? result : NULL;
-}
-static napi_value boolean(napi_env env, bool value) {
-  napi_value result;
-  return checked(env, napi_get_boolean(env, value, &result)) ? result : NULL;
-}
-static napi_value object(napi_env env) {
-  napi_value result;
-  return checked(env, napi_create_object(env, &result)) ? result : NULL;
-}
-static bool put(napi_env env, napi_value target, const char *name, napi_value value) {
-  return target && value && checked(env, napi_set_named_property(env, target, name, value));
-}
-static napi_value outcome(napi_env env, hvir_terminal_result code) {
-  napi_value result = object(env);
-  return put(env, result, "result", number(env, code)) ? result : NULL;
-}
-static napi_value bytes(napi_env env, const void *data, size_t length) {
-  napi_value result;
-  return checked(env, napi_create_buffer_copy(env, length, data, NULL, &result)) ? result : NULL;
-}
-static bool u32(napi_env env, napi_value value, uint32_t *out) {
-  napi_valuetype type;
-  double numeric;
-  if (napi_typeof(env, value, &type) != napi_ok || type != napi_number ||
-      napi_get_value_double(env, value, &numeric) != napi_ok ||
-      !(numeric >= 0 && numeric <= UINT32_MAX) || (double)(uint32_t)numeric != numeric) {
-    bad_argument(env);
-    return false;
-  }
-  *out = (uint32_t)numeric;
-  return true;
-}
-static bool u64(napi_env env, napi_value value, uint64_t *out) {
-  bool lossless = false;
-  if (napi_get_value_bigint_uint64(env, value, out, &lossless) != napi_ok || !lossless) {
-    bad_argument(env);
-    return false;
-  }
-  return true;
-}
-static char *text(napi_env env, napi_value value, size_t limit) {
-  size_t length = 0, written = 0;
-  if (napi_get_value_string_utf8(env, value, NULL, 0, &length) != napi_ok || length > limit) {
-    bad_argument(env);
-    return NULL;
-  }
-  char *result = malloc(length + 1);
-  if (!result) {
-    napi_throw_error(env, NULL, "Native terminal binding allocation failed");
-    return NULL;
-  }
-  if (!checked(env, napi_get_value_string_utf8(env, value, result, length + 1, &written)) ||
-      written != length || memchr(result, 0, length)) {
-    free(result);
-    bool pending = false;
-    napi_is_exception_pending(env, &pending);
-    if (!pending)
-      bad_argument(env);
-    return NULL;
-  }
-  return result;
-}
 static binding_host *host(napi_env env, napi_value value) {
   bool matches = false;
   binding_host *result = NULL;
@@ -139,6 +50,12 @@ static binding_host *host(napi_env env, napi_value value) {
     return NULL;
   }
   return result;
+}
+bool hvir_query_binding_host(napi_env env, napi_value value, hvir_terminal_host **out) {
+  binding_host *owner = host(env, value);
+  if (!owner) return false;
+  *out = owner->native;
+  return true;
 }
 static binding_state **state_link(binding_host *h, hvir_terminal_id id) {
   binding_state **link = &h->states;
@@ -392,7 +309,7 @@ static bool input_text(napi_env env, napi_value object, hvir_terminal_input_even
   event->text = data; event->text_length = length;
   return true;
 }
-static bool selection_context(napi_env env, napi_value value, hvir_terminal_selection_context *out) {
+bool hvir_query_binding_context(napi_env env, napi_value value, hvir_terminal_selection_context *out) {
   napi_value geometry;
   if (!input_keys(env, value, "|screen|geometrySerial|") ||
       !input_number(env, value, "screen", &out->screen) || out->screen > 1 ||
@@ -402,7 +319,7 @@ static bool selection_context(napi_env env, napi_value value, hvir_terminal_sele
   }
   return true;
 }
-static napi_value selection_value(napi_env env, hvir_terminal_result code,
+napi_value hvir_query_binding_selection(napi_env env, hvir_terminal_result code,
                                   const hvir_terminal_selection_result *out) {
   napi_value value = outcome(env, code);
   if (out->has_clicked_offset && !put(env, value, "clickedByteOffset", big(env, out->clicked_offset))) return NULL;
@@ -411,7 +328,8 @@ static napi_value selection_value(napi_env env, hvir_terminal_result code,
     put(env, value, "selectionSerial", big(env, out->selection_serial)) &&
     put(env, value, "screen", number(env, out->screen)) &&
     put(env, value, "geometrySerial", big(env, out->geometry_serial)) &&
-    put(env, value, "requestedMutation", big(env, out->requested_mutation)) ? value : NULL;
+    put(env, value, "requestedMutation", big(env, out->requested_mutation)) &&
+    put(env, value, "effectSerialCutoff", big(env, out->effect_serial_cutoff)) ? value : NULL;
 }
 static bool current_link_query(napi_env env, napi_value query, double *x, double *y,
                                 hvir_terminal_selection_context *context) {
@@ -571,7 +489,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
       napi_valuetype type;
       if (napi_typeof(env, args[5], &type) != napi_ok) return NULL;
       if (type != napi_undefined) {
-        if (!selection_context(env, args[5], &context)) return NULL;
+        if (!hvir_query_binding_context(env, args[5], &context)) return NULL;
         selection = &context;
       }
     }
@@ -718,6 +636,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
       put(env, value, "column", number(env, event.column)) &&
       put(env, value, "sequence", big(env, event.sequence)) &&
       put(env, value, "eventSerial", big(env, event.event_serial)) &&
+      (!event.boundary || put(env, value, "boundary", big(env, event.boundary))) &&
       put(env, value, "truncated", boolean(env, event.truncated != 0)) &&
       put(env, value, "data", bytes(env, event.data, event.length)) &&
       put(env, value, "extra", bytes(env, event.extra, event.extra_length)) &&
@@ -725,7 +644,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
   }
   if (op == SELECTION || op == EXTRACT_BEGIN) {
     hvir_terminal_selection_context context;
-    if (!selection_context(env, args[3], &context)) return NULL;
+    if (!hvir_query_binding_context(env, args[3], &context)) return NULL;
     hvir_terminal_selection_result observed = {0};
     hvir_terminal_result code;
     if (op == SELECTION) {
@@ -743,7 +662,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
       if (!u64(env, args[2], &serial)) return NULL;
       code = hvir_terminal_extract_begin(h->native, id, serial, &context, &observed);
     }
-    napi_value value = selection_value(env, code, &observed);
+    napi_value value = hvir_query_binding_selection(env, code, &observed);
     if (op == EXTRACT_BEGIN && !put(env, value, "cursor", big(env, observed.cursor))) value = NULL;
     if (!value && observed.cursor) hvir_terminal_extract_close(h->native, id, observed.cursor);
     return value;
@@ -754,7 +673,12 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
     hvir_terminal_selection_result observed = {0};
     if (op == EXTRACT_FINISH) {
       hvir_terminal_result code = hvir_terminal_extract_finish(h->native, id, serial, &observed);
-      return selection_value(env, code, &observed);
+      napi_value value = hvir_query_binding_selection(env, code, &observed);
+      if (!value || !hvir_query_binding_resolution(env, value, &observed)) {
+        hvir_terminal_extract_close(h->native, id, serial);
+        return NULL;
+      }
+      return value;
     }
     uint8_t chunk[HVIR_TERMINAL_SELECTION_CHUNK];
     hvir_terminal_result code = hvir_terminal_extract_next(h->native, id, serial, chunk, sizeof(chunk), &observed);
@@ -791,7 +715,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
       if (observed.cursor) hvir_terminal_extract_close(h->native, id, observed.cursor);
       napi_throw_error(env, NULL, "Invalid native link metadata"); return NULL;
     }
-    napi_value value = selection_value(env, code, &observed);
+    napi_value value = hvir_query_binding_selection(env, code, &observed);
     if (!put(env, value, "cursor", big(env, observed.cursor)) ||
         !put(env, value, "column", number(env, observed.column)) ||
         (code == HVIR_OK && length && !put_link(env, value, &facts, uri, length))) {
@@ -877,6 +801,6 @@ static napi_value initialize(napi_env env, napi_value exports) {
         !put(env, exports, names[i], function))
       return NULL;
   }
-  return exports;
+  return hvir_query_binding_register(env, exports) ? exports : NULL;
 }
 NAPI_MODULE(hvir_native_terminal_host, initialize)

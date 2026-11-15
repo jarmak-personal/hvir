@@ -1,5 +1,9 @@
 import { TerminalContextMenuOwner } from './terminal-context-menu-target'
-import type { TerminalPane, NativeTerminalPanePort } from './terminal-pane'
+import type {
+  TerminalPane,
+  NativeTerminalPanePort,
+  TerminalRuntimePane,
+} from './terminal-pane'
 import { TerminalPaneEventCoordinator } from './terminal-pane-event-coordinator'
 import { TerminalSearchController } from './terminal-search-controller'
 import type { TerminalSemanticRegionDirection } from './terminal-semantic-regions'
@@ -9,7 +13,7 @@ export class TerminalRuntimeInteractions {
   readonly paneEvents: TerminalPaneEventCoordinator
   readonly search: TerminalSearchController
   private selected = false
-  private pane?: TerminalPane
+  private pane?: TerminalRuntimePane
   private selectionPane?: NativeTerminalPanePort
   private readonly contextMenu: TerminalContextMenuOwner
 
@@ -38,6 +42,7 @@ export class TerminalRuntimeInteractions {
   }
 
   synchronizeAvailability(): void {
+    if (!this.selected || !this.canFocus()) this.paneEvents.cancelNavigation()
     this.search.setAvailable(Boolean(this.pane) && this.selected && this.canFocus())
   }
 
@@ -69,16 +74,28 @@ export class TerminalRuntimeInteractions {
   }
 
   bindSelection(pane: NativeTerminalPanePort, ptyId: string): void {
+    if (pane.retained) {
+      this.pane = pane
+      this.search.bind(pane)
+      this.synchronizeAvailability()
+    }
     this.selectionPane = pane
     this.contextMenu.bind(pane, ptyId, this.focusOwner, {
-      clear: () => this.paneEvents.clear(),
-      reset: () => this.paneEvents.clear(),
+      clear: () => {
+        this.search.close(false)
+        // Retained-native metadata is pruned by its ordered control fact.
+        if (!pane.retained) this.paneEvents.clear()
+      },
+      reset: () => {
+        this.search.close(false)
+        if (!pane.retained) this.paneEvents.clear()
+      },
     })
   }
 
   navigate(direction: TerminalSemanticRegionDirection): void {
     if (this.pane && this.selected && this.canFocus()) {
-      this.paneEvents.navigate(direction, this.pane)
+      void this.paneEvents.navigate(direction, this.pane)
     }
   }
 
@@ -87,6 +104,11 @@ export class TerminalRuntimeInteractions {
   }
 
   revoke(clearRegions: boolean): void {
+    if (!clearRegions && this.selectionPane?.retained) {
+      this.search.close(false)
+      this.synchronizeAvailability()
+      return
+    }
     this.search.revoke()
     if (clearRegions || !this.selectionPane) {
       this.contextMenu.revoke()

@@ -1,10 +1,12 @@
 #include "terminal_internal.h"
+_Static_assert(sizeof(hvir_terminal_selection_result) == sizeof(hvir_ghostty_selection_result), "selection result ABI layout");
+_Static_assert(offsetof(hvir_terminal_selection_result, effect_serial_cutoff) == offsetof(hvir_ghostty_selection_result, effect_serial_cutoff), "selection cutoff ABI offset");
 #include <math.h>
 #include <string.h>
 
 /* The Surface owns the one native cursor and all tracked pins. These commands
  * use the designated caller and the same parser; there is no readback queue. */
-static void selection_value(const hvir_ghostty_selection_result *in,
+void hvir_internal_selection_value(const hvir_ghostty_selection_result *in,
                             hvir_terminal_selection_result *out) {
   *out = (hvir_terminal_selection_result){
     .stale = in->stale, .has_selection = in->has_selection, .screen = in->screen, .column = in->column,
@@ -12,6 +14,13 @@ static void selection_value(const hvir_ghostty_selection_result *in,
     .requested_mutation = in->mutation, .cursor = in->cursor, .done = in->done,
     .visited = in->visited, .work = in->work, .length = in->written,
     .has_clicked_offset = in->has_clicked_offset, .clicked_offset = in->clicked_offset,
+    .effect_serial_cutoff = in->effect_serial_cutoff,
+    .resolution_kind = in->resolution_kind, .resolved = in->resolved, .revealed = in->revealed,
+    .match = {.occurrence = in->match.occurrence, .index = in->match.index,
+      .screen = in->match.screen, .row = in->match.row, .column = in->match.column,
+      .end_row = in->match.end_row, .end_column = in->match.end_column},
+    .boundary = {.boundary = in->boundary.boundary, .screen = in->boundary.screen,
+      .row = in->boundary.row, .column = in->boundary.column},
   };
 }
 static hvir_terminal_result selection_state(hvir_terminal_host *host, uint64_t id,
@@ -47,7 +56,7 @@ hvir_terminal_result hvir_terminal_selection(hvir_terminal_host *host, uint64_t 
   pthread_mutex_lock(&host->events);
   if (mutate && !observed.mutation) --s->requested_mutation;
   pthread_mutex_unlock(&host->events);
-  selection_value(&observed, out);
+  hvir_internal_selection_value(&observed, out);
   host->app_tick(host->app);
   return code;
 }
@@ -64,7 +73,7 @@ static hvir_terminal_result extraction_begin(hvir_terminal_host *host, uint64_t 
   hvir_ghostty_selection_result observed = {0};
   code = (hvir_terminal_result)host->external_extract_begin(s->surface, selection_serial,
     context->screen, context->geometry_serial, cursor, row, x, y, &observed);
-  selection_value(&observed, out);
+  hvir_internal_selection_value(&observed, out);
   return code;
 }
 hvir_terminal_result hvir_terminal_extract_begin(hvir_terminal_host *host, uint64_t id,
@@ -89,7 +98,7 @@ hvir_terminal_result hvir_terminal_link_row_begin(hvir_terminal_host *host, uint
   code = (hvir_terminal_result)host->external_link_row_begin(s->surface, x, y,
     context->screen, context->geometry_serial, ++host->next_cursor, &observed,
     &link, uri, capacity, written);
-  selection_value(&observed, out);
+  hvir_internal_selection_value(&observed, out);
   *facts = (hvir_terminal_link_query){.row = link.row, .column = link.column,
     .screen = link.screen, .sequence = link.sequence, .mutation = link.mutation,
     .geometry = link.geometry};
@@ -106,7 +115,7 @@ hvir_terminal_result hvir_terminal_extract_next(hvir_terminal_host *host, uint64
   hvir_ghostty_selection_result observed = {0};
   code = (hvir_terminal_result)host->external_extract_next(s->surface, cursor, bytes,
     capacity, HVIR_TERMINAL_SELECTION_VISITS, &observed);
-  selection_value(&observed, out);
+  hvir_internal_selection_value(&observed, out);
   return code;
 }
 hvir_terminal_result hvir_terminal_extract_finish(hvir_terminal_host *host, uint64_t id,
@@ -117,8 +126,14 @@ hvir_terminal_result hvir_terminal_extract_finish(hvir_terminal_host *host, uint
   hvir_terminal_result code = hvir_internal_state(host, id, &s, false);
   if (code) return code;
   hvir_ghostty_selection_result observed = {0};
-  code = (hvir_terminal_result)host->external_extract_finish(s->surface, cursor, &observed);
-  selection_value(&observed, out);
+  pthread_mutex_lock(&host->events);
+  uint64_t mutation = s->requested_mutation == UINT64_MAX ? 0 : ++s->requested_mutation;
+  pthread_mutex_unlock(&host->events);
+  code = (hvir_terminal_result)host->external_extract_finish(s->surface, cursor, mutation, &observed);
+  pthread_mutex_lock(&host->events);
+  if (mutation && !observed.mutation) --s->requested_mutation;
+  pthread_mutex_unlock(&host->events);
+  hvir_internal_selection_value(&observed, out);
   return code;
 }
 hvir_terminal_result hvir_terminal_extract_close(hvir_terminal_host *host, uint64_t id,

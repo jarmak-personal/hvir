@@ -42,6 +42,12 @@ export function registerNativeTerminalRuntimeIpc(
   ipc.handle('native-terminal:input', (req, context) =>
     requireRuntime().input(req.viewId, context.owner(), req.input),
   )
+  ipc.handle('native-terminal:query', (req, context) =>
+    requireRuntime().query(req, context.owner()),
+  )
+  ipc.handleSend('native-terminal:query-cancel', (req, context) =>
+    requireRuntime().cancelQuery(req, context.owner()),
+  )
   ipc.handle('native-terminal:selection', (req, context) =>
     requireRuntime().selection(req, context.owner()),
   )
