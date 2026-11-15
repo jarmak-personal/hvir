@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 /* Real same-Surface config/geometry/parser/render contracts. Fixed synthetic
  * fixtures only; exported evidence contains counts and hashes, never contents. */
 typedef struct {
@@ -223,18 +224,56 @@ static bool run(probe *p) {
   NEED(hvir_terminal_close(p->host) == HVIR_OK, "close-native-host"); p->host = NULL;
   return true;
 }
+static const char *font_case, *font_case_family;
+static void font_json_string(const char *text) {
+  putchar('"');
+  for (const unsigned char *at = (const unsigned char *)text; *at; at++) {
+    if (*at == '"' || *at == '\\') putchar('\\');
+    putchar(*at);
+  }
+  putchar('"');
+}
+/* Exactly one configured font grid in a fresh process. Existing native INFO
+ * names its discovered faces; no production inspection API or transcript. */
+static bool run_font_case(probe *p) {
+  const char *family = font_case_family;
+  bool known = !strcmp(font_case, "generic") || !strcmp(font_case, "sans") ||
+    !strcmp(font_case, "system") || !strcmp(font_case, "missing") ||
+    !strcmp(font_case, "mono") || !strcmp(font_case, "proportional") || !strcmp(font_case, "alias");
+  NEED(known && family && *family, "known-font-case-and-owning-settings-stack");
+  NEED(hvir_terminal_open(p->library, NULL, &p->host) == HVIR_OK, "font-case-open");
+  NEED(hvir_terminal_create(p->host, 640, 192, &p->id) == HVIR_OK, "font-case-create");
+  hvir_terminal_appearance value = appearance(); value.font_family = family;
+  fprintf(stderr, "hvir-font-case-config-begin\n"); fflush(stderr);
+  if (!apply(p, &value) || !resize(p, 2, 1)) return false;
+  NEED(feed(p, "\x1b[3mItalic IW\x1b[0m"), "font-case-native-sgr-italic");
+  uint64_t hash; size_t pixels;
+  if (!capture(p, &hash, &pixels)) return false;
+  hvir_terminal_status status;
+  NEED(inspect(p, &status) && p->serial == 1 && status.applied_appearance_serial == 1 &&
+    status.geometry.serial == 2, "font-case-exact-config-and-resize-ack");
+  NEED(hvir_terminal_destroy(p->host, p->id) == HVIR_OK, "font-case-destroy-native-state"); p->id = 0;
+  NEED(hvir_terminal_close(p->host) == HVIR_OK, "font-case-close-native-host"); p->host = NULL;
+  fprintf(stderr, "hvir-font-case-config-end\n"); fflush(stderr);
+  printf("{\"kind\":\"native-font-case\",\"case\":"); font_json_string(font_case);
+  printf(",\"fontFamily\":"); font_json_string(family);
+  printf(",\"pid\":%llu,\"appliedAppearanceSerial\":1,\"geometrySerial\":2,\"cellWidth\":%u,\"cellHeight\":%u,\"italicFeedApplied\":true,\"currentFrameCompleted\":true,\"hardwareQualified\":false}\n",
+    (unsigned long long)getpid(), status.geometry.cell_width, status.geometry.cell_height);
+  return true;
+}
 static void *worker(void *data) {
-  probe *p = data; bool passed = run(p);
+  probe *p = data; bool passed = font_case ? run_font_case(p) : run(p);
   if (p->id) hvir_terminal_destroy(p->host, p->id);
   if (p->host) hvir_terminal_close(p->host);
   p->failed = p->failed || !passed;
   return NULL;
 }
 int main(int argc, char **argv) {
-  if (argc != 2) return 64;
+  if (argc == 5 && !strcmp(argv[2], "--font-case")) { font_case = argv[3]; font_case_family = argv[4]; }
+  else if (argc != 2) return 64;
   probe p = {.library = argv[1]}; pthread_t thread;
   if (pthread_create(&thread, NULL, worker, &p) || pthread_join(thread, NULL)) return 70;
-  printf("{\"kind\":\"native-appearance\",\"passed\":%s,\"checks\":%u,\"ligaturePixelsDiffer\":%s,\"cursorPolicyCases\":%u,\"applicationCursorOverrides\":%u,\"hardwareQualified\":false}\n",
+  if (!font_case) printf("{\"kind\":\"native-appearance\",\"passed\":%s,\"checks\":%u,\"ligaturePixelsDiffer\":%s,\"cursorPolicyCases\":%u,\"applicationCursorOverrides\":%u,\"hardwareQualified\":false}\n",
     p.failed ? "false" : "true", p.checks, p.ligatures ? "true" : "false", p.cursor_policy_cases, p.application_cursor_overrides);
   return p.failed ? 1 : 0;
 }

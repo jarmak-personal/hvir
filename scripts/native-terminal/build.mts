@@ -11,6 +11,7 @@ import {
   validQueryProof,
   validAppearanceProof,
   withAppearanceFontFixture,
+  qualifyNativeFontCases,
 } from './artifacts.mts'
 import { execute, prepareSource, prepareZig } from './source.mts'
 import { inspectBinary } from './binary.mts'
@@ -375,6 +376,19 @@ for (const capability of ['input', 'effects', 'selection', 'query', 'appearance'
     throw new Error(`native-${capability}: incomplete proof`)
   await writeFile(join(output, `${capability}-proof.json`), proof.stdout)
   console.log(proof.stdout.trim())
+}
+if (selected.platform === 'linux') {
+  const fontCases = await qualifyNativeFontCases((font, env) =>
+    execute(
+      join(output, 'appearance-probe'),
+      [join(output, selected.library), '--font-case', font.id, font.fontFamily],
+      { timeout: 30_000, maxBuffer: 65536, env },
+    ),
+  )
+  await writeFile(
+    join(output, 'font-cases-proof.json'),
+    JSON.stringify(fontCases, null, 2) + '\n',
+  )
 }
 await run(
   'cc',

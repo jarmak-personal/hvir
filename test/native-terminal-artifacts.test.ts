@@ -9,7 +9,7 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
   buildInputFlags,
@@ -20,6 +20,7 @@ import {
   validQueryProof,
   validAppearanceProof,
   withAppearanceFontFixture,
+  qualifyNativeFontCases,
   type NativeArtifact,
 } from '../scripts/native-terminal/artifacts.mts'
 
@@ -34,6 +35,50 @@ import {
   APPEARANCE_FONT_LICENSE_SOURCE,
   APPEARANCE_FONT_CONFIG,
 } from '../scripts/native-terminal/appearance-font-fixture.mts'
+
+import {
+  GENERIC_FONT_CASES,
+  customFontCases,
+  parseFontCase,
+  FONT_CASE_INPUTS,
+} from '../scripts/native-terminal/font-case-proof.mts'
+
+function fontCaseProofFixture() {
+  const fonts = [
+    ...GENERIC_FONT_CASES,
+    ...customFontCases('Mono Test', 'Proportional Test'),
+  ]
+  const records = fonts.map((font, i) => {
+    const face = ['sans', 'proportional', 'alias'].includes(font.id)
+      ? 'Proportional Test'
+      : 'Mono Test'
+    return parseFontCase(
+      JSON.stringify({
+        kind: 'native-font-case',
+        case: font.id,
+        fontFamily: font.fontFamily,
+        pid: 200 + i,
+        appliedAppearanceSerial: 1,
+        geometrySerial: 2,
+        cellWidth: 9,
+        cellHeight: 17,
+        italicFeedApplied: true,
+        currentFrameCompleted: true,
+        hardwareQualified: false,
+      }),
+      'info: dependency fontconfig=21803\nhvir-font-case-config-begin\ninfo(font_shared_grid_set): font regular: ' +
+        face +
+        '\nhvir-font-case-config-end\n',
+      font,
+    )
+  })
+  return {
+    kind: 'native-font-cases',
+    passed: true,
+    records,
+    inputs: FONT_CASE_INPUTS.map((path) => ({ path, sha256: 'f'.repeat(64) })),
+  }
+}
 
 let root: string
 let manifest: NativeArtifact
@@ -149,9 +194,15 @@ describe('native artifact admission before loader execution', () => {
       'linux-facade-probe',
       'linux-facade-proof.json',
       ...APPEARANCE_FONT_FILES,
+      'font-cases-proof.json',
     ]) {
       await mkdir(join(root, 'appearance-fonts'), { recursive: true })
-      await writeFile(join(root, path), `linux artifact ${path}`)
+      await writeFile(
+        join(root, path),
+        path === 'font-cases-proof.json'
+          ? JSON.stringify(fontCaseProofFixture())
+          : `linux artifact ${path}`,
+      )
       linuxFiles.push({
         path,
         sha256: await digest(join(root, path)),
@@ -492,5 +543,51 @@ describe('Linux appearance font fixture lifetime', () => {
         return Promise.resolve('unchanged')
       }),
     ).resolves.toBe('unchanged')
+  })
+})
+
+describe('native font case configuration authority', () => {
+  it('clears ambient overrides for every child and adds its alias to the same default config', async () => {
+    const keys = ['FONTCONFIG_FILE', 'FONTCONFIG_PATH', 'FONTCONFIG_SYSROOT'] as const
+    const previous = { ...process.env }
+    for (const key of keys) process.env[key] = '/ambient/' + key
+    let owned: string | undefined
+    const records = fontCaseProofFixture().records
+    let index = 0
+    try {
+      const proof = await qualifyNativeFontCases(async (font, environment) => {
+        const record = records[index++]!
+        owned = dirname(environment.XDG_CACHE_HOME!)
+        expect(environment.FONTCONFIG_PATH).toBeUndefined()
+        expect(environment.FONTCONFIG_SYSROOT).toBeUndefined()
+        if (font.id === 'alias') {
+          const xml = await readFile(environment.FONTCONFIG_FILE!, 'utf8')
+          expect(xml).toContain('<include>/etc/fonts/fonts.conf</include>')
+          expect(xml).toContain('<family>Proportional Test</family>')
+          expect(environment.FONTCONFIG_FILE).toBe(join(owned, 'alias.conf'))
+        } else expect(environment.FONTCONFIG_FILE).toBeUndefined()
+        expect(font.fontFamily).toBe(record.fontFamily)
+        return {
+          stdout: JSON.stringify({ kind: 'native-font-case', ...record }),
+          stderr:
+            'info: dependency fontconfig=21301\nhvir-font-case-config-begin\n' +
+            'info(font_shared_grid_set): font regular: ' +
+            record.firstRegular +
+            '\nhvir-font-case-config-end\n',
+        }
+      })
+      expect(index).toBe(7)
+      expect(proof.records.map((record) => record.fontconfigPolicy)).toEqual([
+        ...Array<string>(6).fill('compiled-default'),
+        'owned-alias-including-etc-default',
+      ])
+      await expect(access(owned!)).rejects.toMatchObject({ code: 'ENOENT' })
+      for (const key of keys) expect(process.env[key]).toBe('/ambient/' + key)
+    } finally {
+      for (const key of keys) {
+        if (previous[key] === undefined) delete process.env[key]
+        else process.env[key] = previous[key]
+      }
+    }
   })
 })

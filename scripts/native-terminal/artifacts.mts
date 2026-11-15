@@ -26,6 +26,17 @@ import {
   APPEARANCE_FONT_LICENSE_SOURCE,
 } from './appearance-font-fixture.mts'
 
+import {
+  GENERIC_FONT_CASES,
+  customFontCases,
+  parseFontCase,
+  validateFontCases,
+  validFontCaseProof,
+  FONT_CASE_INPUTS,
+  type FontCase,
+  type FontCaseRecord,
+} from './font-case-proof.mts'
+
 export const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 export const pinPath = resolve(repository, 'scripts/native-terminal/pin.json')
 export const pin = JSON.parse(await readFile(pinPath, 'utf8')) as {
@@ -81,6 +92,67 @@ export async function withAppearanceFontFixture<T>(
     // A caller's sysroot must not redirect this owned relative font directory.
     delete environment.FONTCONFIG_SYSROOT
     return await run(environment)
+  } finally {
+    await rm(owned, { recursive: true, force: true })
+  }
+}
+
+/** Seven fresh native processes; preload is requested, actual version comes from native INFO. */
+export async function qualifyNativeFontCases(
+  run: (
+    font: FontCase,
+    environment: NodeJS.ProcessEnv,
+  ) => Promise<{ stdout: string; stderr: string }>,
+) {
+  const owned = await mkdtemp(join(tmpdir(), 'hvir-native-font-cases-'))
+  const records: FontCaseRecord[] = []
+  try {
+    await mkdir(join(owned, 'cache'))
+    const launch = async (font: FontCase) => {
+      const environment: NodeJS.ProcessEnv = {
+        ...process.env,
+        GHOSTTY_LOG: 'stderr',
+        LD_PRELOAD: 'libfontconfig.so.1',
+        XDG_CACHE_HOME: join(owned, 'cache'),
+      }
+      delete environment.FONTCONFIG_FILE
+      delete environment.FONTCONFIG_PATH
+      delete environment.FONTCONFIG_SYSROOT
+      if (font.id === 'alias') {
+        const target = records[1]!.firstRegular
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+        const configuration = join(owned, 'alias.conf')
+        await writeFile(
+          configuration,
+          '<fontconfig><include>/etc/fonts/fonts.conf</include>' +
+            '<alias binding="strong"><family>hvir Native Font Alias</family><prefer><family>' +
+            target +
+            '</family></prefer></alias></fontconfig>',
+          { flag: 'wx' },
+        )
+        environment.FONTCONFIG_FILE = configuration
+      }
+      const result = await run(font, environment)
+      records.push(parseFontCase(result.stdout, result.stderr, font))
+    }
+    for (const font of GENERIC_FONT_CASES) await launch(font)
+    for (const font of customFontCases(
+      records[0]!.firstRegular,
+      records[1]!.firstRegular,
+    ))
+      await launch(font)
+    validateFontCases(records)
+    const inputs = await Promise.all(
+      FONT_CASE_INPUTS.map(async (path) => ({
+        path,
+        sha256: await digest(join(repository, path)),
+      })),
+    )
+    const proof = { kind: 'native-font-cases', passed: true, records, inputs }
+    if (!validFontCaseProof(proof)) throw new Error('native-font-case: incomplete proof')
+    return proof
   } finally {
     await rm(owned, { recursive: true, force: true })
   }
@@ -297,6 +369,7 @@ export async function verifyArtifact(
             'linux-facade-probe',
             'linux-facade-proof.json',
             ...APPEARANCE_FONT_FILES,
+            'font-cases-proof.json',
           ]
         : []),
     ].every((n) => names.has(n))
@@ -334,6 +407,16 @@ export async function verifyArtifact(
         files.find((file) => file.path === APPEARANCE_FONT_LICENSE)?.sha256
     )
       throw new Error('native-artifact: invalid appearance font provenance')
+  }
+  if (selected.platform === 'linux') {
+    let cases: unknown
+    try {
+      cases = JSON.parse(await readFile(join(root, 'font-cases-proof.json'), 'utf8'))
+    } catch {
+      throw new Error('native-artifact: invalid font cases proof')
+    }
+    if (!validFontCaseProof(cases))
+      throw new Error('native-artifact: invalid font cases proof')
   }
   let appearance: unknown
   try {

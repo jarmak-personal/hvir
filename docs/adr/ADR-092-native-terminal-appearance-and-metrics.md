@@ -38,6 +38,13 @@ Settings remain owned by the existing runtime and palette owners, without a seco
 Retained queries keep their finite-pass cutoff and dirty-wake lifetimes; appearance adds
 neither output-quiescence gating nor query idle polling.
 
+Keep named-family availability and alias resolution in native discovery. Regular
+Fontconfig requests retain the requested family first and append the native monospace
+generic before host default substitution. Available custom families, including deliberately
+proportional choices, retain priority. The adapter supplies regular families; native
+collection style completion derives its default bold and italic faces from that primary.
+Codepoint-only and emoji discovery retain their existing fallback paths.
+
 ## Consequences
 
 Font discovery, fallback, shaping and cell metrics remain native engine responsibilities.

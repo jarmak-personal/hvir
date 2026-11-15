@@ -1,0 +1,12 @@
+--- a/src/font/discovery.zig
++++ b/src/font/discovery.zig
+@@ -119,6 +119,9 @@
+         const pat = fontconfig.Pattern.create();
+         if (self.family) |family| {
+             assert(pat.add(.family, .{ .string = family }, false));
++            // Preserve the requested family/alias first, but keep a native
++            // monospace fallback before host config inserts a sans default.
++            assert(pat.add(.family, .{ .string = "monospace" }, true));
+         }
+         if (self.style) |style| {
+             assert(pat.add(.style, .{ .string = style }, false));
