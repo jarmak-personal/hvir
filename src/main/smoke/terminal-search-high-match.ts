@@ -1,3 +1,4 @@
+import { terminalSearchEvictionProducer } from './terminal-search-stream-producer'
 import { app, type BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
@@ -52,10 +53,7 @@ export async function verifyHighMatchTerminalSearch(
     supervisor.write(
       terminalId,
       win.webContents.id,
-      `hvir_high_done='__HVIR_HIGH_MATCH_''DONE__'; ` +
-        `hvir_high_i=0; while [ "$hvir_high_i" -lt 300 ]; do ` +
-        `hvir_high_j=0; while [ "$hvir_high_j" -lt 50 ]; do printf 'unrelated output\\n'; hvir_high_j=$((hvir_high_j+1)); done; ` +
-        `hvir_high_i=$((hvir_high_i+1)); sleep 0.02; done; printf '%s\\n' "$hvir_high_done"\n`,
+      `hvir_high_done='__HVIR_HIGH_MATCH_''DONE__'; ${terminalSearchEvictionProducer({ doneVariable: 'hvir_high_done', lineEnding: 'lf' })}\n`,
     )
     const evidence = (await win.webContents.executeJavaScript(`(async () => {
       const surface = document.querySelector('.terminal-surface.active');

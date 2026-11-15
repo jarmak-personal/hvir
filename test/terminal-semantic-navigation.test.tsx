@@ -212,9 +212,13 @@ describe('semantic transcript navigation', () => {
       previous?.click()
     })
 
-    expect(host.querySelector('.terminal-semantic-region')?.textContent).toBe(
-      'Output 3 of 3',
-    )
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(host.querySelector('.terminal-semantic-region')?.textContent).toBe(
+          'Output 3 of 3',
+        ),
+      )
+    })
     expect(state.scrolls).toEqual([36])
     expect(document.activeElement).toBe(focused)
     expect(host.querySelector('.terminal-engine-host')).toBe(surface)
@@ -224,9 +228,13 @@ describe('semantic transcript navigation', () => {
     expect(send).not.toHaveBeenCalledWith('pty:kill', expect.anything())
 
     act(() => previous?.click())
-    expect(host.querySelector('.terminal-semantic-region')?.textContent).toBe(
-      'Command 2 of 3',
-    )
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(host.querySelector('.terminal-semantic-region')?.textContent).toBe(
+          'Command 2 of 3',
+        ),
+      )
+    })
     expect(state.scrolls.at(-1)).toBe(38)
 
     act(() => {
@@ -261,9 +269,13 @@ describe('semantic transcript navigation', () => {
         )
         ?.click()
     })
-    expect(host.querySelector('.terminal-semantic-region')?.textContent).toBe(
-      'Output 3 of 3',
-    )
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(host.querySelector('.terminal-semantic-region')?.textContent).toBe(
+          'Output 3 of 3',
+        ),
+      )
+    })
     expect(state.scrolls).toEqual([36])
 
     state.screen = 'alternate'
@@ -276,10 +288,16 @@ describe('semantic transcript navigation', () => {
         )
         ?.click()
     })
-    expect(host.querySelector('.terminal-semantic-region')?.textContent).toBe(
-      'Output 3 of 3',
-    )
-    expect(state.scrolls).toEqual([36, 0])
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(host.querySelector('.terminal-semantic-region')?.textContent).toBe(
+          'Output 3 of 3',
+        ),
+      )
+    })
+    await act(async () => {
+      await vi.waitFor(() => expect(state.scrolls).toEqual([36, 0]))
+    })
 
     state.resolved.clear()
     act(() => {
@@ -289,7 +307,28 @@ describe('semantic transcript navigation', () => {
         )
         ?.click()
     })
-    expect(host.querySelector('.terminal-semantic-navigation')).toBeNull()
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(host.querySelector('.terminal-semantic-region')?.textContent).toBe(
+          'Transcript regions',
+        ),
+      )
+    })
+    expect(state.scrolls).toEqual([36, 0])
+    // Lazy navigation retains the other screen's unvisited provenance until encountered.
+    state.screen = 'normal'
+    act(() =>
+      host
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Previous transcript region"]',
+        )
+        ?.click(),
+    )
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(host.querySelector('.terminal-semantic-navigation')).toBeNull(),
+      )
+    })
 
     emitTranscript(state, 'alternate', 4, 200)
     act(() =>

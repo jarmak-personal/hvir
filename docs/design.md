@@ -926,6 +926,16 @@ Native selection reuses authoritative gestures and bounded exact reads, with asy
 menu/copy lifetimes, current-viewport geometry qualification and existing host-correct
 clipboard/navigation owners.
 
+---
+
+### [ADR-091 — Native retained query authority](adr/ADR-091-native-retained-query-authority.md)
+
+> Lifecycle: Active
+
+Native retained queries own bounded search, occurrence identity and exact reads;
+parser-origin semantic boundaries retain current-body meaning through asynchronous
+pane capabilities without a renderer transcript or complete result mirror.
+
 ## 5. Architecture
 
 ### Process model

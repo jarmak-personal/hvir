@@ -126,6 +126,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'native-terminal:key',
   'native-terminal:input',
   'native-terminal:selection',
+  'native-terminal:query',
   'native-terminal:selection-read',
   'native-terminal:link',
   'native-terminal:link-read',

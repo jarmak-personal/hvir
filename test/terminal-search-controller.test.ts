@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type {
   TerminalPane,
+  TerminalRuntimePane,
+  TerminalRetainedQuery,
   TerminalRetainedBufferRange,
   TerminalRetainedBufferSearch,
 } from '../src/renderer/src/terminal/terminal-pane'
+import { legacyTerminalRetainedQuery } from '../src/renderer/src/terminal/terminal-retained-query'
 import { TerminalSearchController } from '../src/renderer/src/terminal/terminal-search-controller'
 
 describe('terminal search controller', () => {
@@ -35,12 +38,12 @@ describe('terminal search controller', () => {
     expect(search.mock.calls[0]?.[0]).toBe('build')
     expect(search.mock.calls[0]?.[1].caseSensitive).toBe(false)
     expect(search.mock.calls[0]?.[1].signal).toBeInstanceOf(AbortSignal)
-    expect(controller.currentMatchText()).toBe('build')
+    expect(await controller.currentMatchText()).toBe('build')
 
-    controller.navigate('previous')
+    await controller.navigate('previous')
     expect(controller.snapshot().matchIndex).toBe(1)
-    expect(controller.currentMatchText()).toBe('e\u0301🙂wrap')
-    controller.navigate('next')
+    expect(await controller.currentMatchText()).toBe('e\u0301🙂wrap')
+    await controller.navigate('next')
     expect(controller.snapshot().matchIndex).toBe(0)
 
     controller.setCaseSensitive(true)
@@ -48,6 +51,86 @@ describe('terminal search controller', () => {
     expect(search.mock.calls[1]?.[0]).toBe('build')
     expect(search.mock.calls[1]?.[1].caseSensitive).toBe(true)
     expect(search.mock.calls[1]?.[1].signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('honors Next after delayed initial selection completes even if an earlier observation had only a count', async () => {
+    const pane = paneFixture(vi.fn())
+    let finishAt!: (occurrence: { id: string }) => void
+    let finishReveal!: (revealed: boolean) => void
+    let finishResolve!: (location: { index: number }) => void
+    const at = vi
+      .fn<TerminalRetainedQuery['at']>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((done) => {
+            finishAt = done
+          }),
+      )
+      .mockImplementation((index) => Promise.resolve({ id: String(index) }))
+    const reveal = vi
+      .fn<TerminalRetainedQuery['reveal']>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((done) => {
+            finishReveal = done
+          }),
+      )
+      .mockResolvedValue(true)
+    const resolve = vi
+      .fn<TerminalRetainedQuery['resolve']>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((done) => {
+            finishResolve = done
+          }),
+      )
+      .mockImplementation((occurrence) =>
+        Promise.resolve({ index: Number(occurrence.id) }),
+      )
+    const indexed: TerminalRetainedQuery = {
+      snapshot: () => ({
+        revision: 1,
+        matchCount: 3,
+        pending: false,
+        invalidated: false,
+      }),
+      onUpdate: () => () => undefined,
+      at,
+      reveal,
+      resolve,
+      read: (occurrence) => Promise.resolve(occurrence.id === '1' ? 'second' : 'first'),
+      clearReveal: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const controller = new TerminalSearchController(vi.fn(), vi.fn())
+    controller.bind({
+      ...pane,
+      retained: {
+        ...legacyTerminalRetainedQuery(pane),
+        search: () => Promise.resolve(indexed),
+      },
+    })
+    controller.open()
+    controller.setQuery('hit')
+    await vi.waitFor(() => expect(at).toHaveBeenCalledOnce())
+    const countOnlyObservation = controller.snapshot()
+    expect(countOnlyObservation).toMatchObject({ matchCount: 3, matchIndex: undefined })
+
+    finishAt({ id: '0' })
+    await vi.waitFor(() => expect(reveal).toHaveBeenCalledOnce())
+    finishReveal(true)
+    await vi.waitFor(() => expect(resolve).toHaveBeenCalledOnce())
+    finishResolve({ index: 0 })
+    await vi.waitFor(() => expect(controller.snapshot().matchIndex).toBe(0))
+    expect(controller.snapshot().matchCount).toBe(3)
+
+    // A separately delivered user action is relative to current selection, not this old read.
+    if (countOnlyObservation.matchIndex === undefined) await controller.navigate('next')
+    expect(controller.snapshot()).toMatchObject({ matchCount: 3, matchIndex: 1 })
+    expect(at.mock.calls.map(([index]) => index)).toEqual([0, 1])
+    expect(reveal.mock.calls.map(([occurrence]) => occurrence.id)).toEqual(['0', '1'])
+    expect(await controller.currentMatchText()).toBe('second')
+    controller.close()
   })
 
   it('publishes only the latest query and cancels on close, replacement, and disposal', async () => {
@@ -110,8 +193,8 @@ describe('terminal search controller', () => {
     controller.open()
     controller.setQuery('hit')
     await vi.waitFor(() => expect(controller.snapshot().matchCount).toBe(2))
-    controller.navigate('next')
-    expect(controller.currentMatchText()).toBe('second')
+    await controller.navigate('next')
+    expect(await controller.currentMatchText()).toBe('second')
     const revealed = live.reveal.mock.calls.length
     live.update([first, second, third], true)
     for (let index = 0; index < 200; index++) controller.retainedBufferChanged()
@@ -120,8 +203,9 @@ describe('terminal search controller', () => {
       matchCount: 3,
       matchIndex: 1,
     })
-    expect(controller.currentMatchText()).toBe('second')
+    expect(await controller.currentMatchText()).toBe('second')
     live.update([first, second, third], false)
+    await vi.waitFor(() => expect(controller.snapshot().pending).toBe(false))
     expect(controller.snapshot()).toMatchObject({
       pending: false,
       matchCount: 3,
@@ -129,7 +213,7 @@ describe('terminal search controller', () => {
     })
     expect(live.reveal).toHaveBeenCalledTimes(revealed)
     expect(search).toHaveBeenCalledOnce()
-    controller.navigate('next')
+    await controller.navigate('next')
     expect(controller.snapshot().matchIndex).toBe(2)
     controller.close()
     expect(live.listenerCount()).toBe(0)
@@ -165,19 +249,20 @@ describe('terminal search controller', () => {
     controller.open()
     controller.setQuery('hit')
     await vi.waitFor(() => expect(controller.snapshot().matchCount).toBe(2))
-    controller.navigate('next')
+    await controller.navigate('next')
     live.update([first, identicalReplacement], false)
+    await vi.waitFor(() => expect(controller.snapshot().unavailable).toBe(true))
     expect(controller.snapshot()).toMatchObject({
       matchCount: 2,
       matchIndex: undefined,
       unavailable: true,
     })
     expect(live.clearReveal).toHaveBeenCalled()
-    expect(() => controller.currentMatchText()).toThrow(/no longer retained/)
+    await expect(controller.currentMatchText()).rejects.toThrow(/no longer retained/)
     const calls = live.reveal.mock.calls.length
     live.update([identicalReplacement], false)
     expect(live.reveal).toHaveBeenCalledTimes(calls)
-    controller.navigate('previous')
+    await controller.navigate('previous')
     expect(controller.snapshot()).toMatchObject({ matchIndex: 0, unavailable: false })
   })
 
@@ -203,7 +288,7 @@ describe('terminal search controller', () => {
     })
     expect(fresh.reveal).not.toHaveBeenCalled()
     expect(old.listenerCount()).toBe(0)
-    controller.navigate('next')
+    await controller.navigate('next')
     expect(controller.snapshot().matchIndex).toBe(0)
     controller.bind(paneFixture(vi.fn()))
     expect(fresh.listenerCount()).toBe(0)
@@ -244,18 +329,18 @@ describe('terminal search controller', () => {
       controller.open()
       controller.setQuery('hit')
       await vi.waitFor(() => expect(controller.snapshot().matchCount).toBe(3))
-      controller.navigate('next')
+      await controller.navigate('next')
       const selected = controller.snapshot()
       expect(selected.matchIndex).toBe(1)
 
       live.reveal.mockReturnValue(false)
-      controller.navigate(direction)
+      await controller.navigate(direction)
       expect(controller.snapshot()).toBe(selected)
-      expect(controller.currentMatchText()).toBe('second')
+      expect(await controller.currentMatchText()).toBe('second')
       expect(live.clearReveal).not.toHaveBeenCalled()
 
       live.reveal.mockReturnValue(true)
-      controller.navigate(direction)
+      await controller.navigate(direction)
       expect(controller.snapshot()).toMatchObject({
         matchIndex: direction === 'previous' ? 0 : 2,
         unavailable: false,
@@ -265,7 +350,7 @@ describe('terminal search controller', () => {
       // A failed reveal must still clear a selection whose identity was revoked.
       live.reveal.mockReturnValue(false)
       vi.spyOn(live, 'resolve').mockReturnValue(undefined)
-      controller.navigate(direction)
+      await controller.navigate(direction)
       expect(controller.snapshot()).toMatchObject({
         matchIndex: undefined,
         unavailable: true,
@@ -293,13 +378,74 @@ describe('terminal search controller', () => {
     live.reveal.mockReturnValue(true)
     controller.retainedBufferChanged()
     expect(search).toHaveBeenCalledOnce()
-    controller.navigate('next')
+    await controller.navigate('next')
     expect(controller.snapshot().matchIndex).toBe(0)
+  })
+
+  it('consumes indexed native-sized counts while retaining only a non-first occurrence across streaming updates', async () => {
+    const pane = paneFixture(vi.fn())
+    let state = { revision: 1, matchCount: 12000, pending: true, invalidated: false }
+    let update: (() => void) | undefined
+    const at = vi.fn<TerminalRetainedQuery['at']>((index) =>
+      Promise.resolve({ id: String(index) }),
+    )
+    const reveal = vi.fn<TerminalRetainedQuery['reveal']>(() => Promise.resolve(true))
+    const dispose = vi.fn()
+    const result: TerminalRetainedQuery = {
+      snapshot: () => state,
+      onUpdate: (listener) => {
+        update = listener
+        return () => {
+          update = undefined
+        }
+      },
+      at,
+      resolve: (occurrence) => Promise.resolve({ index: Number(occurrence.id) }),
+      reveal,
+      read: (occurrence) => Promise.resolve(occurrence.id === '1' ? 'second🙂' : 'first'),
+      clearReveal: vi.fn(),
+      dispose,
+    }
+    const controller = new TerminalSearchController(vi.fn(), vi.fn())
+    controller.bind({
+      ...pane,
+      retained: {
+        ...legacyTerminalRetainedQuery(pane),
+        search: () => Promise.resolve(result),
+      },
+    })
+    controller.open()
+    controller.setQuery('literal')
+    await vi.waitFor(() =>
+      expect(controller.snapshot()).toMatchObject({ matchCount: 12000, pending: true }),
+    )
+    expect(controller.snapshot().matchIndex).toBeUndefined()
+    expect(at).not.toHaveBeenCalled()
+    state = { ...state, revision: 2, pending: false }
+    update?.()
+    await vi.waitFor(() => expect(controller.snapshot().matchIndex).toBe(0))
+    await controller.navigate('next')
+    expect(await controller.currentMatchText()).toBe('second🙂')
+    state = { ...state, revision: 3, matchCount: 12001, pending: false }
+    update?.()
+    await vi.waitFor(() =>
+      expect(controller.snapshot()).toMatchObject({
+        matchCount: 12001,
+        matchIndex: 1,
+        pending: false,
+      }),
+    )
+    expect(at).toHaveBeenCalledTimes(2)
+    expect(reveal).toHaveBeenCalledTimes(2)
+    expect(await controller.currentMatchText()).toBe('second🙂')
+    controller.close()
+    expect(dispose).toHaveBeenCalledOnce()
+    expect(update).toBeUndefined()
   })
 
   it('cancels an exact semantic-region extraction when search closes', () => {
     let extractionSignal: AbortSignal | undefined
-    const extractRegion = vi.fn((_pane: TerminalPane, signal: AbortSignal) => {
+    const extractRegion = vi.fn((_pane: TerminalRuntimePane, signal: AbortSignal) => {
       extractionSignal = signal
       return new Promise<string>(() => undefined)
     })

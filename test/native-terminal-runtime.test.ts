@@ -145,6 +145,109 @@ afterEach(async () => {
 })
 
 describe('native utility owner', () => {
+  it('accepts idempotent late query cleanup after destroying its state and keeps another state usable', async () => {
+    await create()
+    port.send(2, { kind: 'create', width: 800, height: 600 })
+    await complete({ result: 0, id: 9n })
+    expect(last()).toMatchObject({ operation: 'inspect', args: ['9'] })
+    await complete({ result: 0, status: status() })
+    expect(port.result(2)).toMatchObject({ ok: true, value: { state: '9' } })
+
+    port.send(3, {
+      kind: 'query',
+      state: '7',
+      operation: { kind: 'query-begin', text: 'hit', caseSensitive: false },
+    })
+    const acquisition = last()
+    port.cancel(3)
+    port.send(4, { kind: 'destroy', state: '7' })
+    await complete({ result: 0, query: 71n }, acquisition)
+    expect(last()).toMatchObject({ operation: 'destroy', args: ['7'] })
+    await complete({ result: 0 })
+    expect(port.result(4)).toMatchObject({ ok: true, value: { result: 0 } })
+    expect(last()).toMatchObject({
+      operation: 'query',
+      args: ['7', { kind: 'query-close', query: '71' }],
+    })
+    // The native close contract returns OK when destruction already removed
+    // this Surface; cleanup still targets the original acquired identity.
+    await complete({ result: 0 })
+    expect(port.result(3)).toMatchObject({ ok: false, error: 'cancelled' })
+    expect(exited).toBe(false)
+
+    port.send(5, { kind: 'feed', state: '9', sequence: 1, bytes: Uint8Array.of(65) })
+    expect(last()).toMatchObject({ operation: 'feed', args: ['9', 1, Uint8Array.of(65)] })
+    await complete({ result: 0 })
+    expect(port.result(5)).toMatchObject({ ok: true, value: { result: 0 } })
+    expect(exited).toBe(false)
+    expect(engine.calls.filter((call) => call.operation === 'query')).toEqual([
+      acquisition,
+      expect.objectContaining({ args: ['7', { kind: 'query-close', query: '71' }] }),
+    ])
+  })
+  it('keeps physical late-query cleanup owned through BUSY before ordinary cancellation', async () => {
+    await create()
+    port.send(2, {
+      kind: 'query',
+      state: '7',
+      operation: { kind: 'query-begin', text: 'hit', caseSensitive: false },
+    })
+    port.cancel(2)
+    await complete({ result: 0, query: 71n })
+    expect(last()).toMatchObject({
+      operation: 'query',
+      args: ['7', { kind: 'query-close', query: '71' }],
+    })
+    await complete({ result: 6, stale: false })
+    await vi.advanceTimersByTimeAsync(1)
+    expect(last()).toMatchObject({
+      operation: 'query',
+      args: ['7', { kind: 'query-close', query: '71' }],
+    })
+    await complete({ result: 0 })
+    expect(exited).toBe(false)
+    expect(port.result(2)).toMatchObject({ ok: false, error: 'cancelled' })
+    expect(engine.calls.filter((call) => call.operation === 'query')).toHaveLength(3)
+  })
+  it.each([
+    [6, true],
+    [7, false],
+  ] as const)(
+    'fences the host when late physical cleanup is unprovable (%s/stale=%s)',
+    async (result, stale) => {
+      await create()
+      port.send(2, {
+        kind: 'query',
+        state: '7',
+        operation: { kind: 'query-begin', text: 'hit', caseSensitive: false },
+      })
+      port.cancel(2)
+      await complete({ result: 0, query: 71n })
+      expect(last()).toMatchObject({
+        operation: 'query',
+        args: ['7', { kind: 'query-close', query: '71' }],
+      })
+      await complete({ result, stale })
+      expect(exited).toBe(true)
+      expect(vi.spyOn(process, 'exit')).toHaveBeenCalledWith(1)
+      expect(engine.calls.filter((call) => call.operation === 'query')).toHaveLength(2)
+    },
+  )
+  it('does not fence the host for ordinary query allocation refusal with no acquisition', async () => {
+    await create()
+    port.send(2, {
+      kind: 'query',
+      state: '7',
+      operation: { kind: 'query-begin', text: 'hit', caseSensitive: false },
+    })
+    await complete({ result: 7, stale: false })
+    expect(exited).toBe(false)
+    expect(port.result(2)).toMatchObject({
+      ok: true,
+      value: { unavailable: 7, stale: false },
+    })
+    expect(engine.calls.filter((call) => call.operation === 'query')).toHaveLength(1)
+  })
   it('admits a closed selection command through the real utility request boundary', async () => {
     const operation = {
       kind: 'command',

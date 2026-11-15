@@ -1,3 +1,4 @@
+import { legacyTerminalRetainedQuery } from './terminal-retained-query'
 import {
   Terminal as GhosttyTerminal,
   FitAddon,
@@ -158,6 +159,7 @@ class DataListenerSet {
 }
 
 class GhosttyTerminalPane implements TerminalPane {
+  readonly retained = legacyTerminalRetainedQuery(this)
   private readonly terminal: GhosttyTerminal
   private readonly fit: FitAddon
   private readonly nativeProvenance = new WeakMap<

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { TerminalEvent } from '../src/renderer/src/terminal/terminal-pane'
 import { localPath } from '../src/shared/host-path'
 import { NativeTerminalPane } from '../src/renderer/src/terminal/native-terminal-pane'
 
@@ -16,7 +17,7 @@ const panes: NativeTerminalPane[] = []
 function fixture(
   overrides: Pick<
     ConstructorParameters<typeof NativeTerminalPane>[1],
-    'metadata' | 'effects'
+    'metadata' | 'effects' | 'query' | 'cancelQuery' | 'queryUpdates'
   > = {},
 ) {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
@@ -169,6 +170,86 @@ describe('native retained pane adapter', () => {
     await rejected
     expect(f.pane.selection).not.toBe(capability)
   })
+  it('restores authenticated semantic metadata before newer attach-time events', async () => {
+    const metadata =
+      deferred<import('../src/shared/native-terminal-effects').NativeTerminalMetadata>()
+    let accept!: (
+      value: import('../src/shared/native-terminal-effects').NativeTerminalProductEffect,
+    ) => void
+    const f = fixture({
+      metadata: () => metadata.promise,
+      effects: (listener) => {
+        accept = listener
+        return () => undefined
+      },
+    })
+    const event = (eventSerial: number) => ({
+      id: 'session',
+      instanceId: 'instance',
+      eventSerial,
+      effect: {
+        kind: 'semantic' as const,
+        action: 3,
+        options: '',
+        screen: 'normal' as const,
+        row: eventSerial,
+        column: 0,
+        boundaryId: `00000000-0000-4000-8000-00000000000${eventSerial}`,
+      },
+    })
+    f.port.attach.mockImplementationOnce(() => {
+      accept(event(1))
+      return Promise.resolve({ viewId: 'native-view', instanceId: 'instance' })
+    })
+    const listener = vi.fn<(event: TerminalEvent) => void>()
+    f.pane.onEffect(listener)
+    const binding = f.pane.bind('session')
+    await vi.waitFor(() => expect(f.port.attach).toHaveBeenCalled())
+    accept(event(3))
+    metadata.resolve({
+      instanceId: 'instance',
+      semanticSnapshot: { throughSerial: 2, effects: [event(1), event(2)] },
+    })
+    await binding
+    expect(listener.mock.calls.map(([value]) => value.type)).toEqual([
+      'semantic',
+      'semantic',
+      'semantic',
+    ])
+    expect(
+      listener.mock.calls.map(([value]) =>
+        value.type === 'semantic' ? value.provenance.id : undefined,
+      ),
+    ).toEqual([1, 2, 3])
+  })
+
+  it('cancels a native query begin on reparent and closes a late acquired query without starting reads', async () => {
+    const begin =
+      deferred<
+        import('../src/shared/native-terminal-query').NativeTerminalQueryResponse
+      >()
+    const query = vi.fn<
+      NonNullable<ConstructorParameters<typeof NativeTerminalPane>[1]['query']>
+    >((request) =>
+      request.kind === 'begin' ? begin.promise : Promise.resolve({ kind: 'done' }),
+    )
+    const cancel = vi.fn()
+    const f = fixture({ query, cancelQuery: cancel, queryUpdates: () => () => undefined })
+    await f.ready()
+    const pending = f.pane.retained!.search('x', { caseSensitive: false })
+    const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    const request = query.mock.calls[0]![0]
+    f.pane.reparent(f.detail)
+    expect(cancel).toHaveBeenCalledWith('native-view', request.requestId)
+    begin.resolve({
+      kind: 'query',
+      queryId: '00000000-0000-4000-8000-000000000002',
+      snapshot: { revision: 1, matchCount: 1, pending: false, invalidated: false },
+    })
+    await rejected
+    expect(query.mock.calls.map(([value]) => value.kind)).toEqual(['begin', 'close'])
+  })
+
   it('keeps a newer live title when metadata bootstrap settles with an older snapshot', async () => {
     const metadata =
       deferred<import('../src/shared/native-terminal-effects').NativeTerminalMetadata>()

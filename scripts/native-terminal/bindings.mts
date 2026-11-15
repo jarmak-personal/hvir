@@ -64,10 +64,13 @@ const platformFile =
 const sources = [
   ...[
     'host_binding.c',
+    'host_query_binding.c',
+    'host_query_binding.h',
     'terminal.c',
     'terminal_input.c',
     'terminal_effects.c',
     'terminal_selection.c',
+    'terminal_query.c',
     'terminal_internal.h',
     'linux_display.c',
     'linux_display.h',
@@ -130,10 +133,12 @@ const commands = [
       ...addon,
       '-DNODE_GYP_MODULE_NAME=native_terminal_engine',
       join(native, 'host_binding.c'),
+      join(native, 'host_query_binding.c'),
       join(native, 'terminal.c'),
       join(native, 'terminal_input.c'),
       join(native, 'terminal_effects.c'),
       join(native, 'terminal_selection.c'),
+      join(native, 'terminal_query.c'),
       join(native, 'linux_display.c'),
       ...(process.platform === 'darwin'
         ? ['-framework', 'CoreFoundation', '-framework', 'IOSurface']

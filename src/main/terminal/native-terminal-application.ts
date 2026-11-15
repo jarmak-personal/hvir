@@ -1,3 +1,17 @@
+import { NativeTerminalQuery } from './native-terminal-query'
+import {
+  NativeTerminalQuerySourceStale,
+  nativeQueryResult,
+  type NativeTerminalQuerySource,
+} from './native-terminal-query-request'
+import type { NativeBoundarySource } from './native-terminal-query-boundaries'
+import type {
+  NativeTerminalQueryRequest,
+  NativeTerminalQueryCancellation,
+  NativeTerminalQueryUpdate,
+} from '../../shared/native-terminal-query'
+import type { NativeTerminalEffectBatch } from '../../shared/native-terminal-effects'
+import type { NativeTerminalSession } from '../../shared/native-terminal'
 import { NativeTerminalEffectPolicy } from './native-terminal-effect-policy'
 import type { NativeTerminalProductEffect } from '../../shared/native-terminal-effects'
 import {
@@ -72,6 +86,7 @@ export async function createNativeTerminalApplication(
     (id, generation) => isCurrent({ id, generation }),
     (id, instance) => application?.unavailable(id, instance),
     effects,
+    (session, handle, batch) => application?.parsed(session, handle, batch),
   )
   const targets = new NativeTerminalPresentationTargets()
   const presenter = new NativeTerminalPresenter(
@@ -99,6 +114,7 @@ export class NativeTerminalApplication {
   private readonly stopPtyObservation: import('../project-host/project-host').Disposer
   private readonly inputOwner: NativeTerminalInput
   private readonly selectionOwner: NativeTerminalSelection
+  private readonly queryOwner: NativeTerminalQuery
   private readonly views = new Map<
     string,
     {
@@ -124,6 +140,7 @@ export class NativeTerminalApplication {
       | 'blockInput'
       | 'inputSettled'
       | 'retainInput'
+      | 'controlApplied'
     >,
     private readonly host: Pick<
       NativeTerminalHost,
@@ -133,6 +150,7 @@ export class NativeTerminalApplication {
       | 'input'
       | 'rendererInfo'
       | 'selection'
+      | 'query'
       | 'dispose'
     >,
     private readonly presenter: Pick<
@@ -157,6 +175,12 @@ export class NativeTerminalApplication {
     this.selectionOwner = new NativeTerminalSelection(host, (id, owner) =>
       this.selectionSource(id, owner),
     )
+    this.queryOwner = new NativeTerminalQuery(
+      host,
+      (id, owner) => this.querySource(id, owner),
+      (owner, update) => this.publishQuery(owner, update),
+      (session, effect) => this.publishEffect(session, effect),
+    )
     this.stopPtyObservation = ptys.observe(() => this.refreshOwnership())
     this.refreshOwnership()
   }
@@ -176,8 +200,10 @@ export class NativeTerminalApplication {
         !hostPathEquals(native.session.workspaceRoot, managed.workspaceRoot)
       ) {
         for (const [viewId, view] of this.views)
-          if (view.sessionId === managed.id && view.instanceId === managed.instanceId)
+          if (view.sessionId === managed.id && view.instanceId === managed.instanceId) {
             this.selectionOwner.revoke(viewId)
+            this.queryOwner.revoke(viewId)
+          }
         this.sessions.transferOwner(
           managed.id,
           managed.instanceId,
@@ -202,19 +228,70 @@ export class NativeTerminalApplication {
       signal: AbortSignal,
     ) => this.sessions.prepare(reservation, signal, viewport)
   }
-  metadata(
+  async metadata(
     id: string,
     owner: RendererOwner,
-  ): import('../../shared/native-terminal-effects').NativeTerminalMetadata {
+  ): Promise<import('../../shared/native-terminal-effects').NativeTerminalMetadata> {
     const record = this.requireSession(id, owner)
-    return { instanceId: record.session.instanceId, title: record.title }
+    const source = this.boundarySource(record.handle, record.session)
+    const semanticSnapshot = await this.queryOwner.metadata(source)
+    source.assertCurrent()
+    const current = this.requireSession(id, owner)
+    return {
+      instanceId: current.session.instanceId,
+      title: current.title,
+      ...(semanticSnapshot.effects.length || semanticSnapshot.throughSerial
+        ? { semanticSnapshot }
+        : {}),
+    }
   }
-  selection(
+  query(request: NativeTerminalQueryRequest, owner: RendererOwner) {
+    return this.queryOwner.action(request, owner)
+  }
+  cancelQuery(request: NativeTerminalQueryCancellation, owner: RendererOwner): void {
+    this.queryOwner.cancel(request, owner)
+  }
+  /** Copied parser facts survive logical renderer ownership changes. */
+  async parsed(
+    session: NativeTerminalSession,
+    handle: string,
+    batch: NativeTerminalEffectBatch,
+  ): Promise<void> {
+    for (;;) {
+      const current = this.sessions.get(session.sessionId)
+      if (
+        !current ||
+        current.unavailable ||
+        current.handle !== handle ||
+        current.session.instanceId !== session.instanceId
+      )
+        return
+      const captured = current.session
+      try {
+        await this.queryOwner.consume(this.boundarySource(handle, captured), batch)
+        return
+      } catch (error) {
+        if (!(error instanceof NativeTerminalQuerySourceStale)) throw error
+        const next = this.sessions.get(session.sessionId)
+        if (
+          !next ||
+          next.unavailable ||
+          next.handle !== handle ||
+          next.session.instanceId !== session.instanceId
+        )
+          return
+        if (next.session === captured) throw error
+        // Retry only a proven owner rotation; native cleanup failures are never hidden.
+      }
+    }
+  }
+  async selection(
     request: import('../../shared/native-terminal-selection').NativeTerminalSelectionRequest,
     owner: RendererOwner,
   ) {
     return this.selectionOwner.action(request, owner)
   }
+
   readSelection(
     request: import('../../shared/native-terminal-selection').NativeTerminalSelectionReadRequest,
     owner: RendererOwner,
@@ -290,14 +367,18 @@ export class NativeTerminalApplication {
         current.session.instanceId !== session.instanceId ||
         current.session.ownerId !== session.ownerId ||
         current.session.ownerGeneration !== session.ownerGeneration ||
-        (effect.effect.kind !== 'title' &&
+        (!['title', 'semantic', 'semantic-gap'].includes(effect.effect.kind) &&
           (current.readonly ||
             current.inputClosed ||
             current.unavailable ||
             current.inputUnavailable))
       )
         continue
-      view.frame.send('native-terminal:effect', effect)
+      try {
+        view.frame.send('native-terminal:effect', effect)
+      } catch {
+        // Renderer delivery cannot invalidate already retained parser facts.
+      }
     }
   }
   async attach(id: string, owner: RendererOwner, frame: WebFrameMain): Promise<string> {
@@ -364,7 +445,10 @@ export class NativeTerminalApplication {
     const cleanup = !layout.visible
       ? this.inputOwner.blur(this.inputContext(viewId, owner, true))
       : undefined
-    if (!layout.visible) view.visible = false
+    if (!layout.visible) {
+      view.visible = false
+      this.queryOwner.revoke(viewId)
+    }
     const revision = ++view.revision
     await cleanup
     const grant = await this.presenter.update(viewId, layout)
@@ -377,6 +461,7 @@ export class NativeTerminalApplication {
       return
     view.geometrySerial = status.geometry.serial
     view.visible = layout.visible
+    this.queryOwner.changed(record.session)
     // Only acknowledged native cells notify the existing PTY transport.
     const current = this.requireSession(view.sessionId, owner)
     const live = this.ptys.get(view.sessionId)
@@ -526,6 +611,7 @@ export class NativeTerminalApplication {
     if (view.owner.id !== owner.id || view.owner.generation !== owner.generation)
       throw new Error('native-view-foreign')
     this.selectionOwner.revoke(viewId)
+    this.queryOwner.revoke(viewId)
     const context = this.inputContext(viewId, owner, true)
     this.views.delete(viewId)
     const results = await Promise.allSettled([this.inputOwner.revoke(context)])
@@ -541,8 +627,13 @@ export class NativeTerminalApplication {
       }
     }
     const results = await Promise.allSettled(detaching)
+    if (this.sessions.get(id)?.session.instanceId === instanceId)
+      await this.sessions.inputSettled(id, instanceId)
     const removed = await Promise.allSettled([this.sessions.remove(id, instanceId)])
-    if (removed[0]?.status === 'fulfilled') this.selectionOwner.forget(instanceId)
+    if (removed[0]?.status === 'fulfilled') {
+      this.selectionOwner.forget(instanceId)
+      this.queryOwner.forgetDestroyed(instanceId)
+    }
     results.push(...removed)
     const failure = results.find((result) => result.status === 'rejected')
     if (failure?.status === 'rejected') throw failure.reason
@@ -551,6 +642,7 @@ export class NativeTerminalApplication {
     for (const [viewId, view] of this.views) {
       if (view.sessionId === sessionId && view.instanceId === instanceId) {
         this.selectionOwner.revoke(viewId)
+        this.queryOwner.revoke(viewId)
         void this.presenter.suspend(viewId).catch(() => undefined)
       }
     }
@@ -558,6 +650,7 @@ export class NativeTerminalApplication {
   dispose(): void {
     void this.stopPtyObservation()
     this.selectionOwner.dispose()
+    void this.queryOwner.dispose()
     this.views.clear()
     this.targets.dispose()
     this.host.dispose()
@@ -566,6 +659,147 @@ export class NativeTerminalApplication {
     return !unavailable && this.ptys.get(id)?.instanceId === instanceId
       ? this.ptys.inputPrefix(id, instanceId)
       : { parsed: () => Promise.resolve(), replies: () => Promise.resolve() }
+  }
+  private publishQuery(owner: RendererOwner, packet: NativeTerminalQueryUpdate): void {
+    const view = this.views.get(packet.viewId)
+    const current = view && this.sessions.get(view.sessionId)
+    if (
+      !view ||
+      !current ||
+      current.unavailable ||
+      !view.visible ||
+      view.owner.id !== owner.id ||
+      view.owner.generation !== owner.generation ||
+      current.session.instanceId !== view.instanceId ||
+      current.session.ownerId !== owner.id ||
+      current.session.ownerGeneration !== owner.generation ||
+      !this.isCurrent(owner) ||
+      view.frame.isDestroyed()
+    )
+      return
+    try {
+      view.frame.send('native-terminal:query-update', packet)
+    } catch {
+      // Query state remains native-owned when a renderer disappears during delivery.
+    }
+  }
+  private boundarySource(
+    handle: string,
+    session: NativeTerminalSession,
+  ): NativeBoundarySource {
+    return {
+      handle,
+      session,
+      assertCurrent: () => {
+        const current = this.sessions.get(session.sessionId)
+        if (
+          !current ||
+          current.unavailable ||
+          current.handle !== handle ||
+          current.session !== session
+        )
+          throw new NativeTerminalQuerySourceStale()
+      },
+    }
+  }
+  private querySource(viewId: string, owner: RendererOwner): NativeTerminalQuerySource {
+    const view = this.requireView(viewId, owner)
+    const record = this.requireSession(view.sessionId, owner)
+    const boundary = this.boundarySource(record.handle, record.session)
+    const assertCurrent = () => {
+      boundary.assertCurrent()
+      if (
+        this.views.get(viewId) !== view ||
+        view.owner.id !== owner.id ||
+        view.owner.generation !== owner.generation ||
+        !view.visible ||
+        view.frame.isDestroyed() ||
+        !this.isCurrent(owner)
+      )
+        throw new NativeTerminalQuerySourceStale()
+    }
+    assertCurrent()
+    return {
+      ...boundary,
+      viewId,
+      assertCurrent,
+      prefix: () => this.inputPrefix(view.sessionId, view.instanceId, record.unavailable),
+      context: async (reveal, signal) => {
+        signal.throwIfAborted()
+        assertCurrent()
+        if (reveal) {
+          const drawn = this.targets.drawn(viewId, view.frame)
+          if (
+            !drawn ||
+            drawn.geometrySerial !== view.geometrySerial ||
+            !this.presenter.isInputCurrent(viewId)
+          )
+            throw new Error('native-query-not-drawn')
+          return drawn
+        }
+        const value = nativeQueryResult(
+          await this.host.query(
+            record.handle,
+            view.instanceId,
+            { kind: 'query-context' },
+            signal,
+          ),
+        )
+        signal.throwIfAborted()
+        assertCurrent()
+        if (
+          (value.screen !== 0 && value.screen !== 1) ||
+          typeof value.geometrySerial !== 'number' ||
+          !Number.isSafeInteger(value.geometrySerial) ||
+          value.geometrySerial <= 0
+        )
+          throw new Error('native-query-context-invalid')
+        return { screen: value.screen, geometrySerial: value.geometrySerial }
+      },
+    }
+  }
+  private async selectionControlApplied(
+    handle: string,
+    session: NativeTerminalSession,
+    cutoff: number,
+    mutation: number,
+  ): Promise<void> {
+    for (;;) {
+      const current = this.sessions.get(session.sessionId)
+      if (
+        !current ||
+        current.unavailable ||
+        current.handle !== handle ||
+        current.session.instanceId !== session.instanceId
+      )
+        return
+      const captured = current.session
+      try {
+        // Floors the genuine control cutoff before waiting for IO or native retirement.
+        await this.queryOwner.controlApplied(
+          this.boundarySource(handle, captured),
+          cutoff,
+        )
+        await this.sessions.controlApplied(
+          session.sessionId,
+          session.instanceId,
+          handle,
+          mutation,
+        )
+        return
+      } catch (error) {
+        if (!(error instanceof NativeTerminalQuerySourceStale)) throw error
+        const next = this.sessions.get(session.sessionId)
+        if (
+          !next ||
+          next.unavailable ||
+          next.handle !== handle ||
+          next.session.instanceId !== session.instanceId
+        )
+          return
+        if (next.session === captured) throw error
+      }
+    }
   }
   private selectionSource(viewId: string, owner: RendererOwner) {
     const view = this.requireView(viewId, owner)
@@ -580,6 +814,10 @@ export class NativeTerminalApplication {
       instanceId: view.instanceId,
       workspaceRoot: session.workspaceRoot,
       geometry,
+      retainControl: (pending: Promise<unknown>) =>
+        this.sessions.retainInput(view.sessionId, view.instanceId, pending),
+      controlApplied: (_action: 'clear' | 'reset', cutoff: number, mutation: number) =>
+        this.selectionControlApplied(record.handle, session, cutoff, mutation),
       prefix: () => this.inputPrefix(view.sessionId, view.instanceId, record.unavailable),
       assertCurrent: () => {
         const current = this.requireView(viewId, owner)

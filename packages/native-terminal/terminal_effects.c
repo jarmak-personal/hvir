@@ -34,7 +34,7 @@ bool hvir_internal_effect(void *userdata, const hvir_ghostty_external_effect *ev
     pthread_mutex_unlock(&s->host->events);
     return true;
   }
-  if (event->kind == 8 && s->semantic_generation != UINT64_MAX) s->semantic_generation++;
+  if (event->kind == 8 && event->action == 1 && s->semantic_generation != UINT64_MAX) s->semantic_generation++;
   const size_t total = event->data_len + event->extra_len;
   size_t slot = event->kind >= 1 && event->kind <= 3 ? event->kind - 1 : 3;
   queued_effect *target = slot < 3 ? &s->latest[slot]
@@ -46,14 +46,14 @@ bool hvir_internal_effect(void *userdata, const hvir_ghostty_external_effect *ev
   if (!valid || (total && !copy)) {
     dropped(s);
     pthread_mutex_unlock(&s->host->events);
-    return true; /* Refused side effect never makes terminal parsing unusable. */
+    return false; /* Metadata refusal only; External keeps parsing/input usable. */
   }
   if (event->data_len) memcpy(copy, event->data, event->data_len);
   if (event->extra_len) memcpy(copy + event->data_len, event->extra, event->extra_len);
   if (slot < 3) forget_effect(s, target);
   *target = (queued_effect){.kind = event->kind, .action = event->action,
     .screen = event->screen, .row = event->row, .column = event->column,
-    .sequence = event->sequence, .event_serial = event->serial,
+    .sequence = event->sequence, .event_serial = event->serial, .boundary = event->boundary,
     .length = event->data_len, .extra_length = event->extra_len, .data = copy};
   s->effect_bytes += total;
   if (slot < 3) s->latest_pending[slot] = true;
@@ -90,7 +90,7 @@ hvir_terminal_result hvir_terminal_next_event(hvir_terminal_host *h, hvir_termin
   if (!event) { pthread_mutex_unlock(&h->events); return HVIR_BUSY; }
   *out = (hvir_terminal_event){.kind = event->kind, .action = event->action,
     .screen = event->screen, .row = event->row, .column = event->column,
-    .sequence = event->sequence, .event_serial = event->event_serial,
+    .sequence = event->sequence, .event_serial = event->event_serial, .boundary = event->boundary,
     .length = event->length, .extra_length = event->extra_length};
   if (event->length) memcpy(out->data, event->data, event->length);
   if (event->extra_length) memcpy(out->extra, event->data + event->length, event->extra_length);

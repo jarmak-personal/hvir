@@ -46,6 +46,20 @@ export async function selectionNativeTerminalProducer(
   current()
   return value
 }
+export async function queryNativeTerminalProducer(
+  { port, binding, current }: ProducerContext,
+  operation: import('../../shared/native-terminal-query-operations').NativeTerminalQueryOperation,
+  signal?: AbortSignal,
+  eligible?: (signal: AbortSignal) => Promise<void>,
+) {
+  const value = await port.request(
+    { kind: 'query', state: binding.state, operation },
+    signal ? AbortSignal.any([binding.abort.signal, signal]) : binding.abort.signal,
+    eligible,
+  )
+  current()
+  return value
+}
 /** Encoder results use ordinary input admission, never the privileged output role. */
 export async function inputNativeTerminalProducer(
   { port, binding, current }: ProducerContext,

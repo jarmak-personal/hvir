@@ -1,5 +1,7 @@
 import { validNativeTerminalLinkQuery } from '../shared/native-terminal-link'
 import { validNativeTerminalSelectionOperation } from '../shared/native-terminal-selection'
+import { validNativeTerminalQueryOperation } from '../shared/native-terminal-query-operations'
+import { runNativeQueryStep, NativeQueryCleanupFailed } from './native-terminal-query'
 import {
   runNativeSelectionStep,
   type NativeSelectionEngineResult,
@@ -230,6 +232,24 @@ export function runNativeTerminalHost(
           (operation) => invoke(state, 'selection', [state, operation]),
           cancelled,
         )
+      case 'query': {
+        try {
+          return await runNativeQueryStep(
+            command.operation,
+            (operation) =>
+              invoke(
+                state,
+                'query',
+                [state, operation],
+                operation.kind === 'query-begin' ? Buffer.byteLength(operation.text) : 0,
+              ),
+            cancelled,
+          )
+        } catch (error) {
+          if (error instanceof NativeQueryCleanupFailed) return fatal()
+          throw error
+        }
+      }
       case 'visibility':
         return requireOk(await invoke(state, 'visibility', [state, command.visible]))
       case 'presentation-mode':
@@ -401,7 +421,22 @@ export function runNativeTerminalHost(
             ok: true,
             value: result,
           }),
-        (error: unknown) =>
+        (error: unknown) => {
+          if (
+            typeof __HVIR_SMOKE_BUILD__ !== 'undefined' &&
+            __HVIR_SMOKE_BUILD__ &&
+            process.env['HVIR_SMOKE']
+          ) {
+            try {
+              console.error('HVIR_NATIVE_WORKER_OPERATION_FAILURE', {
+                command: value.command.kind,
+                errorClass: error instanceof Error ? error.name : typeof error,
+                message: error instanceof Error ? error.message : 'non-error',
+              })
+            } catch {
+              /* Diagnostic delivery must not change the command result. */
+            }
+          }
           port.postMessage({
             kind: 'result',
             epoch: options.epoch,
@@ -414,7 +449,8 @@ export function runNativeTerminalHost(
                 : error instanceof NativeTerminalAdmissionError
                   ? 'native-admission-bound'
                   : 'native-operation-failed',
-          }),
+          })
+        },
       )
       .finally(() => {
         requests.delete(value.id)
@@ -460,6 +496,8 @@ function validCommand(value: NativeTerminalCommand): boolean {
       return validNativeTerminalLinkQuery(value.query)
     case 'selection':
       return validNativeTerminalSelectionOperation(value.operation)
+    case 'query':
+      return validNativeTerminalQueryOperation(value.operation)
     case 'key':
       return validNativeTerminalKeyInput(value)
     case 'input':

@@ -134,6 +134,11 @@ export type NativeTerminalCommand =
       operation: import('./native-terminal-selection').NativeTerminalSelectionOperation
     }
   | {
+      kind: 'query'
+      state: string
+      operation: import('./native-terminal-query-operations').NativeTerminalQueryOperation
+    }
+  | {
       kind: 'resize'
       state: string
       serial: number
@@ -173,6 +178,8 @@ export type NativeTerminalCommand =
   | { kind: 'release'; state: string; lease: string }
 /** Count both producer and encoder payloads in the existing physical credits. */
 export function nativeTerminalCommandBytes(command: NativeTerminalCommand): number {
+  if (command.kind === 'query' && command.operation.kind === 'query-begin')
+    return new TextEncoder().encode(command.operation.text).byteLength
   return command.kind === 'input'
     ? nativeTerminalInputBytes(command.input)
     : command.kind === 'feed'

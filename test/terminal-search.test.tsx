@@ -10,6 +10,7 @@ import type {
   TerminalRetainedBufferRange,
   TerminalRetainedBufferSearch,
 } from '../src/renderer/src/terminal/terminal-pane'
+import { legacyTerminalRetainedQuery } from '../src/renderer/src/terminal/terminal-retained-query'
 import { TerminalSearchController } from '../src/renderer/src/terminal/terminal-search-controller'
 
 let host: HTMLDivElement
@@ -70,7 +71,7 @@ describe('terminal search surface', () => {
       await vi.waitFor(() => expect(controller.snapshot().matchIndex).toBe(0))
     })
     refreshing = true
-    act(update)
+    await act(() => Promise.resolve().then(update))
     expect(controller.snapshot().pending).toBe(true)
     expect(button('Copy Match').disabled).toBe(false)
     expect(
@@ -82,10 +83,10 @@ describe('terminal search surface', () => {
         ?.disabled,
     ).toBe(false)
     const unchanged = controller.snapshot()
-    act(update)
+    await act(() => Promise.resolve().then(update))
     expect(controller.snapshot()).toBe(unchanged)
     retained = false
-    act(update)
+    await act(() => Promise.resolve().then(update))
     expect(host.querySelector('.terminal-search-status')?.textContent).toBe('1 match')
     expect(host.querySelector('.terminal-search-unavailable')?.textContent).toBe(
       'Selected match is no longer available',
@@ -100,7 +101,7 @@ describe('terminal search surface', () => {
       { ...range(10, 0, 10, 2), id: 3 },
     ]
     refreshing = false
-    act(update)
+    await act(() => Promise.resolve().then(update))
     expect(host.querySelector('.terminal-search-status')?.textContent).toBe('2 matches')
     expect(host.querySelector('.terminal-search-unavailable')).not.toBeNull()
     expect(controller.snapshot().matchIndex).toBeUndefined()
@@ -108,6 +109,62 @@ describe('terminal search surface', () => {
     act(() => root.unmount())
     controller.close()
   })
+
+  it.each(['close', 'query', 'replacement'] as const)(
+    'never commits delayed match text after %s revokes the copy intent',
+    async (change) => {
+      const pane = paneFixture(range(1, 0, 1, 3), 'hit')
+      const capability = legacyTerminalRetainedQuery(pane)
+      const result = await capability.search('hit', { caseSensitive: false })
+      let finish!: (text: string | undefined) => void
+      const read = vi.spyOn(result, 'read').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve
+          }),
+      )
+      const search = vi
+        .fn((text: string, options: { caseSensitive: boolean; signal?: AbortSignal }) =>
+          capability.search(text, options),
+        )
+        .mockResolvedValueOnce(result)
+      const bound = { ...pane, retained: { ...capability, search } }
+      const controller = new TerminalSearchController(vi.fn(), vi.fn())
+      controller.bind(bound)
+      const writeText = vi.fn(() => Promise.resolve())
+      const root = createRoot(host)
+      act(() => {
+        root.render(
+          <TerminalSearch
+            controller={controller}
+            canCopyRegion={false}
+            writeText={writeText}
+          />,
+        )
+        controller.open()
+        controller.setQuery('hit')
+      })
+      await act(async () => {
+        await vi.waitFor(() => expect(controller.snapshot().matchIndex).toBe(0))
+      })
+      act(() => button('Copy Match').click())
+      await act(async () => {
+        await vi.waitFor(() => expect(read).toHaveBeenCalledOnce())
+      })
+      act(() => {
+        if (change === 'close') controller.close()
+        else if (change === 'query') controller.setQuery('other')
+        else controller.bind(paneFixture(range(2, 0, 2, 3), 'new'))
+      })
+      await act(() => {
+        finish('late exact text')
+        return Promise.resolve()
+      })
+      expect(writeText).not.toHaveBeenCalled()
+      act(() => root.unmount())
+      controller.close()
+    },
+  )
 
   it('keeps the exact current result and surface when clipboard writing fails', async () => {
     const match = range(7, 3, 8, 2)

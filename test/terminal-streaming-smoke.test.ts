@@ -77,6 +77,7 @@ function preparationPort() {
   const matches: TerminalRetainedBufferRange[] = []
   const query = vi.fn()
   const navigate = vi.fn()
+  let reveals = 0
   const result = {
     matches,
     pending: false,
@@ -87,7 +88,10 @@ function preparationPort() {
         update = undefined
       }
     },
-    reveal: (match: TerminalRetainedBufferRange) => matches.includes(match),
+    // A refused automatic reveal leaves legitimate unselected results, so the
+    // real smoke script must explicitly select first and then second.
+    reveal: (match: TerminalRetainedBufferRange) =>
+      ++reveals > 1 && matches.includes(match),
     clearReveal: () => {},
     resolve: (match: TerminalRetainedBufferRange) =>
       matches.includes(match) ? match : undefined,
@@ -130,7 +134,7 @@ function preparationPort() {
   const next = {
     click: () => {
       navigate()
-      controller.navigate('next')
+      void controller.navigate('next')
     },
   }
   const search = {

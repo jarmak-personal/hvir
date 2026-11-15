@@ -1,4 +1,9 @@
-import type { TerminalEvent, TerminalPane } from './terminal-pane'
+import {
+  isNativeTerminalPane,
+  type TerminalEvent,
+  type TerminalRuntimePane,
+} from './terminal-pane'
+import { legacyTerminalRetainedQuery } from './terminal-retained-query'
 import {
   MAX_TERMINAL_SEMANTIC_REGIONS,
   TerminalSemanticRegions,
@@ -18,6 +23,8 @@ export type TerminalPaneEventEffect =
 
 /** Owns parser-event consumption and bounded, per-pane transcript navigation. */
 export class TerminalPaneEventCoordinator {
+  private navigationAbort?: AbortController
+  private navigationCandidate?: number
   private readonly regions = new TerminalSemanticRegions()
   private readonly listeners = new Set<() => void>()
   private currentSnapshot: TerminalPaneEventSnapshot = {
@@ -42,7 +49,13 @@ export class TerminalPaneEventCoordinator {
     this.updateTelemetry()
   }
 
+  cancelNavigation(): void {
+    this.navigationAbort?.abort()
+    this.navigationCandidate = undefined
+  }
+
   detach(container: HTMLElement): void {
+    this.cancelNavigation()
     if (this.container === container) this.container = undefined
   }
 
@@ -68,40 +81,97 @@ export class TerminalPaneEventCoordinator {
         ? { clipboardWrite: { selection: event.selection, data: event.data } }
         : undefined
     }
+    if (event.type === 'semantic-gap') {
+      if (event.controlCutoff === undefined) {
+        this.navigationAbort?.abort()
+        this.regions.clear()
+      } else this.regions.clearThrough(event.controlCutoff)
+      this.cancelRemovedCandidates()
+      this.updateTelemetry()
+      this.publish()
+      return undefined
+    }
     if (event.type !== 'semantic') return undefined
     const changed = this.regions.consume(event)
+    this.cancelRemovedCandidates()
     this.updateTelemetry()
     if (changed) this.publish()
     return undefined
   }
 
-  navigate(direction: TerminalSemanticRegionDirection, pane: TerminalPane): void {
-    const screen = pane.activeEventScreen()
-    const plan = this.regions.navigationPlan(direction, screen, (provenance) =>
-      pane.resolveEventProvenance(provenance),
-    )
-    const target = plan.candidates.find(({ location }) =>
-      pane.revealEventLocation(location),
-    )
-    const summary = target
-      ? this.regions.activate(target.id, screen, plan.resolved)
-      : undefined
-    if (plan.changed || target) this.publish(summary)
+  async navigate(
+    direction: TerminalSemanticRegionDirection,
+    pane: TerminalRuntimePane,
+  ): Promise<void> {
+    this.navigationAbort?.abort()
+    const controller = new AbortController()
+    this.navigationAbort = controller
+    this.navigationCandidate = undefined
+    const capability =
+      pane.retained ??
+      (!isNativeTerminalPane(pane) ? legacyTerminalRetainedQuery(pane) : undefined)
+    if (!capability) return
+    try {
+      const screen = await capability.activeScreen(controller.signal)
+      controller.signal.throwIfAborted()
+      const candidates = this.regions.navigationCandidateIds(direction, screen)
+      const before = this.regions.size
+      const summary = await this.regions.navigateCandidates(
+        candidates,
+        screen,
+        (boundary) => capability.resolveBoundary(boundary, controller.signal),
+        (boundary) => capability.revealBoundary(boundary, controller.signal),
+        controller.signal,
+        (id) => {
+          this.navigationCandidate = id
+        },
+      )
+      if (!controller.signal.aborted) {
+        this.updateTelemetry()
+        if (summary || this.regions.size !== before) this.publish(summary)
+      }
+    } catch {
+      // Revoked/evicted occurrences do not change terminal input availability.
+    } finally {
+      if (this.navigationAbort === controller) {
+        this.navigationAbort = undefined
+        this.navigationCandidate = undefined
+      }
+    }
   }
 
-  extractCurrentRegion(pane: TerminalPane, signal: AbortSignal): Promise<string> {
-    const range = this.regions.currentCopyRange(pane.activeEventScreen())
-    if (!range) return Promise.reject(new Error('No semantic terminal region is available'))
-    const end = range.end ?? pane.captureRetainedBufferBoundary()
-    if (!end) return Promise.reject(new Error('The current terminal region is unavailable'))
-    return pane.extractRetainedBufferRange(range.start, end, { signal })
+  async extractCurrentRegion(
+    pane: TerminalRuntimePane,
+    signal: AbortSignal,
+  ): Promise<string> {
+    const capability =
+      pane.retained ??
+      (!isNativeTerminalPane(pane) ? legacyTerminalRetainedQuery(pane) : undefined)
+    if (!capability) throw new Error('Terminal retained queries are unavailable')
+    const screen = await capability.activeScreen(signal)
+    const range = this.regions.currentCopyRange(screen)
+    if (!range) throw new Error('No semantic terminal region is available')
+    const end = range.end
+    if (signal.aborted) throw new Error('The current terminal region is unavailable')
+    return capability.readRange(range.start, end, signal)
   }
 
   clear(): void {
+    this.navigationAbort?.abort()
+    this.navigationAbort = undefined
+    this.navigationCandidate = undefined
     this.regions.clear()
     this.currentTitle = this.fallbackTitle
     this.updateTelemetry()
     this.publish()
+  }
+
+  private cancelRemovedCandidates(): void {
+    if (
+      this.navigationCandidate !== undefined &&
+      !this.regions.boundary(this.navigationCandidate)
+    )
+      this.navigationAbort?.abort()
   }
 
   private publish(semanticRegion?: TerminalSemanticRegionSummary): void {

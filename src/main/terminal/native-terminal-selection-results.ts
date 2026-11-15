@@ -36,6 +36,8 @@ export function nativeSelectionState(
     typeof state.hasSelection !== 'boolean' ||
     !counter(state.selectionSerial) ||
     !counter(state.requestedMutation) ||
+    (state.effectSerialCutoff !== undefined &&
+      (!counter(state.effectSerialCutoff) || state.effectSerialCutoff === 0)) ||
     state.screen !== context.screen ||
     state.geometrySerial !== context.geometrySerial ||
     (state.cursor !== undefined &&

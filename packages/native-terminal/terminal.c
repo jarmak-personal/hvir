@@ -332,6 +332,17 @@ hvir_terminal_result hvir_terminal_open(const char *path, void *display, hvir_te
   LOAD(external_extract_finish, "ghostty_external_extract_finish");
   LOAD(external_extract_close, "ghostty_external_extract_close");
   LOAD(external_link_current, "ghostty_external_link_current");
+  LOAD(external_query_context, "ghostty_external_query_context");
+  LOAD(external_query_begin, "ghostty_external_query_begin");
+  LOAD(external_query_step, "ghostty_external_query_step");
+  LOAD(external_query_page, "ghostty_external_query_page");
+  LOAD(external_query_resolve_begin, "ghostty_external_query_resolve_begin");
+  LOAD(external_query_clear_reveal, "ghostty_external_query_clear_reveal");
+  LOAD(external_query_close, "ghostty_external_query_close");
+  LOAD(external_range_begin, "ghostty_external_range_begin");
+  LOAD(external_boundary_capture_end, "ghostty_external_boundary_capture_end");
+  LOAD(external_boundary_resolve_begin, "ghostty_external_boundary_resolve_begin");
+  LOAD(external_boundary_close, "ghostty_external_boundary_close");
   LOAD(external_read, "ghostty_external_read");
   LOAD(external_key, "ghostty_external_key");
   LOAD(external_input, "ghostty_external_input");

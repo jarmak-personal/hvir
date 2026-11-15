@@ -69,6 +69,7 @@ export interface SelectionContext {
   geometrySerial: bigint
 }
 export interface SelectionResult extends Result {
+  effectSerialCutoff: bigint
   column?: number
   clickedByteOffset?: bigint
   stale: boolean
@@ -88,6 +89,43 @@ export interface ExtractionChunk extends Result {
   visited: number
   work: number
 }
+/** Query-owned IDs and cell coordinates are observations, never caller authority. */
+export interface QueryMatch {
+  occurrence: bigint
+  index: number
+  screen: 0
+  row: number
+  column: number
+  endRow: number
+  endColumn: number
+}
+export interface QueryResult extends Result {
+  stale: boolean
+}
+export interface QueryStatus extends QueryResult {
+  query: bigint
+  revision: bigint
+  count: number
+  /** 0 running; 1 waiting for source feed; 2 caught up with current source. */
+  status: 0 | 1 | 2
+  work: number
+  visited: number
+}
+export interface SemanticBoundary {
+  boundary: bigint
+  screen: 0 | 1
+  row: number
+  column: number
+}
+export interface QueryResolution {
+  resolved: boolean
+  revealed: boolean
+  match?: QueryMatch
+  boundary?: SemanticBoundary
+}
+export type RetainedRange =
+  | { kind: 'match'; query: bigint; occurrence: bigint }
+  | { kind: 'semantic'; start: bigint; end?: bigint }
 export interface InputResult extends Result {
   hasSelection?: boolean
   selectionSerial?: bigint
@@ -122,8 +160,57 @@ declare const engine: {
     context: SelectionContext,
   ): SelectionResult & { cursor: bigint }
   extractNext(host: Host, id: bigint, cursor: bigint): ExtractionChunk
-  extractFinish(host: Host, id: bigint, cursor: bigint): SelectionResult
+  extractFinish(
+    host: Host,
+    id: bigint,
+    cursor: bigint,
+  ): SelectionResult & Partial<QueryResolution>
   extractClose(host: Host, id: bigint, cursor: bigint): Result
+  queryContext(host: Host, id: bigint): QueryResult & { screen: 0 | 1; geometrySerial: bigint }
+  queryBegin(
+    host: Host,
+    id: bigint,
+    needle: string,
+    caseSensitive: boolean,
+  ): QueryResult & { query?: bigint }
+  queryStep(host: Host, id: bigint, query: bigint): QueryStatus
+  queryPage(
+    host: Host,
+    id: bigint,
+    query: bigint,
+    revision: bigint,
+    offset: number,
+    capacity: number,
+  ): QueryResult & { revision: bigint; count: number; results: QueryMatch[] }
+  queryResolveBegin(
+    host: Host,
+    id: bigint,
+    query: bigint,
+    occurrence: bigint,
+    reveal: boolean,
+    context: SelectionContext,
+  ): SelectionResult & { cursor: bigint }
+  queryClearReveal(host: Host, id: bigint, query: bigint): QueryResult
+  queryClose(host: Host, id: bigint, query: bigint): QueryResult
+  rangeBegin(
+    host: Host,
+    id: bigint,
+    range: RetainedRange,
+    context: SelectionContext,
+  ): SelectionResult & { cursor: bigint }
+  semanticBoundaryCaptureEnd(
+    host: Host,
+    id: bigint,
+    context: SelectionContext,
+  ): QueryResult & Partial<SemanticBoundary>
+  semanticBoundaryResolveBegin(
+    host: Host,
+    id: bigint,
+    boundary: bigint,
+    reveal: boolean,
+    context: SelectionContext,
+  ): SelectionResult & { cursor: bigint }
+  semanticBoundaryClose(host: Host, id: bigint, boundary: bigint): QueryResult
   linkCurrent(
     host: Host,
     id: bigint,
@@ -218,6 +305,8 @@ declare const engine: {
       column: number
       sequence: bigint
       eventSerial: bigint
+      /** Present only for an authenticated parser-time semantic location. */
+      boundary?: bigint
       truncated: boolean
       data: Buffer
       extra: Buffer

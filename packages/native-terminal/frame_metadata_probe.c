@@ -636,7 +636,7 @@ int main(void) {
           !status.dropped_effects && !status.semantic_generation,"initial-effect-status-clean");
   REQUIRE(effect(&state,1,(const uint8_t *)"old",3),"allocate-latest-title-for-refusal");
   fail_allocation=true;
-  REQUIRE(effect(&state,1,(const uint8_t *)"new",3) && !state.failure && live_allocations==1 &&
+  REQUIRE(!effect(&state,1,(const uint8_t *)"new",3) && !state.failure && live_allocations==1 &&
           hvir_terminal_effects_status(&host,state.id,&status)==HVIR_OK &&
           status.dropped_effects==1 && status.semantic_generation==1,
           "allocation-refusal-preserves-parser-and-sticky-out-of-band-gap");
@@ -644,13 +644,13 @@ int main(void) {
           !memcmp(event.data,"old",3) && !live_allocations,
           "failed-replacement-keeps-prior-owned-title");
   clipboard.data_len=65537;
-  REQUIRE(hvir_internal_effect(&state,&clipboard) && !state.failure && !live_allocations,
+  REQUIRE(!hvir_internal_effect(&state,&clipboard) && !state.failure && !live_allocations,
           "oversized-payload-refused-without-copy-or-parser-failure");
   clipboard.data_len=1; clipboard.data=NULL;
-  REQUIRE(hvir_internal_effect(&state,&clipboard) && !state.failure && !live_allocations,
+  REQUIRE(!hvir_internal_effect(&state,&clipboard) && !state.failure && !live_allocations,
           "malformed-borrowed-pointer-refused-without-poison");
   for(unsigned i=0;i<128;i++) REQUIRE(effect(&state,9,&opaque,1),"refill-fifo-for-sticky-gap");
-  REQUIRE(effect(&state,6,&opaque,1) && !state.failure && state.event_count==128 &&
+  REQUIRE(!effect(&state,6,&opaque,1) && !state.failure && state.event_count==128 &&
           hvir_terminal_effects_status(&host,state.id,&status)==HVIR_OK &&
           status.dropped_effects==4 && status.semantic_generation==4 && status.queued_bytes==128,
           "full-fifo-semantic-gap-readable-without-an-extra-event");
@@ -674,7 +674,7 @@ int main(void) {
   REQUIRE(hvir_terminal_effects_status(&host,state.id,&status)==HVIR_OK &&
           status.queued_bytes==1024*1024 && live_allocations==8,
           "total-pair-payload-budget-is-one-mib");
-  REQUIRE(effect(&state,1,&opaque,1) && !state.failure &&
+  REQUIRE(!effect(&state,1,&opaque,1) && !state.failure &&
           hvir_terminal_effects_status(&host,state.id,&status)==HVIR_OK &&
           status.queued_bytes==1024*1024 && status.dropped_effects==5 &&
           status.semantic_generation==5 && live_allocations==8,
@@ -699,13 +699,13 @@ int main(void) {
           status.queued_bytes==1024*1024-16 && live_allocations==9,
           "near-full-budget-includes-old-coalesced-title");
   const unsigned before_replacement=allocation_attempts;
-  REQUIRE(effect(&state,1,(const uint8_t *)"same-size-replacement-32-bytes---",32) &&
+  REQUIRE(!effect(&state,1,(const uint8_t *)"same-size-replacement-32-bytes---",32) &&
           allocation_attempts==before_replacement && !state.failure &&
           hvir_terminal_effects_status(&host,state.id,&status)==HVIR_OK &&
           status.queued_bytes==1024*1024-16 && status.dropped_effects==6 &&
           status.semantic_generation==6 && live_allocations==9,
           "same-size-replacement-refused-before-transient-allocation");
-  REQUIRE(effect(&state,1,full,48) && allocation_attempts==before_replacement &&
+  REQUIRE(!effect(&state,1,full,48) && allocation_attempts==before_replacement &&
           !state.failure && hvir_terminal_effects_status(&host,state.id,&status)==HVIR_OK &&
           status.queued_bytes==1024*1024-16 && status.dropped_effects==7 &&
           status.semantic_generation==7 && live_allocations==9,
@@ -727,6 +727,20 @@ int main(void) {
           hvir_terminal_effects_status(&host,state.id,&status)==HVIR_OK &&
           status.dropped_effects==7 && status.semantic_generation==7,
           "near-full-coalesced-cleanup-frees-all-payloads-retains-gap");
+  hvir_ghostty_external_effect screen_change = {.kind=8,.serial=++effect_serial,
+    .data=(const uint8_t *)"",.extra=(const uint8_t *)""};
+  REQUIRE(hvir_internal_effect(&state,&screen_change) &&
+          hvir_terminal_effects_status(&host,state.id,&status)==HVIR_OK &&
+          status.semantic_generation==7,"ordinary-screen-change-preserves-semantic-gap-generation");
+  screen_change.action=2; screen_change.serial=++effect_serial;
+  REQUIRE(hvir_internal_effect(&state,&screen_change) &&
+          hvir_terminal_effects_status(&host,state.id,&status)==HVIR_OK &&
+          status.semantic_generation==7,"targeted-clear-uses-ordered-fact-not-global-gap");
+  screen_change.action=1; screen_change.serial=++effect_serial;
+  REQUIRE(hvir_internal_effect(&state,&screen_change) &&
+          hvir_terminal_effects_status(&host,state.id,&status)==HVIR_OK &&
+          status.semantic_generation==8,"full-reset-advances-global-semantic-generation");
+  hvir_internal_clear_effects(&state);
   REQUIRE(effect(&state,2,(const uint8_t *)"/held",5),"queue-payload-before-close");
   state.closing=true;
   REQUIRE(!effect(&state,1,&opaque,1) && live_allocations==1,

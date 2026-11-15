@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { validNativeTerminalSelectionCursor } from '../../shared/native-terminal-selection'
+import { nativeTerminalQueryAcquiresCursor } from '../../shared/native-terminal-query-operations'
 import type { UtilityProcess } from 'electron'
 import resource, { type Endpoint, type Receipt } from '@hvir/native-terminal/resource'
 import {
@@ -130,6 +131,10 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
         command.kind === 'destroy' ||
         (command.kind === 'selection' &&
           (command.operation.kind === 'close' || command.operation.kind === 'finish')) ||
+        (command.kind === 'query' &&
+          ['close', 'finish', 'query-close', 'boundary-close'].includes(
+            command.operation.kind,
+          )) ||
         (command.kind === 'visibility' && !command.visible) ||
         // NativeSessions serializes feed -> drain -> discard for each state.
         // Each physical credit is freed before the producer continuation runs;
@@ -201,7 +206,20 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
         ? { ...command, bytes: command.bytes.slice() }
         : command.kind === 'input'
           ? { ...command, input: { ...command.input } }
-          : { ...command }
+          : command.kind === 'query'
+            ? {
+                ...command,
+                operation: {
+                  ...command.operation,
+                  ...('context' in command.operation
+                    ? { context: { ...command.operation.context } }
+                    : {}),
+                  ...(command.operation.kind === 'range-begin'
+                    ? { source: { ...command.operation.source } }
+                    : {}),
+                },
+              }
+            : { ...command }
     if (this.stopping && command.kind !== 'shutdown' && !cleanup) {
       const reservation = { state, bytes: byteCount, feed, inputCredit }
       this.waiting.add(reservation)
@@ -441,10 +459,21 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
         message.ok &&
         item.command.kind === 'selection' &&
         (item.command.operation.kind === 'begin' ||
-          item.command.operation.kind === 'link-row-begin'))
+          item.command.operation.kind === 'link-row-begin')) ||
+      (item.cancelled &&
+        message.ok &&
+        item.command.kind === 'query' &&
+        (nativeTerminalQueryAcquiresCursor(item.command.operation) ||
+          item.command.operation.kind === 'query-begin'))
     ) {
       const result = message.value as
-        | { state?: unknown; lease?: unknown; cursor?: unknown; unavailable?: unknown }
+        | {
+            state?: unknown
+            lease?: unknown
+            cursor?: unknown
+            query?: unknown
+            unavailable?: unknown
+          }
         | undefined
       let cleanup: NativeTerminalCommand | undefined
       if (
@@ -470,6 +499,23 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
             operation: { kind: 'close', cursor: result.cursor },
           }
         else if (result?.cursor === '0' || Number.isInteger(result?.unavailable)) {
+          this.finish(message.id)
+          return
+        }
+      } else if (item.command.kind === 'query') {
+        const operation = item.command.operation
+        const acquired = nativeTerminalQueryAcquiresCursor(operation)
+          ? result?.cursor
+          : result?.query
+        if (validNativeTerminalSelectionCursor(acquired)) {
+          cleanup = {
+            kind: 'query',
+            state: item.command.state,
+            operation: nativeTerminalQueryAcquiresCursor(operation)
+              ? { kind: 'close', cursor: acquired }
+              : { kind: 'query-close', query: acquired },
+          }
+        } else if (acquired === '0' || Number.isInteger(result?.unavailable)) {
           this.finish(message.id)
           return
         }

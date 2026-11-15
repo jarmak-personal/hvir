@@ -21,18 +21,6 @@ export interface TerminalSemanticMarker {
   readonly provenance: TerminalEventProvenance
 }
 
-export interface ResolvedTerminalSemanticRegion {
-  readonly id: number
-  readonly kind: TerminalSemanticRegionKind
-  readonly location: TerminalEventLocation
-}
-
-export interface TerminalSemanticNavigationPlan {
-  readonly candidates: readonly ResolvedTerminalSemanticRegion[]
-  readonly resolved: readonly ResolvedTerminalSemanticRegion[]
-  readonly changed: boolean
-}
-
 export interface TerminalSemanticCopyRange {
   readonly kind: TerminalSemanticRegionKind
   readonly start: TerminalEventProvenance
@@ -48,6 +36,8 @@ interface SemanticRegion {
 }
 
 interface MarkerSignature {
+  readonly provenanceId: number
+  readonly boundaryId?: string
   readonly action: TerminalSemanticAction
   readonly row: number
   readonly column: number
@@ -78,12 +68,15 @@ export class TerminalSemanticRegions {
     if (
       last?.action === action &&
       last.row === provenance.row &&
-      last.column === provenance.column
+      last.column === provenance.column &&
+      last.boundaryId === provenance.boundaryId
     ) {
       return false
     }
     this.lastMarkerByScreen.set(provenance.screen, {
+      provenanceId: provenance.id,
       action,
+      boundaryId: provenance.boundaryId,
       row: provenance.row,
       column: provenance.column,
     })
@@ -116,75 +109,94 @@ export class TerminalSemanticRegions {
     return beforeAvailable !== this.regions.length > 0 || beforeActive !== this.activeId
   }
 
-  navigationPlan(
+  navigationCandidateIds(
     direction: TerminalSemanticRegionDirection,
     screen: TerminalEventScreen,
-    resolve: (provenance: TerminalEventProvenance) => TerminalEventLocation | undefined,
-  ): TerminalSemanticNavigationPlan {
-    const retained: SemanticRegion[] = []
-    const resolved: ResolvedTerminalSemanticRegion[] = []
-    for (const region of this.regions) {
-      const location = resolve(region.start)
-      const end = region.end ? resolve(region.end) : location
-      if (!location || !end || location.screen !== end.screen) {
-        if (this.openByScreen.get(region.screen) === region.id) {
-          this.openByScreen.delete(region.screen)
-        }
-        continue
-      }
-      retained.push(region)
-      resolved.push({ id: region.id, kind: region.kind, location })
-    }
-
-    const changed = retained.length !== this.regions.length
-    this.regions = retained
-    if (this.activeId !== undefined && !retained.some(({ id }) => id === this.activeId)) {
-      this.activeId = undefined
-    }
-    for (const candidateScreen of ['normal', 'alternate'] as const) {
-      if (!retained.some((region) => region.screen === candidateScreen)) {
-        this.lastMarkerByScreen.delete(candidateScreen)
-      }
-    }
-
-    const visible = resolved.filter(({ location }) => location.screen === screen)
-    const activeIndex = visible.findIndex(({ id }) => id === this.activeId)
-    const candidates =
-      activeIndex < 0
-        ? direction === 'previous'
-          ? [...visible].reverse()
-          : visible
-        : direction === 'previous'
-          ? visible.slice(0, activeIndex).reverse()
-          : visible.slice(activeIndex + 1)
-
-    return { candidates, resolved, changed }
+  ): readonly number[] {
+    const visible = this.regions.filter((region) => region.screen === screen)
+    return (direction === 'previous' ? visible.reverse() : visible).map(({ id }) => id)
   }
 
-  activate(
-    id: number,
+  async navigateCandidates(
+    candidates: readonly number[],
     screen: TerminalEventScreen,
-    resolved: readonly ResolvedTerminalSemanticRegion[],
-  ): TerminalSemanticRegionSummary | undefined {
-    const visible = resolved.filter(({ location }) => location.screen === screen)
-    const index = visible.findIndex((region) => region.id === id)
-    if (index < 0) return undefined
-    this.activeId = id
-    return {
-      kind: visible[index]!.kind,
-      index: index + 1,
-      total: visible.length,
+    resolve: (
+      boundary: TerminalEventProvenance,
+    ) => Promise<TerminalEventLocation | undefined>,
+    reveal: (boundary: TerminalEventProvenance) => Promise<boolean>,
+    signal: AbortSignal,
+    attempting?: (id: number) => void,
+  ): Promise<TerminalSemanticRegionSummary | undefined> {
+    const active = this.regions.find(
+      (region) => region.id === this.activeId && region.screen === screen,
+    )
+    let offset = 0
+    if (active && candidates.includes(active.id)) {
+      attempting?.(active.id)
+      if (await this.resolveCandidate(active, screen, resolve, signal))
+        offset = candidates.indexOf(active.id) + 1
     }
+    for (const id of candidates.slice(offset)) {
+      signal.throwIfAborted()
+      const region = this.regions.find((candidate) => candidate.id === id)
+      if (!region || region.screen !== screen) continue
+      attempting?.(id)
+      if (!(await this.resolveCandidate(region, screen, resolve, signal))) continue
+      if (!(await reveal(region.start))) continue
+      signal.throwIfAborted()
+      if (!this.regions.includes(region)) continue
+      const visible = this.regions.filter((candidate) => candidate.screen === screen)
+      const index = visible.findIndex((candidate) => candidate.id === id)
+      this.activeId = id
+      return { kind: region.kind, index: index + 1, total: visible.length }
+    }
+    return undefined
+  }
+
+  private async resolveCandidate(
+    region: SemanticRegion,
+    screen: TerminalEventScreen,
+    resolve: (
+      boundary: TerminalEventProvenance,
+    ) => Promise<TerminalEventLocation | undefined>,
+    signal: AbortSignal,
+  ): Promise<TerminalEventLocation | undefined> {
+    signal.throwIfAborted()
+    const location = await resolve(region.start)
+    signal.throwIfAborted()
+    if (!this.regions.includes(region)) return undefined
+    if (!location || location.screen !== screen) {
+      this.removeRegion(region.id)
+      return undefined
+    }
+    const end =
+      region.end && region.end !== region.start ? await resolve(region.end) : location
+    signal.throwIfAborted()
+    if (!this.regions.includes(region)) return undefined
+    if (!end || end.screen !== screen) {
+      this.removeRegion(region.id)
+      return undefined
+    }
+    return location
+  }
+
+  boundary(id: number): TerminalEventProvenance | undefined {
+    return this.regions.find((region) => region.id === id)?.start
   }
 
   currentCopyRange(screen: TerminalEventScreen): TerminalSemanticCopyRange | undefined {
     const active =
       this.activeId === undefined
         ? undefined
-        : this.regions.find((region) => region.id === this.activeId && region.screen === screen)
+        : this.regions.find(
+            (region) => region.id === this.activeId && region.screen === screen,
+          )
     const region =
-      active ?? [...this.regions].reverse().find((candidate) => candidate.screen === screen)
-    return region ? { kind: region.kind, start: region.start, end: region.end } : undefined
+      active ??
+      [...this.regions].reverse().find((candidate) => candidate.screen === screen)
+    return region
+      ? { kind: region.kind, start: region.start, end: region.end }
+      : undefined
   }
 
   clear(): void {
@@ -194,12 +206,39 @@ export class TerminalSemanticRegions {
     this.activeId = undefined
   }
 
+  /** Native control cutoffs are parser serials; they do not erase later prompts. */
+  clearThrough(cutoff: number): void {
+    this.regions = this.regions.filter((region) => region.start.id > cutoff)
+    for (const [screen, id] of this.openByScreen)
+      if (!this.regions.some((region) => region.id === id))
+        this.openByScreen.delete(screen)
+    for (const [screen, marker] of this.lastMarkerByScreen)
+      if (marker.provenanceId <= cutoff) this.lastMarkerByScreen.delete(screen)
+    if (
+      this.activeId !== undefined &&
+      !this.regions.some((region) => region.id === this.activeId)
+    )
+      this.activeId = undefined
+  }
+
+  private removeRegion(id: number): void {
+    const region = this.regions.find((candidate) => candidate.id === id)
+    if (!region) return
+    this.regions = this.regions.filter((candidate) => candidate.id !== id)
+    if (this.openByScreen.get(region.screen) === id)
+      this.openByScreen.delete(region.screen)
+    if (this.activeId === id) this.activeId = undefined
+    if (!this.regions.some((candidate) => candidate.screen === region.screen))
+      this.lastMarkerByScreen.delete(region.screen)
+  }
+
   private startPrompt(provenance: TerminalEventProvenance): void {
     const open = this.open(provenance.screen)
     if (
       open?.kind === 'prompt' &&
       open.start.row === provenance.row &&
-      open.start.column === provenance.column
+      open.start.column === provenance.column &&
+      open.start.boundaryId === provenance.boundaryId
     ) {
       return
     }

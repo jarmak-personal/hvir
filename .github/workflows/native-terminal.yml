@@ -278,6 +278,49 @@ jobs:
           assert.equal(effects.osc777AndProgressDisposition, 'ignored');
           assert.equal(effects.quietAttentionEvents, 2);
           const crypto = require('node:crypto');
+          const query = proof.nativeQuery;
+          assert.equal(query.actualNative, true);
+          assert.equal(query.matches, 3);
+          for (const [copy, text] of [[query.exactCopy, 'hvir-native-query-match'], [query.semanticCopy, 'output\n']]) {
+            assert.equal(copy.bytes, Buffer.byteLength(text));
+            assert.equal(copy.sha256, crypto.createHash('sha256').update(text).digest('hex'));
+          }
+          assert.deepEqual(query.semanticNavigation, ['Output 3 of 3', 'Command 2 of 3', 'Output 3 of 3']);
+          for (const shape of Object.values(query.selectedHighlight)) {
+            assert(shape.pixels >= 'hvir-native-query-match'.length * 8 && shape.left <= shape.right && shape.top <= shape.bottom);
+            assert(Number.isFinite(shape.expectedWidth) && shape.expectedWidth > 0 && Math.abs(shape.right-shape.left+1-shape.expectedWidth) <= 3);
+            assert(Number.isFinite(shape.expectedHeight) && shape.expectedHeight > 0 && Math.abs(shape.bottom-shape.top+1-shape.expectedHeight) <= 3);
+          }
+          assert.notEqual(query.selectedHighlight.first.top, query.selectedHighlight.second.top);
+          assert(Math.abs(query.selectedHighlight.first.top - query.selectedHighlight.returned.top) <= 1);
+          assert(query.selectedHighlight.moved.top > query.selectedHighlight.returned.top);
+          assert.equal(query.movedOccurrence.rowEdit, 'insert-line');
+          assert.equal(query.movedOccurrence.sameSelection, true);
+          assert.equal(query.movedOccurrence.noRevealGesture, true);
+          assert.deepEqual(query.movedOccurrence.exactCopy, query.exactCopy);
+          assert(query.frames >= 2 && Number.isFinite(query.maximumFrameGapMs) && query.maximumFrameGapMs <= 500);
+          assert.equal(query.existingHighMatchFrameBudgetMs, 500);
+          assert.equal(query.highMatch.initial, 12000);
+          assert(query.highMatch.observedReducedCount > 0 && query.highMatch.observedReducedCount < query.highMatch.initial);
+          assert(query.highMatch.observedAtMs >= 0 && query.highMatch.observedAtMs <= query.highMatch.observationWindowMs);
+          assert(query.highMatch.observationWindowMs >= 3000);
+          assert(query.highMatch.latestAtMs >= query.highMatch.observationWindowMs);
+          assert(Number.isSafeInteger(query.highMatch.latestCount) && query.highMatch.latestCount >= 0);
+          assert(['unselected', 'empty', 'pending'].includes(query.highMatch.latestStatus));
+          assert.equal(query.highMatch.selectionUnavailable, true);
+          assert.equal(query.highMatch.sameOpenQuery, true);
+          assert.equal(query.highMatch.removal, 'capacity-eviction');
+          assert(query.highMatch.rendererGrowthKiB >= 0 && query.highMatch.rendererGrowthKiB <= 256 * 1024);
+          assert(query.streaming.elapsedMs >= 0 && query.streaming.elapsedMs <= 2500);
+          assert.equal(query.streaming.evidenceBudgetMs, 2500);
+          assert.equal(query.streaming.completionBudgetMs, 7000);
+          assert.equal(query.streaming.selectedIndex, 1);
+          assert.equal(query.streaming.copiedWhileProducing, true);
+          assert.equal(proof.readonlyQuery.retainedAfterExit, true);
+          assert(Number.isSafeInteger(proof.readonlyQuery.matches) && proof.readonlyQuery.matches > 0);
+          assert.equal(proof.readonlyQuery.exactCopy.bytes, Buffer.byteLength('HVIR_READONLY_SELECTION'));
+          assert.equal(proof.readonlyQuery.exactCopy.sha256, crypto.createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex'));
+          assert(proof.readonlyQuery.frames >= 2 && Number.isFinite(proof.readonlyQuery.maximumFrameGapMs) && proof.readonlyQuery.maximumFrameGapMs <= 500);
           const expectedClipboard = ['native-effects', 'a'.repeat(49152)].map(text => ({
             bytes: Buffer.byteLength(text), sha256: crypto.createHash('sha256').update(text).digest('hex'),
           }));

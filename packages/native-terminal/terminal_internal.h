@@ -10,7 +10,7 @@
 typedef struct terminal_state terminal_state;
 typedef struct {
   uint32_t kind, action, screen, row, column;
-  uint64_t sequence, event_serial;
+  uint64_t sequence, event_serial, boundary;
   size_t length, extra_length;
   uint8_t *data;
 } queued_effect;
@@ -72,9 +72,24 @@ struct hvir_terminal_host {
   uint32_t (*external_extract_begin)(ghostty_surface_t, uint64_t, uint32_t, uint64_t, uint64_t, bool, double, double, hvir_ghostty_selection_result *);
   uint32_t (*external_link_row_begin)(ghostty_surface_t, double, double, uint32_t, uint64_t, uint64_t, hvir_ghostty_selection_result *, hvir_ghostty_link_current_result *, uint8_t *, size_t, size_t *);
   uint32_t (*external_extract_next)(ghostty_surface_t, uint64_t, uint8_t *, size_t, size_t, hvir_ghostty_selection_result *);
-  uint32_t (*external_extract_finish)(ghostty_surface_t, uint64_t, hvir_ghostty_selection_result *);
+  uint32_t (*external_extract_finish)(ghostty_surface_t, uint64_t, uint64_t, hvir_ghostty_selection_result *);
   void (*external_extract_close)(ghostty_surface_t, uint64_t);
   uint32_t (*external_link_current)(ghostty_surface_t, double, double, uint32_t, uint64_t, uint8_t *, size_t, size_t *, hvir_ghostty_link_current_result *);
+  uint32_t (*external_query_context)(ghostty_surface_t, uint32_t *, uint64_t *);
+  uint32_t (*external_query_begin)(ghostty_surface_t, const uint8_t *, size_t, bool, uint64_t *);
+  uint32_t (*external_query_step)(ghostty_surface_t, uint64_t, size_t, hvir_ghostty_query_status *);
+  uint32_t (*external_query_page)(ghostty_surface_t, uint64_t, uint64_t, size_t,
+    hvir_ghostty_query_match *, size_t, hvir_ghostty_query_page_result *);
+  uint32_t (*external_query_resolve_begin)(ghostty_surface_t, uint64_t, uint64_t, bool,
+    uint32_t, uint64_t, uint64_t, hvir_ghostty_selection_result *);
+  uint32_t (*external_query_clear_reveal)(ghostty_surface_t, uint64_t);
+  uint32_t (*external_query_close)(ghostty_surface_t, uint64_t);
+  uint32_t (*external_range_begin)(ghostty_surface_t, uint32_t, uint64_t, uint64_t,
+    uint32_t, uint64_t, uint64_t, hvir_ghostty_selection_result *);
+  uint32_t (*external_boundary_capture_end)(ghostty_surface_t, uint32_t, uint64_t, hvir_ghostty_boundary *);
+  uint32_t (*external_boundary_resolve_begin)(ghostty_surface_t, uint64_t, bool,
+    uint32_t, uint64_t, uint64_t, hvir_ghostty_selection_result *);
+  uint32_t (*external_boundary_close)(ghostty_surface_t, uint64_t);
   bool (*external_read)(ghostty_surface_t, uint8_t *, size_t, size_t *);
   bool (*external_key)(ghostty_surface_t, int, uint32_t, int, const uint8_t *, size_t, uint8_t *,
                        size_t, size_t *);
@@ -87,4 +102,5 @@ bool hvir_internal_input(void *, uint32_t, const uint8_t *, size_t);
 void hvir_internal_mutation_applied(void *, uint64_t);
 bool hvir_internal_effect(void *, const hvir_ghostty_external_effect *);
 void hvir_internal_clear_effects(terminal_state *);
+void hvir_internal_selection_value(const hvir_ghostty_selection_result *, hvir_terminal_selection_result *);
 #endif
