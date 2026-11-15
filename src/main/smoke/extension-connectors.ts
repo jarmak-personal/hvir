@@ -1,5 +1,5 @@
 import { extensionSettingsControls } from './extension-settings-controls'
-import type { BrowserWindow, WebContents } from 'electron'
+import { webContents, type BrowserWindow, type WebContents } from 'electron'
 import { joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ExtensionManifest } from '../../shared/extensions/contract'
 import type { ExtensionView } from '../../shared/extensions/workbench'
@@ -240,27 +240,82 @@ export async function verifyExtensionConnectors(
       'approved updater observation without popup',
     )
   } catch (error) {
-    console.log(
-      '[smoke] connector updater admission evidence',
-      JSON.stringify({
-        views: guests
-          .snapshot(owner)
-          .filter((entry) => entry.installationId === current.installationId)
-          .map((entry) => ({
-            role: entry.role,
-            failed: !!entry.failure,
-            failureKind: failureKind(entry.failure),
-          })),
-        values: extensions
-          .contributions!.snapshot()
-          .find((entry) => entry.installationId === current.installationId)
-          ?.values.map((entry) => ({
-            item: entry.item,
-            availability: entry.availability,
-            nativeCompleted: entry.label === 'Tool exit 0',
-          })),
-      }),
-    )
+    try {
+      // Observe main's demand authority before any failure-only guest evaluation
+      // can affect a frozen document. The original qualification failure stays fatal.
+      const updater = guests
+        .snapshot(owner)
+        .find(
+          (entry) =>
+            entry.installationId === current.installationId && entry.role === 'updater',
+        )
+      const mainAdmission = {
+        windowDestroyed: win.isDestroyed(),
+        windowFocused: win.isDestroyed() ? null : win.isFocused(),
+        windowVisible: win.isDestroyed() ? null : win.isVisible(),
+        ownerForeground: guests.ownerForeground(owner),
+        connectorDemand: extensions.contributions!.connectorDemand(
+          current.installationId,
+        ),
+        updaterPresent: !!updater,
+        admittedUpdaterContextVisible:
+          typeof updater?.context?.visible === 'boolean' ? updater.context.visible : null,
+      }
+      let updaterSample: unknown = { unavailable: true }
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        const contents =
+          updater &&
+          webContents
+            .getAllWebContents()
+            .find(
+              (candidate) =>
+                !candidate.isDestroyed() && candidate.getURL() === updater.url,
+            )
+        if (contents)
+          updaterSample = await Promise.race([
+            contents.executeJavaScript(`(() => ({
+            contextVisible: typeof context==='undefined'||typeof context?.visible!=='boolean'?null:context.visible,
+            nativePending: typeof nativePending==='boolean'?nativePending:null,
+            nativeAvailable: typeof nativeAvailable==='boolean'?nativeAvailable:null,
+            updateDue: typeof nextUpdate==='number'&&Number.isFinite(nextUpdate)?Date.now()>=nextUpdate:null,
+            updateDelayMs: typeof nextUpdate==='number'&&Number.isFinite(nextUpdate)?Math.max(0,Math.min(60000,nextUpdate-Date.now())):null
+          }))()`),
+            new Promise((resolve) => {
+              timer = setTimeout(() => resolve({ deadline: true }), 1000)
+            }),
+          ])
+      } catch {
+        updaterSample = { unavailable: true }
+      } finally {
+        clearTimeout(timer)
+      }
+      console.log(
+        '[smoke] connector updater admission evidence',
+        JSON.stringify({
+          mainAdmission,
+          updaterSample,
+          views: guests
+            .snapshot(owner)
+            .filter((entry) => entry.installationId === current.installationId)
+            .map((entry) => ({
+              role: entry.role,
+              failed: !!entry.failure,
+              failureKind: failureKind(entry.failure),
+            })),
+          values: extensions
+            .contributions!.snapshot()
+            .find((entry) => entry.installationId === current.installationId)
+            ?.values.map((entry) => ({
+              item: entry.item,
+              availability: entry.availability,
+              nativeCompleted: entry.label === 'Tool exit 0',
+            })),
+        }),
+      )
+    } catch {
+      // Failure evidence must never replace the original qualification error.
+    }
     throw error
   }
   if (
