@@ -6,7 +6,8 @@
 /* Parse only the existing CSS family-stack value. Quotes/escapes are data and
  * cannot introduce native config keys. Native discovery owns fallback/glyphs. */
 static bool families(const char *input, char storage[1025], const char *out[32], size_t *count) {
-  size_t length = strnlen(input, 1025), used = 0;
+  size_t length = 0, used = 0;
+  while (length < 1025 && input[length]) length++;
   if (!length || length > 1024) return false;
   *count = 0;
   for (size_t i = 0; i < length;) {
