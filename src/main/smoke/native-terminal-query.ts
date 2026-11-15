@@ -178,14 +178,45 @@ export async function verifyNativeTerminalQuery(
       previousMs: 0,
       nextClickedMs: 0,
     }
+    const producerMilestones = {
+      submitted: false,
+      submittedAtMs: null as number | null,
+      writeAckAtMs: null as number | null,
+      firstFillerAtMs: null as number | null,
+      firstMatchAtMs: null as number | null,
+      completedAtMs: null as number | null,
+      maximumFillerOrdinal: -1,
+    }
     let streamOutput = '',
       streamCompleted = false
     const streamDetach = ptys.attach(managed.id, managed.ownerId, {
       onData: (data) => {
         streamOutput = (streamOutput + data).slice(-8192)
         streamCompleted ||= streamOutput.includes('__HVIR_M10_STREAM_DONE__')
+        if (diagnostics && producerMilestones.submitted) {
+          const elapsedMs = performance.now() - streamingStarted
+          for (const match of streamOutput.matchAll(
+            /(?:^|[\r\n])stream filler ([0-9]{1,3})(?=[\r\n])/g,
+          )) {
+            const ordinal = Number(match[1])
+            if (ordinal < 150) {
+              producerMilestones.firstFillerAtMs ??= elapsedMs
+              producerMilestones.maximumFillerOrdinal = Math.max(
+                producerMilestones.maximumFillerOrdinal,
+                ordinal,
+              )
+            }
+          }
+          if (('\n' + streamOutput.replaceAll('\r', '')).includes('\n' + MATCH + '\n'))
+            producerMilestones.firstMatchAtMs ??= elapsedMs
+          if (streamCompleted) producerMilestones.completedAtMs ??= elapsedMs
+        }
       },
     })
+    // Attach can synchronously replay launch output. Fence this producer's
+    // observations after attachment and before submitting its command.
+    streamOutput = ''
+    streamCompleted = false
     let streaming: {
       elapsedMs: number
       evidenceBudgetMs: number
@@ -206,12 +237,15 @@ export async function verifyNativeTerminalQuery(
         throw new Error('native-query-streaming-evidence-after-producer')
     }
     try {
+      producerMilestones.submitted = true
+      producerMilestones.submittedAtMs = performance.now() - streamingStarted
       await ptys.writeConfirmed(
         managed.id,
         managed.ownerId,
         `hvir_m10_stream_done='__HVIR_M10_STREAM_''DONE__'; sleep 0.2; hvir_m10_i=0; while [ "$hvir_m10_i" -lt 150 ]; do printf 'stream filler %s\\r\\n' "$hvir_m10_i"; if [ "$hvir_m10_i" = 30 ]; then printf '%s\\r\\n' "$hvir_native_query"; fi; hvir_m10_i=$((hvir_m10_i+1)); sleep 0.02; done; printf '%s\\r\\n' "$hvir_m10_stream_done"\r`,
         managed.ownerGeneration,
       )
+      producerMilestones.writeAckAtMs = performance.now() - streamingStarted
       await browser.wait(async () => {
         withinStreaming()
         return (await status()) === '2 of 4'
@@ -272,6 +306,18 @@ export async function verifyNativeTerminalQuery(
           throw new Error('native-query-stream-completion-deadline')
         return streamCompleted
       }, 'query-stream-completion')
+    } catch (error) {
+      if (diagnostics) {
+        try {
+          console.error('HVIR_NATIVE_QUERY_STREAM_PRODUCER_FAILURE', {
+            ...producerMilestones,
+            elapsedMs: performance.now() - streamingStarted,
+          })
+        } catch {
+          /* Keep the original qualification failure. */
+        }
+      }
+      throw error
     } finally {
       await streamDetach()
     }
