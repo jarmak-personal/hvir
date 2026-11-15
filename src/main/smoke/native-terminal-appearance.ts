@@ -7,6 +7,8 @@ import { terminalProbeSourceDelivery } from './terminal-probe-source'
 import {
   clipboardInstall,
   nativeSelectionBrowser,
+  nativeSelectionPointerObservation,
+  paneScript,
 } from './native-terminal-selection-browser'
 
 const PREFIX = '__HVIR_NATIVE_APPEARANCE_'
@@ -367,11 +369,65 @@ export async function verifyNativeTerminalAppearance(
   await waitMarker('READY')
   let recorder = true
   await win.webContents.executeJavaScript(clipboardInstall(false))
+  let pointerPhase = 'appearance'
+  const pointerObservations: (ReturnType<typeof nativeSelectionPointerObservation> & {
+    refused?: 'capacity'
+  })[] = []
+  const originalInput = native.input.bind(native)
+  native.input = (...args) =>
+    originalInput(...args).then((value) => {
+      if (args[2].kind === 'pointer') {
+        pointerObservations.push({
+          ...nativeSelectionPointerObservation(args[2], value, pointerPhase),
+          ...('refused' in value && value.refused === 'capacity'
+            ? { refused: 'capacity' as const }
+            : {}),
+        })
+        if (pointerObservations.length > 32) pointerObservations.shift()
+      }
+      return value
+    })
+  const selectionState = async () => {
+    try {
+      const value = await evaluate<{ hasSelection?: unknown; selectionSerial?: unknown }>(
+        `${paneScript(managed.id)}return window.hvir.invoke('native-terminal:selection',{viewId,action:'state'});`,
+      )
+      if (
+        typeof value?.hasSelection === 'boolean' &&
+        typeof value.selectionSerial === 'number' &&
+        Number.isSafeInteger(value.selectionSerial) &&
+        value.selectionSerial >= 0
+      )
+        return {
+          hasSelection: value.hasSelection,
+          selectionSerial: value.selectionSerial,
+        }
+      return { refused: true, errorIdentity: 'invalid-state', code: null }
+    } catch (reason) {
+      const value = reason as { code?: unknown; stale?: unknown }
+      const code =
+        typeof value?.code === 'number' && [1, 5, 6, 7].includes(value.code)
+          ? value.code
+          : null
+      const errorIdentity = /native-selection-stale/.test(String(reason))
+        ? 'stale'
+        : /native-selection-(unavailable|not-drawn|source-stale)/.test(String(reason))
+          ? 'unavailable'
+          : 'other'
+      return {
+        refused: true,
+        errorIdentity,
+        code,
+        stale: value?.stale === true || errorIdentity === 'stale',
+      }
+    }
+  }
   try {
     await chooseThemes(false)
     const palettes = await chooseThemes(true)
     const pixelProof: Record<string, unknown> = {}
     for (const target of ['dark', 'light'] as const) {
+      pointerPhase = target
       await selectAppearance(target)
       const palette = palettes[target]
       const before = await status()
@@ -407,19 +463,71 @@ export async function verifyNativeTerminalAppearance(
       })
       await browser.ready()
       await browser.drag(4.5, 0.1, SHAPING.length - 0.1)
-      await browser.wait(
-        async () => {
-          const selection = await colorPixels(palette.selection, 0, 4, SHAPING.length)
-          const foreground = await colorPixels(
-            palette.selectionText,
+      let lastSelection: unknown, lastForeground: unknown
+      let selectionFailure: Error | undefined
+      try {
+        await browser.wait(
+          async () => {
+            const selection = await colorPixels(palette.selection, 0, 4, SHAPING.length)
+            const foreground = await colorPixels(
+              palette.selectionText,
+              0,
+              4,
+              SHAPING.length,
+            )
+            lastSelection = selection
+            lastForeground = foreground
+            return selection.pixels > selection.area / 3 && foreground.pixels > 2
+          },
+          'appearance-' + target + '-selection-pixels',
+        )
+      } catch (error) {
+        selectionFailure =
+          error instanceof Error
+            ? error
+            : new Error('native-appearance-selection-pixel-failure', { cause: error })
+      }
+      const census = async (phase: string) => {
+        const state = await selectionState(),
+          nativeStatus = await status()
+        const observation = {
+          target,
+          phase,
+          state,
+          geometry: nativeStatus.geometry,
+          appliedAppearanceSerial: nativeStatus.appliedAppearanceSerial,
+          selectionContextCurrent: !(
+            state &&
+            typeof state === 'object' &&
+            'refused' in state
+          ),
+          selection: await colorPixels(
+            palette.selection,
             0,
             4,
             SHAPING.length,
-          )
-          return selection.pixels > selection.area / 3 && foreground.pixels > 2
-        },
-        'appearance-' + target + '-selection-pixels',
-      )
+            1,
+            palette.background,
+          ),
+          foreground: await colorPixels(palette.selectionText, 0, 4, SHAPING.length),
+          lastSelection,
+          lastForeground,
+          pointers: pointerObservations.slice(-12),
+        }
+        console.log(
+          'HVIR_NATIVE_APPEARANCE_SELECTION_CENSUS',
+          JSON.stringify(observation),
+        )
+        return state
+      }
+      if (selectionFailure) {
+        try {
+          await census('original-failure')
+        } catch {
+          console.error('HVIR_NATIVE_APPEARANCE_SELECTION_CENSUS_UNAVAILABLE')
+        }
+      }
+      if (selectionFailure) throw selectionFailure
       if ((await status()).geometry.serial !== before.geometry.serial)
         throw new Error('native-appearance-palette-geometry')
       pixelProof[target] = {
@@ -831,6 +939,7 @@ export async function verifyNativeTerminalAppearance(
       hardwareQualified: false,
     }
   } finally {
+    native.input = originalInput
     win.webContents.setZoomFactor(initialZoom)
     await evaluate(`window.nativeSelectionProbe?.restore();`)
     if (recorder)
