@@ -53,6 +53,86 @@ describe('terminal search controller', () => {
     expect(search.mock.calls[1]?.[1].signal).toBeInstanceOf(AbortSignal)
   })
 
+  it('honors Next after delayed initial selection completes even if an earlier observation had only a count', async () => {
+    const pane = paneFixture(vi.fn())
+    let finishAt!: (occurrence: { id: string }) => void
+    let finishReveal!: (revealed: boolean) => void
+    let finishResolve!: (location: { index: number }) => void
+    const at = vi
+      .fn<TerminalRetainedQuery['at']>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((done) => {
+            finishAt = done
+          }),
+      )
+      .mockImplementation((index) => Promise.resolve({ id: String(index) }))
+    const reveal = vi
+      .fn<TerminalRetainedQuery['reveal']>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((done) => {
+            finishReveal = done
+          }),
+      )
+      .mockResolvedValue(true)
+    const resolve = vi
+      .fn<TerminalRetainedQuery['resolve']>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((done) => {
+            finishResolve = done
+          }),
+      )
+      .mockImplementation((occurrence) =>
+        Promise.resolve({ index: Number(occurrence.id) }),
+      )
+    const indexed: TerminalRetainedQuery = {
+      snapshot: () => ({
+        revision: 1,
+        matchCount: 3,
+        pending: false,
+        invalidated: false,
+      }),
+      onUpdate: () => () => undefined,
+      at,
+      reveal,
+      resolve,
+      read: (occurrence) => Promise.resolve(occurrence.id === '1' ? 'second' : 'first'),
+      clearReveal: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const controller = new TerminalSearchController(vi.fn(), vi.fn())
+    controller.bind({
+      ...pane,
+      retained: {
+        ...legacyTerminalRetainedQuery(pane),
+        search: () => Promise.resolve(indexed),
+      },
+    })
+    controller.open()
+    controller.setQuery('hit')
+    await vi.waitFor(() => expect(at).toHaveBeenCalledOnce())
+    const countOnlyObservation = controller.snapshot()
+    expect(countOnlyObservation).toMatchObject({ matchCount: 3, matchIndex: undefined })
+
+    finishAt({ id: '0' })
+    await vi.waitFor(() => expect(reveal).toHaveBeenCalledOnce())
+    finishReveal(true)
+    await vi.waitFor(() => expect(resolve).toHaveBeenCalledOnce())
+    finishResolve({ index: 0 })
+    await vi.waitFor(() => expect(controller.snapshot().matchIndex).toBe(0))
+    expect(controller.snapshot().matchCount).toBe(3)
+
+    // A separately delivered user action is relative to current selection, not this old read.
+    if (countOnlyObservation.matchIndex === undefined) await controller.navigate('next')
+    expect(controller.snapshot()).toMatchObject({ matchCount: 3, matchIndex: 1 })
+    expect(at.mock.calls.map(([index]) => index)).toEqual([0, 1])
+    expect(reveal.mock.calls.map(([occurrence]) => occurrence.id)).toEqual(['0', '1'])
+    expect(await controller.currentMatchText()).toBe('second')
+    controller.close()
+  })
+
   it('publishes only the latest query and cancels on close, replacement, and disposal', async () => {
     const pending: Array<{
       resolve: (value: TerminalRetainedBufferSearch) => void

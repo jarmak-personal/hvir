@@ -59,7 +59,6 @@ export async function verifyNativeTerminalQuery(
       async () => ['1 of 3', '3 matches'].includes(await status()),
       'query-three',
     )
-    if ((await status()) === '3 matches') await click('Next terminal match')
     await browser.wait(async () => (await status()) === '1 of 3', 'query-first')
     const first = await selectedHighlight(win, managed.id, browser)
     await click('Next terminal match')
@@ -144,7 +143,6 @@ export async function verifyNativeTerminalQuery(
       async () => ['1 of 3', '3 matches'].includes(await status()),
       'query-stream-three',
     )
-    if ((await status()) === '3 matches') await click('Next terminal match')
     await browser.wait(async () => (await status()) === '1 of 3', 'query-stream-first')
     await click('Next terminal match')
     await browser.wait(async () => (await status()) === '2 of 3', 'query-stream-second')
@@ -610,7 +608,9 @@ async function selectedHighlight(
         Math.abs(result.right - result.left + 1 - result.expectedWidth) > 3 ||
         Math.abs(result.bottom - result.top + 1 - result.expectedHeight) > 3
       )
-        throw new Error('native-query-highlight-cell-grid')
+        // Native application/status can precede compositor presentation. Only
+        // the complete required cell geometry certifies the selected pixels.
+        return false
       observed = result
       return true
     }, 'query-native-highlight')
