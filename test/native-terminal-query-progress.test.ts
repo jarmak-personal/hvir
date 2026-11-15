@@ -231,6 +231,73 @@ describe('Main retained-query progress ownership', () => {
     }
   })
 
+  it('retains a parsed wake across an indexed read that pauses a partial native pass', async () => {
+    let steps = 0
+    let completePartial!: (value: unknown) => void
+    const query = vi.fn<NativeTerminalHost['query']>((_handle, _instance, op) => {
+      if (op.kind === 'query-begin') return Promise.resolve({ result: 0, query: '71' })
+      if (op.kind === 'query-step') {
+        steps++
+        if (steps === 1)
+          return new Promise((resolve) => {
+            completePartial = resolve
+          })
+        return Promise.resolve({
+          result: 0,
+          query: '71',
+          revision: String(steps),
+          count: steps === 2 ? 1 : 2,
+          status: 2,
+        })
+      }
+      if (op.kind === 'query-page')
+        return Promise.resolve({ result: 0, results: [{ occurrence: '99', index: 0 }] })
+      return Promise.resolve({ result: 0 })
+    })
+    const publish =
+      vi.fn<(owner: RendererOwner, update: NativeTerminalQueryUpdate) => void>()
+    const queries = new NativeTerminalQuery(
+      { query, inspectProducer: vi.fn() },
+      () => source,
+      publish,
+      vi.fn(),
+    )
+    try {
+      const begun = await queries.action(
+        {
+          kind: 'begin',
+          text: 'hit',
+          caseSensitive: false,
+          viewId,
+          requestId: requestId(1),
+        },
+        owner,
+      )
+      if (begun.kind !== 'query') throw new Error('Expected query')
+      await vi.waitFor(() => expect(steps).toBe(1))
+      // A later parser write needs a finite reconciliation after this captured
+      // pass. Indexed access pauses the pump without consuming that source wake.
+      queries.changed(source.session)
+      const indexed = queries.action(
+        { kind: 'at', queryId: begun.queryId, index: 0, viewId, requestId: requestId(2) },
+        owner,
+      )
+      completePartial({ result: 0, query: '71', revision: '1', count: 1, status: 0 })
+      await expect(indexed).resolves.toEqual({ kind: 'occurrence', occurrenceId: '99' })
+      await vi.waitFor(() =>
+        expect(publish.mock.calls.at(-1)?.[1].snapshot).toMatchObject({
+          matchCount: 2,
+          pending: false,
+        }),
+      )
+      expect(steps).toBe(3)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(steps).toBe(3)
+    } finally {
+      await queries.dispose()
+    }
+  })
+
   it('reports a failed native pass as unavailable rather than successful finite completion or automatic restart', async () => {
     let steps = 0
     const query = vi.fn<NativeTerminalHost['query']>((_handle, _instance, op) => {

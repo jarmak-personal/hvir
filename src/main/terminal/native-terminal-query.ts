@@ -45,6 +45,7 @@ interface Query {
   nativeRevision: string
   dirty: number
   observed: number
+  passDirty?: number
   locks: number
   revoked: boolean
   waiting: boolean
@@ -560,8 +561,10 @@ export class NativeTerminalQuery {
     const work = new NativeTerminalQueryRequestOwner(this.host, query.source)
     query.pumpRequest = work
     query.pump = (async () => {
-      let observed = query.dirty
+      let observed = query.passDirty ?? query.dirty
       while (this.current(query) && !query.locks) {
+        // Indexed reads may pause this finite pass; retain its original wake mark.
+        query.passDirty = observed
         const step = nativeQueryResult(
           await work.call({ kind: 'query-step', query: query.native }),
         )
@@ -587,11 +590,13 @@ export class NativeTerminalQuery {
             snapshot,
           })
         if (step.status === 2) {
+          query.passDirty = undefined
           query.observed = observed
           if (observed === query.dirty) break
           observed = query.dirty
         }
         if (step.status === 1) {
+          query.passDirty = undefined
           query.observed = observed
           if (observed === query.dirty) break
           observed = query.dirty

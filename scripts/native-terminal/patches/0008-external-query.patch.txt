@@ -3884,7 +3884,7 @@
 +}
 --- /dev/null
 +++ b/src/terminal/search/QueryScan.zig
-@@ -0,0 +1,565 @@
+@@ -0,0 +1,666 @@
 +//! Bounded forward scan of a finite primary-screen extent. Formatting and
 +//! matching use the same native primitives as selection and native search.
 +const Self = @This();
@@ -4043,6 +4043,14 @@
 +            continue;
 +        }
 +        if (self.pending_match) |match| {
++            // A finite pass can observe writes newer than its authority fence.
++            // Defer those candidates to the next source reconciliation, rather
++            // than publish an occurrence that its own cutoff cannot validate.
++            result.work += 1;
++            if (match.max_written > self.cutoff) {
++                self.pending_match = null;
++                continue;
++            }
 +            if (self.pending_record == null) {
 +                const record = try self.reconcile(t, match, budget, &result.work) orelse break;
 +                self.pending_record = record;
@@ -4449,6 +4457,99 @@
 +        try testing.expectEqual(@as(usize, 1), owner.scan.?.results.len());
 +        try testing.expectEqual(original.occurrence, owner.scan.?.results.at(0).?.occurrence);
 +    }
++}
++
++test "bounded primary query defers post-cutoff matches and preserves unaffected occurrence identity" {
++    const testing = std.testing;
++    const Owner = @import("ExternalQuery.zig");
++    const Status = @import("../../termio/External.zig").QueryStatus;
++    var t = try Terminal.init(testing.io, testing.allocator, .{ .cols = 32, .rows = 8 });
++    defer t.deinit(testing.allocator);
++    const fill: [31]u8 = @splat('f');
++    for (1..9) |row| {
++        t.setCursorPos(@intCast(row), 1);
++        try t.printString(&fill);
++    }
++    t.setCursorPos(1, 1);
++    try t.printString("target");
++    var owner: Owner = .{};
++    defer owner.deinit(&t);
++    var query: u64 = 0;
++    try testing.expectEqual(0, owner.begin(testing.allocator, &t, "absent", true, &query));
++    try settleQueryForTest(&owner, &t, query); // Prepare exact stamps before the write.
++    try testing.expectEqual(0, owner.begin(testing.allocator, &t, "target", true, &query));
++    var status: Status = .{};
++    var calls: usize = 0;
++    var visited: usize = 0;
++    while (status.count == 0 and calls < 10000) : (calls += 1) {
++        try testing.expectEqual(0, owner.step(&t, query, 512, &status));
++        try testing.expect(status.work > 0 and status.work <= 512 and status.visited <= 512);
++        visited += status.visited;
++    }
++    try testing.expectEqual(1, status.count);
++    try testing.expectEqual(0, status.status);
++    try testing.expect(visited > 0 and owner.scan.?.next.y < 6);
++    const anchor = owner.scan.?.results.at(0).?.occurrence;
++    try expectOccurrenceTextForTest(&owner, &t, query, anchor, "target");
++    t.setCursorPos(7, 1);
++    try t.printString("target");
++    try settleQueryForTest(&owner, &t, query);
++    try testing.expectEqual(@as(usize, 1), owner.scan.?.results.len());
++    try testing.expectEqual(anchor, owner.scan.?.results.at(0).?.occurrence);
++    // The producer is now stopped: the changed source snapshot alone schedules
++    // a second finite pass, without raising the first pass's cutoff.
++    try settleQueryForTest(&owner, &t, query);
++    try testing.expectEqual(@as(usize, 2), owner.scan.?.results.len());
++    try testing.expectEqual(anchor, owner.scan.?.results.at(0).?.occurrence);
++    try expectOccurrenceTextForTest(&owner, &t, query, anchor, "target");
++    try expectOccurrenceTextForTest(&owner, &t, query, owner.scan.?.results.at(1).?.occurrence, "target");
++}
++
++test "bounded primary query does not authorize a mixed prefix and post-cutoff tail" {
++    const testing = std.testing;
++    const Owner = @import("ExternalQuery.zig");
++    const Status = @import("../../termio/External.zig").QueryStatus;
++    const needle = "abcdefghijklmnopqrstuvwx";
++    var t = try Terminal.init(testing.io, testing.allocator, .{ .cols = 64, .rows = 4 });
++    defer t.deinit(testing.allocator);
++    try t.printString("abcdefghijklmnopZZZZZZZZ");
++    var owner: Owner = .{};
++    defer owner.deinit(&t);
++    var query: u64 = 0;
++    try testing.expectEqual(0, owner.begin(testing.allocator, &t, "absent", true, &query));
++    try settleQueryForTest(&owner, &t, query);
++    try testing.expectEqual(0, owner.begin(testing.allocator, &t, needle, true, &query));
++    var status: Status = .{};
++    var calls: usize = 0;
++    while (owner.scan.?.window.matcher.matched == 0 and calls < 10000) : (calls += 1) {
++        try testing.expectEqual(0, owner.step(&t, query, 512, &status));
++        try testing.expect(status.work > 0 and status.work <= 512 and status.visited <= 512);
++    }
++    const scan = owner.scan.?;
++    try testing.expect(scan.window.matcher.matched > 0);
++    try testing.expect(scan.formatter.total_bytes > 0 and scan.formatter.total_bytes < 16);
++    try testing.expectEqual(0, status.count);
++    try testing.expectEqual(0, status.status);
++    // The consumed prefix no longer exists. Completing the unread suffix must
++    // not turn the window's mixed old/new bytes into authenticated authority.
++    t.setCursorPos(1, 1);
++    try t.printString("z");
++    t.setCursorPos(1, 17);
++    try t.printString(needle[16..]);
++    try settleQueryForTest(&owner, &t, query);
++    try testing.expectEqual(@as(usize, 0), owner.scan.?.results.len());
++    try settleQueryForTest(&owner, &t, query);
++    try testing.expectEqual(@as(usize, 0), owner.scan.?.results.len());
++    // Current terminal text is a real nonmatch, independently of window state.
++    const control = try Self.create(testing.allocator, &t, "zbcdefghijklmnopqrstuvwx", true);
++    defer control.deinit(&t);
++    calls = 0;
++    while (!control.done and calls < 10000) : (calls += 1) {
++        const result = try control.step(&t, 8192);
++        try testing.expect(result.work <= 8192 and result.visited <= 8192);
++    }
++    try testing.expect(control.done);
++    try testing.expectEqual(@as(usize, 1), control.results.len());
 +}
 --- a/src/terminal/search/sliding_window.zig
 +++ b/src/terminal/search/sliding_window.zig

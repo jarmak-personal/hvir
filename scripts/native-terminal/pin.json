@@ -68,7 +68,7 @@
     },
     {
       "file": "patches/0008-external-query.patch.txt",
-      "sha256": "6d248cead14e0de6e10c134eb41b8f0ccaf6d71c0dae10a541e0baee17fc3c21",
+      "sha256": "b3d7782282755a033399b40966aac04341a26e81d457225fbf143258e0bc2052",
       "purpose": "Generic same-Terminal bounded literal query continuations, compact native occurrence metadata, exact retained-cell write identity, parser-origin logical boundary tokens, and independent-screen bounded range/resolver cursors. Product authority, UI search state and clipboard policy remain maintained C/TypeScript."
     }
   ],

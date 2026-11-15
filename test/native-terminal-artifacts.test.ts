@@ -258,7 +258,7 @@ describe('real query probe numerical receipt admission', () => {
     kind: 'native-query',
     passed: true,
     checks: 1000,
-    queryCases: 30,
+    queryCases: 31,
     maxWork: 8192,
     maxVisited: 8192,
     maxChunkBytes: 65536,
@@ -274,13 +274,13 @@ describe('real query probe numerical receipt admission', () => {
   }
   it('admits a complete bounded software proof and future additional cases', () => {
     expect(validQueryProof(proof)).toBe(true)
-    expect(validQueryProof({ ...proof, queryCases: 31 })).toBe(true)
+    expect(validQueryProof({ ...proof, queryCases: 32 })).toBe(true)
   })
   it.each([
     ['kind', 'native-selection'],
     ['passed', false],
     ['checks', 99],
-    ['queryCases', 29],
+    ['queryCases', 30],
     ['maxWork', 8193],
     ['maxVisited', 8193],
     ['maxChunkBytes', 65537],

@@ -104,6 +104,15 @@ export async function verifyNativeTerminalWorkbench(
   await win.webContents.executeJavaScript(
     `window.nativeQualificationModes=[];window.hvir.nativeTerminalPresentation.onStatus(value=>{window.nativeQualificationModes.push(value.mode);window.nativeQualificationModes=window.nativeQualificationModes.slice(-8)});true`,
   )
+  // Pixel qualification needs room beside the visible Find bar, including
+  // history reveals at viewport top. Establish the fixture before any Surface.
+  const initialBounds = win.getContentBounds()
+  if (initialBounds.width < 1280) {
+    win.setContentSize(1280, initialBounds.height)
+    await win.webContents.executeJavaScript(
+      'new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))',
+    )
+  }
   console.log('[native-workbench] launch')
   await ensureExplicitBareShellLaunch(win, ptys)
   const managed = ptys.list()[0]

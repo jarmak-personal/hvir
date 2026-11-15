@@ -11,6 +11,7 @@ import {
 import { NATIVE_READONLY_SELECTION } from './native-terminal-selection-fixture'
 
 const MATCH = 'hvir-native-query-match'
+const FIND_BAR_SHADOW_CLEARANCE = 24
 
 /** Real retained-query controls and pixels on the same native workbench Surface. */
 export async function verifyNativeTerminalQuery(
@@ -71,6 +72,10 @@ export async function verifyNativeTerminalQuery(
       () => evaluate(`return !!panel.querySelector('.terminal-search');`),
       'query-open',
     )
+    // This pixel fixture samples the leftmost 23 cells, including historical
+    // reveals at viewport top. Keep that stripe outside the Find bar's shadow;
+    // a narrow-window overlap is presentation occlusion, not a native mask.
+    const pixelFixture = await queryPixelFixture(browser, evaluate)
     await query(MATCH)
     await browser.wait(
       async () => ['1 of 3', '3 matches'].includes(await status()),
@@ -474,6 +479,7 @@ export async function verifyNativeTerminalQuery(
       actualNative: true,
       matches: 3,
       exactCopy: copy,
+      pixelFixture,
       selectedHighlight: { first, second, returned, moved },
       movedOccurrence: {
         rowEdit: 'insert-line',
@@ -606,6 +612,48 @@ export async function verifyNativeReadonlyQuery(
     await win.webContents.executeJavaScript(`window.nativeSelectionProbe?.restore()`)
   }
 }
+async function queryPixelFixture(
+  browser: ReturnType<typeof nativeSelectionBrowser>,
+  evaluate: <T>(body: string) => Promise<T>,
+) {
+  const shadowClearance = FIND_BAR_SHADOW_CLEARANCE
+  const read = async () => {
+    const { geometry, bounds } = await browser.layout()
+    const bar = await evaluate<{
+      left: number
+      right: number
+      top: number
+      bottom: number
+    }>(
+      `const bar=panel.querySelector('.terminal-search');if(!(bar instanceof HTMLElement))throw new Error('native-query-fixture-bar');const r=bar.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom};`,
+    )
+    const scale = bounds.canvasCssWidth / bounds.canvasWidth
+    const sampleRight =
+      bounds.x + (geometry.paddingLeft + geometry.cellWidth * MATCH.length) * scale
+    return {
+      canvas: {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.canvasCssWidth,
+        height: bounds.canvasCssHeight,
+      },
+      sampleLeft: bounds.x + geometry.paddingLeft * scale,
+      sampleRight,
+      bar,
+      shadowClearance,
+    }
+  }
+  let observed = await read()
+  if (observed.bar.left < observed.sampleRight + shadowClearance)
+    console.error('HVIR_NATIVE_QUERY_PIXEL_FIXTURE', { ...observed, unoccluded: false })
+  await browser.wait(async () => {
+    observed = await read()
+    return observed.bar.left >= observed.sampleRight + shadowClearance
+  }, 'query-unoccluded-pixel-fixture')
+  console.error('HVIR_NATIVE_QUERY_PIXEL_FIXTURE', { ...observed, unoccluded: true })
+  return { ...observed, unoccluded: true }
+}
+
 async function selectedHighlight(
   win: BrowserWindow,
   session: string,
@@ -618,9 +666,20 @@ async function selectedHighlight(
     await browser.wait(async () => {
       const { geometry, bounds } = await browser.layout()
       const rect = (await win.webContents.executeJavaScript(
-        `(()=>{${paneScript(session)}const r=canvas.getBoundingClientRect();return{x:Math.ceil(r.x),y:Math.ceil(r.y),width:Math.floor(r.width),height:Math.floor(r.height)};})()`,
-      )) as { x: number; y: number; width: number; height: number }
-      const image = await win.webContents.capturePage(rect)
+        `(()=>{${paneScript(session)}const r=canvas.getBoundingClientRect(),bar=panel.querySelector('.terminal-search')?.getBoundingClientRect();return{x:Math.ceil(r.x),y:Math.ceil(r.y),width:Math.floor(r.width),height:Math.floor(r.height),bar:bar?{left:bar.left,right:bar.right,top:bar.top,bottom:bar.bottom}:undefined};})()`,
+      )) as {
+        x: number
+        y: number
+        width: number
+        height: number
+        bar?: { left: number; right: number; top: number; bottom: number }
+      }
+      const image = await win.webContents.capturePage({
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      })
       const { width, height } = image.getSize(1)
       const pixels = image.toBitmap({ scaleFactor: 1 })
       const result = {
@@ -676,6 +735,20 @@ async function selectedHighlight(
         // Native application/status can precede compositor presentation. Only
         // the complete required cell geometry certifies the selected pixels.
         return false
+      const sample = {
+        left: rect.x + (result.left * rect.width) / width,
+        right: rect.x + ((result.right + 1) * rect.width) / width,
+        top: rect.y + (result.top * rect.height) / height,
+        bottom: rect.y + ((result.bottom + 1) * rect.height) / height,
+      }
+      if (
+        rect.bar &&
+        sample.right > rect.bar.left - FIND_BAR_SHADOW_CLEARANCE &&
+        sample.left < rect.bar.right + FIND_BAR_SHADOW_CLEARANCE &&
+        sample.bottom > rect.bar.top - FIND_BAR_SHADOW_CLEARANCE &&
+        sample.top < rect.bar.bottom + FIND_BAR_SHADOW_CLEARANCE
+      )
+        throw new Error('native-query-pixel-fixture-occluded')
       observed = result
       return true
     }, 'query-native-highlight')

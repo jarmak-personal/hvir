@@ -65,7 +65,7 @@ export function validQueryProof(value: unknown): boolean {
     count(proof.checks) &&
     proof.checks >= 100 &&
     count(proof.queryCases) &&
-    proof.queryCases >= 30 &&
+    proof.queryCases >= 31 &&
     count(proof.maxWork) &&
     proof.maxWork > 0 &&
     proof.maxWork <= 8192 &&

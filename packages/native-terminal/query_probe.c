@@ -547,6 +547,54 @@ static bool held_resolver_layout_race(probe *p) {
   p->cases++;
   return healthy_key(p) && destroy(p);
 }
+static bool post_cutoff_live_candidate(probe *p) {
+  if (!create(p)) return false;
+  hvir_terminal_status native;
+  NEED(hvir_terminal_inspect(p->host, p->id, &native) == HVIR_OK,
+    "post-cutoff-fixture-geometry");
+  const uint32_t rows = native.geometry.rows, columns = native.geometry.columns;
+  NEED(rows >= 12 && columns >= 32 && columns < 1024, "post-cutoff-fixed-grid-fits");
+  char row[1200], command[1400];
+  memset(row, 'f', columns - 1); row[columns - 1] = 0;
+  for (uint32_t y = 1; y <= rows; y++) {
+    int length = snprintf(command, sizeof(command), "\x1b[%u;1H%s", y, row);
+    NEED(length > 0 && (size_t)length < sizeof(command), "bounded-post-cutoff-row-fixture");
+    if (!feed_bytes(p, command, (size_t)length)) return false;
+  }
+  const char *needle = "POSTCUTOFFMATCH";
+  if (!feed(p, "\x1b[1;1HPOSTCUTOFFMATCH") || !begin_query(p, "not-present", true)) return false;
+  hvir_terminal_query_status status;
+  if (!settled(p, &status)) return false;
+  NEED(status.count == 0, "post-cutoff-row-identity-warmup-has-no-match");
+  if (!begin_query(p, needle, true)) return false;
+  uint64_t visited = 0;
+  const uint64_t deadline = clock_ms() + 15000;
+  do {
+    if (!step(p, &status)) return false;
+    visited += status.visited;
+  } while ((!visited || !status.count) && status.status != 2 && clock_ms() < deadline);
+  NEED(status.status == 0 && status.count == 1 && visited > 0 &&
+    visited < (uint64_t)(rows - 2) * columns, "actual-partial-pass-before-unread-late-match-row");
+  hvir_terminal_query_match anchor, current, late;
+  if (!at(p, &status, 0, &anchor) || !read_match(p, anchor.occurrence, needle)) return false;
+  int length = snprintf(command, sizeof(command), "\x1b[%u;1HPOSTCUTOFFMATCH", rows - 1);
+  NEED(length > 0 && (size_t)length < sizeof(command), "bounded-post-cutoff-write-fixture");
+  if (!feed_bytes(p, command, (size_t)length) || !settled(p, &status)) return false;
+  NEED(status.count == 1, "first-captured-pass-omits-candidate-written-after-cutoff");
+  if (!at(p, &status, 0, &current)) return false;
+  NEED(current.occurrence == anchor.occurrence && current.index == anchor.index,
+    "post-cutoff-write-preserves-preexisting-anchor-id-and-index");
+  // No feed or other parser write separates these two finite pass completions.
+  if (!settled(p, &status)) return false;
+  NEED(status.count == 2, "next-finite-pass-discovers-late-candidate-without-another-write");
+  if (!at(p, &status, 0, &current) || !at(p, &status, 1, &late)) return false;
+  NEED(current.occurrence == anchor.occurrence && current.index == anchor.index &&
+    late.occurrence != anchor.occurrence, "live-reconciliation-keeps-anchor-and-authenticates-distinct-late-match");
+  if (!resolve_match(p, late.occurrence, false, false) || !read_match(p, late.occurrence, needle) ||
+      !read_match(p, anchor.occurrence, needle)) return false;
+  p->cases++;
+  return healthy_key(p) && destroy(p);
+}
 static bool high_match_stream(probe *p) {
   if (!create(p)) return false;
   hvir_terminal_status native;
@@ -808,7 +856,7 @@ static void *run(void *data) {
   probe *p = data;
   if (!check(p, hvir_terminal_open(p->library, NULL, &p->host) == HVIR_OK, "open-real-native-host")) return NULL;
   if (!matching_goldens(p) || !wrapping_and_alt(p) || !identity_and_foreign(p) ||
-      !resolver_query_lifetime(p) || !selected_highlight_refresh(p) || !held_resolver_layout_race(p) || !high_match_stream(p) || !eviction_and_reflow(p) || !semantic_current_and_stale(p) ||
+      !resolver_query_lifetime(p) || !selected_highlight_refresh(p) || !held_resolver_layout_race(p) || !post_cutoff_live_candidate(p) || !high_match_stream(p) || !eviction_and_reflow(p) || !semantic_current_and_stale(p) ||
       !semantic_cursor_and_blank(p) || !empty_busy_cancel_reset(p) || !semantic_large(p)) goto cleanup;
 cleanup:
   if (p->cursor) check(p, hvir_terminal_extract_close(p->host, p->id, p->cursor) == HVIR_OK, "failure-cursor-cleanup");
