@@ -574,7 +574,7 @@ export async function verifyNativeTerminalQuery(
     phase = 'query-frame-proof'
     const proof = await browser.proof()
     if (proof.frames < 2 || proof.maxGapMs > UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs)
-      throw new Error('native-query-renderer-frame-budget')
+      throw nativeQueryFrameBudgetError('query', proof, browser.captureTiming())
     return {
       actualNative: true,
       matches: 3,
@@ -700,7 +700,7 @@ export async function verifyNativeReadonlyQuery(
       timing.frames < 2 ||
       timing.maxGapMs > UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs
     )
-      throw new Error('native-readonly-query-renderer-frame-budget')
+      throw nativeQueryFrameBudgetError('readonly-query', timing, browser.captureTiming())
     return {
       retainedAfterExit: true,
       matches: count,
@@ -712,6 +712,25 @@ export async function verifyNativeReadonlyQuery(
     await win.webContents.executeJavaScript(`window.nativeSelectionProbe?.restore()`)
   }
 }
+function nativeQueryFrameBudgetError(
+  phase: 'query' | 'readonly-query',
+  proof: { frames: number; maxGapMs: number; rendererTiming: unknown },
+  captureTiming: unknown,
+): Error {
+  return new Error(
+    `native-${phase}-renderer-frame-budget ` +
+      JSON.stringify({
+        phase,
+        frames: proof.frames,
+        maxGapMs: proof.maxGapMs,
+        minimumFrames: 2,
+        budgetMs: UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs,
+        rendererTiming: proof.rendererTiming,
+        captureTiming,
+      }),
+  )
+}
+
 async function queryPixelFixture(
   browser: ReturnType<typeof nativeSelectionBrowser>,
   evaluate: <T>(body: string) => Promise<T>,
