@@ -9,7 +9,10 @@ import {
   paneScript,
 } from './native-terminal-selection-browser'
 import { NATIVE_READONLY_SELECTION } from './native-terminal-selection-fixture'
-import { terminalSearchStreamProducer } from './terminal-search-stream-producer'
+import {
+  terminalSearchEvictionProducer,
+  terminalSearchStreamProducer,
+} from './terminal-search-stream-producer'
 
 const MATCH = 'hvir-native-query-match'
 const FIND_BAR_SHADOW_CLEARANCE = 24
@@ -382,6 +385,17 @@ export async function verifyNativeTerminalQuery(
     // Broad native metadata stays indexed while a finite 50 Hz producer continues.
     let output = '',
       completed = false
+    let highProducerStarted = 0,
+      highLine = '',
+      highLineOverflow = false
+    const highProducer = {
+      submitted: false,
+      submittedAtMs: null as number | null,
+      writeAckAtMs: null as number | null,
+      firstRowAtMs: null as number | null,
+      completedAtMs: null as number | null,
+      rows: 0,
+    }
     const memoryKiB = () => {
       const value = app
         .getAppMetrics()
@@ -396,6 +410,24 @@ export async function verifyNativeTerminalQuery(
       onData: (data) => {
         output = (output + data).slice(-8192)
         completed ||= output.includes('__HVIR_M10_DONE__')
+        if (diagnostics && highProducer.submitted) {
+          const elapsedMs = performance.now() - highProducerStarted
+          for (const character of data) {
+            if (character === '\n') {
+              if (
+                !highLineOverflow &&
+                highLine.replace(/\r+$/, '') === 'unrelated output'
+              ) {
+                highProducer.rows++
+                highProducer.firstRowAtMs ??= elapsedMs
+              }
+              highLine = ''
+              highLineOverflow = false
+            } else if (highLine.length < 64) highLine += character
+            else highLineOverflow = true
+          }
+          if (completed) highProducer.completedAtMs ??= elapsedMs
+        }
       },
     })
     let highMatch: {
@@ -460,12 +492,21 @@ export async function verifyNativeTerminalQuery(
         `window.nativeSelectionProbe.retainedSearch=panel.querySelector('.terminal-search');`,
       )
       phase = 'high-match-producer'
+      // Ignore any synchronous replay/setup output before this producer starts.
+      output = ''
+      completed = false
+      highLine = ''
+      highLineOverflow = false
+      highProducerStarted = performance.now()
+      highProducer.submitted = true
+      highProducer.submittedAtMs = 0
       await ptys.writeConfirmed(
         managed.id,
         managed.ownerId,
-        `hvir_m10_done='__HVIR_M10_''DONE__'; hvir_m10_i=0; while [ "$hvir_m10_i" -lt 300 ]; do hvir_m10_j=0; while [ "$hvir_m10_j" -lt 50 ]; do printf 'unrelated output\\r\\n'; hvir_m10_j=$((hvir_m10_j+1)); done; hvir_m10_i=$((hvir_m10_i+1)); sleep 0.02; done; printf '%s\\r\\n' "$hvir_m10_done"\r`,
+        `hvir_m10_done='__HVIR_M10_''DONE__'; ${terminalSearchEvictionProducer({ doneVariable: 'hvir_m10_done', lineEnding: 'crlf' })}\r`,
         managed.ownerGeneration,
       )
+      highProducer.writeAckAtMs = performance.now() - highProducerStarted
       phase = 'high-match-observation'
       let observedReducedCount = 0,
         observedAtMs = 0
@@ -509,6 +550,18 @@ export async function verifyNativeTerminalQuery(
         removal: 'capacity-eviction',
         rendererGrowthKiB,
       }
+    } catch (error) {
+      if (diagnostics && highProducer.submitted) {
+        try {
+          console.error('HVIR_NATIVE_QUERY_HIGH_PRODUCER_FAILURE', {
+            ...highProducer,
+            elapsedMs: performance.now() - highProducerStarted,
+          })
+        } catch {
+          /* Keep the original qualification failure. */
+        }
+      }
+      throw error
     } finally {
       await detach()
     }
