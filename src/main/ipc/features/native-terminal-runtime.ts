@@ -27,6 +27,9 @@ export function registerNativeTerminalRuntimeIpc(
   ipc.handle('native-terminal:metadata', ({ id }, context) =>
     requireRuntime().metadata(id, context.owner()),
   )
+  ipc.handle('native-terminal:appearance', (req, context) =>
+    requireRuntime().appearance(req.viewId, context.owner(), req.appearance),
+  )
   ipc.handle('native-terminal:update', async (req, context) => {
     await requireRuntime().update(req.viewId, context.owner(), req)
   })

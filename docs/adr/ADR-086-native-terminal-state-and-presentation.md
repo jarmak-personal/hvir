@@ -15,6 +15,9 @@
 [ADR-089](ADR-089-native-terminal-effect-authority.md) refines effect copying, bounded
 refusal, execution authority and native query compatibility; other decisions remain unchanged.
 
+[ADR-092](ADR-092-native-terminal-appearance-and-metrics.md) refines typed appearance
+application and measured configuration/geometry completion; other decisions remain unchanged.
+
 ## Context
 
 Native Ghostty rendering materially improves the terminal interaction hvir is built around.

@@ -1,3 +1,4 @@
+import { verifyNativeTerminalAppearance } from './native-terminal-appearance'
 import {
   verifyNativeTerminalSelection,
   verifyNativeReadonlySelection,
@@ -189,6 +190,12 @@ export async function verifyNativeTerminalWorkbench(
   )
   const nativeSelection = await verifyNativeTerminalSelection(win, ptys, native, managed)
   const largePaste = await verifyNativeTerminalPaste(win, ptys, native, managed)
+  const nativeAppearance = await verifyNativeTerminalAppearance(
+    win,
+    ptys,
+    native,
+    managed,
+  )
   const initialGeometry = (await native.inspectRetained(managed.id, owner)).geometry
   await win.webContents.executeJavaScript(`(() => {
     const control = [...document.querySelectorAll('button[aria-label="Collapse terminal rail"],button[aria-label="Restore terminal rail"]')]
@@ -272,6 +279,7 @@ export async function verifyNativeTerminalWorkbench(
       nativeEffects,
       nativeSelection,
       nativeQuery,
+      nativeAppearance,
       readonlySelection,
       readonlyQuery,
       largePaste,

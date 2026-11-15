@@ -181,6 +181,7 @@ export function collectModuleGraph(
                 'host_binding.c',
                 'terminal.c',
                 'terminal_input.c',
+                'terminal_appearance.c',
                 'terminal_effects.c',
                 'terminal_selection.c',
                 'terminal_internal.h',

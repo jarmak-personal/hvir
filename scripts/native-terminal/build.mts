@@ -9,9 +9,21 @@ import {
   repository,
   verifyArtifact,
   validQueryProof,
+  validAppearanceProof,
+  withAppearanceFontFixture,
 } from './artifacts.mts'
 import { execute, prepareSource, prepareZig } from './source.mts'
 import { inspectBinary } from './binary.mts'
+
+import {
+  APPEARANCE_FONT_SOURCE,
+  APPEARANCE_FONT_LAUNCHER,
+  APPEARANCE_FONT_CONFIG_SOURCE,
+  APPEARANCE_FONT_LICENSE_SOURCE,
+  APPEARANCE_FONT_FILE,
+  APPEARANCE_FONT_LICENSE,
+  APPEARANCE_FONT_PROVENANCE,
+} from './appearance-font-fixture.mts'
 
 const [target, requestedWork, ...rest] = process.argv.slice(2)
 const selected = target && pin.targets[target]
@@ -202,6 +214,7 @@ await run(
     '-fno-omit-frame-pointer',
     join(repository, 'packages/native-terminal/terminal.c'),
     join(repository, 'packages/native-terminal/terminal_input.c'),
+    join(repository, 'packages/native-terminal/terminal_appearance.c'),
     join(repository, 'packages/native-terminal/terminal_effects.c'),
     join(repository, 'packages/native-terminal/terminal_selection.c'),
     join(repository, 'packages/native-terminal/terminal_query.c'),
@@ -250,8 +263,38 @@ await writeFile(
   JSON.stringify(facadeResult, null, 2) + '\n',
 )
 console.log(facade.stdout.trim())
+// Linux Fontconfig can substitute an unrelated ambient monospace font even for
+// a missing family. This probe-only fixture makes shaping assertions deterministic.
+if (selected.platform === 'linux') {
+  await mkdir(join(output, 'appearance-fonts'))
+  await cp(join(source, APPEARANCE_FONT_SOURCE), join(output, APPEARANCE_FONT_FILE))
+  await cp(
+    join(source, APPEARANCE_FONT_LICENSE_SOURCE),
+    join(output, APPEARANCE_FONT_LICENSE),
+  )
+  await writeFile(
+    join(output, APPEARANCE_FONT_PROVENANCE),
+    JSON.stringify(
+      {
+        schema: 1,
+        sourceCommit: pin.source.commit,
+        sourceArchiveSha256: pin.source.sha256,
+        fontSource: APPEARANCE_FONT_SOURCE,
+        fontSha256: await digest(join(output, APPEARANCE_FONT_FILE)),
+        licenseSource: APPEARANCE_FONT_LICENSE_SOURCE,
+        licenseSha256: await digest(join(output, APPEARANCE_FONT_LICENSE)),
+        launcherSource: APPEARANCE_FONT_LAUNCHER,
+        launcherSha256: await digest(join(repository, APPEARANCE_FONT_LAUNCHER)),
+        configSource: APPEARANCE_FONT_CONFIG_SOURCE,
+        configSha256: await digest(join(repository, APPEARANCE_FONT_CONFIG_SOURCE)),
+      },
+      null,
+      2,
+    ) + '\n',
+  )
+}
 // Each proof uses the same real Surface; it reports contract counts, never contents.
-for (const capability of ['input', 'effects', 'selection', 'query']) {
+for (const capability of ['input', 'effects', 'selection', 'query', 'appearance']) {
   await run(
     'cc',
     [
@@ -263,6 +306,7 @@ for (const capability of ['input', 'effects', 'selection', 'query']) {
       ...[
         'terminal.c',
         'terminal_input.c',
+        'terminal_appearance.c',
         'terminal_effects.c',
         'terminal_selection.c',
         'terminal_query.c',
@@ -276,11 +320,15 @@ for (const capability of ['input', 'effects', 'selection', 'query']) {
     ],
     repository,
   )
-  const proof = await execute(
-    join(output, `${capability}-probe`),
-    [join(output, selected.library)],
-    { timeout: 60_000 },
-  )
+  const launch = (env = process.env) =>
+    execute(join(output, `${capability}-probe`), [join(output, selected.library)], {
+      timeout: 60_000,
+      env,
+    })
+  const proof =
+    capability === 'appearance'
+      ? await withAppearanceFontFixture(output, selected.platform, launch)
+      : await launch()
   const result = JSON.parse(proof.stdout) as {
     kind?: unknown
     passed?: unknown
@@ -299,7 +347,8 @@ for (const capability of ['input', 'effects', 'selection', 'query']) {
     result.kind !== `native-${capability}` ||
     result.passed !== true ||
     typeof result.checks !== 'number' ||
-    result.checks < (capability === 'effects' ? 30 : 100) ||
+    result.checks <
+      (capability === 'effects' || capability === 'appearance' ? 30 : 100) ||
     (capability === 'selection' &&
       (typeof result.mutationCases !== 'number' ||
         result.mutationCases < 18 ||
@@ -320,7 +369,8 @@ for (const capability of ['input', 'effects', 'selection', 'query']) {
         typeof result.workBoundaryChunks !== 'number' ||
         result.workBoundaryChunks < 2 ||
         result.cleanupChecked !== true)) ||
-    (capability === 'query' && !validQueryProof(result))
+    (capability === 'query' && !validQueryProof(result)) ||
+    (capability === 'appearance' && !validAppearanceProof(result))
   )
     throw new Error(`native-${capability}: incomplete proof`)
   await writeFile(join(output, `${capability}-proof.json`), proof.stdout)
@@ -378,6 +428,7 @@ if (selected.platform === 'linux') {
           ? [
               join(repository, 'packages/native-terminal/terminal.c'),
               join(repository, 'packages/native-terminal/terminal_input.c'),
+              join(repository, 'packages/native-terminal/terminal_appearance.c'),
               join(repository, 'packages/native-terminal/terminal_effects.c'),
               join(repository, 'packages/native-terminal/terminal_selection.c'),
               join(repository, 'packages/native-terminal/terminal_query.c'),

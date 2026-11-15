@@ -81,6 +81,7 @@ describe('same-PTY native selection qualification protocol', () => {
     const sendInputEvent = vi.fn()
     const win = {
       webContents: {
+        getZoomFactor: () => 1,
         executeJavaScript: (script: string) =>
           Promise.resolve(
             runInNewContext(script, { document, devicePixelRatio: 1 }) as unknown,
@@ -144,6 +145,7 @@ describe('same-PTY native selection qualification protocol', () => {
       })
       const win = {
         webContents: {
+          getZoomFactor: () => 1,
           executeJavaScript: (script: string) => {
             if (script.includes('const separator='))
               return Promise.resolve({ x: 265, y: 390 })
@@ -287,6 +289,7 @@ describe('same-PTY native selection qualification protocol', () => {
     const events: string[] = []
     const win = {
       webContents: {
+        getZoomFactor: () => 1,
         executeJavaScript: (script: string) =>
           Promise.resolve(
             script.includes('const separator=')
@@ -328,6 +331,7 @@ describe('same-PTY native selection qualification protocol', () => {
     const events: { type: string; keyCode?: string; modifiers?: string[] }[] = []
     const win = {
       webContents: {
+        getZoomFactor: () => 1,
         executeJavaScript: (script: string) =>
           Promise.resolve(
             script.includes('const menus=')

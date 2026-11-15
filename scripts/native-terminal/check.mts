@@ -1,5 +1,11 @@
 import { join, resolve } from 'node:path'
-import { pin, repository, verifyArtifact } from './artifacts.mts'
+import {
+  pin,
+  repository,
+  verifyArtifact,
+  validAppearanceProof,
+  withAppearanceFontFixture,
+} from './artifacts.mts'
 import { execute } from './source.mts'
 const [target, requested, development] = process.argv.slice(2)
 if (
@@ -69,4 +75,15 @@ if (
 )
   throw new Error('native-selection: incomplete check')
 console.log(selection.stdout.trim())
+// The appearance oracle reads actual native pixels as well as parser replies.
+const appearance = await withAppearanceFontFixture(directory, selected.platform, (env) =>
+  execute(join(directory, 'appearance-probe'), [join(directory, selected.library)], {
+    timeout: 30_000,
+    maxBuffer: 4096,
+    env,
+  }),
+)
+if (!validAppearanceProof(JSON.parse(appearance.stdout)))
+  throw new Error('native-appearance: incomplete check')
+console.log(appearance.stdout.trim())
 console.log(`HVIR_NATIVE_ARTIFACT_OK ${target}`)

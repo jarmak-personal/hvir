@@ -1,9 +1,13 @@
 import {
   MAX_FONT_FAMILY_LENGTH,
+  MIN_TERMINAL_TEXT_SIZE,
+  MAX_TERMINAL_TEXT_SIZE,
   SYSTEM_INTERFACE_FONT_STACK,
   SYSTEM_MONOSPACE_FONT_STACK,
 } from '../../../shared/interface-typography'
 export {
+  MIN_TERMINAL_TEXT_SIZE,
+  MAX_TERMINAL_TEXT_SIZE,
   SYSTEM_INTERFACE_FONT_STACK,
   SYSTEM_MONOSPACE_FONT_STACK,
 } from '../../../shared/interface-typography'
@@ -14,8 +18,6 @@ export const DEFAULT_INTERFACE_SCALE = 1
 export const MIN_INTERFACE_SCALE = 0.8
 export const MAX_INTERFACE_SCALE = 1.5
 export const DEFAULT_TERMINAL_TEXT_SIZE = 13
-export const MIN_TERMINAL_TEXT_SIZE = 10
-export const MAX_TERMINAL_TEXT_SIZE = 24
 
 export function systemFontPreference(): FontPreference {
   return { mode: 'system', family: '' }

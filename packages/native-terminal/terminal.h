@@ -60,6 +60,7 @@ typedef struct {
 typedef struct {
   uint64_t applied_sequence, reply_sequence, frame_copies, geometry_failure_serial;
   uint64_t io_applied_mutation, io_applied_sequence;
+  uint64_t applied_appearance_serial, appearance_failure_serial;
   uint32_t input_failure;
   size_t queued_reply_bytes;
   uint32_t failure, closing;
@@ -114,6 +115,19 @@ hvir_terminal_result hvir_terminal_resize(hvir_terminal_host *, hvir_terminal_id
 hvir_terminal_result hvir_terminal_resize_scaled(hvir_terminal_host *, hvir_terminal_id,
                                                  uint64_t serial, uint32_t width,
                                                  uint32_t height, double backing_scale);
+/* CSS family stack is bounded UTF8 data, never config syntax. Font size is CSS
+ * pixels; cursor shape:block0,bar1,underline2,hollow3; blink:terminal0,on1,off2. */
+typedef struct {
+  const char *font_family;
+  double font_size;
+  uint32_t cursor_shape, cursor_blink;
+  bool ligatures, light;
+  uint32_t colors[22]; /* background,foreground,cursor,text,selection bg/fg,ANSI16 */
+} hvir_terminal_appearance;
+/* Success enqueues; inspect's exact applied serial certifies the IO config fence.
+ * Typography still requires a fresh applied resize before PTY size notification. */
+hvir_terminal_result hvir_terminal_appearance_set(hvir_terminal_host *, hvir_terminal_id,
+  uint64_t serial, const hvir_terminal_appearance *, uint64_t *requested_mutation);
 hvir_terminal_result hvir_terminal_visibility(hvir_terminal_host *, hvir_terminal_id, uint32_t visible);
 hvir_terminal_result hvir_terminal_inspect(hvir_terminal_host *, hvir_terminal_id,
                                            hvir_terminal_status *);

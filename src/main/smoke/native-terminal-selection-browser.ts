@@ -1,3 +1,7 @@
+import {
+  nativeTerminalViewPoint,
+  nativeTerminalViewRect,
+} from './native-terminal-browser-coordinates'
 import { createHash } from 'node:crypto'
 import { clipboard, type BrowserWindow, type NativeImage } from 'electron'
 import type { ManagedPty } from '../pty/pty-supervisor'
@@ -186,15 +190,17 @@ export function nativeSelectionBrowser(
     button: 'left' | 'right' = 'left',
     clickCount = 1,
     modifiers: ('control' | 'meta' | 'shift' | 'leftbuttondown')[] = [],
-  ) =>
+  ) => {
+    const view = nativeTerminalViewPoint({ x, y }, win.webContents.getZoomFactor())
     win.webContents.sendInputEvent({
       type,
-      x: Math.round(x),
-      y: Math.round(y),
+      x: Math.round(view.x),
+      y: Math.round(view.y),
       button,
       clickCount,
       modifiers,
     })
+  }
   const point = async (column: number, row: number) => {
     const { geometry: g, bounds: b } = await layout()
     return {
@@ -310,11 +316,20 @@ export function nativeSelectionBrowser(
         captureTimingUnavailable = true
       }
       try {
+        const view = nativeTerminalViewRect(
+          {
+            x: b.x + g.paddingLeft / g.backingScale,
+            y: b.y + (g.paddingTop + 4 * g.cellHeight) / g.backingScale,
+            width: (10 * g.cellWidth) / g.backingScale,
+            height: g.cellHeight / g.backingScale,
+          },
+          win.webContents.getZoomFactor(),
+        )
         image = await win.webContents.capturePage({
-          x: Math.ceil(b.x + g.paddingLeft / g.backingScale),
-          y: Math.ceil(b.y + (g.paddingTop + 4 * g.cellHeight) / g.backingScale),
-          width: Math.max(1, Math.floor((10 * g.cellWidth) / g.backingScale)),
-          height: Math.max(1, Math.floor(g.cellHeight / g.backingScale)),
+          x: Math.ceil(view.x),
+          y: Math.ceil(view.y),
+          width: Math.max(1, Math.floor(view.width)),
+          height: Math.max(1, Math.floor(view.height)),
         })
         completed = true
       } finally {

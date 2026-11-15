@@ -48,6 +48,7 @@ describe('local physical exit versus retained effect authority', () => {
           ioAppliedSequence: sequence,
         }),
       ),
+      appearanceProducer: () => Promise.resolve(nativeTerminalStatus()),
       resizeProducer: vi.fn(() => Promise.resolve(nativeTerminalStatus())),
       feed: vi.fn(() => {
         sequence++

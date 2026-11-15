@@ -7,7 +7,7 @@
     "sha256": "2c276d3e62cb15fb38f0d7f621f199029d1d4df86538096c6bec2a107cad7159",
     "applicationVersion": "1.4.1-dev",
     "vtVersion": "1.0.1",
-    "embedAbi": 9
+    "embedAbi": 10
   },
   "zig": {
     "version": "0.17.0",
@@ -70,6 +70,11 @@
       "file": "patches/0008-external-query.patch.txt",
       "sha256": "b3d7782282755a033399b40966aac04341a26e81d457225fbf143258e0bc2052",
       "purpose": "Generic same-Terminal bounded literal query continuations, compact native occurrence metadata, exact retained-cell write identity, parser-origin logical boundary tokens, and independent-screen bounded range/resolver cursors. Product authority, UI search state and clipboard policy remain maintained C/TypeScript."
+    },
+    {
+      "file": "patches/0009-external-appearance.patch.txt",
+      "sha256": "42e06c3db81ffcc3b313dc7171e800456c102ab960e645d311ecebdc5999f16e",
+      "purpose": "Typed per-Surface font, shaping, palette and cursor configuration with strict application failure, selective font-grid rebuild, platform-correct pixel metrics, retained DEC cursor overrides, and external-media restrictions across reload. Product settings, CSS family mapping and authority remain maintained C/TypeScript."
     }
   ],
   "targets": {

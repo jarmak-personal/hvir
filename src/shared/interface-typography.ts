@@ -8,3 +8,7 @@ export const SYSTEM_MONOSPACE_FONT_STACK =
   'ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace'
 export const MAX_MONOSPACE_FONT_STACK_LENGTH =
   MAX_FONT_FAMILY_LENGTH * 2 + 4 + SYSTEM_MONOSPACE_FONT_STACK.length
+
+/** Existing Settings terminal text-size policy, shared with native admission. */
+export const MIN_TERMINAL_TEXT_SIZE = 10
+export const MAX_TERMINAL_TEXT_SIZE = 24

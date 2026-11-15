@@ -121,6 +121,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'native-terminal:attach',
   'native-terminal:metadata',
   'native-terminal:update',
+  'native-terminal:appearance',
   'native-terminal:demand',
   'native-terminal:detach',
   'native-terminal:key',

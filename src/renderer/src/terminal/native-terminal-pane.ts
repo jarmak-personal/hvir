@@ -1,4 +1,9 @@
 import {
+  nativeTerminalTypographyChanged,
+  nativeTerminalAppearanceEquals,
+  type NativeTerminalAppearance,
+} from '../../../shared/native-terminal-appearance'
+import {
   NativeTerminalRetained,
   type NativeTerminalRetainedPort,
 } from './native-terminal-retained'
@@ -32,6 +37,7 @@ import {
 import type { NativeTerminalPanePort, TerminalPresentation } from './terminal-pane'
 
 interface NativePanePort extends NativeTerminalSurfacePort {
+  appearance(viewId: string, appearance: NativeTerminalAppearance): Promise<boolean>
   attach(sessionId: string): Promise<{
     viewId: string
     instanceId?: string
@@ -80,6 +86,10 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
   private viewId?: string
   private inputReady = false
   private inputRevision = 0
+  private appearance?: NativeTerminalAppearance
+  private appearanceApplied?: NativeTerminalAppearance
+  private appearanceWork?: Promise<void>
+  private appearanceBlocksInput = false
   private sessionId?: string
   private readonly effectEvents = new NativeTerminalPaneEffects(() => ({
     sessionId: this.sessionId,
@@ -123,8 +133,8 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
       'position:absolute;top:2px;left:4px;right:4px;z-index:2;font-size:10px;pointer-events:none'
     this.notice.setAttribute('role', 'status')
     this.notice.textContent = this.retained
-      ? 'Native preview: live settings are unfinished.'
-      : 'Native preview: search, semantic navigation and live settings are unfinished.'
+      ? ''
+      : 'Native preview: search and semantic navigation are unfinished.'
     this.element.appendChild(this.notice)
     this.selectionOwner = new NativeTerminalSelection({
       view: () =>
@@ -209,7 +219,12 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
     this.input.setEnabled(presentation === 'visible')
     this.surface?.setPresentation(presentation)
   }
-  viewport(): { width: number; height: number; backingScale: number } {
+  viewport(): {
+    width: number
+    height: number
+    backingScale: number
+    appearance?: NativeTerminalAppearance
+  } {
     const bounds = this.element.getBoundingClientRect()
     const backingScale = window.devicePixelRatio
     const width = Math.round(bounds.width * backingScale)
@@ -224,7 +239,12 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
       height > 8192
     )
       throw new Error('Native terminal requires a measurable visible pane')
-    return { width, height, backingScale }
+    return {
+      width,
+      height,
+      backingScale,
+      ...(this.appearance ? { appearance: this.appearance } : {}),
+    }
   }
   async bind(sessionId: string): Promise<void> {
     if (this.disposed || this.binding || this.viewId)
@@ -260,6 +280,12 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
       this.effectEvents.restoreSemantics(semanticSnapshot)
       if (inputUnavailable)
         this.fail('Native input unavailable; terminal output remains visible')
+      await this.applyAppearance()
+      if (this.disposed || this.viewId !== viewId) {
+        this.viewId = undefined
+        await this.port.detach(viewId)
+        return
+      }
       this.surface = new NativeTerminalSurface(viewId, this.api, {
         demand: (id) => this.port.demand(id),
         detach: (id) => this.port.detach(id),
@@ -267,8 +293,10 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
           const revision = ++this.inputRevision
           this.inputReady = false
           this.input.setReady(false)
+          await this.applyAppearance()
           await this.port.update(id, geometry)
           if (!this.disposed && revision === this.inputRevision) {
+            this.appearanceBlocksInput = false
             this.inputReady = geometry.visible && this.presentation === 'visible'
             this.input.setReady(this.inputReady)
           }
@@ -295,6 +323,71 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
     } finally {
       this.binding = false
     }
+  }
+  setAppearance(appearance: NativeTerminalAppearance): void {
+    if (this.disposed || nativeTerminalAppearanceEquals(this.appearance, appearance))
+      return
+    if (nativeTerminalTypographyChanged(this.appearance, appearance)) {
+      this.appearanceBlocksInput = true
+      this.inputReady = false
+      this.input.setReady(false)
+      this.inputRevision++
+      this.selectionOwner.revoke()
+      this.links.revoke()
+    }
+    this.appearance = appearance
+    if (this.viewId)
+      void this.applyAppearance().catch(() => this.fail('Native appearance unavailable'))
+  }
+  private applyAppearance(): Promise<void> {
+    if (this.appearanceWork) return this.appearanceWork
+    if (
+      this.disposed ||
+      !this.viewId ||
+      !this.appearance ||
+      this.appearance === this.appearanceApplied
+    )
+      return Promise.resolve()
+    const applying = (async () => {
+      while (
+        !this.disposed &&
+        this.viewId &&
+        this.appearance !== this.appearanceApplied
+      ) {
+        const appearance = this.appearance
+        if (!appearance) return
+        const viewId = this.viewId
+        const revision = this.inputRevision
+        const ready = await this.port.appearance(viewId, appearance)
+        if (this.disposed || this.viewId !== viewId) return
+        this.appearanceApplied = appearance
+        if (
+          ready &&
+          this.appearanceBlocksInput &&
+          this.appearance === appearance &&
+          this.surface &&
+          revision === this.inputRevision
+        ) {
+          this.appearanceBlocksInput = false
+          this.inputReady = this.presentation === 'visible'
+          this.input.setReady(this.inputReady)
+        }
+      }
+    })()
+    const work: Promise<void> = applying.then(
+      () => {
+        if (this.appearanceWork === work) this.appearanceWork = undefined
+        // A new snapshot can arrive between the final loop check and settlement.
+        if (!this.disposed && this.appearance !== this.appearanceApplied)
+          return this.applyAppearance()
+      },
+      (error: unknown) => {
+        if (this.appearanceWork === work) this.appearanceWork = undefined
+        throw error
+      },
+    )
+    this.appearanceWork = work
+    return work
   }
   paste(data: string): void {
     this.input.pasteText(data)
@@ -342,6 +435,8 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
 
 export function createNativeTerminalPane(): NativeTerminalPane {
   return new NativeTerminalPane(window.hvir.nativeTerminalPresentation, {
+    appearance: (viewId, appearance) =>
+      window.hvir.invoke('native-terminal:appearance', { viewId, appearance }),
     metadata: (id) => window.hvir.invoke('native-terminal:metadata', { id }),
     query: (request) => window.hvir.invoke('native-terminal:query', request),
     cancelQuery: (viewId, requestId) =>

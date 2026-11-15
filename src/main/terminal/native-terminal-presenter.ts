@@ -1,3 +1,7 @@
+import {
+  nativeTerminalTypographyChanged,
+  type NativeTerminalAppearance,
+} from '../../shared/native-terminal-appearance'
 import { randomUUID } from 'node:crypto'
 import type { WebFrameMain } from 'electron'
 import {
@@ -54,6 +58,11 @@ interface View {
   pixelDeadline?: number
   failed: boolean
   lastPixels: number
+  appearance?: NativeTerminalAppearance
+  appearanceApplied?: NativeTerminalAppearance
+  typographyPending?: boolean
+  appearanceRevision?: number
+  appearanceWork?: Promise<void>
   layout?: Layout
   desired?: Layout & { serial: number; revision: number }
   grant?: NativeTerminalViewGrant
@@ -69,6 +78,7 @@ type PresentationHost = Pick<
   | 'inspect'
   | 'nativeEpoch'
   | 'resize'
+  | 'appearance'
   | 'setVisible'
   | 'takeFrame'
   | 'presentationMode'
@@ -178,6 +188,61 @@ export class NativeTerminalPresenter {
     } finally {
       this.preparing.delete(handle)
     }
+  }
+  /** Palette changes retain the grant; typography revokes it before native mutation. */
+  async appearance(
+    viewId: string,
+    appearance: NativeTerminalAppearance,
+  ): Promise<boolean> {
+    const view = this.require(viewId)
+    const geometryChanged = nativeTerminalTypographyChanged(view.appearance, appearance)
+    const revision = (view.appearanceRevision ?? 0) + 1
+    view.appearanceRevision = revision
+    view.appearance = appearance
+    if (geometryChanged) {
+      view.typographyPending = true
+      view.revision++
+      view.grant = undefined
+      view.target.publishGrant(undefined)
+    }
+    await this.applyAppearance(view)
+    this.assertCurrent(view)
+    if (view.appearanceRevision !== revision)
+      throw new Error('native-appearance-superseded')
+    return view.typographyPending === true
+  }
+  private applyAppearance(view: View): Promise<void> {
+    if (view.appearanceWork) return view.appearanceWork
+    if (!view.appearance || view.appearance === view.appearanceApplied)
+      return Promise.resolve()
+    const applying = (async () => {
+      while (view.appearance && view.appearance !== view.appearanceApplied) {
+        this.assertCurrent(view)
+        const appearance = view.appearance
+        await this.host.appearance(
+          view.handle,
+          view.session.ownerId,
+          view.session.ownerGeneration,
+          view.attachment,
+          appearance,
+        )
+        this.assertCurrent(view)
+        view.appearanceApplied = appearance
+      }
+    })()
+    const work: Promise<void> = applying.then(
+      () => {
+        if (view.appearanceWork === work) view.appearanceWork = undefined
+        if (!view.closed && view.appearance !== view.appearanceApplied)
+          return this.applyAppearance(view)
+      },
+      (error: unknown) => {
+        if (view.appearanceWork === work) view.appearanceWork = undefined
+        throw error
+      },
+    )
+    view.appearanceWork = work
+    return work
   }
   update(viewId: string, layout: Layout): Promise<NativeTerminalViewGrant | undefined> {
     const view = this.require(viewId)
@@ -297,7 +362,9 @@ export class NativeTerminalPresenter {
       const desired = view.desired
       view.desired = undefined
       try {
+        if (view.appearanceWork) await view.appearanceWork
         this.assertCurrent(view)
+        if (view.revision !== desired.revision) continue
         const status = await this.host.resize(
           view.handle,
           view.session.ownerId,
@@ -319,6 +386,7 @@ export class NativeTerminalPresenter {
         )
         if (view.revision !== desired.revision) continue
         this.assertCurrent(view)
+        view.typographyPending = false
         if (Math.abs(status.geometry.backingScale - desired.backingScale) > 0.00001)
           throw new Error('native-scale-unacknowledged')
         if (this.isBlocked(view)) view.failed = true

@@ -1,3 +1,4 @@
+import { validNativeTerminalAppearance } from '../shared/native-terminal-appearance'
 import { validNativeTerminalLinkQuery } from '../shared/native-terminal-link'
 import { validNativeTerminalSelectionOperation } from '../shared/native-terminal-selection'
 import { validNativeTerminalQueryOperation } from '../shared/native-terminal-query-operations'
@@ -179,6 +180,17 @@ export function runNativeTerminalHost(
             'feed',
             [state, command.sequence, command.bytes],
             command.bytes.byteLength,
+          ),
+        )
+      case 'appearance':
+        return plain(
+          requireOk(
+            await invoke(
+              state,
+              'appearance',
+              [state, command.serial, command.appearance],
+              nativeTerminalCommandBytes(command),
+            ),
           ),
         )
       case 'resize':
@@ -491,6 +503,12 @@ function validCommand(value: NativeTerminalCommand): boolean {
         (value.kind === 'create' || validNativeTerminalScale(value.backingScale ?? 1)) &&
         (value.kind === 'create' ||
           (Number.isSafeInteger(value.serial) && value.serial > 0))
+      )
+    case 'appearance':
+      return (
+        Number.isSafeInteger(value.serial) &&
+        value.serial > 0 &&
+        validNativeTerminalAppearance(value.appearance)
       )
     case 'link':
       return validNativeTerminalLinkQuery(value.query)

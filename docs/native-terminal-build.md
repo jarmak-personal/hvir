@@ -3,7 +3,7 @@
 The native dependency owner builds the **full pinned Ghostty source**, including its renderer.
 The stable libghostty-vt archive alone cannot produce this artifact. The application source is
 `108cacb17ed8990840cd14abfce43d8ed8503ca1` (`1.4.1-dev`); its VT release is `1.0.1`.
-The private embedding-hook ABI is `1`. These are independent identities.
+The private embedding-hook ABI is `10`. These are independent identities.
 
 This tooling produces libraries, maintained C bridge inputs, a separate-process loader probe,
 and provenance. It creates no terminal, PTY, provider, renderer attachment or application host.
@@ -77,7 +77,8 @@ enable or replace the application terminal path.
 
 ## Patch and upgrade ownership
 
-`scripts/native-terminal/pin.json` is the complete input pin. Its one current upstream patch:
+`scripts/native-terminal/pin.json` is the complete input pin and records every ordered patch
+with its purpose and checksum. The initial build patch:
 
 - installs the existing macOS shared-library output;
 - skips the unused Linux static-library install and its separate full-core compile;
@@ -85,7 +86,12 @@ enable or replace the application terminal path.
 - links system EGL into the Linux shared library; and
 - exports the version of the upstream hooks consumed by the maintained C facade.
 
-The patch changes upstream build/core exports only. hvir's own facade, loader, Node-API and OS
+Later patches expose external transport, geometry, presentation, input, effects, selection,
+retained queries, and typed appearance on the same native Surface. The appearance hook accepts
+explicit font families, shaping, colors and cursor defaults, skips font-grid rebuilds for
+palette-only changes, and preserves external-media restrictions during reload.
+
+The patches change upstream build/core exports only. hvir's own facade, loader, Node-API and OS
 resource code belongs under `packages/native-terminal/` as maintained C/headers. No independent
 hvir Zig implementation may be hidden in a reproduction patch.
 

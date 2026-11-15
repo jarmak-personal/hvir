@@ -14,6 +14,8 @@ export interface Geometry {
   paddingTop: number
 }
 export interface Status {
+  appliedAppearanceSerial: bigint
+  appearanceFailureSerial: bigint
   ioAppliedMutation: bigint
   ioAppliedSequence: bigint
   inputFailure: number
@@ -166,7 +168,10 @@ declare const engine: {
     cursor: bigint,
   ): SelectionResult & Partial<QueryResolution>
   extractClose(host: Host, id: bigint, cursor: bigint): Result
-  queryContext(host: Host, id: bigint): QueryResult & { screen: 0 | 1; geometrySerial: bigint }
+  queryContext(
+    host: Host,
+    id: bigint,
+  ): QueryResult & { screen: 0 | 1; geometrySerial: bigint }
   queryBegin(
     host: Host,
     id: bigint,
@@ -259,6 +264,13 @@ declare const engine: {
     height: number,
     backingScale?: number,
   ): Result
+  /** Enqueue only; inspect.appliedAppearanceSerial certifies native application. */
+  appearance(
+    host: Host,
+    id: bigint,
+    serial: bigint,
+    value: import('../../src/shared/native-terminal-appearance').NativeTerminalAppearance,
+  ): Result & { requestedMutation: bigint }
   visibility(host: Host, id: bigint, visible: boolean): Result
   copyFrame(
     host: Host,

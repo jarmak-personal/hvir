@@ -39,7 +39,7 @@ typedef enum {
   PRESENTATION_MODE,
   RENDERER_INFO,
   INPUT,
-  LINK, SELECTION, EXTRACT_BEGIN, EXTRACT_NEXT, EXTRACT_FINISH, EXTRACT_CLOSE, LINK_CURRENT, LINK_ROW_BEGIN
+  LINK, SELECTION, EXTRACT_BEGIN, EXTRACT_NEXT, EXTRACT_FINISH, EXTRACT_CLOSE, LINK_CURRENT, LINK_ROW_BEGIN, APPEARANCE
 } operation;
 static binding_host *host(napi_env env, napi_value value) {
   bool matches = false;
@@ -110,6 +110,8 @@ static napi_value status_value(napi_env env, const hvir_terminal_status *s) {
       !put(env, result, "frameCopies", big(env, s->frame_copies)) ||
       !put(env, result, "geometryFailureSerial", big(env, s->geometry_failure_serial)) ||
       !put(env, result, "ioAppliedMutation", big(env, s->io_applied_mutation)) ||
+      !put(env, result, "appliedAppearanceSerial", big(env, s->applied_appearance_serial)) ||
+      !put(env, result, "appearanceFailureSerial", big(env, s->appearance_failure_serial)) ||
       !put(env, result, "ioAppliedSequence", big(env, s->io_applied_sequence)) ||
       !put(env, result, "inputFailure", number(env, s->input_failure)) ||
       !put(env, result, "replySequence", big(env, s->reply_sequence)) ||
@@ -442,8 +444,45 @@ failed:
   free((void *)event.text); return NULL;
 }
 
+static napi_value appearance_operation(napi_env env, binding_host *host, uint64_t id, uint64_t serial, napi_value value) {
+  hvir_terminal_appearance appearance = {0};
+  char *family = text(env, input_property(env, value, "fontFamily"), 1024);
+  char *shape = text(env, input_property(env, value, "cursorShape"), 16);
+  char *blink = text(env, input_property(env, value, "cursorBlink"), 16);
+  char *mode = text(env, input_property(env, value, "appearance"), 5);
+  bool valid = family && shape && blink && mode &&
+    input_keys(env, value, "|fontFamily|fontSize|ligatures|cursorShape|cursorBlink|appearance|colors|") &&
+    input_coordinate(env, value, "fontSize", &appearance.font_size) &&
+    input_bool(env, value, "ligatures", &appearance.ligatures);
+  if (valid) {
+    appearance.cursor_shape = !strcmp(shape, "block") ? 0 : !strcmp(shape, "bar") ? 1 :
+      !strcmp(shape, "underline") ? 2 : !strcmp(shape, "hollow-block") ? 3 : 4;
+    appearance.cursor_blink = !strcmp(blink, "terminal") ? 0 : !strcmp(blink, "blinking") ? 1 :
+      !strcmp(blink, "steady") ? 2 : 3;
+    appearance.light = !strcmp(mode, "light");
+    valid = appearance.cursor_shape < 4 && appearance.cursor_blink < 3 &&
+      (appearance.light || !strcmp(mode, "dark"));
+    napi_value colors = input_property(env, value, "colors");
+    bool array = false; uint32_t length = 0;
+    valid = valid && colors && napi_is_array(env, colors, &array) == napi_ok && array &&
+      napi_get_array_length(env, colors, &length) == napi_ok && length == 22;
+    for (uint32_t i = 0; valid && i < 22; i++) {
+      napi_value color;
+      valid = napi_get_element(env, colors, i, &color) == napi_ok && u32(env, color, &appearance.colors[i]) &&
+        appearance.colors[i] <= 0xffffff;
+    }
+  }
+  appearance.font_family = family;
+  uint64_t mutation = 0;
+  hvir_terminal_result code = valid ? hvir_terminal_appearance_set(host->native, id, serial, &appearance, &mutation) : HVIR_INVALID;
+  free(family); free(shape); free(blink); free(mode);
+  if (!valid) { bad_argument(env); return NULL; }
+  napi_value result = outcome(env, code);
+  return result && put(env, result, "requestedMutation", big(env, mutation)) ? result : NULL;
+}
+
 static napi_value invoke(napi_env env, napi_callback_info info) {
-  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4, 3, 2, 3, 3, 4, 4, 3, 3, 3, 3, 3};
+  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4, 3, 2, 3, 3, 4, 4, 3, 3, 3, 3, 3, 4};
   size_t argc = 8;
   napi_value args[8];
   void *data;
@@ -541,6 +580,10 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
     hvir_terminal_result code = hvir_terminal_feed(h->native, id, serial, copy, length);
     free(copy);
     return outcome(env, code);
+  }
+  if (op == APPEARANCE) {
+    if (!u64(env, args[2], &serial)) return NULL;
+    return appearance_operation(env, h, id, serial, args[3]);
   }
   if (op == RESIZE) {
     if (!u64(env, args[2], &serial) || !u32(env, args[3], &width) || !u32(env, args[4], &height))
@@ -793,7 +836,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
 static napi_value initialize(napi_env env, napi_value exports) {
   static const char *names[] = {"open",         "createBegin", "feed", "resize", "inspect",
                                 "read",         "drain",       "key",  "event",  "takeFrame",
-                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame", "presentationMode", "rendererInfo", "input", "link", "selection", "extractBegin", "extractNext", "extractFinish", "extractClose", "linkCurrent", "linkRowBegin"};
+                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame", "presentationMode", "rendererInfo", "input", "link", "selection", "extractBegin", "extractNext", "extractFinish", "extractClose", "linkCurrent", "linkRowBegin", "appearance"};
   for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
     napi_value function;
     if (!checked(env, napi_create_function(env, names[i], NAPI_AUTO_LENGTH, invoke,

@@ -70,6 +70,8 @@ function status(): Status {
     presentationFailure: 0,
     frameCopies: 0n,
     geometryFailureSerial: 0n,
+    appliedAppearanceSerial: 0n,
+    appearanceFailureSerial: 0n,
     geometry: {
       serial: 1n,
       columns: 80,
@@ -416,6 +418,26 @@ describe('native utility owner', () => {
     )
   })
 
+  it('dispatches bounded appearance settings on the designated native caller and preserves its mutation fence', async () => {
+    await create()
+    const appearance = {
+      fontFamily: 'monospace',
+      fontSize: 13,
+      ligatures: true,
+      cursorShape: 'hollow-block',
+      cursorBlink: 'terminal',
+      appearance: 'dark',
+      colors: Array(22).fill(0x123456),
+    }
+    port.send(2, { kind: 'appearance', state: '7', serial: 1, appearance })
+    expect(last()).toMatchObject({ operation: 'appearance', args: ['7', 1, appearance] })
+    await complete({ result: 0, requestedMutation: 71n })
+    expect(port.result(2)).toMatchObject({
+      ok: true,
+      value: { result: 0, requestedMutation: 71 },
+    })
+  })
+
   it('runs the native key encoder on the caller worker and returns exact bytes', async () => {
     await create()
     port.send(2, { kind: 'key', state: '7', key: 22, modifiers: 2, action: 1, text: 'c' })
@@ -433,6 +455,8 @@ describe('native utility owner', () => {
     { kind: 'key', state: '7', key: 0, modifiers: 0, action: 3, text: '' },
     { kind: 'key', state: '7', key: 0, modifiers: 0, action: 1, text: '\0' },
     { kind: 'key', state: '7', key: 0, modifiers: 0, action: 1, text: 'é'.repeat(2049) },
+    { kind: 'appearance', state: '7', serial: 0, appearance: {} },
+    { kind: 'appearance', state: '7', serial: 1, appearance: { command: 'untrusted' } },
     { kind: 'read' },
     { kind: 'read', state: 7 },
     { kind: 'read', state: '0' },
