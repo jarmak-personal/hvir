@@ -31,6 +31,19 @@ then uses measured native font metrics and the existing applied-resize serial be
 publishing a new grant or notifying the PTY. Display scale follows the same geometry path.
 A configuration acknowledgement certifies native application, not physical presentation.
 
+Separate frame authority from the WebGL context owned by an attached renderer view.
+An explicit visible geometry or typography refit may retain that context only for the
+same native epoch and attachment while revoking its frame grant immediately. Suspend
+old pixels until a newly issued geometry grant and a matching frame draw; the resume
+floor is the highest issued geometry serial, including grants not yet drawn. Retention
+holds no imported frame, VideoFrame, input authority or extra import credit.
+
+Unhinted revocation, hiding, unmounting, failure and identity replacement dispose the
+context. Context loss is bound to the exact canvas lifetime and remains latched during
+a refit gap. A failed refit strongly revokes and occludes; a lost retained context cannot
+resume on a new grant and instead acknowledges that newly issued grant through the
+existing failure path. No grace timer or second authority registry is introduced.
+
 Carry the same bounded snapshot with initial viewport preparation so native configuration
 and measured initial geometry precede PTY launch. Hidden terminals retain native state and
 accept settings without a new PTY; reveal acknowledges their current measured geometry.
@@ -58,3 +71,4 @@ private ABI and must be reproduced with its native source and bindings.
 - Treating configuration enqueue or an old resize acknowledgement as completion.
 - Rebuilding fonts for palette-only updates or preserving stale typography geometry.
 - Restarting the PTY to apply settings or waiting for terminal output to become idle.
+- Recreating a healthy WebGL context solely because a visible refit revoked frame authority.

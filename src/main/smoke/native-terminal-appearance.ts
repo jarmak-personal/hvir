@@ -7,6 +7,7 @@ import { terminalProbeSourceDelivery } from './terminal-probe-source'
 import {
   clipboardInstall,
   nativeSelectionBrowser,
+  paneScript,
 } from './native-terminal-selection-browser'
 
 const PREFIX = '__HVIR_NATIVE_APPEARANCE_'
@@ -657,6 +658,9 @@ export async function verifyNativeTerminalAppearance(
     await browser.ready()
     const revealed = await browser.layout()
     assertGeometry(revealed.geometry, revealed.bounds)
+    const refitCanvasEligible = await evaluate<boolean>(
+      `${paneScript(managed.id)}window.nativeSelectionProbe.refitCanvas=canvas;return canvas.getContext('webgl2')!==null;`,
+    )
     const zoomBefore = revealed.geometry
     win.webContents.setZoomFactor(initialZoom * (revealed.bounds.dpr <= 3 ? 1.25 : 0.875))
     await browser.wait(async () => {
@@ -669,6 +673,11 @@ export async function verifyNativeTerminalAppearance(
     await browser.ready()
     const fractional = await browser.layout()
     assertGeometry(fractional.geometry, fractional.bounds)
+    const refitCanvasRetained = await evaluate<boolean>(
+      `${paneScript(managed.id)}const retained=canvas===window.nativeSelectionProbe.refitCanvas;delete window.nativeSelectionProbe.refitCanvas;return retained;`,
+    )
+    if (refitCanvasEligible && !refitCanvasRetained)
+      throw new Error('native-appearance-visible-refit-replaced-canvas')
     await control('cursor', { name: 'fractional-underline', code: 4 })
     await browser.focus()
     let fractionalCursor: Awaited<ReturnType<typeof colorPixels>> | undefined
@@ -847,6 +856,7 @@ export async function verifyNativeTerminalAppearance(
         stty: { rows: fontGeometry.rows, columns: fontGeometry.columns },
       },
       fractionalScale: {
+        refitCanvas: { eligible: refitCanvasEligible, retained: refitCanvasRetained },
         cursor: { shape: 'underline', ...fractionalCursor },
         before: zoomBefore.backingScale,
         after: fractional.geometry.backingScale,

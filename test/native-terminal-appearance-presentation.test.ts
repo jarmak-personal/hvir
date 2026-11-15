@@ -182,3 +182,43 @@ describe('native appearance and presentation completion', () => {
     f.app.dispose()
   })
 })
+
+it('strongly revokes a rejected current typography refit before any replacement geometry is issued', async () => {
+  const f = nativeTerminalPresenterFixture(),
+    id = await f.owner.attach('state', f.session, f.target)
+  await f.owner.appearance(id, appearance)
+  await f.owner.update(id, layout)
+  const before = f.target.publishGrant.mock.calls.length
+  const failure = new Error('appearance refused')
+  f.host.appearance.mockRejectedValueOnce(failure)
+  await expect(f.owner.appearance(id, { ...appearance, fontSize: 14 })).rejects.toBe(
+    failure,
+  )
+  expect(f.target.publishGrant.mock.calls.slice(before)).toEqual([
+    [undefined, { attachment: 1, nativeEpoch: f.live.epoch }],
+    [undefined],
+  ])
+  expect(f.host.setVisible).toHaveBeenLastCalledWith('state', 1, 1, 1, false)
+  expect(f.owner.isInputCurrent(id)).toBe(false)
+  await f.owner.detach(id)
+})
+
+it('strongly revokes and occludes if typography refit notification throws before config admission', async () => {
+  const f = nativeTerminalPresenterFixture(),
+    id = await f.owner.attach('state', f.session, f.target)
+  await f.owner.appearance(id, appearance)
+  await f.owner.update(id, layout)
+  f.host.appearance.mockClear()
+  const failure = new Error('hint delivery failed')
+  f.target.publishGrant.mockImplementationOnce(() => {
+    throw failure
+  })
+  await expect(f.owner.appearance(id, { ...appearance, fontSize: 14 })).rejects.toBe(
+    failure,
+  )
+  expect(f.target.publishGrant).toHaveBeenLastCalledWith(undefined)
+  expect(f.host.appearance).not.toHaveBeenCalled()
+  expect(f.host.setVisible).toHaveBeenLastCalledWith('state', 1, 1, 1, false)
+  expect(f.owner.isInputCurrent(id)).toBe(false)
+  await f.owner.detach(id)
+})

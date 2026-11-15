@@ -324,6 +324,9 @@ jobs:
           assert.equal(proof.readonlyQuery.exactCopy.sha256, crypto.createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex'));
           assert(proof.readonlyQuery.frames >= 2 && Number.isFinite(proof.readonlyQuery.maximumFrameGapMs) && proof.readonlyQuery.maximumFrameGapMs <= 500);
           const appearance = proof.nativeAppearance;
+          assert.equal(typeof appearance.fractionalScale.refitCanvas.eligible, 'boolean');
+          assert.equal(typeof appearance.fractionalScale.refitCanvas.retained, 'boolean');
+          assert(!appearance.fractionalScale.refitCanvas.eligible || appearance.fractionalScale.refitCanvas.retained);
           assert.equal(appearance.actualNative, true);
           assert.equal(appearance.initialFontAppliedBeforeDraw, true);
           assert.equal(appearance.restoredBuiltinPalettePixels, true);

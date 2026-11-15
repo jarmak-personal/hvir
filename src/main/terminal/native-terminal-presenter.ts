@@ -8,6 +8,7 @@ import {
   NATIVE_TERMINAL_PRESENTATION as limits,
   validNativeTerminalScale,
   sameNativeTerminalView,
+  type NativeTerminalCanvasRefit,
   type NativeTerminalPixelFrame,
   type NativeTerminalPresentationStatus,
   type NativeTerminalViewGrant,
@@ -31,7 +32,10 @@ export interface NativeTerminalPresentationTarget {
   readonly ready: boolean
   isCurrent(): boolean
   onUnavailable(listener: (grant: NativeTerminalViewGrant) => void): () => void
-  publishGrant(grant: NativeTerminalViewGrant | undefined): void
+  publishGrant(
+    grant: NativeTerminalViewGrant | undefined,
+    refit?: NativeTerminalCanvasRefit,
+  ): void
   publishStatus(status: NativeTerminalPresentationStatus): void
   sendPixels(frame: NativeTerminalPixelFrame): Promise<void>
 }
@@ -199,17 +203,29 @@ export class NativeTerminalPresenter {
     const revision = (view.appearanceRevision ?? 0) + 1
     view.appearanceRevision = revision
     view.appearance = appearance
-    if (geometryChanged) {
-      view.typographyPending = true
-      view.revision++
-      view.grant = undefined
-      view.target.publishGrant(undefined)
+    try {
+      if (geometryChanged) {
+        view.typographyPending = true
+        view.revision++
+        view.grant = undefined
+        const refit = this.visibleRefit(view, true)
+        if (refit) view.target.publishGrant(undefined, refit)
+        else view.target.publishGrant(undefined)
+      }
+      await this.applyAppearance(view)
+      this.assertCurrent(view)
+      if (view.appearanceRevision !== revision)
+        throw new Error('native-appearance-superseded')
+      return view.typographyPending === true
+    } catch (error) {
+      if (
+        !view.closed &&
+        this.views.get(view.id) === view &&
+        view.appearanceRevision === revision
+      )
+        await this.unavailable(view, 'native-lost')
+      throw error
     }
-    await this.applyAppearance(view)
-    this.assertCurrent(view)
-    if (view.appearanceRevision !== revision)
-      throw new Error('native-appearance-superseded')
-    return view.typographyPending === true
   }
   private applyAppearance(view: View): Promise<void> {
     if (view.appearanceWork) return view.appearanceWork
@@ -256,6 +272,7 @@ export class NativeTerminalPresenter {
       typeof layout.visible !== 'boolean'
     )
       throw new Error('native-presentation-geometry-invalid')
+    const refit = this.visibleRefit(view, layout.visible)
     const serial = view.serial + 1
     if (!Number.isSafeInteger(serial)) throw new Error('native-presentation-serial-bound')
     view.serial = serial
@@ -266,7 +283,19 @@ export class NativeTerminalPresenter {
     view.layout = { ...layout }
     view.desired = { ...layout, serial, revision: view.revision }
     view.grant = undefined
-    view.target.publishGrant(undefined)
+    try {
+      if (refit) view.target.publishGrant(undefined, refit)
+      else view.target.publishGrant(undefined)
+    } catch (error) {
+      view.desired = undefined
+      const failure =
+        error instanceof Error
+          ? error
+          : new Error('native-refit-revocation-failed', { cause: error })
+      return this.unavailable(view, 'geometry-failed').then(() => {
+        throw failure
+      })
+    }
     if (view.updating) return view.updating
     const work = this.apply(view)
     view.updating = work
@@ -407,7 +436,7 @@ export class NativeTerminalPresenter {
       } catch (error) {
         if (view.closed) return undefined
         if (view.revision !== desired.revision) continue
-        this.status(view, 'unavailable', 'geometry-failed')
+        await this.unavailable(view, 'geometry-failed')
         throw error
       }
     }
@@ -632,6 +661,13 @@ export class NativeTerminalPresenter {
   ): void {
     if (!view.closed)
       view.target.publishStatus({ viewId: view.id, mode, ...(reason ? { reason } : {}) })
+  }
+  private visibleRefit(
+    view: View,
+    visible: boolean,
+  ): NativeTerminalCanvasRefit | undefined {
+    if (!view.visible || !visible || view.failed || this.isBlocked(view)) return
+    return { attachment: view.attachment, nativeEpoch: view.epoch }
   }
   private async occlude(view: View): Promise<void> {
     try {

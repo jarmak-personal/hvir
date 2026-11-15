@@ -184,12 +184,18 @@ export function createNativeTerminalCanvas(
       // Synchronous GPU status queries can wait for compositor work on this thread.
       // Submit; Chromium's VideoFrame release sync token owns actual GPU completion.
       gl.flush()
+      if (!disposed && canvas.isConnected && canvas.style.visibility === 'hidden')
+        canvas.style.visibility = ''
     } finally {
       if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
         nativePresentationSpanEnd('canvas-submit', started)
     }
   }
   return {
+    suspendForRefit(): void {
+      if (disposed || !canvas.isConnected) throw new Error('native-canvas-lost')
+      canvas.style.visibility = 'hidden'
+    },
     draw(frame: unknown, metadata: NativeTerminalPresentedFrame): void {
       let started: number | undefined
       if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)

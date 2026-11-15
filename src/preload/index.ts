@@ -26,7 +26,8 @@ const nativeReceiver = new NativeTerminalPresentationReceiver(
 )
 ipcRenderer.on(
   nativePresentation.grantChannel,
-  (_event, value: { viewId: string; grant?: unknown }) => nativeReceiver.grant(value),
+  (_event, value: { viewId: string; grant?: unknown; refit?: unknown }) =>
+    nativeReceiver.grant(value),
 )
 ipcRenderer.on(
   nativePresentation.statusChannel,
