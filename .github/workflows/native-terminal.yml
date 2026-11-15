@@ -232,6 +232,8 @@ jobs:
         timeout-minutes: 5
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          # Synthetic fixtures only: retain actual native primary-face INFO diagnostics.
+          GHOSTTY_LOG: stderr
         run: |
           npm run build:smoke
           # Keep diagnostic stderr out of the machine-readable proof stream.

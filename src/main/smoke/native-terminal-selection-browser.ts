@@ -69,7 +69,9 @@ export const clipboardInstall = (isolated: boolean) => `(() => {
  probe.nativeApiTiming=nativeApiTiming;
  Object.defineProperty(clipboard,'writeText',{configurable:true,value:async text=>{const bytes=new TextEncoder().encode(text),hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');if(${isolated})await write(text);probe.writes.push({bytes:bytes.length,sha256:hash});if(probe.writes.length>64)throw new Error('native-selection-clipboard-observation-bound');}});
  window.open=(target,frame,features)=>{probe.opens.push({target:String(target),frame,features});return null;};
- const tick=now=>{if(!probe.active)return;const from=probe.last,worst=now-from>probe.maxGapMs;probe.frames++;probe.maxGapMs=Math.max(probe.maxGapMs,now-probe.last);probe.last=now;requestAnimationFrame(tick);try{const current=viewState();if(worst)probe.worstGap={fromMs:from,toMs:now,fromEpochMs:probe.timeOriginMs+from,toEpochMs:probe.timeOriginMs+now,fromView:probe.lastViewState,toView:current};probe.lastViewState=current;}catch{probe.timingReadFailed=true;}};requestAnimationFrame(tick);
+ // A queued RAF frame timestamp can precede this probe's performance.now() boundary.
+ // Ignore nonadvancing timestamps without rewinding the baseline or counting a measured frame.
+ const tick=now=>{if(!probe.active)return;if(now<=probe.last){requestAnimationFrame(tick);return;}const from=probe.last,worst=now-from>probe.maxGapMs;probe.frames++;probe.maxGapMs=Math.max(probe.maxGapMs,now-probe.last);probe.last=now;requestAnimationFrame(tick);try{const current=viewState();if(worst)probe.worstGap={fromMs:from,toMs:now,fromEpochMs:probe.timeOriginMs+from,toEpochMs:probe.timeOriginMs+now,fromView:probe.lastViewState,toView:current};probe.lastViewState=current;}catch{probe.timingReadFailed=true;}};requestAnimationFrame(tick);
  probe.restore=()=>{probe.active=false;try{longTaskObserver?.disconnect();}catch{longTasks.unavailable=true;}try{nativeApiObserver?.disconnect();}catch{nativeApiTiming.unavailable=true;}try{document.removeEventListener('visibilitychange',visibilityChanged,true);}catch{probe.timingReadFailed=true;}window.open=open;if(descriptor)Object.defineProperty(clipboard,'writeText',descriptor);else delete clipboard.writeText;delete window.nativeSelectionProbe;};window.nativeSelectionProbe=probe;return true;
 })()`
 interface NativeViewFacts {
@@ -478,6 +480,7 @@ export function nativeSelectionBrowser(
     owner,
     wait,
     layout,
+    layoutWhenReady: () => readLayout(true),
     accommodateGrid,
     mouse,
     point,
