@@ -20,6 +20,10 @@ export async function verifyNativeTerminalQuery(
   managed: ManagedPty,
 ) {
   const browser = nativeSelectionBrowser(win, native, managed)
+  const diagnostics =
+    typeof __HVIR_SMOKE_BUILD__ !== 'undefined' &&
+    __HVIR_SMOKE_BUILD__ &&
+    !!process.env['HVIR_SMOKE']
   const scope = paneScript(managed.id)
   const evaluate = <T>(body: string): Promise<T> =>
     win.webContents.executeJavaScript(`(async()=>{${scope}${body}})()`) as Promise<T>
@@ -36,6 +40,19 @@ export async function verifyNativeTerminalQuery(
       `const query=panel.querySelector('[aria-label="Find in terminal"]');if(!(query instanceof HTMLInputElement))throw new Error('native-query-input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(query,${JSON.stringify(text)});query.dispatchEvent(new Event('input',{bubbles:true}));`,
     )
   await browser.ready()
+  if (diagnostics) {
+    const initialLayout = await browser.layout()
+    console.error('HVIR_NATIVE_QUERY_INITIAL_LAYOUT', {
+      geometry: initialLayout.geometry,
+      canvas: {
+        width: initialLayout.bounds.canvasWidth,
+        height: initialLayout.bounds.canvasHeight,
+        cssWidth: initialLayout.bounds.canvasCssWidth,
+        cssHeight: initialLayout.bounds.canvasCssHeight,
+        dpr: initialLayout.bounds.dpr,
+      },
+    })
+  }
   await browser.focus()
   await browser.menu('Clear Screen and Scrollback')
   await win.webContents.executeJavaScript(clipboardInstall(false))
@@ -473,6 +490,38 @@ export async function verifyNativeTerminalQuery(
       existingHighMatchFrameBudgetMs: CAPACITY_PERFORMANCE_BUDGETS.responsivenessMaxMs,
     }
   } catch (cause) {
+    if (diagnostics) {
+      const owner = { id: managed.ownerId, generation: managed.ownerGeneration }
+      const [producer, renderer, ui] = await Promise.all([
+        native.inspectRetained(managed.id, owner).catch(() => undefined),
+        native.rendererInfo(managed.id, owner).catch(() => undefined),
+        evaluate<{ status: string; unavailable: boolean }>(
+          `return {status:panel.querySelector('.terminal-search-status')?.textContent?.trim()??'',unavailable:!!panel.querySelector('.terminal-search-unavailable')};`,
+        ).catch(() => undefined),
+      ])
+      console.error('HVIR_NATIVE_QUERY_FAILURE_FACTS', {
+        phase,
+        ui,
+        geometry: producer?.geometry,
+        ioAppliedSequence: producer?.ioAppliedSequence,
+        ioAppliedMutation: producer?.ioAppliedMutation,
+        producerFailure: producer?.failure,
+        rendererHealth: producer?.rendererHealth,
+        presentationFailure: producer?.presentationFailure,
+        nativeLastFrame: renderer?.lastFrame && {
+          screen: renderer.lastFrame.screen,
+          streamSequence: renderer.lastFrame.streamSequence,
+          snapshotMutation: renderer.lastFrame.snapshotMutation,
+          geometrySerial: renderer.lastFrame.geometrySerial,
+          kind: renderer.lastFrame.kind,
+          width: renderer.lastFrame.width,
+          height: renderer.lastFrame.height,
+          colorSpace: renderer.lastFrame.colorSpace,
+          origin: renderer.lastFrame.origin,
+          premultiplied: renderer.lastFrame.premultiplied,
+        },
+      })
+    }
     throw new Error('native-query-phase ' + phase, { cause })
   } finally {
     await win.webContents.executeJavaScript(`window.nativeSelectionProbe?.restore()`)
@@ -564,6 +613,7 @@ async function selectedHighlight(
   previous?: Highlight,
 ): Promise<Highlight> {
   let observed: Highlight | undefined, latest: Highlight | undefined
+  let latestCapture: object | undefined
   try {
     await browser.wait(async () => {
       const { geometry, bounds } = await browser.layout()
@@ -599,6 +649,21 @@ async function selectedHighlight(
           result.bottom = Math.max(result.bottom, y)
         }
       latest = result
+      latestCapture = {
+        geometry,
+        canvas: {
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+          backingWidth: bounds.canvasWidth,
+          backingHeight: bounds.canvasHeight,
+          cssWidth: bounds.canvasCssWidth,
+          cssHeight: bounds.canvasCssHeight,
+          dpr: bounds.dpr,
+        },
+        capture: { rect, width, height, bitmapBytes: pixels.byteLength },
+      }
       if (
         result.pixels < MATCH.length * 8 ||
         (previous && result.top === previous.top && result.left === previous.left)
@@ -620,7 +685,7 @@ async function selectedHighlight(
     )) as { status: string; unavailable: boolean }
     throw new Error(
       'native-query-highlight-observation ' +
-        JSON.stringify({ previous, latest, status }),
+        JSON.stringify({ previous, latest, latestCapture, status }),
       { cause },
     )
   }

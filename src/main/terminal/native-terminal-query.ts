@@ -18,6 +18,7 @@ import {
 import {
   validNativeTerminalSelectionCursor,
   NativeTerminalSelectionRefused,
+  type NativeTerminalSelectionContext,
 } from '../../shared/native-terminal-selection'
 import type { NativeTerminalQueryOperation } from '../../shared/native-terminal-query-operations'
 import type {
@@ -66,6 +67,9 @@ export class NativeTerminalQuery {
   private readonly requests = new Map<string, Request>()
   private readonly boundaries: NativeTerminalQueryBoundaries
   private disposed = false
+  private diagnosticFailures = 0
+  private diagnosticReveals = 0
+  private diagnosticAtResults = 0
   constructor(
     private readonly host: Host,
     private readonly source: (
@@ -115,8 +119,14 @@ export class NativeTerminalQuery {
     this.requests.set(key, record)
     try {
       return await this.execute(request, record)
+    } catch (error) {
+      this.diagnosticFailure(request.kind, error)
+      throw error
     } finally {
-      await record.work.close()
+      await record.work.close().catch((error: unknown) => {
+        this.diagnosticFailure(request.kind, error)
+        throw error
+      })
       if (this.requests.get(key) === record) this.requests.delete(key)
     }
   }
@@ -242,6 +252,7 @@ export class NativeTerminalQuery {
               !validNativeTerminalSelectionCursor(first.occurrence))
           )
             throw new Error('native-query-occurrence-invalid')
+          this.diagnosticAt(request.index, Boolean(first), query.snapshot)
           return {
             kind: 'occurrence',
             ...(first ? { occurrenceId: first.occurrence as string } : {}),
@@ -280,6 +291,7 @@ export class NativeTerminalQuery {
           match.occurrence !== request.occurrenceId
         )
           throw new Error('native-query-resolution-invalid')
+        if (request.kind === 'reveal') this.diagnosticReveal(operation.context, finished)
         await work.applied(number(finished.requestedMutation))
         if (request.kind === 'resolve')
           return { kind: 'resolved', index: number(match.index) }
@@ -289,6 +301,7 @@ export class NativeTerminalQuery {
       } catch (error) {
         if (!(error instanceof NativeTerminalSelectionRefused) || !error.stale)
           throw error
+        this.diagnosticFailure(request.kind, error)
         return request.kind === 'read'
           ? { kind: 'text' }
           : request.kind === 'resolve'
@@ -315,8 +328,10 @@ export class NativeTerminalQuery {
         })
         return { kind: 'text', text: (await work.collect()).text }
       } catch (error) {
-        if (error instanceof NativeTerminalSelectionRefused && error.stale)
+        if (error instanceof NativeTerminalSelectionRefused && error.stale) {
+          this.diagnosticFailure(request.kind, error)
           return { kind: 'text' }
+        }
         throw error
       }
     }
@@ -347,9 +362,110 @@ export class NativeTerminalQuery {
       return { kind: 'revealed', revealed: finished.revealed }
     } catch (error) {
       if (!(error instanceof NativeTerminalSelectionRefused) || !error.stale) throw error
+      this.diagnosticFailure(request.kind, error)
       return request.kind === 'boundary-resolve'
         ? { kind: 'boundary' }
         : { kind: 'revealed', revealed: false }
+    }
+  }
+
+  private diagnosticAt(
+    index: number,
+    occurrencePresent: boolean,
+    snapshot: NativeTerminalQuerySnapshot,
+  ): void {
+    if (
+      typeof __HVIR_SMOKE_BUILD__ === 'undefined' ||
+      !__HVIR_SMOKE_BUILD__ ||
+      !process.env['HVIR_SMOKE'] ||
+      this.diagnosticAtResults >= 32
+    )
+      return
+    this.diagnosticAtResults++
+    try {
+      console.error('HVIR_NATIVE_QUERY_AT', {
+        requestedIndex: index,
+        occurrencePresent,
+        matchCount: number(snapshot.matchCount),
+        pending: snapshot.pending,
+      })
+    } catch {
+      /* Diagnostics never replace the actual operation result. */
+    }
+  }
+
+  private diagnosticFailure(
+    operation: NativeTerminalQueryRequest['kind'],
+    error: unknown,
+  ): void {
+    if (
+      typeof __HVIR_SMOKE_BUILD__ === 'undefined' ||
+      !__HVIR_SMOKE_BUILD__ ||
+      !process.env['HVIR_SMOKE'] ||
+      this.diagnosticFailures >= 32
+    )
+      return
+    this.diagnosticFailures++
+    try {
+      const nativeResult =
+        error instanceof Error ? /^native-result:(\d+)$/.exec(error.message) : null
+      const nativeCode = nativeResult ? Number(nativeResult[1]) : undefined
+      console.error('HVIR_NATIVE_QUERY_OPERATION_FAILURE', {
+        operation,
+        errorClass:
+          error instanceof NativeTerminalSelectionRefused
+            ? 'NativeTerminalSelectionRefused'
+            : error instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name)
+              ? error.name
+              : typeof error,
+        notDrawn: error instanceof Error && error.message === 'native-query-not-drawn',
+        ...(error instanceof NativeTerminalSelectionRefused
+          ? { code: error.code, stale: error.stale }
+          : Number.isSafeInteger(nativeCode)
+            ? { code: nativeCode }
+            : {}),
+      })
+    } catch {
+      /* Diagnostics never replace the actual operation result. */
+    }
+  }
+
+  private diagnosticReveal(
+    context: NativeTerminalSelectionContext,
+    finished: Record<string, unknown>,
+  ): void {
+    if (
+      typeof __HVIR_SMOKE_BUILD__ === 'undefined' ||
+      !__HVIR_SMOKE_BUILD__ ||
+      !process.env['HVIR_SMOKE'] ||
+      this.diagnosticReveals >= 16
+    )
+      return
+    this.diagnosticReveals++
+    try {
+      if (
+        typeof finished.resolved !== 'boolean' ||
+        typeof finished.revealed !== 'boolean'
+      )
+        return
+      const match = finished.match as Record<string, unknown>
+      console.error('HVIR_NATIVE_QUERY_REVEAL_FINISH', {
+        operation: 'reveal',
+        match: {
+          index: number(match.index),
+          screen: number(match.screen),
+          row: number(match.row),
+          column: number(match.column),
+          endRow: number(match.endRow),
+          endColumn: number(match.endColumn),
+        },
+        context: { screen: context.screen, geometrySerial: context.geometrySerial },
+        requestedMutation: number(finished.requestedMutation),
+        resolved: finished.resolved,
+        revealed: finished.revealed,
+      })
+    } catch {
+      /* Missing diagnostic fields cannot alter native completion policy. */
     }
   }
 
