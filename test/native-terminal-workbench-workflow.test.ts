@@ -51,7 +51,6 @@ function executeQualification(
     const bin = join(directory, 'bin')
     mkdirSync(bin)
     mkdirSync(join(directory, 'hvir-native-bindings'))
-    mkdirSync(join(directory, 'hvir-native-trace'))
     const producer = join(directory, 'producer.cjs')
     writeFileSync(
       producer,
@@ -224,9 +223,9 @@ describe('native workbench machine-readable workflow stream', () => {
     },
   )
   it('reproduces corruption when diagnostic stderr is merged before the strict reader', () => {
-    const merged = qualification.replace(
-      '2> >(tee "$RUNNER_TEMP/hvir-native-trace/original.stderr.log" >&2)',
-      '2>&1',
+    const merged = qualification.replaceAll(
+      'native-terminal-workbench \\\n',
+      'native-terminal-workbench 2>&1 \\\n',
     )
     expect(merged).not.toBe(qualification)
     const result = executeQualification(merged, 'macOS')

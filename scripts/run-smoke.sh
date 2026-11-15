@@ -17,7 +17,7 @@ if [[ -n "${HVIR_NATIVE_TERMINAL_OZONE:-}" ]]; then
   smoke_ozone_args=("--ozone-platform=$HVIR_NATIVE_TERMINAL_OZONE")
 fi
 
-# Diagnostic only: the workflow selects one owned macOS qualification trace.
+# Diagnostic only: the ordinary macOS qualification runs without tracing first.
 smoke_trace_args=()
 if [[ -n "${HVIR_NATIVE_TERMINAL_TRACE_CONFIG:-}" ]]; then
   if [[ "$(uname -s)" != Darwin ]] || [[ "$HVIR_SMOKE_SCENARIO" != native-terminal-workbench ]] ||
