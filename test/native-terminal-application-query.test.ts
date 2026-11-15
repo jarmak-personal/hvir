@@ -437,7 +437,7 @@ describe('application retained-query authority and producer plumbing', () => {
     expect(f.writer.writeReply).not.toHaveBeenCalled()
   })
 
-  it('retries copied parser facts only across a proven owner transfer during native boundary retirement', async () => {
+  it('does not wait for native retirement before subsequent PTY output or owner transfer', async () => {
     const f = await fixture()
     f.host.drainEffectsProducer.mockResolvedValueOnce(semantic())
     await f.prepared.output('first')
@@ -457,16 +457,18 @@ describe('application retained-query authority and producer plumbing', () => {
         f.host.query.mock.calls.some(([, , op]) => op.kind === 'boundary-close'),
       ).toBe(true),
     )
+    await output // Physical close is still held.
+    f.host.drainEffectsProducer.mockResolvedValueOnce(semantic(8, '10'))
+    await f.prepared.output('third')
     const ownerB = f.transfer()
     retire.resolve({ result: 0 })
-    await output
     expect(f.sessions.get('session')?.unavailable).toBe(false)
     expect(
       (await f.app.metadata('session', ownerB)).semanticSnapshot?.effects,
     ).toContainEqual(expect.objectContaining({ effect: { kind: 'semantic-gap' } }))
   })
 
-  it('never hides an unexpected native cleanup failure behind a coincident owner transfer', async () => {
+  it('isolates failed semantic retirement from PTY output and retries the retained exact token on later output', async () => {
     const f = await fixture()
     f.host.drainEffectsProducer.mockResolvedValueOnce(semantic())
     await f.prepared.output('first')
@@ -481,16 +483,49 @@ describe('application retained-query authority and producer plumbing', () => {
       semanticGeneration: 1,
     })
     const output = f.prepared.output('second')
-    const failed = expect(output).rejects.toThrow('actual native cleanup failure')
+    await output
     await vi.waitFor(() =>
       expect(
         f.host.query.mock.calls.some(([, , op]) => op.kind === 'boundary-close'),
       ).toBe(true),
     )
-    f.transfer()
     retire.reject(new Error('actual native cleanup failure'))
-    await failed
-    expect(f.sessions.get('session')?.unavailable).toBe(true)
+    await vi.waitFor(() =>
+      expect(
+        f.send.mock.calls.some(
+          ([, event]) =>
+            (event as { effect?: { kind: string } }).effect?.kind === 'semantic-gap',
+        ),
+      ).toBe(true),
+    )
+    f.host.query.mockImplementation(original)
+    await f.prepared.output('third')
+    await vi.waitFor(() =>
+      expect(
+        f.host.query.mock.calls.filter(
+          ([, , op]) => op.kind === 'boundary-close' && op.boundary === '9',
+        ),
+      ).toHaveLength(2),
+    )
+    expect(f.sessions.get('session')?.unavailable).toBe(false)
+    expect(f.host.feed).toHaveBeenCalledTimes(3)
+  })
+
+  it('revokes semantic authority when metadata publication throws without poisoning the output drain', async () => {
+    const f = await fixture()
+    vi.spyOn(f.app, 'publishEffect').mockImplementationOnce(() => {
+      throw new Error('metadata publication failed')
+    })
+    f.host.drainEffectsProducer.mockResolvedValueOnce(semantic())
+    await f.prepared.output('first')
+    expect(
+      (await f.app.metadata('session', f.owner)).semanticSnapshot?.effects.every(
+        (event) => event.effect.kind === 'semantic-gap',
+      ),
+    ).toBe(true)
+    await f.prepared.output('second')
+    expect(f.sessions.get('session')?.unavailable).toBe(false)
+    expect(f.host.feed).toHaveBeenCalledTimes(2)
   })
 
   it('forgets Main boundary records only after confirmed physical Surface destruction', async () => {

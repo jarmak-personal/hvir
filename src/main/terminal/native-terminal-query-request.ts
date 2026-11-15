@@ -95,29 +95,16 @@ export class NativeTerminalQueryRequestOwner {
         validNativeTerminalSelectionCursor(result.query)
       )
         this.acquisition = { kind: 'query-close', query: result.query }
-      if (
-        operation.kind === 'boundary-capture' &&
-        validNativeTerminalSelectionCursor(result.boundary)
-      )
-        this.acquisition = { kind: 'boundary-close', boundary: result.boundary }
     }
     if (operation.kind === 'finish') this.acquisition = undefined // Every definitive Finish closes.
     this.current()
     return value
   }
 
-  /** The receiving query/boundary owner has accepted this exact physical token. */
-  transferAcquisition(kind: 'query-close' | 'boundary-close', token: string): void {
+  /** The receiving query owner has accepted this exact physical token. */
+  transferAcquisition(kind: 'query-close', token: string): void {
     const operation = this.acquisition
-    if (
-      !operation ||
-      operation.kind !== kind ||
-      (operation.kind === 'query-close'
-        ? operation.query
-        : operation.kind === 'boundary-close'
-          ? operation.boundary
-          : undefined) !== token
-    )
+    if (!operation || operation.kind !== kind || operation.query !== token)
       throw new Error('native-query-acquisition-mismatch')
     this.acquisition = undefined
   }

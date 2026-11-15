@@ -47,7 +47,6 @@ export interface TerminalRetainedQueryCapability {
     boundary: TerminalEventProvenance,
     signal?: AbortSignal,
   ): Promise<TerminalEventLocation | undefined>
-  captureEnd(signal?: AbortSignal): Promise<TerminalEventProvenance | undefined>
   revealBoundary(
     boundary: TerminalEventProvenance,
     signal?: AbortSignal,
@@ -85,10 +84,6 @@ export function legacyTerminalRetainedQuery(
     resolveBoundary(boundary, signal) {
       check(signal)
       return Promise.resolve(pane.resolveEventProvenance(boundary))
-    },
-    captureEnd(signal) {
-      check(signal)
-      return Promise.resolve(pane.captureRetainedBufferBoundary())
     },
     revealBoundary(boundary, signal) {
       check(signal)

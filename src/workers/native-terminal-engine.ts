@@ -315,8 +315,6 @@ function invokeNativeQueryEngine(
             }
       return engine.rangeBegin(host, id, range, context!)
     }
-    case 'boundary-capture':
-      return engine.semanticBoundaryCaptureEnd(host, id, context!)
     case 'boundary-resolve-begin':
       return engine.semanticBoundaryResolveBegin(
         host,

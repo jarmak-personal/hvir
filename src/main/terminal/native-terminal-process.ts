@@ -464,8 +464,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
         message.ok &&
         item.command.kind === 'query' &&
         (nativeTerminalQueryAcquiresCursor(item.command.operation) ||
-          item.command.operation.kind === 'query-begin' ||
-          item.command.operation.kind === 'boundary-capture'))
+          item.command.operation.kind === 'query-begin'))
     ) {
       const result = message.value as
         | {
@@ -473,7 +472,6 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
             lease?: unknown
             cursor?: unknown
             query?: unknown
-            boundary?: unknown
             unavailable?: unknown
           }
         | undefined
@@ -508,18 +506,14 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
         const operation = item.command.operation
         const acquired = nativeTerminalQueryAcquiresCursor(operation)
           ? result?.cursor
-          : operation.kind === 'query-begin'
-            ? result?.query
-            : result?.boundary
+          : result?.query
         if (validNativeTerminalSelectionCursor(acquired)) {
           cleanup = {
             kind: 'query',
             state: item.command.state,
             operation: nativeTerminalQueryAcquiresCursor(operation)
               ? { kind: 'close', cursor: acquired }
-              : operation.kind === 'query-begin'
-                ? { kind: 'query-close', query: acquired }
-                : { kind: 'boundary-close', boundary: acquired },
+              : { kind: 'query-close', query: acquired },
           }
         } else if (acquired === '0' || Number.isInteger(result?.unavailable)) {
           this.finish(message.id)

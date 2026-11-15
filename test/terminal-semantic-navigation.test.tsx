@@ -309,6 +309,23 @@ describe('semantic transcript navigation', () => {
     })
     await act(async () => {
       await vi.waitFor(() =>
+        expect(host.querySelector('.terminal-semantic-region')?.textContent).toBe(
+          'Transcript regions',
+        ),
+      )
+    })
+    expect(state.scrolls).toEqual([36, 0])
+    // Lazy navigation retains the other screen's unvisited provenance until encountered.
+    state.screen = 'normal'
+    act(() =>
+      host
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Previous transcript region"]',
+        )
+        ?.click(),
+    )
+    await act(async () => {
+      await vi.waitFor(() =>
         expect(host.querySelector('.terminal-semantic-navigation')).toBeNull(),
       )
     })

@@ -1,3 +1,4 @@
+import { MAX_TERMINAL_SEMANTIC_REGIONS } from '../src/renderer/src/terminal/terminal-semantic-regions'
 import { NativeTerminalPaneEffects } from '../src/renderer/src/terminal/native-terminal-pane-effects'
 import { describe, expect, it, vi } from 'vitest'
 import { TerminalRuntimeInteractions } from '../src/renderer/src/terminal/terminal-runtime-interactions'
@@ -29,7 +30,6 @@ function fixture() {
     resolveBoundary: vi.fn<TerminalRetainedQueryCapability['resolveBoundary']>(() =>
       Promise.resolve({ screen: 'normal', row: 0, column: 0 }),
     ),
-    captureEnd: () => Promise.resolve(undefined),
     revealBoundary: vi.fn(() => Promise.resolve(true)),
     readRange: () => Promise.resolve(''),
     cancelExtraction: vi.fn(),
@@ -140,6 +140,143 @@ describe('native retained runtime interactions', () => {
     f.interactions.revoke(true)
     effects.clear()
   })
+
+  it('finishes a held nearest-boundary navigation while new parser markers append', async () => {
+    const f = fixture()
+    const event = (
+      id: number,
+      action:
+        | 'prompt-start'
+        | 'end-prompt-start-input'
+        | 'end-input-start-output'
+        | 'end-command',
+    ) =>
+      f.interactions.paneEvents.handle({
+        type: 'semantic',
+        action,
+        options: '',
+        provenance: { id, boundaryId: `b-${id}`, screen: 'normal', row: id, column: 0 },
+      })
+    event(1, 'prompt-start')
+    event(2, 'end-prompt-start-input')
+    event(3, 'end-input-start-output')
+    event(4, 'end-command')
+    let finish!: (location: TerminalEventLocation | undefined) => void
+    const resolve = vi.spyOn(f.capability, 'resolveBoundary').mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          finish = done
+        }),
+    )
+    const reveal = vi.spyOn(f.capability, 'revealBoundary')
+    const navigation = f.interactions.paneEvents.navigate('previous', f.pane)
+    await vi.waitFor(() => expect(resolve).toHaveBeenCalledOnce())
+    const signal = resolve.mock.calls[0]![1]!
+    event(5, 'prompt-start')
+    event(6, 'end-prompt-start-input')
+    event(7, 'end-input-start-output')
+    event(8, 'end-command')
+    expect(signal.aborted).toBe(false)
+    finish({ screen: 'normal', row: 3, column: 0 })
+    await navigation
+    expect(resolve).toHaveBeenCalledTimes(2)
+    expect(reveal).toHaveBeenCalledOnce()
+    expect(reveal.mock.calls[0]![0].id).toBe(3)
+    expect(f.interactions.paneEvents.snapshot().semanticRegion).toEqual({
+      kind: 'output',
+      index: 3,
+      total: 6,
+    })
+    f.interactions.revoke(true)
+  })
+
+  it('does not cancel a safe held candidate when append evicts unrelated fallback metadata at capacity', async () => {
+    const f = fixture()
+    const event = (
+      id: number,
+      action:
+        | 'prompt-start'
+        | 'end-prompt-start-input'
+        | 'end-input-start-output'
+        | 'end-command',
+    ) =>
+      f.interactions.paneEvents.handle({
+        type: 'semantic',
+        action,
+        options: '',
+        provenance: { id, boundaryId: `b-${id}`, screen: 'normal', row: id, column: 0 },
+      })
+    const cycles = Math.floor(MAX_TERMINAL_SEMANTIC_REGIONS / 3)
+    for (let index = 0; index < cycles; index++) {
+      const id = index * 4 + 1
+      event(id, 'prompt-start')
+      event(id + 1, 'end-prompt-start-input')
+      event(id + 2, 'end-input-start-output')
+      event(id + 3, 'end-command')
+    }
+    const heldId = cycles * 4 + 1
+    event(heldId, 'prompt-start')
+    let finish!: (location: TerminalEventLocation | undefined) => void
+    const resolve = vi.spyOn(f.capability, 'resolveBoundary').mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          finish = done
+        }),
+    )
+    const reveal = vi.spyOn(f.capability, 'revealBoundary')
+    const navigation = f.interactions.paneEvents.navigate('previous', f.pane)
+    await vi.waitFor(() => expect(resolve).toHaveBeenCalledOnce())
+    const signal = resolve.mock.calls[0]![1]!
+    event(heldId + 1, 'end-prompt-start-input')
+    event(heldId + 2, 'end-input-start-output')
+    event(heldId + 3, 'end-command')
+    expect(signal.aborted).toBe(false)
+    finish({ screen: 'normal', row: heldId, column: 0 })
+    await navigation
+    expect(resolve).toHaveBeenCalledTimes(2)
+    expect(reveal).toHaveBeenCalledOnce()
+    expect(reveal.mock.calls[0]![0].id).toBe(heldId)
+    expect(f.interactions.paneEvents.snapshot().semanticRegion).toEqual({
+      kind: 'prompt',
+      index: MAX_TERMINAL_SEMANTIC_REGIONS - 2,
+      total: MAX_TERMINAL_SEMANTIC_REGIONS,
+    })
+    f.interactions.revoke(true)
+  })
+
+  it.each([undefined, 10])(
+    'cancels a held candidate removed by semantic gap/cutoff %s',
+    async (controlCutoff) => {
+      const f = fixture()
+      f.interactions.paneEvents.handle({
+        type: 'semantic',
+        action: 'prompt-start',
+        options: '',
+        provenance: { id: 10, boundaryId: 'b-10', screen: 'normal', row: 0, column: 0 },
+      })
+      let finish!: (location: TerminalEventLocation | undefined) => void
+      const resolve = vi.spyOn(f.capability, 'resolveBoundary').mockImplementationOnce(
+        () =>
+          new Promise((done) => {
+            finish = done
+          }),
+      )
+      const reveal = vi.spyOn(f.capability, 'revealBoundary')
+      const navigation = f.interactions.paneEvents.navigate('previous', f.pane)
+      await vi.waitFor(() => expect(resolve).toHaveBeenCalledOnce())
+      const signal = resolve.mock.calls[0]![1]!
+      f.interactions.paneEvents.handle({
+        type: 'semantic-gap',
+        ...(controlCutoff === undefined ? {} : { controlCutoff }),
+      })
+      expect(signal.aborted).toBe(true)
+      finish({ screen: 'normal', row: 0, column: 0 })
+      await navigation
+      expect(reveal).not.toHaveBeenCalled()
+      expect(f.interactions.paneEvents.snapshot().semanticRegion).toBeUndefined()
+      f.interactions.revoke(true)
+    },
+  )
 
   it('revokes an in-flight semantic navigation before a hidden pane can reveal or activate it', async () => {
     const f = fixture()

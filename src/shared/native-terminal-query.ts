@@ -37,9 +37,8 @@ export type NativeTerminalQueryRequest =
   | (QueryOwner & { readonly kind: 'clear-reveal' })
   | (QueryOwner & { readonly kind: 'close' })
   | (RequestOwner & { readonly kind: 'active-screen' })
-  | (RequestOwner & { readonly kind: 'capture-end' })
   | (RequestOwner & {
-      readonly kind: 'boundary-resolve' | 'boundary-reveal' | 'boundary-close'
+      readonly kind: 'boundary-resolve' | 'boundary-reveal'
       readonly boundaryId: string
     })
   | (RequestOwner & {
@@ -70,11 +69,6 @@ export type NativeTerminalQueryResponse =
   | { readonly kind: 'done' }
   | { readonly kind: 'screen'; readonly screen: 'normal' | 'alternate' }
   | { readonly kind: 'boundary'; readonly location?: NativeTerminalQueryLocation }
-  | {
-      readonly kind: 'boundary-captured'
-      readonly boundaryId?: string
-      readonly location?: NativeTerminalQueryLocation
-    }
 
 /** Owner-qualified hint; receipt does not authenticate a match or a displayed frame. */
 export interface NativeTerminalQueryUpdate {
@@ -154,11 +148,9 @@ export function validNativeTerminalQueryRequest(
     case 'close':
       return validNativeTerminalUuid(value.queryId) && fields(value, query)
     case 'active-screen':
-    case 'capture-end':
       return fields(value, owner)
     case 'boundary-resolve':
     case 'boundary-reveal':
-    case 'boundary-close':
       return (
         validNativeTerminalUuid(value.boundaryId) &&
         fields(value, [...owner, 'boundaryId'])
@@ -223,12 +215,6 @@ export function validNativeTerminalQueryResponse(
       return (
         (value.location === undefined || location(value.location)) &&
         fields(value, ['kind', 'location'])
-      )
-    case 'boundary-captured':
-      return (
-        ((value.boundaryId === undefined && value.location === undefined) ||
-          (validNativeTerminalUuid(value.boundaryId) && location(value.location))) &&
-        fields(value, ['kind', 'boundaryId', 'location'])
       )
     default:
       return false

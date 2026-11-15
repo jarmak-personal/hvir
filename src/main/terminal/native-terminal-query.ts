@@ -300,30 +300,6 @@ export class NativeTerminalQuery {
       const context = await source.context(false, work.abort.signal)
       return { kind: 'screen', screen: context.screen === 0 ? 'normal' : 'alternate' }
     }
-    if (request.kind === 'capture-end') {
-      const value = nativeQueryResult(
-        await work.call({
-          kind: 'boundary-capture',
-          context: await source.context(false, work.abort.signal),
-        }),
-      )
-      if (!validNativeTerminalSelectionCursor(value.boundary))
-        throw new Error('native-boundary-token-invalid')
-      const observed = location(value)
-      const boundaryId = await this.boundaries.capture(source, value.boundary)
-      work.transferAcquisition('boundary-close', value.boundary)
-      try {
-        work.current()
-        return { kind: 'boundary-captured', boundaryId, location: observed }
-      } catch (error) {
-        await this.boundaries.close(source, boundaryId)
-        throw error
-      }
-    }
-    if (request.kind === 'boundary-close') {
-      await this.boundaries.close(source, request.boundaryId)
-      return { kind: 'done' }
-    }
     if (request.kind === 'range-read') {
       const start = this.boundaries.lookup(source, request.startId)
       const end =

@@ -28,8 +28,6 @@ export interface NativeQueryEngineResult {
   revealed?: boolean
   match?: unknown
   boundary?: unknown
-  row?: number
-  column?: number
 }
 type EngineResult = NativeQueryEngineResult
 type Invoke = (operation: NativeTerminalQueryOperation) => Promise<EngineResult>
@@ -90,12 +88,6 @@ export async function runNativeQueryStep(
       value.query > 0n
     )
       close = { kind: 'query-close', query: token(value.query) }
-    else if (
-      operation.kind === 'boundary-capture' &&
-      typeof value.boundary === 'bigint' &&
-      value.boundary > 0n
-    )
-      close = { kind: 'boundary-close', boundary: token(value.boundary) }
     if (!close) return
     closing = true
     try {
@@ -114,12 +106,7 @@ export async function runNativeQueryStep(
     }
   }
   try {
-    if (
-      (acquiringCursor ||
-        operation.kind === 'query-begin' ||
-        operation.kind === 'boundary-capture') &&
-      cancelled()
-    )
+    if ((acquiringCursor || operation.kind === 'query-begin') && cancelled())
       throw new Error('cancelled')
     const normalized = normalize(operation, value)
     if ('unavailable' in normalized) await cleanup()
@@ -187,8 +174,6 @@ function normalize(operation: NativeTerminalQueryOperation, value: EngineResult)
           throw new Error('native-query-order-invalid')
       return { revision: operation.revision, count: count(value.count), results }
     }
-    case 'boundary-capture':
-      return boundary(value)
     case 'next': {
       if (
         token(value.cursor) !== operation.cursor ||

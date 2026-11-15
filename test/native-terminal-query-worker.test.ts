@@ -92,9 +92,9 @@ describe('native query physical step boundary', () => {
         { kind: 'close', cursor: '82' },
       ],
       [
-        { kind: 'boundary-capture', context },
-        { result: 0, boundary: 93n, screen: 0, row: 1, column: 2 },
-        { kind: 'boundary-close', boundary: '93' },
+        { kind: 'boundary-resolve-begin', boundary: '93', reveal: false, context },
+        { ...state, cursor: 94n },
+        { kind: 'close', cursor: '94' },
       ],
     ]
     for (const [operation, result, cleanup] of cases) {

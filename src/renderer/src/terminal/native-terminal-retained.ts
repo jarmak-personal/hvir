@@ -113,14 +113,6 @@ export class NativeTerminalRetained implements TerminalRetainedQueryCapability {
       throw new Error('Invalid terminal boundary response')
     return response.location
   }
-  async captureEnd(signal?: AbortSignal): Promise<TerminalEventProvenance | undefined> {
-    const response = await this.call({ kind: 'capture-end' }, signal)
-    if (response.kind !== 'boundary-captured')
-      throw new Error('Invalid terminal boundary capture')
-    return response.boundaryId && response.location
-      ? { id: 0, boundaryId: response.boundaryId, ...response.location }
-      : undefined
-  }
   async revealBoundary(
     boundary: TerminalEventProvenance,
     signal?: AbortSignal,

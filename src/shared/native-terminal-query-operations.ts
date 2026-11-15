@@ -39,10 +39,6 @@ export type NativeTerminalQueryOperation =
       readonly context: NativeTerminalSelectionContext
     }
   | {
-      readonly kind: 'boundary-capture'
-      readonly context: NativeTerminalSelectionContext
-    }
-  | {
       readonly kind: 'boundary-resolve-begin'
       readonly boundary: string
       readonly reveal: boolean
@@ -113,11 +109,6 @@ export function validNativeTerminalQueryOperation(
             (source.end === undefined || token(source.end)) &&
             fields(source, ['kind', 'start', 'end'])
     }
-    case 'boundary-capture':
-      return (
-        validNativeTerminalSelectionContext(value.context) &&
-        fields(value, ['kind', 'context'])
-      )
     case 'boundary-resolve-begin':
       return (
         token(value.boundary) &&

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { NativeTerminalSemanticRetirement } from './native-terminal-semantic-retirement'
 import type { NativeTerminalSession } from '../../shared/native-terminal'
 import {
   NATIVE_TERMINAL_EFFECT_LIMITS,
@@ -12,12 +13,14 @@ export interface NativeBoundarySource {
   readonly session: NativeTerminalSession
   assertCurrent(): void
 }
+type SemanticEffect = NativeTerminalProductEffect & {
+  readonly effect: Extract<NativeTerminalProductEffect['effect'], { kind: 'semantic' }>
+}
 interface Boundary {
   readonly id: string
   readonly native: string
   readonly bytes: number
-  readonly effect: NativeTerminalProductEffect
-  closing?: Promise<void>
+  readonly effect: SemanticEffect
   revoked?: boolean
 }
 interface RetainedBoundaries {
@@ -38,122 +41,149 @@ export class NativeTerminalQueryBoundaries {
     string,
     { surface: RetainedBoundaries; record: Boundary }
   >()
+  private readonly retirement: NativeTerminalSemanticRetirement
   constructor(
-    private readonly closeNative: (
-      source: NativeBoundarySource,
-      token: string,
-    ) => Promise<void>,
+    closeNative: (source: NativeBoundarySource, token: string) => Promise<void>,
     private readonly publish: (
       session: NativeTerminalSession,
       effect: NativeTerminalProductEffect,
     ) => void,
-  ) {}
+  ) {
+    this.retirement = new NativeTerminalSemanticRetirement(closeNative, (source) => {
+      const surface = this.surfaces.get(source.session.instanceId)
+      if (surface) this.invalidate(surface)
+    })
+  }
 
   async consume(
     source: NativeBoundarySource,
     batch: NativeTerminalEffectBatch,
   ): Promise<void> {
-    const surface = await this.current(source)
     source.assertCurrent()
-    if (
-      surface.droppedEffects < batch.droppedEffects ||
-      surface.generation < batch.semanticGeneration
-    ) {
-      const controlCutoff = surface.controlCutoff
-      await this.clear(surface)
-      source.assertCurrent()
-      surface.droppedEffects = Math.max(surface.droppedEffects, batch.droppedEffects)
-      surface.generation = Math.max(surface.generation, batch.semanticGeneration)
-      if (surface.controlCutoff === controlCutoff)
-        this.publish(source.session, this.gap(surface))
-    }
-    for (const effect of batch.effects) {
-      source.assertCurrent()
-      if (effect.eventSerial <= surface.throughSerial) {
-        if (
-          effect.kind === 'semantic' &&
-          effect.boundary &&
-          effect.eventSerial <= surface.controlCutoff
-        )
-          await this.closeNative(source, effect.boundary)
-        continue
+    let surface: RetainedBoundaries | undefined
+    try {
+      for (const effect of batch.effects) {
+        if (effect.kind === 'semantic' && effect.boundary)
+          this.retirement.observe(source, effect.boundary, effect.eventSerial)
       }
+      this.retirement.wake(source)
+      surface = this.current(source)
       if (
-        effect.kind === 'screen' &&
-        (effect.action === 'reset' || effect.action === 'clear')
+        surface.droppedEffects < batch.droppedEffects ||
+        surface.generation < batch.semanticGeneration
       ) {
-        await this.controlApplied(source, effect.eventSerial)
-        source.assertCurrent()
-      }
-      if (effect.kind !== 'semantic') {
-        surface.throughSerial = Math.max(surface.throughSerial, effect.eventSerial)
-        continue
-      }
-      if (!effect.boundary) {
-        await this.clear(surface)
-        source.assertCurrent()
-        surface.throughSerial = Math.max(surface.throughSerial, effect.eventSerial)
-        this.publish(source.session, this.gap(surface))
-        continue
-      }
-      const id = randomUUID()
-      const published: NativeTerminalProductEffect = {
-        id: source.session.sessionId,
-        instanceId: source.session.instanceId,
-        eventSerial: effect.eventSerial,
-        effect: {
-          kind: 'semantic',
-          boundaryId: id,
-          action: effect.action,
-          options: effect.options,
-          screen: effect.screen,
-          row: effect.row,
-          column: effect.column,
-        },
-      }
-      const bytes = this.bytes(published)
-      const maximumBytes =
-        NATIVE_TERMINAL_EFFECT_LIMITS.payloadBytes - this.bytes(this.gap(surface))
-      while (
-        surface.records.size &&
-        (surface.records.size >= 511 || surface.bytes + bytes > maximumBytes)
-      ) {
-        const oldest = surface.records.values().next().value as Boundary
-        surface.retiredThrough = Math.max(
-          surface.retiredThrough,
-          oldest.effect.eventSerial,
-        )
-        await this.retire(surface, oldest)
-        source.assertCurrent()
-      }
-      // A physically applied control may have overtaken the awaited eviction.
-      if (effect.eventSerial <= surface.controlCutoff) {
-        await this.closeNative(source, effect.boundary)
-        continue
-      }
-      if (bytes > maximumBytes) {
         const controlCutoff = surface.controlCutoff
-        await this.closeNative(source, effect.boundary)
+        this.clear(surface)
         source.assertCurrent()
-        if (effect.eventSerial <= surface.controlCutoff) continue
-        await this.clear(surface)
-        source.assertCurrent()
-        surface.throughSerial = Math.max(surface.throughSerial, effect.eventSerial)
+        surface.droppedEffects = Math.max(surface.droppedEffects, batch.droppedEffects)
+        surface.generation = Math.max(surface.generation, batch.semanticGeneration)
         if (surface.controlCutoff === controlCutoff)
           this.publish(source.session, this.gap(surface))
-        continue
       }
-      const record = { id, native: effect.boundary, effect: published, bytes }
-      surface.records.set(id, record)
-      this.handles.set(id, { surface, record })
-      surface.bytes += bytes
-      surface.throughSerial = effect.eventSerial
-      this.publish(source.session, published)
+      for (const effect of batch.effects) {
+        source.assertCurrent()
+        if (effect.eventSerial <= surface.throughSerial) {
+          if (
+            effect.kind === 'semantic' &&
+            effect.boundary &&
+            effect.eventSerial <= surface.controlCutoff
+          )
+            this.retirement.retire(source, effect.boundary)
+          continue
+        }
+        if (
+          effect.kind === 'screen' &&
+          (effect.action === 'reset' || effect.action === 'clear')
+        ) {
+          this.applyControl(source, effect.eventSerial)
+          source.assertCurrent()
+        }
+        if (effect.kind !== 'semantic') {
+          surface.throughSerial = Math.max(surface.throughSerial, effect.eventSerial)
+          continue
+        }
+        if (!effect.boundary) {
+          this.clear(surface)
+          source.assertCurrent()
+          surface.throughSerial = Math.max(surface.throughSerial, effect.eventSerial)
+          this.publish(source.session, this.gap(surface))
+          continue
+        }
+        const id = randomUUID()
+        const published: SemanticEffect = {
+          id: source.session.sessionId,
+          instanceId: source.session.instanceId,
+          eventSerial: effect.eventSerial,
+          effect: {
+            kind: 'semantic',
+            boundaryId: id,
+            action: effect.action,
+            options: effect.options,
+            screen: effect.screen,
+            row: effect.row,
+            column: effect.column,
+          },
+        }
+        const bytes = this.bytes(published)
+        const maximumBytes =
+          NATIVE_TERMINAL_EFFECT_LIMITS.payloadBytes - this.bytes(this.gap(surface))
+        while (
+          surface.records.size &&
+          (surface.records.size >= 511 || surface.bytes + bytes > maximumBytes)
+        ) {
+          const oldest = surface.records.values().next().value as Boundary
+          surface.retiredThrough = Math.max(
+            surface.retiredThrough,
+            oldest.effect.eventSerial,
+          )
+          this.retire(surface, oldest)
+          source.assertCurrent()
+        }
+        // Older copied facts cannot repopulate metadata after a genuine control.
+        if (effect.eventSerial <= surface.controlCutoff) {
+          this.retirement.retire(source, effect.boundary)
+          continue
+        }
+        if (bytes > maximumBytes) {
+          const controlCutoff = surface.controlCutoff
+          this.retirement.retire(source, effect.boundary)
+          source.assertCurrent()
+          if (effect.eventSerial <= surface.controlCutoff) continue
+          this.clear(surface)
+          source.assertCurrent()
+          surface.throughSerial = Math.max(surface.throughSerial, effect.eventSerial)
+          if (surface.controlCutoff === controlCutoff)
+            this.publish(source.session, this.gap(surface))
+          continue
+        }
+        const record = { id, native: effect.boundary, effect: published, bytes }
+        surface.records.set(id, record)
+        this.handles.set(id, { surface, record })
+        surface.bytes += bytes
+        surface.throughSerial = effect.eventSerial
+        this.publish(source.session, published)
+      }
+    } catch {
+      for (const effect of batch.effects) {
+        if (effect.kind === 'semantic' && effect.boundary)
+          this.retirement.retire(source, effect.boundary)
+      }
+      if (surface) {
+        for (const effect of batch.effects)
+          surface.throughSerial = Math.max(surface.throughSerial, effect.eventSerial)
+        this.invalidate(surface)
+      }
     }
+    return Promise.resolve()
   }
 
   /** A genuine control acknowledgment can arrive after newer parser facts. */
   async controlApplied(source: NativeBoundarySource, cutoff: number): Promise<void> {
+    this.applyControl(source, cutoff)
+    return Promise.resolve()
+  }
+
+  private applyControl(source: NativeBoundarySource, cutoff: number): void {
     if (!Number.isSafeInteger(cutoff) || cutoff <= 0)
       throw new Error('native-boundary-control-cutoff-invalid')
     const current = this.surfaces.get(source.session.instanceId)
@@ -163,7 +193,7 @@ export class NativeTerminalQueryBoundaries {
       current.source.session.ownerId === source.session.ownerId &&
       current.source.session.ownerGeneration === source.session.ownerGeneration
         ? current
-        : await this.current(source)
+        : this.current(source)
     source.assertCurrent()
     if (cutoff <= surface.controlCutoff) return
     surface.controlCutoff = cutoff
@@ -172,30 +202,30 @@ export class NativeTerminalQueryBoundaries {
     const obsolete = Array.from(surface.records.values()).filter(
       (record) => record.effect.eventSerial <= cutoff,
     )
-    for (const record of obsolete) {
-      record.revoked = true
-      this.handles.delete(record.id)
+    for (const record of obsolete) this.retire(surface, record)
+    try {
+      this.publish(source.session, {
+        ...this.gap(surface, cutoff),
+        effect: { kind: 'semantic-gap', controlCutoff: cutoff },
+      })
+    } catch {
+      this.invalidate(surface)
     }
-    this.publish(source.session, {
-      ...this.gap(surface, cutoff),
-      effect: { kind: 'semantic-gap', controlCutoff: cutoff },
-    })
-    for (const record of obsolete) await this.retire(surface, record)
     source.assertCurrent()
   }
 
   async snapshot(source: NativeBoundarySource): Promise<NativeTerminalSemanticSnapshot> {
-    const surface = await this.current(source)
+    const surface = this.current(source)
     source.assertCurrent()
-    return {
+    return Promise.resolve({
       throughSerial: surface.throughSerial,
       effects: [
         ...(surface.retiredThrough ? [this.gap(surface, surface.retiredThrough)] : []),
         ...Array.from(surface.records.values())
-          .filter((record) => !record.revoked && record.effect.effect.kind === 'semantic')
+          .filter((record) => !record.revoked)
           .map((record) => record.effect),
       ],
-    }
+    })
   }
 
   lookup(source: NativeBoundarySource, id: string): string | undefined {
@@ -212,56 +242,23 @@ export class NativeTerminalQueryBoundaries {
     return found.record.native
   }
 
-  /** An explicit captured end shares the same bounded token owner and disposal rules. */
-  async capture(source: NativeBoundarySource, native: string): Promise<string> {
-    const surface = await this.current(source)
-    source.assertCurrent()
-    while (surface.records.size >= 511) {
-      const oldest = surface.records.values().next().value as Boundary
-      surface.retiredThrough = Math.max(surface.retiredThrough, oldest.effect.eventSerial)
-      await this.retire(surface, oldest)
-      source.assertCurrent()
-    }
-    const id = randomUUID()
-    // Captured ends are not parser events and never enter a replay snapshot.
-    const record: Boundary = {
-      id,
-      native,
-      bytes: 0,
-      effect: {
-        id: source.session.sessionId,
-        instanceId: source.session.instanceId,
-        eventSerial: 0,
-        effect: { kind: 'semantic-gap' },
-      },
-    }
-    surface.records.set(id, record)
-    this.handles.set(id, { surface, record })
-    return id
-  }
-
-  async close(source: NativeBoundarySource, id: string): Promise<void> {
-    const native = this.lookup(source, id)
-    if (!native) return
-    const found = this.handles.get(id)!
-    await this.retire(found.surface, found.record)
-  }
-
   async remove(instanceId: string): Promise<void> {
     const surface = this.surfaces.get(instanceId)
     if (!surface) return
-    await this.clear(surface)
+    this.clear(surface)
     if (this.surfaces.get(instanceId) === surface) this.surfaces.delete(instanceId)
+    return Promise.resolve()
   }
   /** Called only after the native owner confirms physical Surface destruction. */
   forgetDestroyed(instanceId: string): void {
+    this.retirement.forgetDestroyed(instanceId)
     const surface = this.surfaces.get(instanceId)
     if (!surface) return
     for (const record of surface.records.values()) this.handles.delete(record.id)
     this.surfaces.delete(instanceId)
   }
 
-  private async current(source: NativeBoundarySource): Promise<RetainedBoundaries> {
+  private current(source: NativeBoundarySource): RetainedBoundaries {
     source.assertCurrent()
     const instanceId = source.session.instanceId
     let surface = this.surfaces.get(instanceId)
@@ -289,29 +286,15 @@ export class NativeTerminalQueryBoundaries {
         for (const prior of records) this.handles.delete(prior.id)
         surface.records.clear()
         surface.source = source
-        const captured: Boundary[] = []
         for (const prior of records) {
-          if (prior.revoked) {
-            surface.records.set(prior.id, prior)
-            continue
-          }
-          if (prior.effect.effect.kind !== 'semantic') {
-            surface.records.set(prior.id, prior)
-            captured.push(prior)
-            continue
-          }
           const id = randomUUID()
-          const effect =
-            prior.effect.effect.kind === 'semantic'
-              ? { ...prior.effect, effect: { ...prior.effect.effect, boundaryId: id } }
-              : prior.effect
+          const effect = {
+            ...prior.effect,
+            effect: { ...prior.effect.effect, boundaryId: id },
+          }
           const record = { ...prior, id, effect }
           surface.records.set(id, record)
           this.handles.set(id, { surface, record })
-        }
-        for (const record of captured) {
-          await this.retire(surface, record)
-          source.assertCurrent()
         }
       }
       surface.source = source
@@ -319,30 +302,24 @@ export class NativeTerminalQueryBoundaries {
     return surface
   }
 
-  private retire(surface: RetainedBoundaries, record: Boundary): Promise<void> {
-    if (record.closing) return record.closing
+  private retire(surface: RetainedBoundaries, record: Boundary): void {
     this.handles.delete(record.id)
     record.revoked = true
-    record.closing = (async () => {
-      await this.closeNative(surface.source, record.native)
-      if (surface.records.get(record.id) === record) {
-        surface.records.delete(record.id)
-        surface.bytes -= record.bytes
-      }
-    })().catch((error: unknown) => {
-      record.closing = undefined
-      throw error
-    })
-    return record.closing
+    if (surface.records.delete(record.id)) surface.bytes -= record.bytes
+    this.retirement.retire(surface.source, record.native)
   }
-  private async clear(surface: RetainedBoundaries): Promise<void> {
-    const records = Array.from(surface.records.values())
-    for (const record of records) {
-      record.revoked = true
-      this.handles.delete(record.id)
+  private clear(surface: RetainedBoundaries): void {
+    surface.retiredThrough = Math.max(surface.retiredThrough, surface.throughSerial)
+    for (const record of surface.records.values()) this.retire(surface, record)
+  }
+  private invalidate(surface: RetainedBoundaries): void {
+    this.clear(surface)
+    // Publishing metadata cannot turn a cleanup failure into a PTY failure.
+    try {
+      this.publish(surface.source.session, this.gap(surface))
+    } catch {
+      /* Authority is already revoked. */
     }
-    surface.retiredThrough = surface.throughSerial
-    for (const record of records) await this.retire(surface, record)
   }
   private gap(
     surface: RetainedBoundaries,

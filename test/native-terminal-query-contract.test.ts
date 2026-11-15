@@ -58,13 +58,8 @@ describe('native retained query admission', () => {
     ).toBe(false)
     expect(response({ kind: 'resolved', index: 11999 })).toBe(true)
     expect(response({ kind: 'resolved' })).toBe(true)
+    expect(request({ ...owner, kind: 'capture-end' })).toBe(false)
+    expect(request({ ...owner, kind: 'boundary-close', boundaryId })).toBe(false)
     expect(response({ kind: 'boundary-captured', boundaryId })).toBe(false)
-    expect(
-      response({
-        kind: 'boundary-captured',
-        boundaryId,
-        location: { screen: 'normal', row: 3, column: 0 },
-      }),
-    ).toBe(true)
   })
 })
