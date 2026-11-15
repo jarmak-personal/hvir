@@ -695,6 +695,10 @@ export async function verifyNativeReadonlyQuery(
       false,
     )
     await evaluate(`panel.querySelector('[aria-label="Close terminal search"]').click();`)
+    await browser.wait(
+      async () => (await browser.proof()).frames >= 2,
+      'readonly-query-paint-samples',
+    )
     const timing = await browser.proof()
     if (
       timing.frames < 2 ||
