@@ -63,12 +63,6 @@ export async function verifyNativeTerminalQuery(
   await win.webContents.executeJavaScript(clipboardInstall(false))
   let phase = 'initial-query'
   try {
-    await ptys.writeConfirmed(
-      managed.id,
-      managed.ownerId,
-      `hvir_native_query='hvir-native-''query-match'; printf '\\033[H\\r\\n%s\\r\\n%s\\r\\n%s\\r\\n' "$hvir_native_query" "$hvir_native_query" "$hvir_native_query"\r`,
-      managed.ownerGeneration,
-    )
     await evaluate(
       `input.dispatchEvent(new KeyboardEvent('keydown',{key:'f',code:'KeyF',shiftKey:true,...(/Mac/.test(navigator.platform)?{metaKey:true}:{ctrlKey:true}),bubbles:true,cancelable:true}));`,
     )
@@ -80,6 +74,13 @@ export async function verifyNativeTerminalQuery(
     // reveals at viewport top. Keep that stripe outside the Find bar's shadow;
     // a narrow-window overlap is presentation occlusion, not a native mask.
     const pixelFixture = await queryPixelFixture(browser, evaluate)
+    // Seed after accommodation so reflow cannot move this left-edge pixel fixture.
+    await ptys.writeConfirmed(
+      managed.id,
+      managed.ownerId,
+      `hvir_native_query='hvir-native-''query-match'; printf '\\033[H\\r\\n%s\\r\\n%s\\r\\n%s\\r\\n' "$hvir_native_query" "$hvir_native_query" "$hvir_native_query"\r`,
+      managed.ownerGeneration,
+    )
     await query(MATCH)
     await browser.wait(
       async () => ['1 of 3', '3 matches'].includes(await status()),
@@ -593,6 +594,8 @@ export async function verifyNativeTerminalQuery(
       streaming,
       frames: proof.frames,
       maximumFrameGapMs: proof.maxGapMs,
+      rendererTiming: proof.rendererTiming,
+      captureTiming: browser.captureTiming(),
       existingHighMatchFrameBudgetMs: CAPACITY_PERFORMANCE_BUDGETS.responsivenessMaxMs,
     }
   } catch (cause) {
@@ -741,7 +744,9 @@ async function queryPixelFixture(
 ) {
   const shadowClearance = FIND_BAR_SHADOW_CLEARANCE
   const read = async () => {
-    const { geometry, bounds } = await browser.layout()
+    const layout = await browser.layoutWhenReady()
+    if (!layout) return undefined
+    const { geometry, bounds } = layout
     const bar = await evaluate<{
       left: number
       right: number
@@ -754,6 +759,7 @@ async function queryPixelFixture(
     const sampleRight =
       bounds.x + (geometry.paddingLeft + geometry.cellWidth * MATCH.length) * scale
     return {
+      geometrySerial: geometry.serial,
       canvas: {
         x: bounds.x,
         y: bounds.y,
@@ -766,15 +772,31 @@ async function queryPixelFixture(
       shadowClearance,
     }
   }
-  let observed = await read()
-  if (observed.bar.left < observed.sampleRight + shadowClearance)
-    console.error('HVIR_NATIVE_QUERY_PIXEL_FIXTURE', { ...observed, unoccluded: false })
+  let observed: Awaited<ReturnType<typeof read>>
   await browser.wait(async () => {
     observed = await read()
-    return observed.bar.left >= observed.sampleRight + shadowClearance
+    return !!observed
+  }, 'query-pixel-fixture-layout')
+  if (!observed) throw new Error('native-query-pixel-fixture-layout')
+  const before = observed
+  let accommodation = false
+  if (observed.bar.left < observed.sampleRight + shadowClearance) {
+    console.error('HVIR_NATIVE_QUERY_PIXEL_FIXTURE', { ...observed, unoccluded: false })
+    accommodation = await evaluate<boolean>(
+      `const collapse=document.querySelector('button[aria-label="Collapse file explorer"]');if(!(collapse instanceof HTMLButtonElement)||collapse.disabled||!collapse.checkVisibility())return false;collapse.click();return true;`,
+    )
+  }
+  await browser.ready()
+  await browser.wait(async () => {
+    const latest = await read()
+    if (!latest) return false
+    observed = latest
+    if (accommodation && latest.geometrySerial <= before.geometrySerial) return false
+    return latest.bar.left >= latest.sampleRight + shadowClearance
   }, 'query-unoccluded-pixel-fixture')
-  console.error('HVIR_NATIVE_QUERY_PIXEL_FIXTURE', { ...observed, unoccluded: true })
-  return { ...observed, unoccluded: true }
+  const result = { ...observed, before, accommodation, unoccluded: true }
+  console.error('HVIR_NATIVE_QUERY_PIXEL_FIXTURE', result)
+  return result
 }
 
 async function selectedHighlight(
@@ -797,12 +819,15 @@ async function selectedHighlight(
         height: number
         bar?: { left: number; right: number; top: number; bottom: number }
       }
-      const image = await win.webContents.capturePage({
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
-      })
+      const image = await browser.capture(
+        {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        },
+        'query-highlight',
+      )
       const { width, height } = image.getSize(1)
       const pixels = image.toBitmap({ scaleFactor: 1 })
       const result = {

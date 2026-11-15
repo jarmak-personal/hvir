@@ -53,6 +53,8 @@ export function nativeTerminalPresenterFixture(linuxMode?: 'auto' | 'pixels') {
     presentationFailure: 0,
     frameCopies: 0,
     geometryFailureSerial: 0,
+    appliedAppearanceSerial: 0,
+    appearanceFailureSerial: 0,
     geometry: {
       serial,
       width,
@@ -98,6 +100,7 @@ export function nativeTerminalPresenterFixture(linuxMode?: 'auto' | 'pixels') {
     detach: vi.fn(),
     nativeEpoch: vi.fn(() => live.epoch),
     inspect: vi.fn(() => Promise.resolve(status())),
+    appearance: vi.fn(() => Promise.resolve(status())),
     resize: vi.fn(
       (
         _handle: string,

@@ -936,6 +936,13 @@ Native retained queries own bounded search, occurrence identity and exact reads;
 parser-origin semantic boundaries retain current-body meaning through asynchronous
 pane capabilities without a renderer transcript or complete result mirror.
 
+### [ADR-092 — Native terminal appearance and measured metrics](adr/ADR-092-native-terminal-appearance-and-metrics.md)
+
+> Lifecycle: Active
+
+Existing settings feed bounded native configuration with applied serials, palette-preserving
+lifetimes and measured typography geometry before PTY notification.
+
 ## 5. Architecture
 
 ### Process model

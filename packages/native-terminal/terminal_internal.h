@@ -37,6 +37,10 @@ struct terminal_state {
   hvir_terminal_renderer_info renderer_info;
   uint64_t requested_mutation, io_applied_mutation;
   uint32_t input_failure;
+  uint64_t appearance_serial, appearance_mutation, appearance_failure_serial;
+  char appearance_font_family[1025];
+  double appearance_font_size;
+  bool appearance_ligatures;
   struct hvir_input_capture *input_capture;
 };
 struct hvir_terminal_host {
@@ -65,6 +69,7 @@ struct hvir_terminal_host {
   bool (*external_feed)(ghostty_surface_t, const uint8_t *, size_t, uint64_t);
   bool (*external_frame_release)(ghostty_surface_t);
   bool (*external_presentation_mode)(ghostty_surface_t, uint32_t);
+  bool (*external_appearance)(ghostty_surface_t, const hvir_ghostty_appearance *, bool, uint64_t);
   bool (*external_resize)(ghostty_surface_t, uint32_t, uint32_t, uint64_t, double);
   void (*surface_visibility)(ghostty_surface_t, bool);
   uint32_t (*external_link)(ghostty_surface_t, uint32_t, uint32_t, uint32_t, uint64_t, uint64_t, uint64_t, uint8_t *, size_t, size_t *);

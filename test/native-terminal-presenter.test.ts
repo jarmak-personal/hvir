@@ -631,3 +631,68 @@ it('does not let failed loss notifications prevent native occlusion cleanup', as
     expect(f.host.setVisible).toHaveBeenLastCalledWith('state', 1, 1, 1, false),
   )
 })
+
+it('retains only a visible refit resource identity while rejecting old input authority until acknowledgement', async () => {
+  const f = fixture(),
+    id = await f.owner.attach('state', f.session, f.target)
+  await f.owner.update(id, { width: 64, height: 32, backingScale: 1, visible: true })
+  const ack = deferred<NativeTerminalStatus>()
+  f.host.resize.mockReturnValueOnce(ack.promise)
+  const pending = f.owner.update(id, {
+    width: 64,
+    height: 32,
+    backingScale: 1,
+    visible: true,
+  })
+  expect(f.owner.isInputCurrent(id)).toBe(false)
+  expect(f.target.publishGrant).toHaveBeenLastCalledWith(undefined, {
+    attachment: 1,
+    nativeEpoch: f.live.epoch,
+  })
+  ack.resolve({ ...f.status(), geometry: { ...f.status().geometry, serial: 3 } })
+  await expect(pending).resolves.toMatchObject({ geometrySerial: 3 })
+  expect(f.owner.isInputCurrent(id)).toBe(true)
+  await f.owner.update(id, { width: 64, height: 32, backingScale: 1, visible: false })
+  expect(f.target.publishGrant).toHaveBeenLastCalledWith(undefined)
+  await f.owner.detach(id)
+})
+it('strongly revokes and occludes a rejected visible refit without issuing a replacement grant', async () => {
+  const f = fixture(),
+    id = await f.owner.attach('state', f.session, f.target)
+  await f.owner.update(id, { width: 64, height: 32, backingScale: 1, visible: true })
+  const before = f.target.publishGrant.mock.calls.length
+  const failure = new Error('resize refused')
+  f.host.resize.mockRejectedValueOnce(failure)
+  await expect(
+    f.owner.update(id, { width: 96, height: 48, backingScale: 1, visible: true }),
+  ).rejects.toBe(failure)
+  expect(f.target.publishGrant.mock.calls.slice(before)).toEqual([
+    [undefined, { attachment: 1, nativeEpoch: f.live.epoch }],
+    [undefined],
+  ])
+  expect(f.host.setVisible).toHaveBeenLastCalledWith('state', 1, 1, 1, false)
+  expect(f.owner.isInputCurrent(id)).toBe(false)
+  expect(f.target.publishStatus).toHaveBeenLastCalledWith(
+    expect.objectContaining({ mode: 'unavailable', reason: 'geometry-failed' }),
+  )
+  await f.owner.detach(id)
+})
+
+it('strongly revokes and occludes if publishing a refit hint throws before native resize admission', async () => {
+  const f = fixture(),
+    id = await f.owner.attach('state', f.session, f.target)
+  await f.owner.update(id, { width: 64, height: 32, backingScale: 1, visible: true })
+  f.host.resize.mockClear()
+  const failure = new Error('hint delivery failed')
+  f.target.publishGrant.mockImplementationOnce(() => {
+    throw failure
+  })
+  await expect(
+    f.owner.update(id, { width: 96, height: 48, backingScale: 1, visible: true }),
+  ).rejects.toBe(failure)
+  expect(f.target.publishGrant).toHaveBeenLastCalledWith(undefined)
+  expect(f.host.resize).not.toHaveBeenCalled()
+  expect(f.host.setVisible).toHaveBeenLastCalledWith('state', 1, 1, 1, false)
+  expect(f.owner.isInputCurrent(id)).toBe(false)
+  await f.owner.detach(id)
+})

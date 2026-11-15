@@ -1,3 +1,7 @@
+import {
+  validNativeTerminalAppearance,
+  type NativeTerminalAppearance,
+} from '../../shared/native-terminal-appearance'
 import { NativeTerminalQuery } from './native-terminal-query'
 import {
   NativeTerminalQuerySourceStale,
@@ -124,6 +128,8 @@ export class NativeTerminalApplication {
       revision: number
       visible: boolean
       geometrySerial: number
+      appearanceRevision?: number
+      layout?: { width: number; height: number; backingScale: number; visible: boolean }
       input: NativeTerminalInputState
       frame: WebFrameMain
     }
@@ -155,7 +161,13 @@ export class NativeTerminalApplication {
     >,
     private readonly presenter: Pick<
       NativeTerminalPresenter,
-      'attach' | 'update' | 'demand' | 'detach' | 'suspend' | 'isInputCurrent'
+      | 'attach'
+      | 'update'
+      | 'appearance'
+      | 'demand'
+      | 'detach'
+      | 'suspend'
+      | 'isInputCurrent'
     >,
     readonly targets: Pick<
       NativeTerminalPresentationTargets,
@@ -430,6 +442,40 @@ export class NativeTerminalApplication {
     })
     return viewId
   }
+  async appearance(
+    viewId: string,
+    owner: RendererOwner,
+    appearance: NativeTerminalAppearance,
+  ): Promise<boolean> {
+    if (!validNativeTerminalAppearance(appearance))
+      throw new Error('native-appearance-invalid')
+    const view = this.requireView(viewId, owner)
+    const revision = (view.appearanceRevision ?? 0) + 1
+    view.appearanceRevision = revision
+    try {
+      const geometryChanged = await this.presenter.appearance(viewId, appearance)
+      if (
+        this.requireView(viewId, owner) !== view ||
+        view.appearanceRevision !== revision
+      )
+        throw new Error('native-appearance-superseded')
+      if (geometryChanged && view.layout) await this.update(viewId, owner, view.layout)
+      if (
+        this.requireView(viewId, owner) !== view ||
+        view.appearanceRevision !== revision
+      )
+        throw new Error('native-appearance-superseded')
+      return view.visible && this.presenter.isInputCurrent(viewId)
+    } catch (error) {
+      if (
+        this.views.get(viewId) === view &&
+        view.appearanceRevision === revision &&
+        this.isCurrent(owner)
+      )
+        this.unavailable(view.sessionId, view.instanceId)
+      throw error
+    }
+  }
   async update(
     viewId: string,
     owner: RendererOwner,
@@ -441,6 +487,7 @@ export class NativeTerminalApplication {
     },
   ): Promise<void> {
     const view = this.requireView(viewId, owner)
+    view.layout = { ...layout }
     this.selectionOwner.revoke(viewId)
     const cleanup = !layout.visible
       ? this.inputOwner.blur(this.inputContext(viewId, owner, true))

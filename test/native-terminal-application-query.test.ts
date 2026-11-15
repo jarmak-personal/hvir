@@ -70,6 +70,7 @@ async function fixture() {
   const executed: string[] = []
   const host = {
     prepare: vi.fn(() => Promise.resolve('handle')),
+    appearanceProducer: () => Promise.resolve(status),
     resizeProducer: vi.fn(() => Promise.resolve(status)),
     feed: vi.fn(() => Promise.resolve()),
     drainReplies: vi.fn(() => Promise.resolve(new Uint8Array())),
@@ -190,6 +191,7 @@ async function fixture() {
     'isDestroyed' | 'send'
   > as WebFrameMain
   const presenter = {
+    appearance: vi.fn(() => Promise.resolve(false)),
     attach: vi.fn(() => Promise.resolve(viewId)),
     update: vi.fn(() =>
       Promise.resolve({

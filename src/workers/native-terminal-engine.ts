@@ -1,3 +1,4 @@
+import { validNativeTerminalAppearance } from '../shared/native-terminal-appearance'
 import { drainNativeTerminalEffects } from './native-terminal-effects'
 import {
   validNativeTerminalQueryOperation,
@@ -55,6 +56,16 @@ parentPort.on(
             BigInt(String(args[0])),
             BigInt(String(args[1])),
             args[2] as Uint8Array,
+          )
+          break
+        case 'appearance':
+          if (!validNativeTerminalAppearance(args[2]))
+            throw new Error('native-appearance-invalid')
+          value = engine.appearance(
+            host,
+            BigInt(String(args[0])),
+            BigInt(String(args[1])),
+            args[2],
           )
           break
         case 'resize':

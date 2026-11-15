@@ -122,6 +122,7 @@ describe('native effect authority over disposable loopback SSH', () => {
             appliedSequence: sequence,
             ioAppliedSequence: sequence,
           }),
+        appearanceProducer: () => Promise.resolve(status),
         resizeProducer: () => Promise.resolve(status),
         feed: (_handle: string, _instance: string, chunk: Uint8Array) => {
           sequence++

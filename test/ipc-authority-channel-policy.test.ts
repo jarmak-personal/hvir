@@ -119,6 +119,7 @@ it('keeps the reviewed owner and authority channel policies explicit', () => {
       'native-terminal:metadata',
       'native-terminal:query',
       'native-terminal:update',
+      'native-terminal:appearance',
       'native-terminal:demand',
       'native-terminal:detach',
       'native-terminal:key',

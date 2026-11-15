@@ -4,6 +4,7 @@ import {
   NATIVE_TERMINAL_PRESENTATION as channels,
   sameNativeTerminalView,
   validNativeTerminalViewGrant,
+  type NativeTerminalCanvasRefit,
   type NativeTerminalPixelFrame,
   type NativeTerminalPresentationStatus,
   type NativeTerminalViewGrant,
@@ -108,7 +109,10 @@ export class NativeTerminalPresentationTargets {
           if (unavailable === listener) unavailable = undefined
         }
       },
-      publishGrant: (grant: NativeTerminalViewGrant | undefined): void => {
+      publishGrant: (
+        grant: NativeTerminalViewGrant | undefined,
+        refit?: NativeTerminalCanvasRefit,
+      ): void => {
         if (grant) {
           viewId = grant.viewId
           if (!this.granted.has(viewId) && this.granted.size >= channels.maximumViews)
@@ -125,7 +129,11 @@ export class NativeTerminalPresentationTargets {
         } else if (viewId) this.granted.delete(viewId)
         // Revocation is cleanup authority and remains valid after current() fails.
         if (viewId && !this.disposed && !frame.isDestroyed())
-          frame.send(channels.grantChannel, { viewId, grant })
+          frame.send(channels.grantChannel, {
+            viewId,
+            grant,
+            ...(!grant && refit ? { refit } : {}),
+          })
       },
       publishStatus: (status: NativeTerminalPresentationStatus): void => {
         if (status.mode === 'unavailable' && !this.disposed && !frame.isDestroyed())

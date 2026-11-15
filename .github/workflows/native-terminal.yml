@@ -232,6 +232,8 @@ jobs:
         timeout-minutes: 5
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          # Synthetic fixtures only: retain actual native primary-face INFO diagnostics.
+          GHOSTTY_LOG: stderr
         run: |
           npm run build:smoke
           # Keep diagnostic stderr out of the machine-readable proof stream.
@@ -321,6 +323,38 @@ jobs:
           assert.equal(proof.readonlyQuery.exactCopy.bytes, Buffer.byteLength('HVIR_READONLY_SELECTION'));
           assert.equal(proof.readonlyQuery.exactCopy.sha256, crypto.createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex'));
           assert(proof.readonlyQuery.frames >= 2 && Number.isFinite(proof.readonlyQuery.maximumFrameGapMs) && proof.readonlyQuery.maximumFrameGapMs <= 500);
+          const appearance = proof.nativeAppearance;
+          assert.equal(typeof appearance.fractionalScale.refitCanvas.eligible, 'boolean');
+          assert.equal(typeof appearance.fractionalScale.refitCanvas.retained, 'boolean');
+          assert(!appearance.fractionalScale.refitCanvas.eligible || appearance.fractionalScale.refitCanvas.retained);
+          assert.equal(appearance.actualNative, true);
+          assert.equal(appearance.initialFontAppliedBeforeDraw, true);
+          assert.equal(appearance.restoredBuiltinPalettePixels, true);
+          assert.equal(appearance.samePty, true);
+          assert.deepEqual(appearance.gallery, {cancel: true, pairedSave: true});
+          assert.deepEqual(appearance.cursorShapes, ['block', 'hollow-block', 'bar', 'underline']);
+          assert.deepEqual(appearance.cursorQueryCodes, [2, 2, 6, 4]);
+          assert.equal(appearance.applicationCursorOverride, true);
+          assert.equal(appearance.ligatureSettings.onOff, true);
+          assert.equal(appearance.ligatureSettings.exactPointerCopy, true);
+          assert.equal(appearance.hardwareQualified, false);
+          for (const theme of ['dark', 'light']) {
+            assert.equal(appearance.palettes[theme].queryRepliesExact, true);
+            assert.equal(appearance.palettes[theme].configuredSelectionPixels, true);
+            for (const name of ['background', 'foreground', 'green', 'blue']) assert(appearance.palettes[theme].samples[name] > 0);
+          }
+          assert.equal(appearance.fractionalScale.currentDraw, true);
+          assert.equal(appearance.fractionalScale.cursor.shape, 'underline');
+          assert(appearance.fractionalScale.cursor.pixels > 0);
+          assert.notEqual(appearance.fractionalScale.before, appearance.fractionalScale.after);
+          assert(appearance.fractionalScale.after >= 1 && appearance.fractionalScale.after <= 4);
+          const hidden = appearance.hiddenFontReveal;
+          assert.equal(hidden.missingFamilyFallback, true);
+          assert.equal(hidden.currentDraw, true);
+          assert(hidden.after.serial > hidden.before.serial && hidden.after.cellHeight !== hidden.before.cellHeight);
+          assert.deepEqual(hidden.stty, {rows: hidden.after.rows, columns: hidden.after.columns});
+          assert.equal(hidden.unicodeExactPointerCopy.bytes, Buffer.byteLength('漢字🙂 e\u0301'));
+          assert.equal(hidden.unicodeExactPointerCopy.sha256, crypto.createHash('sha256').update('漢字🙂 e\u0301').digest('hex'));
           const expectedClipboard = ['native-effects', 'a'.repeat(49152)].map(text => ({
             bytes: Buffer.byteLength(text), sha256: crypto.createHash('sha256').update(text).digest('hex'),
           }));
@@ -474,6 +508,7 @@ jobs:
           name: native-terminal-host-diagnostics-${{ matrix.target }}
           path: |
             ${{ runner.temp }}/hvir-native-bindings/*.jsonl
+            ${{ runner.temp }}/hvir-native-build/artifact/font-cases-proof.json
             packages/native-terminal/build/Release/bindings.json
           if-no-files-found: ignore
           retention-days: 7

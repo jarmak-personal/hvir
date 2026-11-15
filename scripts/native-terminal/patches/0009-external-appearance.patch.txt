@@ -1,0 +1,173 @@
+--- a/src/main_c.zig
++++ b/src/main_c.zig
+@@ -266,5 +266,5 @@
+ 
+ // Version of the pinned upstream hooks consumed by hvir's maintained C facade.
+ export fn hvir_ghostty_embed_abi() u32 {
+-    return 9;
+-}
++    return 10;
++}
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1570,6 +1570,66 @@
+         return true;
+     }
+ 
++    /// Bounded, typed presentation values only. The embedding adapter owns
++    /// policy and CSS-family parsing; this hook never loads config files/actions.
++    pub const ExternalAppearance = extern struct {
++        families: [*]const [*:0]const u8,
++        family_count: usize,
++        font_size_pixels: f64,
++        cursor_shape: u32,
++        cursor_blink: u32,
++        ligatures: bool,
++        light: bool,
++        colors: [22]u32,
++    };
++
++    export fn ghostty_external_appearance(surface: *Surface, value: *const ExternalAppearance, typography: bool, mutation: u64) bool {
++        if (surface.core_surface.io.backend != .external or value.family_count == 0 or value.family_count > 32 or
++            !std.math.isFinite(value.font_size_pixels) or value.font_size_pixels < 1 or value.font_size_pixels > 255 or
++            value.cursor_shape > 3 or value.cursor_blink > 2) return false;
++        var config = surface.app.config.clone(surface.app.core_app.alloc) catch return false;
++        defer config.deinit();
++        const alloc = config._arena.?.allocator();
++        config.@"font-family" = .{};
++        for (value.families[0..value.family_count]) |family|
++            config.@"font-family".parseCLI(alloc, std.mem.span(family)) catch return false;
++        config.@"font-size" = @floatCast(value.font_size_pixels * 72 / font.face.default_dpi);
++        config.@"font-feature" = .{};
++        if (!value.ligatures) {
++            config.@"font-feature".parseCLI(alloc, "-liga") catch return false;
++            config.@"font-feature".parseCLI(alloc, "-calt") catch return false;
++        }
++        config.@"cursor-style" = switch (value.cursor_shape) { 0 => .block, 1 => .bar, 2 => .underline, 3 => .block_hollow, else => unreachable };
++        config.@"cursor-style-blink" = switch (value.cursor_blink) { 0 => null, 1 => true, 2 => false, else => unreachable };
++        const Color = configpkg.Config.Color;
++        var colors: [22]Color = undefined;
++        for (value.colors, 0..) |rgb, i| {
++            if (rgb > 0xffffff) return false;
++            colors[i] = .{ .r = @truncate(rgb >> 16), .g = @truncate(rgb >> 8), .b = @truncate(rgb) };
++        }
++        config.background = colors[0];
++        config.foreground = colors[1];
++        config.@"cursor-color" = .{ .color = colors[2] };
++        config.@"cursor-text" = .{ .color = colors[3] };
++        config.@"selection-background" = .{ .color = colors[4] };
++        config.@"selection-foreground" = .{ .color = colors[5] };
++        for (colors[6..], 0..) |color, i| {
++            config.palette.value[i] = color.toTerminalRGB();
++            config.palette.mask.set(i);
++        }
++        // Conditional replay legitimately ignores irrelevant theme changes.
++        // The terminal's report policy still requires the explicit appearance.
++        config._conditional_state.theme = if (value.light) .light else .dark;
++        const previous = surface.core_surface.config_conditional_state.theme;
++        surface.core_surface.config_conditional_state.theme = if (value.light) .light else .dark;
++        surface.core_surface.updateConfigMode(&config, typography, true) catch {
++            surface.core_surface.config_conditional_state.theme = previous;
++            return false;
++        };
++        surface.core_surface.io.queueMessage(.{ .external_input = mutation }, .unlocked);
++        return true;
++    }
++
+     export fn ghostty_external_set_presentation_mode(surface: *Surface, mode: u32) bool {
+         const io = &surface.core_surface.io;
+         if (mode > 1 or io.backend != .external or io.backend.external.failed.load(.acquire)) return false;
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -2399,11 +2399,23 @@
+     self: *Surface,
+     original: *const configpkg.Config,
+ ) !void {
++    return self.updateConfigMode(original, true, false);
++}
++
++/// External embedders need exact failure and may retain their font grid for
++/// palette/cursor-only changes. No font-grid rebuild means no layout invalidation.
++pub fn updateConfigMode(
++    self: *Surface,
++    original: *const configpkg.Config,
++    typography: bool,
++    strict: bool,
++) !void {
+     // Apply our conditional state. If we fail to apply the conditional state
+     // then we log and attempt to move forward with the old config.
+     var config_: ?configpkg.Config = original.changeConditionalState(
+         self.config_conditional_state,
+     ) catch |err| err: {
++        if (strict) return err;
+         log.warn("failed to apply conditional state to config err={}", .{err});
+         break :err null;
+     };
+@@ -2418,6 +2430,7 @@
+         // If the derivation fails then we just log and return. We don't
+         // hard fail in this case because we don't want to error the surface
+         // when config fails we just want to keep using the old config.
++        if (strict) return err;
+         log.err("error updating configuration err={}", .{err});
+         return;
+     };
+@@ -2445,7 +2458,7 @@
+     // but this is easier and pretty rare so it's not a performance concern.
+     //
+     // (Calling setFontSize builds and sends a new font grid to the renderer.)
+-    try self.setFontSize(font_size: {
++    if (typography) try self.setFontSize(font_size: {
+         // If we have manually adjusted the font size, keep it that way.
+         if (self.font_size_adjusted) {
+             log.info("font size manually adjusted, preserving previous size on config reload", .{});
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -498,6 +498,10 @@
+         self.alloc,
+         config.palette,
+     ) catch |err| {
++        if (self.backend == .external) {
++            self.backend.external.fail(4);
++            return err;
++        }
+         log.warn("error changing default palette, using built-in default err={}", .{err});
+         self.terminal.colors.palette.resetDefault(self.alloc);
+     };
+@@ -512,8 +516,10 @@
+     };
+ 
+     // Set the image limits
+-    self.terminal.setKittyGraphicsSizeLimit(self.alloc, config.image_storage_limit);
+-    self.terminal.setKittyGraphicsLoadingLimits(.allWithTempDir(global.tmpDirPath()));
++    // External streams retain their construction-time media restrictions across
++    // reloads. Configuration never grants ambient file or shared-memory access.
++    self.terminal.setKittyGraphicsSizeLimit(self.alloc, if (self.backend == .external) 0 else config.image_storage_limit);
++    self.terminal.setKittyGraphicsLoadingLimits(if (self.backend == .external) .direct else .allWithTempDir(global.tmpDirPath()));
+ 
+     // The config could have changed any of our colors so update mode 2031.
+     // This is written directly rather than queued as a color_scheme_report
+--- a/src/terminal/Terminal.zig
++++ b/src/terminal/Terminal.zig
+@@ -498,7 +498,7 @@
+     self.cursor.default_style = configured_style;
+ 
+     // Do not overwrite an appearance explicitly selected by the program.
+-    if (self.cursor.is_default) self.setCursorStyle(.default);
++    if (self.cursor.is_default) self.screens.active.cursor.cursor_style = configured_style;
+ }
+ 
+ /// Change the default cursor blink behavior.
+@@ -509,10 +509,12 @@
+ pub fn setDefaultCursorBlink(self: *Terminal, blink: ?bool) void {
+     // Keep the configured value separate from the currently resolved mode so
+     // null can continue to mean "use the emulator default."
++    // An unchanged default must preserve DEC mode 12 across palette reloads.
++    if (self.cursor.default_blink == blink) return;
+     self.cursor.default_blink = blink;
+ 
+     // Do not overwrite blink behavior explicitly selected by the program.
+-    if (self.cursor.is_default) self.setCursorStyle(.default);
++    if (self.cursor.is_default) self.modes.set(.cursor_blinking, blink orelse true);
+ }
+ 
+ /// The I/O implementation we should use for this terminal.

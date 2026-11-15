@@ -323,6 +323,7 @@ hvir_terminal_result hvir_terminal_open(const char *path, void *display, hvir_te
   LOAD(external_presentation_mode, "ghostty_external_set_presentation_mode");
   LOAD(external_feed, "ghostty_external_feed");
   LOAD(external_resize, "ghostty_external_resize");
+  LOAD(external_appearance, "ghostty_external_appearance");
   LOAD(surface_visibility, "ghostty_surface_set_occlusion");
   LOAD(external_link, "ghostty_external_link");
   LOAD(external_selection, "ghostty_external_selection");
@@ -588,6 +589,9 @@ hvir_terminal_result hvir_terminal_inspect(hvir_terminal_host *h, hvir_terminal_
   *out = (hvir_terminal_status){.applied_sequence = s->applied_sequence,
     .io_applied_mutation = s->io_applied_mutation, .input_failure = s->input_failure,
     .io_applied_sequence = s->io_applied_sequence,
+    .applied_appearance_serial = s->appearance_mutation && s->io_applied_mutation >= s->appearance_mutation &&
+      s->appearance_failure_serial != s->appearance_serial ? s->appearance_serial : 0,
+    .appearance_failure_serial = s->appearance_failure_serial,
                                 .frame_copies = s->frame_copies,
                                 .geometry_failure_serial = s->geometry_failure_serial,
                                 .reply_sequence = s->reply_sequence,

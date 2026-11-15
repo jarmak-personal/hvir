@@ -1,3 +1,4 @@
+import type { NativeTerminalAppearance } from './native-terminal-appearance'
 import type { HostPath } from './host-path'
 import {
   nativeTerminalInputBytes,
@@ -55,6 +56,8 @@ export interface NativeTerminalStatus {
   readonly presentationFailure: number
   readonly frameCopies: number
   readonly geometryFailureSerial: number
+  readonly appliedAppearanceSerial: number
+  readonly appearanceFailureSerial: number
   readonly geometry: NativeTerminalGeometry
 }
 /** Bounded resource facts only: process-local fds and pointers never enter this DTO. */
@@ -154,6 +157,12 @@ export type NativeTerminalCommand =
       action: number
       text: string
     }
+  | {
+      kind: 'appearance'
+      state: string
+      serial: number
+      appearance: NativeTerminalAppearance
+    }
   | { kind: 'visibility'; state: string; visible: boolean }
   | { kind: 'presentation-mode'; state: string; mode: NativeTerminalExportMode }
   | { kind: 'pixels'; state: string; lease: string }
@@ -178,6 +187,8 @@ export type NativeTerminalCommand =
   | { kind: 'release'; state: string; lease: string }
 /** Count both producer and encoder payloads in the existing physical credits. */
 export function nativeTerminalCommandBytes(command: NativeTerminalCommand): number {
+  if (command.kind === 'appearance')
+    return new TextEncoder().encode(command.appearance.fontFamily).byteLength + 22 * 4
   if (command.kind === 'query' && command.operation.kind === 'query-begin')
     return new TextEncoder().encode(command.operation.text).byteLength
   return command.kind === 'input'

@@ -36,6 +36,7 @@ function fixture() {
   }
   const pane: NativeTerminalPanePort = {
     engine: 'native',
+    setAppearance: vi.fn(),
     retained: capability,
     selection: {
       status: () => Promise.resolve({ hasSelection: false }),

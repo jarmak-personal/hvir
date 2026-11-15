@@ -699,6 +699,15 @@ export async function verifyExtensionContributions(
     }
   }
   if (placementCleanupFailure) throw placementCleanupFailure.reason
+  // Closing this separate destination needs its own current ordinary navigation.
+  await controls.click('Reference library')
+  await controls.wait(
+    () =>
+      dom(`document.querySelector('.extension-top-destination')?.hidden === false &&
+      [...document.querySelectorAll('.sessions-destination[aria-current="page"]')].some(button => button.textContent.trim() === 'Reference library') &&
+      [...document.querySelectorAll('button[aria-label="Close Reference library"]')].some(button => !button.disabled && button.checkVisibility())`),
+    'library destination current before ordinary close',
+  )
   await controls.click('Close Reference library')
   await beginAction('closed-action', 5000)
   await controls.wait(

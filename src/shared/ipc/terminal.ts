@@ -43,6 +43,7 @@ export interface StartPtyRequest {
     readonly width: number
     readonly height: number
     readonly backingScale: number
+    readonly appearance?: import('../native-terminal-appearance').NativeTerminalAppearance
   }
   readonly title: string
   readonly position: number
@@ -233,6 +234,13 @@ export const terminalIpc = {
     'native-terminal:metadata': invoke<
       { id: string },
       import('../native-terminal-effects').NativeTerminalMetadata
+    >(),
+    'native-terminal:appearance': invoke<
+      {
+        viewId: string
+        appearance: import('../native-terminal-appearance').NativeTerminalAppearance
+      },
+      boolean
     >(),
     'native-terminal:update': invoke<
       {

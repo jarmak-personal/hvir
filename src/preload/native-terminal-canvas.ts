@@ -16,7 +16,9 @@ export function createNativeTerminalCanvas(
   const parent = document.getElementById(elementId)
   if (!parent?.isConnected) return
   const canvas = document.createElement('canvas')
-  canvas.style.cssText = 'display:block;width:100%;height:100%;pointer-events:none'
+  // Fractional CSS bounds must not blend away one-pixel native cursor/glyph edges.
+  canvas.style.cssText =
+    'display:block;width:100%;height:100%;pointer-events:none;image-rendering:pixelated'
   canvas.setAttribute('aria-hidden', 'true')
   const gl = canvas.getContext('webgl2', {
     alpha: true,
@@ -182,12 +184,18 @@ export function createNativeTerminalCanvas(
       // Synchronous GPU status queries can wait for compositor work on this thread.
       // Submit; Chromium's VideoFrame release sync token owns actual GPU completion.
       gl.flush()
+      if (!disposed && canvas.isConnected && canvas.style.visibility === 'hidden')
+        canvas.style.visibility = ''
     } finally {
       if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
         nativePresentationSpanEnd('canvas-submit', started)
     }
   }
   return {
+    suspendForRefit(): void {
+      if (disposed || !canvas.isConnected) throw new Error('native-canvas-lost')
+      canvas.style.visibility = 'hidden'
+    },
     draw(frame: unknown, metadata: NativeTerminalPresentedFrame): void {
       let started: number | undefined
       if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)

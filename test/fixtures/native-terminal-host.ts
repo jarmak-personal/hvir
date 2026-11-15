@@ -26,6 +26,8 @@ export function nativeTerminalStatus(serial = 1): NativeTerminalStatus {
     presentationFailure: 0,
     frameCopies: 0,
     geometryFailureSerial: 0,
+    appliedAppearanceSerial: 0,
+    appearanceFailureSerial: 0,
     geometry: {
       serial,
       backingScale: 1,

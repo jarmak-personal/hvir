@@ -56,6 +56,80 @@ afterEach(() => {
   vi.useRealTimers()
 })
 describe('same-PTY native selection qualification protocol', () => {
+  it('times the actual capture await on success and rejection with bounded spans and a retained worst', async () => {
+    let now = 100
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now)
+    const image = { syntheticImage: true },
+      rect = { x: 1, y: 2, width: 30, height: 40 }
+    let resolve: (value: typeof image) => void = () => undefined
+    const capturePage = vi.fn(
+      () =>
+        new Promise<typeof image>((yes) => {
+          resolve = yes
+        }),
+    )
+    const browser = nativeSelectionBrowser(
+      { webContents: { capturePage } } as unknown as Parameters<
+        typeof nativeSelectionBrowser
+      >[0],
+      {} as Parameters<typeof nativeSelectionBrowser>[1],
+      { id: 's' } as Parameters<typeof nativeSelectionBrowser>[2],
+    )
+    try {
+      const pending = browser.capture(rect, 'query-highlight')
+      expect(capturePage).toHaveBeenCalledExactlyOnceWith(rect)
+      expect(browser.captureTiming()).toMatchObject({ count: 1, spans: [] })
+      now = 650
+      resolve(image)
+      await expect(pending).resolves.toBe(image)
+      expect(browser.captureTiming().spans[0]).toEqual({
+        phase: 'query-highlight',
+        fromMs: 100,
+        toMs: 650,
+        fromEpochMs: performance.timeOrigin + 100,
+        toEpochMs: performance.timeOrigin + 650,
+        completed: true,
+      })
+      const failure = new Error('capture-refused')
+      let reject: (reason: unknown) => void = () => undefined
+      capturePage.mockImplementationOnce(
+        () =>
+          new Promise<typeof image>((_, no) => {
+            reject = no
+          }),
+      )
+      now = 1000
+      const refused = browser.capture(rect, 'selection-painted')
+      now = 1650
+      reject(failure)
+      await expect(refused).rejects.toBe(failure)
+      expect(browser.captureTiming().worst).toMatchObject({
+        phase: 'selection-painted',
+        fromMs: 1000,
+        toMs: 1650,
+        completed: false,
+      })
+      capturePage.mockResolvedValue(image)
+      for (let n = 0; n < 17; n++) {
+        now++
+        await browser.capture(rect, 'query-highlight')
+      }
+      capturePage.mockImplementationOnce(() => {
+        now += 2000
+        return Promise.resolve(image)
+      })
+      await browser.capture(rect, 'query-highlight')
+      expect(capturePage).toHaveBeenCalledTimes(20)
+      const timing = browser.captureTiming()
+      expect(timing).toMatchObject({ count: 20, truncated: true, unavailable: false })
+      expect(timing.spans).toHaveLength(16)
+      expect(timing.worst!.toMs - timing.worst!.fromMs).toBe(2000)
+      expect(timing.worst).toMatchObject({ phase: 'query-highlight', completed: true })
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
   it('does not complete a finite menu action while its dispatched DOM menu remains present', async () => {
     let present = true,
       settled = false
@@ -81,6 +155,7 @@ describe('same-PTY native selection qualification protocol', () => {
     const sendInputEvent = vi.fn()
     const win = {
       webContents: {
+        getZoomFactor: () => 1,
         executeJavaScript: (script: string) =>
           Promise.resolve(
             runInNewContext(script, { document, devicePixelRatio: 1 }) as unknown,
@@ -144,6 +219,7 @@ describe('same-PTY native selection qualification protocol', () => {
       })
       const win = {
         webContents: {
+          getZoomFactor: () => 1,
           executeJavaScript: (script: string) => {
             if (script.includes('const separator='))
               return Promise.resolve({ x: 265, y: 390 })
@@ -287,6 +363,7 @@ describe('same-PTY native selection qualification protocol', () => {
     const events: string[] = []
     const win = {
       webContents: {
+        getZoomFactor: () => 1,
         executeJavaScript: (script: string) =>
           Promise.resolve(
             script.includes('const separator=')
@@ -328,6 +405,7 @@ describe('same-PTY native selection qualification protocol', () => {
     const events: { type: string; keyCode?: string; modifiers?: string[] }[] = []
     const win = {
       webContents: {
+        getZoomFactor: () => 1,
         executeJavaScript: (script: string) =>
           Promise.resolve(
             script.includes('const menus=')

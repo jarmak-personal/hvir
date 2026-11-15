@@ -29,6 +29,7 @@ function fixture(effectPolicy?: NativeTerminalEffectPolicy) {
   }
   const host = {
     prepare: vi.fn(() => Promise.resolve('handle')),
+    appearanceProducer: vi.fn(() => Promise.resolve(status)),
     inspectProducer: vi.fn(() => Promise.resolve(status)),
     resizeProducer: vi.fn(
       (
@@ -75,6 +76,52 @@ function fixture(effectPolicy?: NativeTerminalEffectPolicy) {
 afterEach(() => vi.useRealTimers())
 
 describe('native supervisor session state', () => {
+  it('awaits initial settings and measured geometry before returning PTY launch dimensions', async () => {
+    const f = fixture()
+    const appearance = {
+      fontFamily: 'monospace',
+      fontSize: 18,
+      ligatures: true,
+      cursorShape: 'block' as const,
+      cursorBlink: 'terminal' as const,
+      appearance: 'dark' as const,
+      colors: Array(22).fill(0x123456),
+    }
+    const fence = deferred<Awaited<ReturnType<typeof f.host.appearanceProducer>>>()
+    f.host.appearanceProducer.mockReturnValueOnce(fence.promise)
+    const preparing = f.sessions.prepare(f.reservation, f.signal.signal, {
+      width: 640,
+      height: 400,
+      backingScale: 1.25,
+      appearance,
+    })
+    await vi.waitFor(() =>
+      expect(f.host.appearanceProducer).toHaveBeenCalledWith(
+        'handle',
+        'instance',
+        appearance,
+      ),
+    )
+    expect(f.host.resizeProducer).not.toHaveBeenCalled()
+    const status = await f.host.inspectProducer()
+    f.host.resizeProducer.mockResolvedValueOnce({
+      ...status,
+      geometry: {
+        ...status.geometry,
+        backingScale: 1.25,
+        serial: status.geometry.serial + 1,
+        columns: 48,
+        rows: 17,
+        cellWidth: 13,
+        cellHeight: 23,
+      },
+    })
+    fence.resolve(status)
+    const prepared = await preparing
+    expect(prepared).toMatchObject({ columns: 48, rows: 17 })
+    await prepared.dispose()
+  })
+
   it('retains immutable native facts across owner transfer without authorizing old-owner effects', async () => {
     const clipboard = { writeText: vi.fn() },
       publish = vi.fn()

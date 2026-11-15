@@ -168,6 +168,32 @@ retaining only the bounded C record and owned resource references, and returns B
 Inspect, release and final destroy remain valid. Release after retirement never calls a
 freed Surface. Closing the host is BUSY until all state/resource records are settled.
 
+The presentation canvas uses nearest CSS image sampling. Fractional workbench positions
+and extents must not blend one-physical-pixel native cursor or glyph edges into their
+background; this changes no layout, input coordinates, or acknowledged native geometry.
+
+## Live appearance
+
+Private ABI 10 adds `hvir_terminal_appearance_set`. The existing settings owner supplies
+one bounded CSS family stack, CSS pixel font size, ligature setting, complete 22-color
+palette, dark/light appearance and cursor defaults. The C adapter parses only family-stack
+data, including quoted and escaped family names; it cannot load Ghostty config, commands,
+keybindings or clipboard policy. Native fallback and shaping use the existing font owners.
+The native hook converts CSS pixels using the platform's actual point DPI; subsequent
+applied geometry reports measured native cells rather than a prototype ratio.
+
+A successful setter enqueues configuration. `applied_appearance_serial` certifies its exact
+IO mutation fence, without waiting for later PTY output. Renderer configuration precedes
+the matching render mutation in the renderer mailbox; a matching completed frame is the
+separate rendered observation. Typography and shaping changes require a fresh applied
+resize before PTY resize notification. Palette and cursor changes retain the font grid,
+geometry, query occurrences and active reads. Cursor defaults preserve explicit DECSCUSR
+overrides; unchanged defaults also preserve DEC mode 12 under the terminal blink policy.
+
+Strict reload failures return failure and revoke an uncertain native state, preserving
+the PTY's independent authority. External streams retain direct-only image media and
+zero image storage across reload. No retention policy is changed by appearance.
+
 ## Build and native proof
 
 The [native build command](native-terminal-build.md) reproduces the ordered upstream
@@ -177,6 +203,10 @@ patches and compiles the maintained facade. Each matching-target build runs:
 - `facade-probe LIBRARY --frames`: a real pthread caller, independent states, ordered
   large ANSI/Unicode output, split sequences, raw replies/input, geometry and mailbox
   saturation, OS child/PTY checks, and resource release/reacquisition/retirement.
+- `appearance-probe`: measured font and fractional-scale geometry; Unicode, CJK, emoji,
+  combining and missing-glyph extraction; fallback fonts and actual ligature pixels;
+  configured selection colors; palette/query/read continuity; OSC palette and scheme
+  replies; cursor defaults and application overrides.
 - `frame-metadata-probe`: immediate adapter validation and descriptor cleanup without
   initializing the engine. It can also be compiled with address/undefined sanitizers.
 

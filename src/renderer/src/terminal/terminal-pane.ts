@@ -295,6 +295,9 @@ export interface TerminalPane {
  * rather than pretending to implement the legacy synchronous parser contract. */
 export interface NativeTerminalPanePort {
   readonly engine: 'native'
+  setAppearance(
+    appearance: import('../../../shared/native-terminal-appearance').NativeTerminalAppearance,
+  ): void
   readonly retained?: TerminalRetainedQueryCapability
   readonly selection: TerminalSelectionCapability
   paste(data: string): void
@@ -303,7 +306,12 @@ export interface NativeTerminalPanePort {
   setPresentation(presentation: TerminalPresentation): void
   focus(): void
   dispose(): void
-  viewport(): { width: number; height: number; backingScale: number }
+  viewport(): {
+    width: number
+    height: number
+    backingScale: number
+    appearance?: import('../../../shared/native-terminal-appearance').NativeTerminalAppearance
+  }
   bind(sessionId: string): Promise<void>
   setReadonly(): void
   onInput(listener: (text: string) => void): Disposer

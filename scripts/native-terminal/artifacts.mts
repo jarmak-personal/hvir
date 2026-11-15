@@ -1,8 +1,41 @@
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { lstat, readFile, realpath } from 'node:fs/promises'
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import {
+  APPEARANCE_FONT_FILES,
+  APPEARANCE_FONT_LAUNCHER,
+  APPEARANCE_FONT_CONFIG_SOURCE,
+  APPEARANCE_FONT_CONFIG,
+  APPEARANCE_FONT_FILE,
+  APPEARANCE_FONT_LICENSE,
+  APPEARANCE_FONT_PROVENANCE,
+  APPEARANCE_FONT_SOURCE,
+  APPEARANCE_FONT_LICENSE_SOURCE,
+} from './appearance-font-fixture.mts'
+
+import {
+  GENERIC_FONT_CASES,
+  customFontCases,
+  parseFontCase,
+  validateFontCases,
+  validFontCaseProof,
+  FONT_CASE_INPUTS,
+  type FontCase,
+  type FontCaseRecord,
+} from './font-case-proof.mts'
 
 export const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 export const pinPath = resolve(repository, 'scripts/native-terminal/pin.json')
@@ -30,6 +63,101 @@ export async function digest(path: string): Promise<string> {
   for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer)
   return hash.digest('hex')
 }
+/** Artifact-qualified probe callback settles after child exit, then its fonts/cache retire. */
+export async function withAppearanceFontFixture<T>(
+  artifact: string,
+  platform: string,
+  run: (environment: NodeJS.ProcessEnv) => Promise<T>,
+): Promise<T> {
+  if (platform !== 'linux') return run(process.env)
+  if (!(await lstat(join(artifact, APPEARANCE_FONT_FILE))).isFile())
+    throw new Error('native-appearance-font: regular fixture required')
+  const owned = await mkdtemp(join(tmpdir(), 'hvir-native-appearance-fonts-'))
+  try {
+    const fonts = join(owned, 'fonts')
+    await mkdir(fonts)
+    await mkdir(join(owned, 'cache'))
+    await cp(
+      join(artifact, APPEARANCE_FONT_FILE),
+      join(fonts, basename(APPEARANCE_FONT_FILE)),
+    )
+    const configuration = join(owned, 'fonts.conf')
+    await writeFile(configuration, APPEARANCE_FONT_CONFIG, { flag: 'wx' })
+    const environment: NodeJS.ProcessEnv = {
+      ...process.env,
+      FONTCONFIG_FILE: configuration,
+      FONTCONFIG_PATH: owned,
+      XDG_CACHE_HOME: join(owned, 'cache'),
+    }
+    // A caller's sysroot must not redirect this owned relative font directory.
+    delete environment.FONTCONFIG_SYSROOT
+    return await run(environment)
+  } finally {
+    await rm(owned, { recursive: true, force: true })
+  }
+}
+
+/** Seven fresh native processes; preload is requested, actual version comes from native INFO. */
+export async function qualifyNativeFontCases(
+  run: (
+    font: FontCase,
+    environment: NodeJS.ProcessEnv,
+  ) => Promise<{ stdout: string; stderr: string }>,
+) {
+  const owned = await mkdtemp(join(tmpdir(), 'hvir-native-font-cases-'))
+  const records: FontCaseRecord[] = []
+  try {
+    await mkdir(join(owned, 'cache'))
+    const launch = async (font: FontCase) => {
+      const environment: NodeJS.ProcessEnv = {
+        ...process.env,
+        GHOSTTY_LOG: 'stderr',
+        LD_PRELOAD: 'libfontconfig.so.1',
+        XDG_CACHE_HOME: join(owned, 'cache'),
+      }
+      delete environment.FONTCONFIG_FILE
+      delete environment.FONTCONFIG_PATH
+      delete environment.FONTCONFIG_SYSROOT
+      if (font.id === 'alias') {
+        const target = records[1]!.firstRegular
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+        const configuration = join(owned, 'alias.conf')
+        await writeFile(
+          configuration,
+          '<fontconfig><include>/etc/fonts/fonts.conf</include>' +
+            '<alias binding="strong"><family>hvir Native Font Alias</family><prefer><family>' +
+            target +
+            '</family></prefer></alias></fontconfig>',
+          { flag: 'wx' },
+        )
+        environment.FONTCONFIG_FILE = configuration
+      }
+      const result = await run(font, environment)
+      records.push(parseFontCase(result.stdout, result.stderr, font))
+    }
+    for (const font of GENERIC_FONT_CASES) await launch(font)
+    for (const font of customFontCases(
+      records[0]!.firstRegular,
+      records[1]!.firstRegular,
+    ))
+      await launch(font)
+    validateFontCases(records)
+    const inputs = await Promise.all(
+      FONT_CASE_INPUTS.map(async (path) => ({
+        path,
+        sha256: await digest(join(repository, path)),
+      })),
+    )
+    const proof = { kind: 'native-font-cases', passed: true, records, inputs }
+    if (!validFontCaseProof(proof)) throw new Error('native-font-case: incomplete proof')
+    return proof
+  } finally {
+    await rm(owned, { recursive: true, force: true })
+  }
+}
+
 export interface NativeArtifact {
   readonly schema: 1
   readonly source: string
@@ -51,6 +179,23 @@ export function buildInputFlags(preparedInputs: PreparedNativeInputs, dirty: boo
     preparedInputs,
     development: dirty || preparedInputs.zig || preparedInputs.packages,
   }
+}
+
+/** Closed result emitted by the maintained real-Surface appearance executable. */
+export function validAppearanceProof(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const proof = value as Record<string, unknown>
+  return (
+    proof.kind === 'native-appearance' &&
+    proof.passed === true &&
+    typeof proof.checks === 'number' &&
+    Number.isSafeInteger(proof.checks) &&
+    proof.checks >= 30 &&
+    proof.ligaturePixelsDiffer === true &&
+    proof.cursorPolicyCases === 3 &&
+    proof.applicationCursorOverrides === 2 &&
+    proof.hardwareQualified === false
+  )
 }
 
 /** Closed numerical proof from the maintained real-Surface query executable. */
@@ -213,6 +358,8 @@ export async function verifyArtifact(
       'selection-proof.json',
       'query-probe',
       'query-proof.json',
+      'appearance-probe',
+      'appearance-proof.json',
       'frame-metadata-probe',
       'frame-metadata-proof.json',
       ...(selected.platform === 'linux'
@@ -221,10 +368,63 @@ export async function verifyArtifact(
             'linux-display-proof.json',
             'linux-facade-probe',
             'linux-facade-proof.json',
+            ...APPEARANCE_FONT_FILES,
+            'font-cases-proof.json',
           ]
         : []),
     ].every((n) => names.has(n))
   )
     throw new Error('native-artifact: missing required file')
+  if (selected.platform === 'linux') {
+    let parsedFont: unknown
+    try {
+      parsedFont = JSON.parse(
+        await readFile(join(root, APPEARANCE_FONT_PROVENANCE), 'utf8'),
+      )
+    } catch {
+      throw new Error('native-artifact: invalid appearance font provenance')
+    }
+    if (!parsedFont || typeof parsedFont !== 'object' || Array.isArray(parsedFont))
+      throw new Error('native-artifact: invalid appearance font provenance')
+    const font = parsedFont as Record<string, unknown>
+    const files = m.files as NativeArtifact['files']
+    if (
+      !font ||
+      font.schema !== 1 ||
+      font.sourceCommit !== pin.source.commit ||
+      font.sourceArchiveSha256 !== pin.source.sha256 ||
+      font.fontSource !== APPEARANCE_FONT_SOURCE ||
+      font.licenseSource !== APPEARANCE_FONT_LICENSE_SOURCE ||
+      font.launcherSource !== APPEARANCE_FONT_LAUNCHER ||
+      font.configSource !== APPEARANCE_FONT_CONFIG_SOURCE ||
+      typeof font.configSha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(font.configSha256) ||
+      typeof font.launcherSha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(font.launcherSha256) ||
+      font.fontSha256 !==
+        files.find((file) => file.path === APPEARANCE_FONT_FILE)?.sha256 ||
+      font.licenseSha256 !==
+        files.find((file) => file.path === APPEARANCE_FONT_LICENSE)?.sha256
+    )
+      throw new Error('native-artifact: invalid appearance font provenance')
+  }
+  if (selected.platform === 'linux') {
+    let cases: unknown
+    try {
+      cases = JSON.parse(await readFile(join(root, 'font-cases-proof.json'), 'utf8'))
+    } catch {
+      throw new Error('native-artifact: invalid font cases proof')
+    }
+    if (!validFontCaseProof(cases))
+      throw new Error('native-artifact: invalid font cases proof')
+  }
+  let appearance: unknown
+  try {
+    appearance = JSON.parse(await readFile(join(root, 'appearance-proof.json'), 'utf8'))
+  } catch {
+    throw new Error('native-artifact: invalid appearance proof')
+  }
+  if (!validAppearanceProof(appearance))
+    throw new Error('native-artifact: invalid appearance proof')
   return m
 }

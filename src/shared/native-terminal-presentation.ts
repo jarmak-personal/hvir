@@ -8,6 +8,11 @@ export interface NativeTerminalViewGrant {
   readonly height: number
   readonly backingScale: number
 }
+/** Refit resource identity; never permission to draw or accept input. */
+export type NativeTerminalCanvasRefit = Pick<
+  NativeTerminalViewGrant,
+  'attachment' | 'nativeEpoch'
+>
 export interface NativeTerminalPresentedFrame {
   readonly nativeTerminal: NativeTerminalViewGrant
   /** Screen sampled with this native snapshot; not historic text authority. */

@@ -44,6 +44,7 @@ function executeQualification(
     | 'responsiveness'
     | 'lost-selection'
     | 'streaming-deadline',
+  badAppearance?: 'selection' | 'geometry' | 'cursor' | 'unicode' | 'context',
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'hvir-native-workbench-report-'))
   try {
@@ -64,6 +65,7 @@ const proof = {
   resizeAcknowledgedByStty: {rows: 21, columns: 80}, development: true,
   hardwareQualified: process.env.HVIR_TEST_INVALID === 'true',
   nativeQuery:{actualNative:true,matches:3,exactCopy:{bytes:23,sha256:require('node:crypto').createHash('sha256').update('hvir-native-query-match').digest('hex')},semanticCopy:{bytes:7,sha256:require('node:crypto').createHash('sha256').update('output\\n').digest('hex')},semanticNavigation:['Output 3 of 3','Command 2 of 3','Output 3 of 3'],selectedHighlight:{first:{left:1,top:1,right:200,bottom:16,pixels:300,expectedWidth:200,expectedHeight:16},second:{left:1,top:20,right:200,bottom:35,pixels:300,expectedWidth:200,expectedHeight:16},returned:{left:1,top:1,right:200,bottom:16,pixels:300,expectedWidth:200,expectedHeight:16},moved:{left:1,top:20,right:200,bottom:35,pixels:300,expectedWidth:200,expectedHeight:16}},movedOccurrence:{rowEdit:'insert-line',sameSelection:true,noRevealGesture:true,exactCopy:{bytes:23,sha256:require('node:crypto').createHash('sha256').update('hvir-native-query-match').digest('hex')}},frames:10,maximumFrameGapMs:20,existingHighMatchFrameBudgetMs:500,highMatch:{initial:12000,observedReducedCount:16,observedAtMs:1000,observationWindowMs:3000,latestCount:0,latestStatus:'empty',latestAtMs:6200,selectionUnavailable:true,sameOpenQuery:true,removal:'capacity-eviction',rendererGrowthKiB:100},streaming:{elapsedMs:1000,evidenceBudgetMs:2500,completionBudgetMs:7000,selectedIndex:1,copiedWhileProducing:true}},
+  nativeAppearance:{fractionalScale:{refitCanvas:{eligible:true,retained:true},cursor:{shape:'underline',pixels:16},before:1,after:1.25,currentDraw:true},actualNative:true,initialFontAppliedBeforeDraw:true,restoredBuiltinPalettePixels:true,samePty:true,gallery:{cancel:true,pairedSave:true},cursorShapes:['block','hollow-block','bar','underline'],cursorQueryCodes:[2,2,6,4],applicationCursorOverride:true,ligatureSettings:{onOff:true,exactPointerCopy:true},hardwareQualified:false,palettes:Object.fromEntries(['dark','light'].map(theme=>[theme,{queryRepliesExact:true,configuredSelectionPixels:true,samples:{background:100,foreground:100,green:100,blue:100}}])),hiddenFontReveal:{missingFamilyFallback:true,currentDraw:true,before:{serial:2,cellHeight:16},after:{serial:3,cellHeight:22,rows:20,columns:80},stty:{rows:20,columns:80},unicodeExactPointerCopy:{bytes:Buffer.byteLength('漢字🙂 e\\u0301'),sha256:require('node:crypto').createHash('sha256').update('漢字🙂 e\\u0301').digest('hex')}}},
   nativeEffects:{phases:10,causalEventSerials:true,titleProductDelivery:true,remoteCwdCopied:true,readQueriesRefused:true,newClipboardProtocolsRefused:true,queriesExact:true,linkUserIntentPortHostCorrect:true,semanticObservations:4,semanticOccurrenceIdentityQualified:false,linkGestureQualified:false,hardwareQualified:false,nativeOsActionsQualified:false,osc777AndProgressDisposition:'ignored',quietAttentionEvents:2,clipboardWrites:['native-effects','a'.repeat(49152)].map(text=>({bytes:Buffer.byteLength(text),sha256:require('node:crypto').createHash('sha256').update(text).digest('hex')})),responsiveness:{maximumMs:500,main:{samples:4,maxMs:10},renderer:{samples:4,maxMs:18}}},
   nativeSelection:{pendingPressAck:{pointerId:1,heldMoveButtons:1,trustedOutsideMove:true,trustedOutsideUp:true,ackHeldUntilOutsideUp:true,nativeOriginalViewOrder:true,captureReleasedBeforeAck:true,captureReleasedAfterAck:true,exactSelectedBytes:5,exactSelectedSha256:require('node:crypto').createHash('sha256').update('alpha').digest('hex')},samePty:true,originalReadyBeforeClear:true,clearScreenScrollback:true,resetTerminal:true,parserInputAlive:true,drag:true,word:true,line:true,unicodeWhitespace:true,softwrap:true,selectAll:true,menu:true,metaCopy:true,controlShiftCopy:true,fileUriAndPlainIntent:true,linkRootsMatched:true,loopbackRouteContent:true,externalOpenerObserved:true,osExternalOpenerInvoked:false,hardwareGpuQualified:false,retentionEpoch:'HVIR_M9_RETENTION_EPOCH',fixtureColumns:80,linkIntents:4,copies:[['drag','alpha'],['word','alpha'],['line','alpha beta'],['unicode-whitespace','  A界e\\u0301B  '],['all-softwrap','w'.repeat(100)],['continuous-drag','alpha']].map(([name,text])=>({name,bytes:Buffer.byteLength(text),sha256:require('node:crypto').createHash('sha256').update(text).digest('hex')})),continuous:{producedBytes:65536,copiedWhileActive:true},largeCopy:{fixtureBytes:4096*81-1,copyFinished:false,copyStale:true,refusalCode:6,inputWhilePending:false,writeWhilePending:false,userWrites:1,mutation:8},mainSamples:4,mainMaxMs:20,rendererSamples:4,rendererMaxMs:20,isolatedOsClipboardReadback:process.env.RUNNER_OS==='Linux'&&process.env.HVIR_NATIVE_TERMINAL_ISOLATED_CLIPBOARD==='1',clipboardIntercepted:process.env.RUNNER_OS!=='Linux'},
   readonlySelection:{gestureBlur:{pointerId:1,heldMoveButtons:1,acknowledgedDrag:true,tabChangedFocus:true,nativeFocusCleanup:true,captureReleased:true,ptyWrites:0,ptyCount:0,selectedRangePreserved:true},rendererSamples:4,rendererMaxMs:20,readonlyDrag:true,readonlyCopy:true,bytes:Buffer.byteLength('HVIR_READONLY_SELECTION'),sha256:require('node:crypto').createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex'),isolatedOsClipboardReadback:process.env.RUNNER_OS==='Linux'&&process.env.HVIR_NATIVE_TERMINAL_ISOLATED_CLIPBOARD==='1'},
@@ -90,6 +92,11 @@ if(process.env.HVIR_TEST_BAD_QUERY==='progress')proof.nativeQuery.streaming.copi
 if(process.env.HVIR_TEST_BAD_QUERY==='responsiveness')proof.nativeQuery.maximumFrameGapMs=501;
 if(process.env.HVIR_TEST_BAD_QUERY==='lost-selection')proof.nativeQuery.highMatch.observedReducedCount=12000;
 if(process.env.HVIR_TEST_BAD_QUERY==='streaming-deadline')proof.nativeQuery.streaming.elapsedMs=2501;
+if(process.env.HVIR_TEST_BAD_APPEARANCE==='selection')proof.nativeAppearance.palettes.light.configuredSelectionPixels=false;
+if(process.env.HVIR_TEST_BAD_APPEARANCE==='geometry')proof.nativeAppearance.hiddenFontReveal.after.cellHeight=16;
+if(process.env.HVIR_TEST_BAD_APPEARANCE==='cursor')proof.nativeAppearance.applicationCursorOverride=false;
+if(process.env.HVIR_TEST_BAD_APPEARANCE==='context')proof.nativeAppearance.fractionalScale.refitCanvas.retained=false;
+if(process.env.HVIR_TEST_BAD_APPEARANCE==='unicode')proof.nativeAppearance.hiddenFontReveal.unicodeExactPointerCopy.sha256='incorrect';
 const line = 'HVIR_NATIVE_WORKBENCH_OK ' + JSON.stringify(proof) + '\\n';
 process.stdout.write(line.slice(0, 65536), () => {
   process.stderr.write('controlled native cleanup diagnostic\\n', () => {
@@ -126,6 +133,7 @@ exec "$HVIR_TEST_NODE" "$@"
         HVIR_TEST_BAD_EFFECT: badEffect ?? '',
         HVIR_TEST_BAD_SELECTION: badSelection ?? '',
         HVIR_TEST_BAD_QUERY: badQuery ?? '',
+        HVIR_TEST_BAD_APPEARANCE: badAppearance ?? '',
       },
     })
     const proof = readFileSync(
@@ -196,6 +204,23 @@ describe('native workbench machine-readable workflow stream', () => {
       )
       expect(result.error).toBeUndefined()
       expect(result.status).not.toBe(0)
+    },
+  )
+  it.each(['selection', 'geometry', 'cursor', 'unicode', 'context'] as const)(
+    'rejects an incorrect native appearance %s fact with the actual workflow reader',
+    (kind) => {
+      const result = executeQualification(
+        qualification,
+        'macOS',
+        false,
+        undefined,
+        undefined,
+        undefined,
+        kind,
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain('AssertionError')
     },
   )
   it('reproduces corruption when diagnostic stderr is merged before the strict reader', () => {

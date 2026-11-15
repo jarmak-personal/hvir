@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { nativePaneAppearance } from '../src/renderer/src/terminal/terminal-runtime-live-settings'
+import { ghosttyLifecycleRuntimeOptions } from './fixtures/ghostty-lifecycle-runtime-options'
 import type { TerminalEvent } from '../src/renderer/src/terminal/terminal-pane'
 import { localPath } from '../src/shared/host-path'
 import { NativeTerminalPane } from '../src/renderer/src/terminal/native-terminal-pane'
@@ -25,6 +27,9 @@ function fixture(
   )
   const api = { mount: vi.fn(), unmount: vi.fn(), onStatus: vi.fn(() => vi.fn()) }
   const port = {
+    appearance: vi.fn<ConstructorParameters<typeof NativeTerminalPane>[1]['appearance']>(
+      () => Promise.resolve(true),
+    ),
     attach: vi.fn<ConstructorParameters<typeof NativeTerminalPane>[1]['attach']>(() =>
       Promise.resolve({ viewId: 'native-view' }),
     ),
@@ -526,5 +531,130 @@ describe('native retained pane adapter', () => {
     expect(input.mock.calls).toEqual([['c']])
     expect(f.element.getAttribute('aria-readonly')).not.toBe('true')
     expect(f.element.textContent).not.toContain('input unavailable')
+  })
+})
+
+describe('native retained appearance settings', () => {
+  it('applies initial settings before geometry and carries the same snapshot to pre-spawn preparation', async () => {
+    const f = fixture()
+    const appearance = nativePaneAppearance(ghosttyLifecycleRuntimeOptions())
+    f.pane.setAppearance(appearance)
+    expect(f.pane.viewport()).toMatchObject({ appearance })
+    const applied = deferred<boolean>()
+    f.port.appearance.mockReturnValueOnce(applied.promise)
+    const binding = f.pane.bind('session')
+    await vi.waitFor(() => expect(f.port.appearance).toHaveBeenCalledOnce())
+    expect(f.port.update).not.toHaveBeenCalled()
+    applied.resolve(true)
+    await binding
+    await vi.waitFor(() => expect(f.port.update).toHaveBeenCalled())
+  })
+  it('detaches a view disposed during its initial configuration fence', async () => {
+    const f = fixture()
+    f.pane.setAppearance(nativePaneAppearance(ghosttyLifecycleRuntimeOptions()))
+    const applied = deferred<boolean>()
+    f.port.appearance.mockReturnValueOnce(applied.promise)
+    const binding = f.pane.bind('session')
+    await vi.waitFor(() => expect(f.port.appearance).toHaveBeenCalledOnce())
+    f.pane.dispose()
+    applied.resolve(true)
+    await binding
+    expect(f.port.detach).toHaveBeenCalledExactlyOnceWith('native-view')
+    expect(f.api.mount).not.toHaveBeenCalled()
+  })
+  it('applies hidden font changes to the retained view and reveals without another attachment', async () => {
+    const f = fixture()
+    f.pane.setAppearance(nativePaneAppearance(ghosttyLifecycleRuntimeOptions()))
+    await f.ready()
+    f.pane.setPresentation('hidden')
+    const latest = {
+      ...nativePaneAppearance(ghosttyLifecycleRuntimeOptions()),
+      fontSize: 19,
+    }
+    f.pane.setAppearance(latest)
+    await vi.waitFor(() =>
+      expect(f.port.appearance).toHaveBeenLastCalledWith('native-view', latest),
+    )
+    f.pane.setPresentation('visible')
+    await vi.waitFor(() =>
+      expect(f.port.update).toHaveBeenLastCalledWith(
+        'native-view',
+        expect.objectContaining({ visible: true }),
+      ),
+    )
+    expect(f.port.attach).toHaveBeenCalledOnce()
+    expect(f.api.mount).toHaveBeenCalledOnce()
+  })
+  it('keeps reveal input blocked until visible geometry acknowledges a hidden appearance change', async () => {
+    const f = fixture()
+    const appearance = nativePaneAppearance(ghosttyLifecycleRuntimeOptions())
+    f.pane.setAppearance(appearance)
+    await f.ready()
+    f.pane.setPresentation('hidden')
+    const applied = deferred<boolean>()
+    f.port.appearance.mockReturnValueOnce(applied.promise)
+    f.pane.setAppearance({ ...appearance, fontSize: 18 })
+    const shown = deferred<void>()
+    f.port.update.mockImplementation((_id, geometry) =>
+      geometry.visible ? shown.promise : Promise.resolve(),
+    )
+    f.port.input.mockClear()
+    f.pane.setPresentation('visible')
+    f.pane.focus()
+    applied.resolve(false)
+    await vi.waitFor(() =>
+      expect(f.port.update).toHaveBeenLastCalledWith(
+        'native-view',
+        expect.objectContaining({ visible: true }),
+      ),
+    )
+    expect(
+      f.port.input.mock.calls.some(
+        ([request]) => request.input.kind === 'focus' && request.input.focused,
+      ),
+    ).toBe(false)
+    shown.resolve()
+    await vi.waitFor(() =>
+      expect(
+        f.port.input.mock.calls.some(
+          ([request]) => request.input.kind === 'focus' && request.input.focused,
+        ),
+      ).toBe(true),
+    )
+  })
+  it('flushes a palette snapshot arriving during native apply settlement', async () => {
+    const f = fixture()
+    await f.ready()
+    const appearance = nativePaneAppearance(ghosttyLifecycleRuntimeOptions())
+    const applied = deferred<boolean>()
+    f.port.appearance.mockReturnValueOnce(applied.promise)
+    f.pane.setAppearance(appearance)
+    const latest = { ...appearance, colors: Array(22).fill(0xeeeeee) }
+    const submitted = applied.promise.then(() => f.pane.setAppearance(latest))
+    applied.resolve(true)
+    await submitted
+    await vi.waitFor(() => expect(f.port.appearance).toHaveBeenCalledTimes(2))
+    expect(f.port.appearance).toHaveBeenLastCalledWith('native-view', latest)
+  })
+  it('coalesces replaced settings while a native apply is pending and never revives a disposed pane', async () => {
+    const f = fixture()
+    await f.ready()
+    const appearance = nativePaneAppearance(ghosttyLifecycleRuntimeOptions())
+    const applied = deferred<boolean>()
+    f.port.appearance.mockReturnValueOnce(applied.promise)
+    f.pane.setAppearance(appearance)
+    f.pane.setAppearance({ ...appearance, fontSize: 17 })
+    const latest = { ...appearance, fontSize: 21 }
+    f.pane.setAppearance(latest)
+    applied.resolve(true)
+    await vi.waitFor(() => expect(f.port.appearance).toHaveBeenCalledTimes(2))
+    expect(f.port.appearance).toHaveBeenLastCalledWith('native-view', latest)
+    const pending = deferred<boolean>()
+    f.port.appearance.mockReturnValueOnce(pending.promise)
+    f.pane.setAppearance({ ...appearance, fontSize: 23 })
+    f.pane.dispose()
+    pending.resolve(true)
+    await Promise.resolve()
+    expect(f.element.isConnected).toBe(false)
   })
 })

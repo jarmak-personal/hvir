@@ -1,4 +1,8 @@
 import {
+  validNativeTerminalAppearance,
+  type NativeTerminalAppearance,
+} from '../../shared/native-terminal-appearance'
+import {
   nativeTerminalWorkingDirectory,
   type NativeTerminalEffectBatch,
 } from '../../shared/native-terminal-effects'
@@ -15,6 +19,11 @@ import { validNativeTerminalScale } from '../../shared/native-terminal-presentat
 import { type HostPath } from '../../shared/host-path'
 
 interface SessionHost {
+  appearanceProducer(
+    handle: string,
+    instanceId: string,
+    appearance: NativeTerminalAppearance,
+  ): Promise<NativeTerminalStatus>
   prepare(
     session: NativeTerminalSession,
     width: number,
@@ -65,6 +74,7 @@ export interface NativeTerminalViewport {
   width: number
   height: number
   backingScale: number
+  appearance?: NativeTerminalAppearance
 }
 
 /** Owns native state for supervisor-reserved instances, never PTY launch policy.
@@ -128,7 +138,9 @@ export class NativeTerminalSessions {
     signal.throwIfAborted()
     if (
       !validNativeTerminalExtent(viewport.width, viewport.height) ||
-      !validNativeTerminalScale(viewport.backingScale)
+      !validNativeTerminalScale(viewport.backingScale) ||
+      (viewport.appearance !== undefined &&
+        !validNativeTerminalAppearance(viewport.appearance))
     )
       throw new Error('native-initial-geometry-invalid')
     if (
@@ -160,11 +172,19 @@ export class NativeTerminalSessions {
       if (record.phase === 'removed')
         await this.host.end(record.handle, reservation.instanceId)
       this.assertCurrent(record)
+      if (viewport.appearance) {
+        await this.host.appearanceProducer(
+          record.handle,
+          reservation.instanceId,
+          viewport.appearance,
+        )
+        this.assertCurrent(record)
+      }
       let geometry = (
         await this.host.inspectProducer(record.handle, reservation.instanceId)
       ).geometry
       this.assertCurrent(record)
-      if (geometry.backingScale !== viewport.backingScale) {
+      if (viewport.appearance || geometry.backingScale !== viewport.backingScale) {
         geometry = (
           await this.host.resizeProducer(
             record.handle,

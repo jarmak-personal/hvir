@@ -121,6 +121,44 @@ describe('native canvas submission ownership', () => {
     port.dispose()
   })
 
+  it('retains only the WebGL context while hiding stale pixels until a refitted frame submits', () => {
+    const { gl, port, canvas } = fixture()
+    port.draw({}, metadata)
+    const programCalls = gl.createProgram.mock.calls.length
+    port.suspendForRefit!()
+    expect(canvas.style.visibility).toBe('hidden')
+    expect(canvas.isConnected).toBe(true)
+    expect(gl.deleteTexture).not.toHaveBeenCalled()
+    const next = {
+      ...metadata,
+      colorSpace: 2,
+      nativeTerminal: {
+        ...metadata.nativeTerminal,
+        geometrySerial: 2,
+        width: 128,
+        height: 64,
+        backingScale: 2,
+      },
+    }
+    port.draw({}, next)
+    expect(canvas.style.visibility).toBe('')
+    expect([canvas.width, canvas.height]).toEqual([128, 64])
+    expect(gl.viewport).toHaveBeenLastCalledWith(0, 0, 128, 64)
+    expect(
+      (gl as typeof gl & { drawingBufferColorSpace?: string }).drawingBufferColorSpace,
+    ).toBe('display-p3')
+    expect(gl.createProgram).toHaveBeenCalledTimes(programCalls)
+    expect(gl.createTexture).toHaveBeenCalledOnce()
+    port.suspendForRefit!()
+    gl.texImage2D.mockImplementationOnce(() => {
+      throw new Error('upload failed')
+    })
+    expect(() => port.draw({}, next)).toThrow('upload failed')
+    expect(canvas.style.visibility).toBe('hidden')
+    port.dispose()
+    expect(() => port.suspendForRefit!()).toThrow('native-canvas-lost')
+  })
+
   it('refuses unsupported device extents before resizing or uploading either frame mode', () => {
     const { gl, port, canvas } = fixture(4096)
     const originalSize = [canvas.width, canvas.height]

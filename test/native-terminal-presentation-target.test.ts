@@ -241,3 +241,30 @@ it('notifies its one bound attachment only for qualified loss and permits unavai
   expect(lost).toHaveBeenCalledOnce()
   f.owner.dispose()
 })
+
+it('forwards a refit identity while immediately withdrawing draw and failure acknowledgement authority', () => {
+  const f = fixture()
+  f.target.publishGrant(f.grant)
+  const refit = { attachment: f.grant.attachment, nativeEpoch: f.grant.nativeEpoch }
+  f.target.publishGrant(undefined, refit)
+  expect(f.send).toHaveBeenLastCalledWith(channels.grantChannel, {
+    viewId: f.grant.viewId,
+    grant: undefined,
+    refit,
+  })
+  expect(f.owner.drawn(f.grant.viewId, f.frame)).toBeUndefined()
+  f.owner.acknowledge(f.frame, { kind: 'drawn', grant: f.grant, screen: 0 })
+  f.owner.acknowledge(f.frame, { kind: 'renderer-failure', grant: f.grant })
+  expect(f.owner.drawn(f.grant.viewId, f.frame)).toBeUndefined()
+  expect(f.target.isCurrent()).toBe(true)
+  const next = { ...f.grant, geometrySerial: 2 }
+  f.target.publishGrant(next)
+  f.owner.acknowledge(f.frame, { kind: 'renderer-failure', grant: next })
+  expect(f.target.isCurrent()).toBe(false)
+  f.target.publishGrant(undefined)
+  expect(f.send).toHaveBeenLastCalledWith(channels.grantChannel, {
+    viewId: f.grant.viewId,
+    grant: undefined,
+  })
+  f.owner.dispose()
+})
