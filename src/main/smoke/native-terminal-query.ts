@@ -594,6 +594,8 @@ export async function verifyNativeTerminalQuery(
       streaming,
       frames: proof.frames,
       maximumFrameGapMs: proof.maxGapMs,
+      rendererTiming: proof.rendererTiming,
+      captureTiming: browser.captureTiming(),
       existingHighMatchFrameBudgetMs: CAPACITY_PERFORMANCE_BUDGETS.responsivenessMaxMs,
     }
   } catch (cause) {
@@ -817,12 +819,15 @@ async function selectedHighlight(
         height: number
         bar?: { left: number; right: number; top: number; bottom: number }
       }
-      const image = await win.webContents.capturePage({
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
-      })
+      const image = await browser.capture(
+        {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        },
+        'query-highlight',
+      )
       const { width, height } = image.getSize(1)
       const pixels = image.toBitmap({ scaleFactor: 1 })
       const result = {

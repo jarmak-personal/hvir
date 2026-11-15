@@ -3,7 +3,7 @@ import {
   nativeTerminalViewRect,
 } from './native-terminal-browser-coordinates'
 import { createHash } from 'node:crypto'
-import { clipboard, type BrowserWindow, type NativeImage } from 'electron'
+import { clipboard, type BrowserWindow, type Rectangle } from 'electron'
 import type { ManagedPty } from '../pty/pty-supervisor'
 import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
 
@@ -51,7 +51,7 @@ export function nativeSelectionReadinessScript(session: string): string {
 export const clipboardInstall = (isolated: boolean) => `(() => {
  const clipboard=navigator.clipboard;if(!clipboard?.writeText)throw new Error('native-selection-clipboard-unavailable');
  const descriptor=Object.getOwnPropertyDescriptor(clipboard,'writeText'),write=clipboard.writeText.bind(clipboard),open=window.open;
- const probe={writes:[],opens:[],active:true,frames:0,last:performance.now(),maxGapMs:0,timeOriginMs:performance.timeOrigin,worstGap:null,visibilityTransitions:[],visibilityTransitionCount:0,timingReadFailed:false};
+ const probe={writes:[],opens:[],active:true,frames:0,last:performance.now(),maxGapMs:0,timeOriginMs:performance.timeOrigin,worstGap:null,firstFrameDelivery:null,visibilityTransitions:[],visibilityTransitionCount:0,timingReadFailed:false};
  const viewState=()=>{try{const visible=Object.getOwnPropertyDescriptor(Document.prototype,'visibilityState').get.call(document);return{nativeVisibility:visible==='visible'||visible==='hidden'?visible:null,focused:document.hasFocus()===true};}catch{return{nativeVisibility:null,focused:null,readFailed:true};}};
  probe.lastViewState=viewState();probe.startedMs=probe.last;
  const visibilityChanged=event=>{try{const now=performance.now();probe.visibilityTransitionCount++;probe.visibilityTransitions.push({atMs:now,epochMs:probe.timeOriginMs+now,trusted:event.isTrusted===true,...viewState()});if(probe.visibilityTransitions.length>16)probe.visibilityTransitions.shift();}catch{probe.timingReadFailed=true;}};
@@ -71,7 +71,7 @@ export const clipboardInstall = (isolated: boolean) => `(() => {
  window.open=(target,frame,features)=>{probe.opens.push({target:String(target),frame,features});return null;};
  // A queued RAF frame timestamp can precede this probe's performance.now() boundary.
  // Ignore nonadvancing timestamps without rewinding the baseline or counting a measured frame.
- const tick=now=>{if(!probe.active)return;if(now<=probe.last){requestAnimationFrame(tick);return;}const from=probe.last,worst=now-from>probe.maxGapMs;probe.frames++;probe.maxGapMs=Math.max(probe.maxGapMs,now-probe.last);probe.last=now;requestAnimationFrame(tick);try{const current=viewState();if(worst)probe.worstGap={fromMs:from,toMs:now,fromEpochMs:probe.timeOriginMs+from,toEpochMs:probe.timeOriginMs+now,fromView:probe.lastViewState,toView:current};probe.lastViewState=current;}catch{probe.timingReadFailed=true;}};requestAnimationFrame(tick);
+ const tick=now=>{if(!probe.active)return;if(now<=probe.last){requestAnimationFrame(tick);return;}if(!probe.firstFrameDelivery)try{const deliveredMs=performance.now();probe.firstFrameDelivery={frameMs:now,deliveredMs,frameEpochMs:probe.timeOriginMs+now,deliveredEpochMs:probe.timeOriginMs+deliveredMs};}catch{probe.timingReadFailed=true;}const from=probe.last,worst=now-from>probe.maxGapMs;probe.frames++;probe.maxGapMs=Math.max(probe.maxGapMs,now-probe.last);probe.last=now;requestAnimationFrame(tick);try{const current=viewState();if(worst)probe.worstGap={fromMs:from,toMs:now,fromEpochMs:probe.timeOriginMs+from,toEpochMs:probe.timeOriginMs+now,fromView:probe.lastViewState,toView:current};probe.lastViewState=current;}catch{probe.timingReadFailed=true;}};requestAnimationFrame(tick);
  probe.restore=()=>{probe.active=false;try{longTaskObserver?.disconnect();}catch{longTasks.unavailable=true;}try{nativeApiObserver?.disconnect();}catch{nativeApiTiming.unavailable=true;}try{document.removeEventListener('visibilitychange',visibilityChanged,true);}catch{probe.timingReadFailed=true;}window.open=open;if(descriptor)Object.defineProperty(clipboard,'writeText',descriptor);else delete clipboard.writeText;delete window.nativeSelectionProbe;};window.nativeSelectionProbe=probe;return true;
 })()`
 interface NativeViewFacts {
@@ -87,6 +87,12 @@ interface ClipboardProof {
   rendererTiming: {
     timeOriginMs: number
     startedMs: number
+    firstFrameDelivery: {
+      frameMs: number
+      deliveredMs: number
+      frameEpochMs: number
+      deliveredEpochMs: number
+    } | null
     worstGap: {
       fromMs: number
       toMs: number
@@ -289,6 +295,7 @@ export function nativeSelectionBrowser(
     }
   }
   const captures: {
+    phase: 'selection-painted' | 'query-highlight'
     fromMs: number
     toMs: number
     fromEpochMs: number
@@ -305,54 +312,64 @@ export function nativeSelectionBrowser(
     truncated: captureCount > captures.length,
     unavailable: captureTimingUnavailable,
   })
-  const painted = () =>
-    wait(async () => {
-      const { geometry: g, bounds: b } = await layout()
-      let fromMs: number | undefined,
-        image: NativeImage,
-        completed = false
-      captureCount++
+  const capture = async (
+    rect: Rectangle,
+    phase: 'selection-painted' | 'query-highlight',
+  ) => {
+    let fromMs: number | undefined,
+      completed = false
+    captureCount++
+    try {
+      fromMs = performance.now()
+    } catch {
+      captureTimingUnavailable = true
+    }
+    try {
+      const image = await win.webContents.capturePage(rect)
+      completed = true
+      return image
+    } finally {
       try {
-        fromMs = performance.now()
+        if (fromMs !== undefined) {
+          const toMs = performance.now(),
+            span = {
+              phase,
+              fromMs,
+              toMs,
+              fromEpochMs: performance.timeOrigin + fromMs,
+              toEpochMs: performance.timeOrigin + toMs,
+              completed,
+            }
+          if (captures.length < 16) captures.push(span)
+          if (!worstCapture || toMs - fromMs > worstCapture.toMs - worstCapture.fromMs)
+            worstCapture = span
+        }
       } catch {
         captureTimingUnavailable = true
       }
-      try {
-        const view = nativeTerminalViewRect(
-          {
-            x: b.x + g.paddingLeft / g.backingScale,
-            y: b.y + (g.paddingTop + 4 * g.cellHeight) / g.backingScale,
-            width: (10 * g.cellWidth) / g.backingScale,
-            height: g.cellHeight / g.backingScale,
-          },
-          win.webContents.getZoomFactor(),
-        )
-        image = await win.webContents.capturePage({
+    }
+  }
+  const painted = () =>
+    wait(async () => {
+      const { geometry: g, bounds: b } = await layout()
+      const view = nativeTerminalViewRect(
+        {
+          x: b.x + g.paddingLeft / g.backingScale,
+          y: b.y + (g.paddingTop + 4 * g.cellHeight) / g.backingScale,
+          width: (10 * g.cellWidth) / g.backingScale,
+          height: g.cellHeight / g.backingScale,
+        },
+        win.webContents.getZoomFactor(),
+      )
+      const image = await capture(
+        {
           x: Math.ceil(view.x),
           y: Math.ceil(view.y),
           width: Math.max(1, Math.floor(view.width)),
           height: Math.max(1, Math.floor(view.height)),
-        })
-        completed = true
-      } finally {
-        try {
-          if (fromMs !== undefined) {
-            const toMs = performance.now(),
-              span = {
-                fromMs,
-                toMs,
-                fromEpochMs: performance.timeOrigin + fromMs,
-                toEpochMs: performance.timeOrigin + toMs,
-                completed,
-              }
-            if (captures.length < 16) captures.push(span)
-            if (!worstCapture || toMs - fromMs > worstCapture.toMs - worstCapture.fromMs)
-              worstCapture = span
-          }
-        } catch {
-          captureTimingUnavailable = true
-        }
-      }
+        },
+        'selection-painted',
+      )
       const bytes = image.toBitmap()
       let blue = 0
       for (let offset = 0; offset < bytes.length; offset += 4)
@@ -429,7 +446,7 @@ export function nativeSelectionBrowser(
     )
   const proof = () =>
     win.webContents.executeJavaScript(
-      `(()=>{const p=window.nativeSelectionProbe,raw={writes:p.writes,opens:p.opens,frames:p.frames,maxGapMs:p.maxGapMs};p.flushLongTasks();p.flushNativeApiTiming();const tasks=p.longTasks,native=p.nativeApiTiming;return{...raw,rendererTiming:{timeOriginMs:p.timeOriginMs,startedMs:p.startedMs,worstGap:p.worstGap,visibilityTransitions:p.visibilityTransitions.slice(),visibilityTransitionCount:p.visibilityTransitionCount,visibilityTransitionsTruncated:p.visibilityTransitionCount>p.visibilityTransitions.length,timingReadFailed:p.timingReadFailed,nativeApiTiming:{supported:native.supported,unavailable:native.unavailable,spans:native.spans.map(({name,count,worst})=>({name,count,worst}))},longTasks:{supported:tasks.supported,unavailable:tasks.unavailable,count:tasks.count,records:tasks.records.slice(),worst:tasks.worst,truncated:tasks.count>tasks.records.length}}};})()`,
+      `(()=>{const p=window.nativeSelectionProbe,raw={writes:p.writes,opens:p.opens,frames:p.frames,maxGapMs:p.maxGapMs};p.flushLongTasks();p.flushNativeApiTiming();const tasks=p.longTasks,native=p.nativeApiTiming;return{...raw,rendererTiming:{timeOriginMs:p.timeOriginMs,startedMs:p.startedMs,worstGap:p.worstGap,firstFrameDelivery:p.firstFrameDelivery,visibilityTransitions:p.visibilityTransitions.slice(),visibilityTransitionCount:p.visibilityTransitionCount,visibilityTransitionsTruncated:p.visibilityTransitionCount>p.visibilityTransitions.length,timingReadFailed:p.timingReadFailed,nativeApiTiming:{supported:native.supported,unavailable:native.unavailable,spans:native.spans.map(({name,count,worst})=>({name,count,worst}))},longTasks:{supported:tasks.supported,unavailable:tasks.unavailable,count:tasks.count,records:tasks.records.slice(),worst:tasks.worst,truncated:tasks.count>tasks.records.length}}};})()`,
     ) as Promise<ClipboardProof>
   const menu = async (label: string) => {
     const p = await point(2.5, 4.5)
@@ -494,6 +511,7 @@ export function nativeSelectionBrowser(
     copied,
     ready,
     painted,
+    capture,
     captureTiming,
     hitObservations,
     menuDismissals,

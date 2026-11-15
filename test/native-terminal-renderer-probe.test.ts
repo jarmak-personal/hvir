@@ -9,12 +9,19 @@ interface Probe {
   frames: number
   maxGapMs: number
   worstGap: { fromMs: number; toMs: number } | null
+  firstFrameDelivery: {
+    frameMs: number
+    deliveredMs: number
+    frameEpochMs: number
+    deliveredEpochMs: number
+  } | null
 }
 
 /** The production script owns measurement policy; RAF delivery is its immediate edge. */
 function rendererProbe(startedMs: number) {
   let nextFrame: ((timestamp: number) => void) | undefined
-  let frameId = 0
+  let frameId = 0,
+    clock = startedMs
   class Document {
     get visibilityState() {
       return 'visible'
@@ -31,7 +38,7 @@ function rendererProbe(startedMs: number) {
     navigator: { clipboard: { writeText: () => Promise.resolve(undefined) } },
     document: new Document(),
     Document,
-    performance: { now: () => startedMs, timeOrigin: 10000 },
+    performance: { now: () => clock, timeOrigin: 10000 },
     requestAnimationFrame: (callback: (timestamp: number) => void) => {
       nextFrame = callback
       return ++frameId
@@ -40,7 +47,8 @@ function rendererProbe(startedMs: number) {
   if (!window.nativeSelectionProbe) throw new Error('Native renderer probe missing')
   return {
     probe: window.nativeSelectionProbe,
-    frame(timestamp: number) {
+    frame(timestamp: number, deliveredMs = Math.max(startedMs, timestamp)) {
+      clock = deliveredMs
       const callback = nextFrame
       if (!callback) throw new Error('Native renderer probe failed to request a frame')
       nextFrame = undefined
@@ -63,12 +71,29 @@ describe('native renderer qualification clock boundary', () => {
       frames: 0,
       maxGapMs: 0,
       worstGap: null,
+      firstFrameDelivery: null,
     })
     f.frame(4446.2)
     expect(f.probe.frames).toBe(1)
     expect(f.probe.maxGapMs).toBeCloseTo(499.5)
     expect(f.probe.worstGap).toMatchObject({ fromMs: 3946.7, toMs: 4446.2 })
     expect(exceedsBudget(f.probe)).toBe(false)
+  })
+
+  it('records first qualifying frame delivery separately without changing the frame budget', () => {
+    const f = rendererProbe(100)
+    f.frame(99, 105)
+    expect(f.probe.firstFrameDelivery).toBeNull()
+    f.frame(600.1, 120)
+    expect(f.probe.firstFrameDelivery).toEqual({
+      frameMs: 600.1,
+      deliveredMs: 120,
+      frameEpochMs: 10600.1,
+      deliveredEpochMs: 10120,
+    })
+    f.frame(616.8, 140)
+    expect(f.probe.firstFrameDelivery?.deliveredMs).toBe(120)
+    expect(exceedsBudget(f.probe)).toBe(true)
   })
 
   it('retains a genuine first post-start gap above the unchanged 500ms limit', () => {
