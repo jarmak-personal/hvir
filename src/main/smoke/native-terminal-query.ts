@@ -9,6 +9,7 @@ import {
   paneScript,
 } from './native-terminal-selection-browser'
 import { NATIVE_READONLY_SELECTION } from './native-terminal-selection-fixture'
+import { terminalSearchStreamProducer } from './terminal-search-stream-producer'
 
 const MATCH = 'hvir-native-query-match'
 const FIND_BAR_SHADOW_CLEARANCE = 24
@@ -242,7 +243,7 @@ export async function verifyNativeTerminalQuery(
       await ptys.writeConfirmed(
         managed.id,
         managed.ownerId,
-        `hvir_m10_stream_done='__HVIR_M10_STREAM_''DONE__'; sleep 0.2; hvir_m10_i=0; while [ "$hvir_m10_i" -lt 150 ]; do printf 'stream filler %s\\r\\n' "$hvir_m10_i"; if [ "$hvir_m10_i" = 30 ]; then printf '%s\\r\\n' "$hvir_native_query"; fi; hvir_m10_i=$((hvir_m10_i+1)); sleep 0.02; done; printf '%s\\r\\n' "$hvir_m10_stream_done"\r`,
+        `hvir_m10_stream_done='__HVIR_M10_STREAM_''DONE__'; ${terminalSearchStreamProducer({ matchVariable: 'hvir_native_query', doneVariable: 'hvir_m10_stream_done', lineEnding: 'crlf' })}\r`,
         managed.ownerGeneration,
       )
       producerMilestones.writeAckAtMs = performance.now() - streamingStarted

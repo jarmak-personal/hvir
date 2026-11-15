@@ -1,3 +1,4 @@
+import { terminalSearchStreamProducer } from './terminal-search-stream-producer'
 import { clipboard, type BrowserWindow } from 'electron'
 
 import type { PtySupervisor } from '../pty/pty-supervisor'
@@ -111,11 +112,12 @@ export async function verifyStreamingTerminalSearch(
     supervisor.write(
       terminalId,
       win.webContents.id,
-      `printf '%s\\n' "$hvir_stream_ready"; sleep 0.2; ` +
-        `hvir_stream_i=0; while [ "$hvir_stream_i" -lt 150 ]; do ` +
-        `printf 'stream filler %s\\n' "$hvir_stream_i"; ` +
-        `if [ "$hvir_stream_i" = 30 ]; then printf '%s\\n' "$hvir_stream_match"; fi; ` +
-        `hvir_stream_i=$((hvir_stream_i+1)); sleep 0.02; done; printf '%s\\n' "$hvir_stream_done"\n`,
+      terminalSearchStreamProducer({
+        matchVariable: 'hvir_stream_match',
+        doneVariable: 'hvir_stream_done',
+        readyVariable: 'hvir_stream_ready',
+        lineEnding: 'lf',
+      }) + '\n',
     )
     producerSubmitted = true
     const evidence = (await win.webContents.executeJavaScript(`(async () => {
