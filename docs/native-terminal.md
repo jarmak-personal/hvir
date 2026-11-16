@@ -393,3 +393,14 @@ workbench renderer, IPC, supervisor, ProjectHost and native presenter with the p
 sandbox selection. Its disposable observer checks native marker pixels, keyboard encoding,
 acknowledged resize reaching the real shell, and retained exit output. It is separate from
 controlled M15 capacity/performance and Linux hardware qualification.
+
+Full-workbench heartbeat and frame-gap observations follow the existing controlled-performance
+policy: ordinary hosted runs report exact samples, the unchanged 500 ms bound, and every crossing
+as evidence. Set the existing `HVIR_CAPACITY_PERFORMANCE_GATE=controlled` selector to enforce that
+same bound. Missing, non-finite, negative or insufficient samples fail in both modes, as do the
+functional pixel, byte, ownership, cleanup and readiness contracts. The receipt and CI reader
+check the selected mode and recompute crossings from the raw observations; hosted measurements
+cannot be presented as controlled acceptance. A controlled workbench smoke still does not
+qualify M15's separate four-pair comparison protocol, capacity budgets or physical hardware.
+The focused M4 boundary/import and M5 presenter probes retain their explicit hosted 500 ms
+limits described in [the native host contract](native-terminal-host.md).

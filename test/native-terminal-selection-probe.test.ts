@@ -141,6 +141,48 @@ describe('same-PTY native selection qualification protocol', () => {
     }
   })
 
+  it.each(['readiness', 'strict'] as const)(
+    'refuses a different applied normalized scale in a direct %s layout observation',
+    async (mode) => {
+      const win = {
+        webContents: {
+          executeJavaScript: () =>
+            Promise.resolve({
+              x: 0,
+              y: 0,
+              width: 100,
+              height: 40,
+              viewId: 'view',
+              dpr: 1.2,
+              canvasWidth: 120,
+              canvasHeight: 48,
+              canvasCssWidth: 100,
+              canvasCssHeight: 40,
+            }),
+        },
+      } as unknown as Parameters<typeof nativeSelectionBrowser>[0]
+      const native = {
+        sessions: { get: selectionNativeState },
+        inspectRetained: () =>
+          Promise.resolve({
+            geometry: { width: 120, height: 48, backingScale: 1 },
+          }),
+      } as unknown as Parameters<typeof nativeSelectionBrowser>[1]
+      const browser = nativeSelectionBrowser(win, native, {
+        id: 's',
+        instanceId: 'instance',
+        ownerId: 7,
+        ownerGeneration: 1,
+      } as Parameters<typeof nativeSelectionBrowser>[2])
+      if (mode === 'readiness')
+        await expect(browser.layoutWhenReady()).resolves.toBeUndefined()
+      else
+        await expect(browser.layout()).rejects.toThrow(
+          'native-selection-layout-not-current',
+        )
+    },
+  )
+
   it('does not complete a finite menu action while its dispatched DOM menu remains present', async () => {
     let present = true,
       settled = false
@@ -386,7 +428,7 @@ describe('same-PTY native selection qualification protocol', () => {
           Promise.resolve(
             script.includes('const separator=')
               ? { x: 265, y: 390 }
-              : { x: 0, y: 0, width: 561, height: 295 },
+              : { x: 0, y: 0, width: 561, height: 295, dpr: 1 },
           ),
         sendInputEvent: (event: { type: string }) => {
           events.push(event.type)
@@ -430,7 +472,7 @@ describe('same-PTY native selection qualification protocol', () => {
             script.includes('const menus=')
               ? { menus: Number(menu), nativeHit }
               : script.includes('getBoundingClientRect')
-                ? { x: 0, y: 0, width: 100, height: 100 }
+                ? { x: 0, y: 0, width: 100, height: 100, dpr: 1 }
                 : {},
           ),
         sendInputEvent: (event: (typeof events)[number]) => {

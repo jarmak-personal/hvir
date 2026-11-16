@@ -210,7 +210,10 @@ export function nativeSelectionBrowser(
       | undefined
     assertLayoutOwner()
     if (!bounds) return undefined
-    if (Math.round(bounds.width * geometry.backingScale) !== geometry.width)
+    if (
+      Math.fround(bounds.dpr) !== geometry.backingScale ||
+      Math.round(bounds.width * bounds.dpr) !== geometry.width
+    )
       if (readiness) return undefined
       else throw new Error('native-selection-layout-not-current')
     return { geometry, bounds }

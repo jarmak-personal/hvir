@@ -6,6 +6,11 @@ import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
 import { NativeTerminalSelectionRefused } from '../../shared/native-terminal-selection'
 import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
+import {
+  nativeWorkbenchPerformanceEvidence,
+  enforceNativeWorkbenchPerformance,
+  type NativeWorkbenchPerformanceMode,
+} from './native-terminal-performance'
 import { terminalProbeSourceDelivery } from './terminal-probe-source'
 import { closeWebPaneSmokeServer } from './web-pane-boundary'
 import {
@@ -41,6 +46,7 @@ export async function verifyNativeTerminalSelection(
   ptys: PtySupervisor,
   native: NativeTerminalApplication,
   managed: ManagedPty,
+  performanceMode: NativeWorkbenchPerformanceMode,
 ) {
   const browser = nativeSelectionBrowser(win, native, managed),
     { owner, wait } = browser
@@ -565,13 +571,6 @@ export async function verifyNativeTerminalSelection(
           maximumInclusiveMs: UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs,
         }),
     )
-    if (
-      !paint.frames ||
-      !mainSamples ||
-      paint.maxGapMs > UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs ||
-      mainMaxMs > UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs
-    )
-      throw new Error('native-selection-paint-budget')
     const finalStatus = await native.inspectRetained(managed.id, owner)
     if (
       finalStatus.failure ||
@@ -581,6 +580,26 @@ export async function verifyNativeTerminalSelection(
       ptys.list().length !== 1
     )
       throw new Error('native-selection-final-owner-or-input')
+    const performanceEvidence = nativeWorkbenchPerformanceEvidence(
+      performanceMode,
+      'selection',
+      [
+        { loop: 'main', samples: mainSamples, minimumSamples: 1, maximumMs: mainMaxMs },
+        {
+          loop: 'renderer',
+          samples: paint.frames,
+          minimumSamples: 1,
+          maximumMs: paint.maxGapMs,
+        },
+      ],
+    )
+    console.log(
+      'HVIR_NATIVE_WORKBENCH_PERFORMANCE ' + JSON.stringify(performanceEvidence),
+    )
+    enforceNativeWorkbenchPerformance(
+      performanceEvidence,
+      new Error('native-selection-paint-budget'),
+    )
     return {
       fixtureColumns: geometry.columns,
       gridAccommodation,
@@ -623,6 +642,7 @@ export async function verifyNativeTerminalSelection(
       osExternalOpenerInvoked: false,
       isolatedOsClipboardReadback: isolated,
       clipboardIntercepted: !isolated,
+      performance: performanceEvidence,
       mainSamples,
       mainMaxMs,
       rendererSamples: paint.frames,
@@ -713,6 +733,7 @@ export async function verifyNativeReadonlySelection(
   ptys: PtySupervisor,
   native: NativeTerminalApplication,
   managed: ManagedPty,
+  performanceMode: NativeWorkbenchPerformanceMode,
 ) {
   console.log('[native-workbench] selection-readonly')
   const browser = nativeSelectionBrowser(win, native, managed),
@@ -765,9 +786,27 @@ export async function verifyNativeReadonlySelection(
           maximumInclusiveMs: UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs,
         }),
     )
-    if (paint.maxGapMs > UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs)
-      throw new Error('native-selection-readonly-paint-budget')
+    const performanceEvidence = nativeWorkbenchPerformanceEvidence(
+      performanceMode,
+      'readonly-selection',
+      [
+        {
+          loop: 'renderer',
+          samples: paint.frames,
+          minimumSamples: 2,
+          maximumMs: paint.maxGapMs,
+        },
+      ],
+    )
+    console.log(
+      'HVIR_NATIVE_WORKBENCH_PERFORMANCE ' + JSON.stringify(performanceEvidence),
+    )
+    enforceNativeWorkbenchPerformance(
+      performanceEvidence,
+      new Error('native-selection-readonly-paint-budget'),
+    )
     return {
+      performance: performanceEvidence,
       rendererSamples: paint.frames,
       rendererMaxMs: paint.maxGapMs,
       gestureBlur,

@@ -19,6 +19,34 @@ const qualification = Object.values(workflow.jobs)
   .find((step) => step.name === 'Qualify the ordinary native workbench runtime')?.run
 if (!qualification) throw new Error('Native workbench qualification step missing')
 
+interface TimingFixture {
+  mode: 'evidence' | 'controlled'
+  crossing?:
+    | 'query'
+    | 'readonly-query'
+    | 'selection'
+    | 'readonly-selection'
+    | 'effects'
+    | 'paste-unicode'
+    | 'paste-lnm'
+  fault?:
+    | 'missing-mode'
+    | 'invalid-mode'
+    | 'omit-violation'
+    | 'invent-violation'
+    | 'round-maximum'
+    | 'missing-phase'
+    | 'raised-limit'
+    | 'invalid-samples'
+    | 'invalid-maximum'
+    | 'capacity-claim'
+    | 'wrong-minimum'
+    | 'missing-loop'
+    | 'phase-limit'
+    | 'unsafe-samples'
+    | 'negative-maximum'
+}
+
 /** Executes the real workflow shell and JSON assertions; only build/display/producer are fixtures. */
 function executeQualification(
   command: string,
@@ -53,6 +81,7 @@ function executeQualification(
     | 'recovery'
     | 'ssh-input'
     | 'ssh-resource',
+  timing?: TimingFixture,
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'hvir-native-workbench-report-'))
   try {
@@ -115,6 +144,43 @@ if(process.env.HVIR_TEST_BAD_LIFETIME==='authority')proof.nativeFailureLifetimes
 if(process.env.HVIR_TEST_BAD_LIFETIME==='resource')proof.nativeFailureLifetimes.final.canvases=1;
 if(process.env.HVIR_TEST_BAD_LIFETIME==='refit')proof.nativeFailureLifetimes.noReplacementGrantOnRefusal=false;
 if(process.env.HVIR_TEST_BAD_LIFETIME==='recovery')proof.nativeFailureLifetimes.silentRelaunches=1;
+proof.largePaste={cases:['unicode','lnm'].map(name=>({name,paint:{frames:4,maxGapMs:20}}))};
+const timingMode=process.env.HVIR_CAPACITY_PERFORMANCE_GATE==='controlled'?'controlled':'evidence';
+const crossing=process.env.HVIR_TEST_TIMING_CROSSING;
+if(crossing==='query')proof.nativeQuery.maximumFrameGapMs=518.5;
+if(crossing==='readonly-query')proof.readonlyQuery.maximumFrameGapMs=518.5;
+if(crossing==='selection')proof.nativeSelection.rendererMaxMs=518.5;
+if(crossing==='readonly-selection')proof.readonlySelection.rendererMaxMs=518.5;
+if(crossing==='effects')proof.nativeEffects.responsiveness.main.maxMs=518.5;
+if(crossing==='paste-unicode')proof.largePaste.cases[0].paint.maxGapMs=518.5;
+if(crossing==='paste-lnm')proof.largePaste.cases[1].paint.maxGapMs=518.5;
+if(process.env.HVIR_TEST_TIMING_FAULT==='invalid-samples')proof.nativeQuery.frames=0;
+if(process.env.HVIR_TEST_TIMING_FAULT==='invalid-maximum')proof.nativeQuery.maximumFrameGapMs=NaN;
+if(process.env.HVIR_TEST_TIMING_FAULT==='negative-maximum')proof.nativeQuery.maximumFrameGapMs=-1;
+if(process.env.HVIR_TEST_TIMING_FAULT==='unsafe-samples')proof.nativeQuery.frames=1e20;
+const renderer=(samples,minimumSamples,maximumMs)=>({loop:'renderer',samples,minimumSamples,maximumMs});
+const main=(samples,minimumSamples,maximumMs)=>({loop:'main',samples,minimumSamples,maximumMs});
+const phases=[
+ ['query',[renderer(proof.nativeQuery.frames,2,proof.nativeQuery.maximumFrameGapMs)]],
+ ['effects',[main(proof.nativeEffects.responsiveness.main.samples,2,proof.nativeEffects.responsiveness.main.maxMs),renderer(proof.nativeEffects.responsiveness.renderer.samples,2,proof.nativeEffects.responsiveness.renderer.maxMs)]],
+ ['selection',[main(proof.nativeSelection.mainSamples,1,proof.nativeSelection.mainMaxMs),renderer(proof.nativeSelection.rendererSamples,1,proof.nativeSelection.rendererMaxMs)]],
+ ...proof.largePaste.cases.map(item=>['paste-'+item.name,[renderer(item.paint.frames,1,item.paint.maxGapMs)]]),
+ ['readonly-selection',[renderer(proof.readonlySelection.rendererSamples,2,proof.readonlySelection.rendererMaxMs)]],
+ ['readonly-query',[renderer(proof.readonlyQuery.frames,2,proof.readonlyQuery.maximumFrameGapMs)]],
+].map(([phase,loops])=>({phase,mode:timingMode,maximumInclusiveMs:500,loops,violations:loops.filter(item=>item.maximumMs>500).map(item=>({loop:item.loop,actualMs:item.maximumMs,maximumInclusiveMs:500}))}));
+proof.performance={mode:timingMode,maximumInclusiveMs:500,controlledCapacityQualified:false,phases};
+const timingFault=process.env.HVIR_TEST_TIMING_FAULT;
+if(timingFault==='missing-mode')delete proof.performance.mode;
+if(timingFault==='invalid-mode')proof.performance.mode='automatic';
+if(timingFault==='omit-violation')phases.find(item=>item.violations.length).violations=[];
+if(timingFault==='invent-violation')phases[0].violations=[{loop:'renderer',actualMs:501,maximumInclusiveMs:500}];
+if(timingFault==='round-maximum')phases.find(item=>item.violations.length).loops[0].maximumMs=500;
+if(timingFault==='missing-phase')phases.pop();
+if(timingFault==='raised-limit')proof.performance.maximumInclusiveMs=501;
+if(timingFault==='capacity-claim')proof.performance.controlledCapacityQualified=true;
+if(timingFault==='wrong-minimum')phases[0].loops[0].minimumSamples=1;
+if(timingFault==='missing-loop')phases.find(item=>item.phase==='effects').loops.pop();
+if(timingFault==='phase-limit')phases[0].maximumInclusiveMs=501;
 const line = 'HVIR_NATIVE_WORKBENCH_OK ' + JSON.stringify(proof) + '\\n';
 process.stdout.write(line.slice(0, 65536), () => {
   process.stderr.write('controlled native cleanup diagnostic\\n', () => {
@@ -153,6 +219,9 @@ exec "$HVIR_TEST_NODE" "$@"
         HVIR_TEST_BAD_QUERY: badQuery ?? '',
         HVIR_TEST_BAD_APPEARANCE: badAppearance ?? '',
         HVIR_TEST_BAD_LIFETIME: badLifetime ?? '',
+        HVIR_CAPACITY_PERFORMANCE_GATE: timing?.mode === 'controlled' ? 'controlled' : '',
+        HVIR_TEST_TIMING_CROSSING: timing?.crossing ?? '',
+        HVIR_TEST_TIMING_FAULT: timing?.fault ?? '',
       },
     })
     const proof = readFileSync(
@@ -166,6 +235,99 @@ exec "$HVIR_TEST_NODE" "$@"
 }
 
 describe('native workbench machine-readable workflow stream', () => {
+  const timingResult = (timing: TimingFixture) =>
+    executeQualification(
+      qualification,
+      'macOS',
+      false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      timing,
+    )
+  it.each([
+    'query',
+    'readonly-query',
+    'selection',
+    'readonly-selection',
+    'effects',
+    'paste-unicode',
+    'paste-lnm',
+  ] as const)(
+    'retains hosted %s crossings as exact evidence and enforces the same 500 ms controlled limit',
+    (phase) => {
+      const hosted = timingResult({ mode: 'evidence', crossing: phase })
+      expect(hosted.error).toBeUndefined()
+      expect(hosted.status).toBe(0)
+      const receipt = JSON.parse(hosted.proof.split('HVIR_NATIVE_WORKBENCH_OK ')[1]!) as {
+        performance: {
+          phases: Array<{
+            phase: string
+            violations: Array<{ actualMs: number; maximumInclusiveMs: number }>
+          }>
+        }
+      }
+      expect(
+        receipt.performance.phases.find((item) => item.phase === phase)?.violations,
+      ).toEqual([
+        {
+          loop: phase === 'effects' ? 'main' : 'renderer',
+          actualMs: 518.5,
+          maximumInclusiveMs: 500,
+        },
+      ])
+      const controlled = timingResult({ mode: 'controlled', crossing: phase })
+      expect(controlled.status).not.toBe(0)
+      expect(controlled.stderr).toContain('AssertionError')
+    },
+  )
+  it.each([
+    'missing-mode',
+    'invalid-mode',
+    'omit-violation',
+    'invent-violation',
+    'round-maximum',
+    'missing-phase',
+    'raised-limit',
+    'invalid-samples',
+    'invalid-maximum',
+    'capacity-claim',
+    'wrong-minimum',
+    'missing-loop',
+    'phase-limit',
+    'unsafe-samples',
+    'negative-maximum',
+  ] as const)('rejects malformed or dishonest performance evidence: %s', (fault) => {
+    const result = timingResult({
+      mode: 'evidence',
+      fault,
+      crossing:
+        fault === 'omit-violation' || fault === 'round-maximum' ? 'query' : undefined,
+    })
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('AssertionError')
+  })
+  it.each(['clipboard', 'pixels', 'progress', 'streaming-deadline'] as const)(
+    'keeps controlled functional query facts blocking: %s',
+    (fault) => {
+      const result = executeQualification(
+        qualification,
+        'macOS',
+        false,
+        undefined,
+        undefined,
+        fault,
+        undefined,
+        undefined,
+        { mode: 'controlled' },
+      )
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain('AssertionError')
+    },
+  )
+
   it.each([
     'identity',
     'authority',
@@ -193,7 +355,6 @@ describe('native workbench machine-readable workflow stream', () => {
     'clipboard',
     'pixels',
     'progress',
-    'responsiveness',
     'lost-selection',
     'streaming-deadline',
   ] as const)('rejects false native retained-query evidence: %s', (kind) => {
@@ -226,7 +387,6 @@ describe('native workbench machine-readable workflow stream', () => {
     'clipboard',
     'liveness',
     'authority',
-    'responsiveness',
     'os-clipboard',
     'readonly',
     'pending-ack',
@@ -285,7 +445,7 @@ describe('native workbench machine-readable workflow stream', () => {
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('AssertionError')
   })
-  it.each(['clipboard', 'responsiveness', 'disposition'] as const)(
+  it.each(['clipboard', 'disposition'] as const)(
     'rejects an incorrect native effect %s proof with the actual reader',
     (kind) => {
       const result = executeQualification(qualification, 'macOS', false, kind)
