@@ -223,7 +223,7 @@ jobs:
       - name: Relocate application implementation before installed acceptance
         env:
           HVIR_NATIVE_PACKAGE_ACCEPTANCE: '1'
-        run: node scripts/native-terminal/relocate-package-inputs.mts "$RUNNER_TEMP/native-package-inputs-unavailable"
+        run: node scripts/native-terminal/relocate-package-inputs.mts "$GITHUB_WORKSPACE/../native-package-inputs-unavailable"
       - name: Accept installed native compatibility with production sandbox
         run: |
           sudo -u hvir-acceptance env HOME=/home/hvir-acceptance \

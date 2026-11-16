@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+import { dirname, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
@@ -81,6 +82,32 @@ describe('exact native candidate package workflow', () => {
       steps.find((step) => step.name?.startsWith('Accept installed Linux'))?.env
         ?.HVIR_NATIVE_PACKAGE_ACCEPTANCE,
     ).toBe('1')
+  })
+  it('keeps Debian atomic input relocation outside checkout on the workspace mount', () => {
+    const command = packages.jobs.debian!.steps?.find((step) =>
+      step.run?.includes('relocate-package-inputs.mts'),
+    )?.run
+    expect(command).toBeDefined()
+    const workspace = '/mounted workspace/hvir/hvir'
+    const result = spawnSync(
+      'sh',
+      ['-ec', `node() { printf '%s\\n' "$@"; }\n${command}`],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GITHUB_WORKSPACE: workspace,
+          RUNNER_TEMP: '/other-mount/temp',
+        },
+      },
+    )
+    expect(result.status, result.stderr).toBe(0)
+    const args = result.stdout.trim().split('\n')
+    expect(args).toHaveLength(2)
+    expect(args[0]).toBe('scripts/native-terminal/relocate-package-inputs.mts')
+    expect(resolve(args[1]!)).toBe(
+      resolve(dirname(workspace), 'native-package-inputs-unavailable'),
+    )
   })
   it('keeps signing behind explicit branch dispatch and the existing protected source/sign/notary owner', () => {
     expect(nativeSource).toContain("inputs.sign_candidate && 'signed' || 'unsigned'")
