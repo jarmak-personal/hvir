@@ -685,8 +685,8 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
         liveReloadPath,
         defaultHarnessProviderId,
         smokeTerminalSessionHarness,
+        native.ipc.nativeTerminals,
       )
-      console.log('HVIR_SMOKE_OK')
       return 0
     }
     if (mode === 'native-host-worker') {

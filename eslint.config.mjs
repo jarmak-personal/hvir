@@ -700,6 +700,7 @@ export default tseslint.config(
   {
     files: [
       'scripts/run-smoke-scenarios.mts',
+      'scripts/run-capacity-terminal-comparison.mts',
       'scripts/smoke-run-lock.mts',
       'scripts/architecture-hotspots.mts',
       'scripts/architecture-policy.mts',

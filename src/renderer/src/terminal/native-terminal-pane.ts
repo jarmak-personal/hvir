@@ -126,6 +126,17 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
     this.element.className = 'terminal-engine-host native-terminal-pane'
     this.element.style.cssText =
       'position:relative;width:100%;height:100%;overflow:hidden'
+    if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+      Object.defineProperty(this.element, '__hvirNativeTerminalAppearance', {
+        get: () =>
+          this.appearance && {
+            fontSize: this.appearance.fontSize,
+            fontFamily: this.appearance.fontFamily,
+            ligatures: this.appearance.ligatures,
+            applied:
+              !this.appearanceBlocksInput && !this.appearanceWork && this.inputReady,
+          },
+      })
     this.element.setAttribute('role', 'textbox')
     this.element.setAttribute('aria-label', 'Native terminal development preview')
     this.element.setAttribute('aria-multiline', 'true')

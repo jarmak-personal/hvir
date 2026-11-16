@@ -41,6 +41,7 @@ import type { NativeTerminalGeometry } from '../../shared/native-terminal'
 import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
 import { nativeWorkbenchPerformanceMode } from './native-terminal-performance'
 import { nativeWorkbenchGeometryReadiness } from './native-terminal-workbench-geometry'
+import { observeNativeReceiverDiagnostic } from './native-terminal-import-diagnostic'
 
 /** Format the qualification receipt; the runner keeps stdout separate from diagnostics. */
 export function nativeWorkbenchReceiptLine(
@@ -70,7 +71,7 @@ export async function createNativeWorkbench(
       ? new NativeEffectsClipboardObservation()
       : undefined
   const nativeTerminals =
-    mode === 'native-terminal-workbench'
+    mode === 'native-terminal-workbench' || mode === 'capacity'
       ? await createNativeTerminalApplication(
           supervisor,
           (owner) => rendererResources.isCurrent(owner),
@@ -374,14 +375,31 @@ export async function verifyNativeTerminalWorkbench(
   const nativeSshLifetimes = await qualifySsh(native, managed)
   console.log('HVIR_NATIVE_SSH_LIFECYCLE_OK ' + JSON.stringify(nativeSshLifetimes))
   if (!utilities) throw new Error('native-lifecycle-utility-observation-missing')
-  const nativeFailureLifetimes = await verifyNativeTerminalFailureLifetimes(
-    win,
-    ptys,
-    native,
-    resources,
-    utilities,
-    managed,
-  )
+  const previousImportDiagnostic = process.env['HVIR_NATIVE_IMPORT_DIAGNOSTICS']
+  const stopImportDiagnostic =
+    process.env['HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW'] === '1'
+      ? observeNativeReceiverDiagnostic(win)
+      : undefined
+  let nativeFailureLifetimes
+  try {
+    // Select only the real replacement/failure window, keeping the earlier
+    // query/capture workload out of this bounded diagnostic population.
+    if (process.env['HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW'] === '1')
+      process.env['HVIR_NATIVE_IMPORT_DIAGNOSTICS'] = '1'
+    nativeFailureLifetimes = await verifyNativeTerminalFailureLifetimes(
+      win,
+      ptys,
+      native,
+      resources,
+      utilities,
+      managed,
+    )
+  } finally {
+    stopImportDiagnostic?.()
+    if (previousImportDiagnostic === undefined)
+      delete process.env['HVIR_NATIVE_IMPORT_DIAGNOSTICS']
+    else process.env['HVIR_NATIVE_IMPORT_DIAGNOSTICS'] = previousImportDiagnostic
+  }
   console.log(
     nativeWorkbenchReceiptLine({
       platform: process.platform,

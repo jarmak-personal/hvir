@@ -344,24 +344,27 @@ describe('contained native qualification Ozone forwarding', () => {
       ),
     ).rejects.toThrow('Ozone must be x11|wayland')
   })
-  it('refuses an arbitrary smoke backend before acquiring resources', () => {
-    const result = spawnSync(
-      'bash',
-      [fileURLToPath(new URL('../scripts/run-smoke.sh', import.meta.url))],
-      {
-        env: {
-          ...process.env,
-          HVIR_SMOKE_SCENARIO: 'native-terminal-workbench',
-          HVIR_NATIVE_TERMINAL_OZONE: 'headless',
+  it.each(['native-terminal-workbench', 'capacity'])(
+    'refuses an arbitrary %s backend before acquiring resources',
+    (scenario) => {
+      const result = spawnSync(
+        'bash',
+        [fileURLToPath(new URL('../scripts/run-smoke.sh', import.meta.url))],
+        {
+          env: {
+            ...process.env,
+            HVIR_SMOKE_SCENARIO: scenario,
+            HVIR_NATIVE_TERMINAL_OZONE: 'headless',
+          },
+          timeout: 2000,
+          maxBuffer: 65536,
+          encoding: 'utf8',
         },
-        timeout: 2000,
-        maxBuffer: 65536,
-        encoding: 'utf8',
-      },
-    )
-    expect(result.status).toBe(1)
-    expect(result.stderr).toContain(
-      'requires Linux native-terminal-workbench and x11|wayland',
-    )
-  })
+      )
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain(
+        'requires Linux native-terminal-workbench|capacity and x11|wayland',
+      )
+    },
+  )
 })

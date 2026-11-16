@@ -9,9 +9,9 @@ source_checkout=$PWD
 # This closed qualification selector changes only the actual window backend.
 smoke_ozone_args=()
 if [[ -n "${HVIR_NATIVE_TERMINAL_OZONE:-}" ]]; then
-  if [[ "$(uname -s)" != Linux ]] || [[ "$HVIR_SMOKE_SCENARIO" != native-terminal-workbench ]] ||
+  if [[ "$(uname -s)" != Linux ]] || [[ "$HVIR_SMOKE_SCENARIO" != native-terminal-workbench && "$HVIR_SMOKE_SCENARIO" != capacity ]] ||
      [[ "$HVIR_NATIVE_TERMINAL_OZONE" != x11 && "$HVIR_NATIVE_TERMINAL_OZONE" != wayland ]]; then
-    echo 'HVIR_NATIVE_TERMINAL_OZONE requires Linux native-terminal-workbench and x11|wayland' >&2
+    echo 'HVIR_NATIVE_TERMINAL_OZONE requires Linux native-terminal-workbench|capacity and x11|wayland' >&2
     exit 1
   fi
   smoke_ozone_args=("--ozone-platform=$HVIR_NATIVE_TERMINAL_OZONE")

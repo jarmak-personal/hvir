@@ -240,6 +240,8 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
           # Synthetic fixtures only: retain actual native primary-face INFO diagnostics.
           GHOSTTY_LOG: stderr
+          # Fault-window stages are diagnostic evidence, never paired timing samples.
+          HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW: '1'
         run: |
           npm run build:smoke
           # Keep diagnostic stderr out of the machine-readable proof stream.

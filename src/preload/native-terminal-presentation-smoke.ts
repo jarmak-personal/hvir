@@ -1,3 +1,5 @@
+import { validNativeTerminalViewGrant } from '../shared/native-terminal-presentation'
+
 /** GPU boundary evidence; guarded measurement calls are disabled in production. */
 type NativePresentationSpan =
   | 'get-video-frame'
@@ -10,6 +12,93 @@ type NativePresentationSpan =
 let disabled = false
 let failureCount = 0
 let failureDisabled = false
+let resourceCount = 0
+let resourceDisabled = false
+
+type NativePresentationResourceStage =
+  | 'receiver-entry'
+  | 'receiver-ineligible'
+  | 'video-frame-acquired'
+  | 'canvas-submitted'
+  | 'frame-close-enter'
+  | 'frame-close-return'
+  | 'frame-close-rejected'
+  | 'texture-release-enter'
+  | 'texture-release-return'
+  | 'texture-release-rejected'
+
+/** The extra ID exists only on an explicitly selected smoke diagnostic payload;
+ * it grants no authority. Marks are bounded/cleared and clocks remain per realm. */
+export function nativePresentationResourceStage(
+  stage: NativePresentationResourceStage,
+  value: unknown,
+): void {
+  if (
+    typeof __HVIR_SMOKE_BUILD__ === 'undefined' ||
+    !__HVIR_SMOKE_BUILD__ ||
+    resourceCount >= 2048
+  )
+    return
+  const name = 'hvir.native.presentation.resource-stage'
+  try {
+    const metadata = value as
+      { nativeTerminal?: unknown; hvirImportObservation?: unknown } | undefined
+    const grant = metadata?.nativeTerminal
+    const resource = metadata?.hvirImportObservation
+    if (
+      !validNativeTerminalViewGrant(grant) ||
+      typeof resource !== 'number' ||
+      !Number.isSafeInteger(resource) ||
+      resource <= 0
+    )
+      return
+    const atMs = performance.now(),
+      timeOrigin = performance.timeOrigin
+    if (!Number.isFinite(atMs) || !Number.isFinite(timeOrigin)) return
+    resourceCount++
+    const event = {
+      schema: 1,
+      event: resourceCount,
+      clock: 'renderer performance.now',
+      stage,
+      resource,
+      atMs,
+      timeOrigin,
+      // Reaching the cap is an explicit incomplete-history witness, including
+      // when a successor renderer starts a new realm and counter.
+      truncated: resourceCount === 2048,
+      timelineDisabled: resourceDisabled,
+      grant: {
+        viewId: grant.viewId,
+        nativeEpoch: grant.nativeEpoch,
+        attachment: grant.attachment,
+        geometrySerial: grant.geometrySerial,
+        width: grant.width,
+        height: grant.height,
+        backingScale: grant.backingScale,
+      },
+    }
+    if (!resourceDisabled) {
+      try {
+        performance.mark(name, { detail: event })
+      } catch {
+        /* Console evidence remains available when Timeline marking fails. */
+      } finally {
+        try {
+          performance.clearMarks(name)
+        } catch {
+          resourceDisabled = true
+          event.timelineDisabled = true
+        }
+      }
+    }
+    // The selected smoke's main observer accepts only this closed prefix/schema.
+    // It preserves old-realm stages across reload without retaining a transcript.
+    console.log('HVIR_NATIVE_RECEIVER_STAGE ' + JSON.stringify(event))
+  } catch {
+    /* Diagnostics cannot replace receiver/cleanup outcomes. */
+  }
+}
 
 export type NativePresentationFailureStage =
   | 'receiver-factory-absent'

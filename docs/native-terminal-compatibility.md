@@ -208,3 +208,71 @@ GPU acceptance requires real native resources without routine CPU readback on ma
 least one actual Linux hardware desktop. Record Wayland/X11, Mesa/NVIDIA, multi-GPU, scale
 and architecture coverage individually; untested combinations remain explicit. No build,
 Xvfb/software run, unsupported-platform diagnostic, or CPU pixel fallback supplies that proof.
+
+## Reproducing desktop qualification
+
+Use the pushed candidate commit in a clean checkout, Node 24+, and the native build
+prerequisites in [native-terminal-build.md](native-terminal-build.md). Run on the real desktop
+with its ordinary GPU driver, display, power mode and fonts. Keep builds, tests and other
+qualification processes stopped during measurements. These commands do not sign anything.
+For Ubuntu x86-64, build one candidate and its matching bindings:
+
+```bash
+npm ci
+qualification_root=$(mktemp -d "${TMPDIR:-/tmp}/hvir-desktop-qualification.XXXXXX")
+npm run native:build -- linux-x64 "$qualification_root/sdk"
+npm run native:bindings -- linux-x64 "$qualification_root/sdk/artifact" "$qualification_root/bindings"
+npm run build:smoke
+printf '%s\n' "$qualification_root"
+```
+
+Preserve that directory. Record `git rev-parse HEAD`, OS/kernel, CPU, GPU and driver, desktop
+session (Wayland/X11), monitor refresh rate, display scale and power mode alongside its
+manifests. The supplied SDK's manifest and every runtime frontend/binding file are also
+validated and recorded by the comparison launcher; a different SDK source commit is visible
+provenance, never silently relabeled as the workbench commit. A missing manifest fails closed.
+For macOS, substitute `macos-arm64` and `libghostty.dylib` in these commands.
+
+Run the independent full canonical gate first; this retains the existing twelve live actors,
+then the separate twenty-record recovery phase and all high-match search checks:
+
+```bash
+HVIR_NATIVE_TERMINAL_LIBRARY="$qualification_root/sdk/artifact/ghostty-internal.so" \
+  bash scripts/phase8-gauntlet.sh > "$qualification_root/gauntlet.log" 2>&1
+```
+
+Keep its actual exit status and failed log. The controlled comparison uses the same smoke
+build in eight fresh processes and does not rebuild between them. Replace `60` below with
+the actual refresh rate reported by the desktop; an unknown or different actual rate fails.
+Set the window backend explicitly for both engines if testing a particular Linux backend:
+
+```bash
+HVIR_NATIVE_TERMINAL_OZONE=x11 npm run performance:terminal-comparison -- \
+  --output "$qualification_root/comparison-1" \
+  --native-library "$qualification_root/sdk/artifact/ghostty-internal.so" \
+  --refresh-hz 60
+```
+
+Use `wayland` for a Wayland run. On macOS omit `HVIR_NATIVE_TERMINAL_OZONE`. The output path
+must be a new directory outside the checkout. The launcher preserves every scheduled slot,
+raw per-process receipt, capture request/resolution interval and summary, including failures
+and interrupted pending slots. It refuses a dirty checkout, changed runtime artifacts,
+DevTools/diagnostic selectors or a CPU-pixel presentation as GPU comparison evidence. The
+common compositor witness observes synthetic terminal pixels; its completion is an upper
+bound on compositor observation and does not establish physical display latency. The smoke build and its existing `--no-sandbox` launch flag are recorded as
+measurement confounders; they do not qualify production package sandboxing. Instrumented
+readback is separately labeled and does not prove the production path has zero CPU readback.
+
+The paired load reuses twelve steady live actors: the tagged producer occupies the original
+visible actor, and the other eleven retain their existing plain/ANSI/synchronized roles.
+Temporary readiness probes retain their existing create/close lifecycle. The window is
+predeclared at 1283×800 DIP, yielding a shared 820 DIP pane with the ordinary layout; font
+size and actual grid must match. Both engines' canvas dimensions, padding and cell metrics
+remain recorded separately. A platform/font/layout mismatch fails before measured samples;
+qualify a revised common configuration in a new labeled attempt rather than tuning one mode.
+
+These automated results do not replace installed-package, actual SSH/OS-PTY, paused-exit,
+manual harness/IME/clipboard/search/paste/split/resize, large-display compatibility or shared
+resource lifetime acceptance. Report NVIDIA, Intel and AMD individually. Xvfb/Mesa software
+results cannot qualify a hardware desktop. Keep fault-stage tracing in separate workbench
+runs; `HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW=1` must be absent from paired timing runs.

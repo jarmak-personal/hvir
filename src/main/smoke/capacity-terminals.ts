@@ -66,6 +66,19 @@ export interface TerminalSearchCapacityReport {
   readonly retainedRows: number
 }
 
+export const CAPACITY_RETAINED_HISTORY_ROWS = 120_000
+
+/** Shared deterministic retained-cap producer for either engine's real PTY. */
+export function capacityRetainedHistoryProducer(unicodeWrapped: boolean): string {
+  return (
+    `awk 'BEGIN { for (i=0; i<${CAPACITY_RETAINED_HISTORY_ROWS}; i++) ` +
+    `printf "capacity-retained-fill-%06d-` +
+    `${unicodeWrapped ? '界é🙂'.repeat(40) : 'abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqr'}\\r\\n", i }'; ` +
+    `printf '\\033]0;Capacity retained ready\\007'; ` +
+    `IFS= read -r hvir_capacity_search\n`
+  )
+}
+
 export interface TerminalPaletteCapacityReport {
   readonly synchronousMs: number
   readonly eventLoopDelayMs: number
@@ -507,7 +520,7 @@ export async function verifyCapacityTerminalSearch(
   supervisor: PtySupervisor,
   unicodeWrapped = false,
 ): Promise<TerminalSearchCapacityReport> {
-  const emittedRows = 120_000
+  const emittedRows = CAPACITY_RETAINED_HISTORY_ROWS
   if (supervisor.list().length !== 12) {
     throw new Error('capacity terminal search requires twelve live terminals')
   }
@@ -522,11 +535,7 @@ export async function verifyCapacityTerminalSearch(
   supervisor.write(
     terminal.id,
     terminal.ownerId,
-    `awk 'BEGIN { for (i=0; i<${emittedRows}; i++) ` +
-      `printf "capacity-retained-fill-%06d-` +
-      `${unicodeWrapped ? '界é🙂'.repeat(40) : 'abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqr'}\\r\\n", i }'; ` +
-      `printf '\\033]0;Capacity retained ready\\007'; ` +
-      `IFS= read -r hvir_capacity_search\n`,
+    capacityRetainedHistoryProducer(unicodeWrapped),
   )
   let report: TerminalSearchCapacityReport
   try {
@@ -716,7 +725,9 @@ export async function measureAdditionalTerminalReadiness(
           const surface = document.querySelector(
             '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
           );
-          surface?.querySelector('.terminal-engine-host')?.focus();
+          const input = surface?.querySelector('.native-terminal-pane textarea')
+            ?? surface?.querySelector('.terminal-engine-host');
+          input?.focus();
         })()
       `)
       inputStartedAt = Date.now()

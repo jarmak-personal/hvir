@@ -12,6 +12,7 @@ import {
   nativePresentationSpanEnd,
   nativePresentationSpanStart,
   nativePresentationFailure,
+  nativePresentationResourceStage,
   type NativePresentationFailureStage,
 } from './native-terminal-presentation-smoke'
 
@@ -199,14 +200,22 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
     let frame: ReturnType<ImportedTexture['getVideoFrame']> | undefined
     let current: CurrentFrame | undefined
     let failureStage: NativePresentationFailureStage = 'receiver-draw'
+    if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+      nativePresentationResourceStage('receiver-entry', metadata)
     try {
       current = this.current(metadata)
-      if (!current) return
+      if (!current) {
+        if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+          nativePresentationResourceStage('receiver-ineligible', metadata)
+        return
+      }
       let started: number | undefined
       if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
         started = nativePresentationSpanStart()
       try {
         frame = texture.getVideoFrame()
+        if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+          nativePresentationResourceStage('video-frame-acquired', metadata)
       } catch (error) {
         failureStage = 'receiver-get-video-frame'
         throw error
@@ -216,6 +225,8 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
       }
       if (!this.isCurrentFrame(current)) return
       current.canvas.draw(frame, current.metadata)
+      if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+        nativePresentationResourceStage('canvas-submitted', metadata)
       if (this.isCurrentFrame(current)) this.reportDraw(current.metadata)
     } catch {
       if (current)
@@ -230,9 +241,30 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
         let started: number | undefined
         if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
           started = nativePresentationSpanStart()
+        let closed = false
         try {
+          if (
+            frame &&
+            typeof __HVIR_SMOKE_BUILD__ !== 'undefined' &&
+            __HVIR_SMOKE_BUILD__
+          )
+            nativePresentationResourceStage('frame-close-enter', metadata)
           frame?.close()
+          closed = true
+          if (
+            frame &&
+            typeof __HVIR_SMOKE_BUILD__ !== 'undefined' &&
+            __HVIR_SMOKE_BUILD__
+          )
+            nativePresentationResourceStage('frame-close-return', metadata)
         } finally {
+          if (
+            !closed &&
+            frame &&
+            typeof __HVIR_SMOKE_BUILD__ !== 'undefined' &&
+            __HVIR_SMOKE_BUILD__
+          )
+            nativePresentationResourceStage('frame-close-rejected', metadata)
           if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
             nativePresentationSpanEnd('frame-close', started)
         }
@@ -240,9 +272,21 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
         let started: number | undefined
         if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
           started = nativePresentationSpanStart()
+        let released = false
         try {
+          if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+            nativePresentationResourceStage('texture-release-enter', metadata)
           texture.release()
+          released = true
+          if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+            nativePresentationResourceStage('texture-release-return', metadata)
         } finally {
+          if (
+            !released &&
+            typeof __HVIR_SMOKE_BUILD__ !== 'undefined' &&
+            __HVIR_SMOKE_BUILD__
+          )
+            nativePresentationResourceStage('texture-release-rejected', metadata)
           if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
             nativePresentationSpanEnd('texture-release', started)
         }

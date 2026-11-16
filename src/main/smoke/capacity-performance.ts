@@ -1,4 +1,4 @@
-import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
+import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget.ts'
 
 export const CAPACITY_PERFORMANCE_GATE_ENV = 'HVIR_CAPACITY_PERFORMANCE_GATE'
 

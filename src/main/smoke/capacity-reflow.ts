@@ -20,12 +20,14 @@ export interface CapacityReflowReport {
  */
 export async function measureCapacityReflow(
   win: BrowserWindow,
+  readAppliedColumns?: () => Promise<number>,
 ): Promise<CapacityReflowReport> {
   const samplesMs: number[] = []
   const columns: number[] = []
   const original = win.getContentSize()
   try {
-    let previous = await readColumns(win)
+    const columnsNow = () => readColumns(win, readAppliedColumns)
+    let previous = await columnsNow()
     for (let index = 0; index < 12; index++) {
       // Start with the wide geometry: preparation starts at the narrow geometry.
       const width = CAPACITY_REFLOW_WIDTHS[(index + 1) % 2]!
@@ -37,7 +39,7 @@ export async function measureCapacityReflow(
         if (performance.now() > deadline) {
           throw new Error('capacity reflow geometry did not change before deadline')
         }
-        current = await readColumns(win)
+        current = await columnsNow()
         if (current === previous) await delay(20)
       }
       samplesMs.push(performance.now() - started)
@@ -59,11 +61,16 @@ export async function measureCapacityReflow(
   }
 }
 
-async function readColumns(win: BrowserWindow): Promise<number> {
+async function readColumns(
+  win: BrowserWindow,
+  readAppliedColumns?: () => Promise<number>,
+): Promise<number> {
   let timeout: ReturnType<typeof setTimeout> | undefined
   try {
     const columns: unknown = await Promise.race([
-      win.webContents.executeJavaScript(`
+      readAppliedColumns
+        ? readAppliedColumns()
+        : win.webContents.executeJavaScript(`
         document.querySelector('.terminal-surface.active .terminal-engine-host')
           ?.__hvirTerminalPerformance?.cols
       `),
