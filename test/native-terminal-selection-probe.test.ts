@@ -50,6 +50,17 @@ function recorder(block = false) {
     text: () => writes.join(''),
   }
 }
+function selectionNativeState() {
+  return {
+    handle: 'same-native-surface',
+    session: {
+      sessionId: 's',
+      instanceId: 'instance',
+      ownerId: 7,
+      ownerGeneration: 1,
+    },
+  }
+}
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => {
   vi.clearAllTimers()
@@ -164,6 +175,7 @@ describe('same-PTY native selection qualification protocol', () => {
       },
     } as unknown as Parameters<typeof nativeSelectionBrowser>[0]
     const native = {
+      sessions: { get: selectionNativeState },
       inspectRetained: () =>
         Promise.resolve({
           geometry: {
@@ -177,7 +189,12 @@ describe('same-PTY native selection qualification protocol', () => {
           },
         }),
     } as unknown as Parameters<typeof nativeSelectionBrowser>[1]
-    const managed = { id: 's' } as Parameters<typeof nativeSelectionBrowser>[2]
+    const managed = {
+      id: 's',
+      instanceId: 'instance',
+      ownerId: 7,
+      ownerGeneration: 1,
+    } as Parameters<typeof nativeSelectionBrowser>[2]
     const action = nativeSelectionBrowser(win, native, managed)
       .menu('Select All')
       .then(() => {
@@ -252,12 +269,13 @@ describe('same-PTY native selection qualification protocol', () => {
         },
       } as unknown as Parameters<typeof nativeSelectionBrowser>[0]
       const native = {
+        sessions: { get: selectionNativeState },
         inspectRetained: () => Promise.resolve({ geometry: geometry() }),
-        sessions: { get: () => ({ handle: 'same-native-surface' }) },
       } as unknown as Parameters<typeof nativeSelectionBrowser>[1]
       const managed = {
         id: 's',
-        ownerId: 'o',
+        instanceId: 'instance',
+        ownerId: 7,
         ownerGeneration: 1,
       } as unknown as Parameters<typeof nativeSelectionBrowser>[2]
       const browser = nativeSelectionBrowser(win, native, managed)
@@ -377,6 +395,7 @@ describe('same-PTY native selection qualification protocol', () => {
       },
     } as unknown as Parameters<typeof nativeSelectionBrowser>[0]
     const native = {
+      sessions: { get: selectionNativeState },
       inspectRetained: () =>
         Promise.resolve({
           geometry: {
@@ -388,11 +407,11 @@ describe('same-PTY native selection qualification protocol', () => {
             cellHeight: 17,
           },
         }),
-      sessions: { get: () => ({ handle: 'same-native-surface' }) },
     } as unknown as Parameters<typeof nativeSelectionBrowser>[1]
     const browser = nativeSelectionBrowser(win, native, {
       id: 's',
-      ownerId: 'o',
+      instanceId: 'instance',
+      ownerId: 7,
       ownerGeneration: 1,
     } as unknown as Parameters<typeof nativeSelectionBrowser>[2])
     await expect(browser.accommodateGrid(() => current)).rejects.toThrow('resize-owner')
@@ -421,6 +440,7 @@ describe('same-PTY native selection qualification protocol', () => {
       },
     } as unknown as Parameters<typeof nativeSelectionBrowser>[0]
     const native = {
+      sessions: { get: selectionNativeState },
       inspectRetained: () =>
         Promise.resolve({
           geometry: {
@@ -435,7 +455,8 @@ describe('same-PTY native selection qualification protocol', () => {
     } as unknown as Parameters<typeof nativeSelectionBrowser>[1]
     const browser = nativeSelectionBrowser(win, native, {
       id: 's',
-      ownerId: 'o',
+      instanceId: 'instance',
+      ownerId: 7,
       ownerGeneration: 1,
     } as unknown as Parameters<typeof nativeSelectionBrowser>[2])
     await browser.clicks(4.5, 2.5, 1, ['control'])

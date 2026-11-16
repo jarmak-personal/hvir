@@ -809,7 +809,9 @@ async function selectedHighlight(
   let latestCapture: object | undefined
   try {
     await browser.wait(async () => {
-      const { geometry, bounds } = await browser.layout()
+      const layout = await browser.layoutWhenReady()
+      if (!layout) return false
+      const { geometry, bounds } = layout
       const rect = (await win.webContents.executeJavaScript(
         `(()=>{${paneScript(session)}const r=canvas.getBoundingClientRect(),bar=panel.querySelector('.terminal-search')?.getBoundingClientRect();return{x:Math.ceil(r.x),y:Math.ceil(r.y),width:Math.floor(r.width),height:Math.floor(r.height),bar:bar?{left:bar.left,right:bar.right,top:bar.top,bottom:bar.bottom}:undefined};})()`,
       )) as {
