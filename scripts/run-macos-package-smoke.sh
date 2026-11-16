@@ -480,7 +480,8 @@ if [[ "${HVIR_NATIVE_PACKAGE_ACCEPTANCE:-}" == '1' ]]; then
     codesign --verify --deep --strict "$relocated_application"
   fi
   node scripts/native-terminal/inspect-package.mts "$relocated_application/Contents/Resources" macos-arm64
-  node scripts/installed-startup-probe.mts \
+  # The public command normalizes positional paths; this moved raw entry needs the existing explicit root.
+  HVIR_PROJECT_ROOT="$project_root" node scripts/installed-startup-probe.mts \
     --command "$relocated_application/Contents/MacOS/hvir" \
     --expected-main "$relocated_application/Contents/MacOS/hvir" \
     --project-root "$project_root" \

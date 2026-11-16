@@ -118,8 +118,12 @@ describe('macOS native package contract', () => {
       }
       node() {
         case "$1" in
-          scripts/native-terminal/inspect-package.mts) printf 'manifest\\n' ;;
-          scripts/installed-startup-probe.mts) printf 'startup\\n' ;;
+          scripts/native-terminal/inspect-package.mts)
+            test -z "\${HVIR_PROJECT_ROOT:-}"
+            printf 'manifest\\n' ;;
+          scripts/installed-startup-probe.mts)
+            test "$HVIR_PROJECT_ROOT" = "$project_root"
+            printf 'startup\\n' ;;
           *) return 91 ;;
         esac
       }
@@ -127,7 +131,9 @@ describe('macOS native package contract', () => {
       invocation_root=/owned
       application=/Applications/hvir.app
       project_root=/owned/repository
+      unset HVIR_PROJECT_ROOT
       ${installedSmoke.slice(begin, end)}
+      test -z "\${HVIR_PROJECT_ROOT:-}"
     `,
         ],
         {
