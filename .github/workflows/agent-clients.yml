@@ -36,7 +36,7 @@ jobs:
             echo 'required=true' >> "$GITHUB_OUTPUT"
           else
             [[ "$BASE" =~ ^[0-9a-f]{40}$ ]]
-            if git diff --name-only "$BASE" "$SOURCE" | grep -Eq '^(packages/hvir-agent/|src/(shared/(agent/|host-path\.ts$)|main/agent/)|scripts/(build-agent-client|agent-client-artifacts|assemble-agent-clients|probe-agent-client|probe-agent-ssh-client)|build/native/(prepare-agent-clients|sign-agent-clients)|LICENSE$|electron-builder\.yml$|\.github/workflows/(agent-clients|release|macos-package-release)\.yml)'; then
+            if git diff --name-only "$BASE" "$SOURCE" | grep -Eq '^(packages/hvir-agent/|src/(shared/(agent/|host-path\.ts$)|main/agent/)|scripts/(build-agent-client|agent-client-artifacts|assemble-agent-clients|probe-agent-client|probe-agent-ssh-client)|build/native/(prepare-agent-clients|sign-agent-clients|prepare-runtime-payloads|sign-runtime-payloads)|LICENSE$|electron-builder\.yml$|\.github/workflows/(agent-clients|release|macos-package-release)\.yml)'; then
               echo 'required=true' >> "$GITHUB_OUTPUT"
             else
               echo 'required=false' >> "$GITHUB_OUTPUT"

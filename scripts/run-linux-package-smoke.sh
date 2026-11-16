@@ -307,6 +307,11 @@ assert_package_contract() {
 }
 
 assert_packaged_runtime() {
+  if [[ "${HVIR_NATIVE_PACKAGE_ACCEPTANCE:-}" == '1' ]]; then
+    native_target=x64
+    if [[ "$deb_arch" == arm64 ]]; then native_target=arm64; fi
+    node scripts/native-terminal/inspect-package.mts /opt/hvir/resources "linux-$native_target"
+  fi
   node scripts/inspect-packaged-runtime.mts \
     --archive /opt/hvir/resources/app.asar \
     --native-architecture "$binary_arch" \
@@ -319,6 +324,9 @@ run_installed_startup() {
   rendering_probe_args=()
   if [[ "$stage" == 'current' ]]; then
     harness_probe_args+=(--exercise-harness-dialogs)
+    if [[ "${HVIR_NATIVE_PACKAGE_ACCEPTANCE:-}" == '1' ]]; then
+      harness_probe_args+=(--exercise-native-terminal)
+    fi
   fi
   if [[ "$software_rendering" -eq 1 ]]; then
     rendering_probe_args+=(--disable-gpu)

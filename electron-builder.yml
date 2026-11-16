@@ -18,7 +18,16 @@ files:
   - node_modules/@hvir/extension-storage/package.json
   - node_modules/@hvir/extension-storage/LICENSE
   - node_modules/@hvir/extension-storage/build/Release/extension_storage.node
+  - '!node_modules/@hvir/native-terminal/**'
+  - node_modules/@hvir/native-terminal/engine.js
+  - node_modules/@hvir/native-terminal/resource.js
+  - node_modules/@hvir/native-terminal/package.json
+  - node_modules/@hvir/native-terminal/build/Release/native_terminal_engine.node
+  - node_modules/@hvir/native-terminal/build/Release/native_terminal_resource.node
 extraResources:
+  - from: out/native-terminal
+    to: native-terminal
+    filter: ['**/*']
   - from: out/agent-clients
     to: agent-clients
     filter: ['**/*']
@@ -45,9 +54,9 @@ asarUnpack:
 # packaging from also rebuilding ssh2's optional cpu-features acceleration module;
 # ssh2 has a supported JavaScript fallback when that optional module is absent.
 npmRebuild: false
-beforePack: build/native/prepare-agent-clients.cjs
+beforePack: build/native/prepare-runtime-payloads.cjs
 mac:
-  sign: build/native/sign-agent-clients.cjs
+  sign: build/native/sign-runtime-payloads.cjs
   icon: build/icon-macos.icns
   category: public.app-category.developer-tools
   target:
@@ -84,6 +93,8 @@ deb:
     - libasound2 | libasound2t64
     - libatspi2.0-0 | libatspi2.0-0t64
     - libgbm1
+    - libegl1
+    - fontconfig-config
     - libgtk-3-0 | libgtk-3-0t64
     - libnotify4
     - libnss3

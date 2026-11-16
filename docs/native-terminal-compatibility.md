@@ -67,8 +67,9 @@ Run existing `npm run verify`, applicable `smoke:macos`/`smoke`, terminal presen
 capacity, and installed-package checks at their actual owning altitude. M15 (#1122) runs the
 full Linux gauntlet, controlled capacity and installed candidate acceptance; macOS needs its
 supported smoke/capacity/package evidence. Adapt telemetry to observe behavior rather than
-an engine implementation name. Real Linux hardware, signed/relocated macOS and target-ABI
-packages remain independent gates. Local success cannot certify Linux or an untested driver.
+an engine implementation name. Real Linux hardware, unsigned installed/relocated macOS and
+target-ABI packages remain independent migration gates. Signing/notarization is reserved for
+formal releases and is not a migration gate. Local success cannot certify Linux or an untested driver.
 
 ## Existing limitations and adjacent work
 

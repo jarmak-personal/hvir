@@ -80,6 +80,11 @@
       "file": "patches/0010-fontconfig-named-family-fallback.patch.txt",
       "sha256": "9ddff225a7c728ed62b29e2f1dc125f05a0d91705d8e8019a11027dbb7769ad2",
       "purpose": "Preserve explicit Fontconfig families and aliases while providing a native monospace fallback before host default substitution; null-family and codepoint-only discovery stay unchanged."
+    },
+    {
+      "file": "patches/0011-linux-dependency-isolation.patch.txt",
+      "sha256": "31412fefe39f1fe5289f5552501eede8c44daa4cce44570f646988a9a3357638",
+      "purpose": "Localize Linux full-library bundled dependency definitions and internal calls through an anonymous export map while preserving Ghostty public/private exports and the existing embedding ABI; force LLVM/LLD so the map is enforced."
     }
   ],
   "targets": {

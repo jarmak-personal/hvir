@@ -101,6 +101,23 @@ describe('ProjectRegistry session flow', () => {
     expect(select).toHaveBeenCalledOnce()
   })
 
+  it('opens an explicit first-run root without waiting for the native folder picker', async () => {
+    const metadata = await mkdtemp(join(tmpdir(), 'hvir-registry-explicit-'))
+    cleanups.push(metadata)
+    const select = vi.fn(() => new Promise<HostPath | undefined>(() => undefined))
+    const registry = await createRegistry(
+      localPath(metadata),
+      { prompt: () => Promise.resolve(undefined) },
+      join(metadata, 'known-hosts.json'),
+      join(metadata, 'projects.json'),
+      () => undefined,
+      select,
+    )
+    expect(registry?.state().root).toEqual(localPath(await realpath(metadata)))
+    expect(select).not.toHaveBeenCalled()
+    await registry?.dispose()
+  })
+
   it('restores history without prompting and lets an explicit root override it', async () => {
     const metadata = await mkdtemp(join(tmpdir(), 'hvir-registry-precedence-'))
     const first = join(metadata, 'first')

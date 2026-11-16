@@ -1,6 +1,7 @@
 import { verifyExtensionSourceTrash } from './extension-source-trash'
 import { verifyExtensionOutputTransfer } from './extension-output-transfer'
 import { extensionSettingsControls } from './extension-settings-controls'
+import { requestExtensionGuest as publicRequest } from './extension-guest-request'
 import { verifySkillagerExtension } from './skillager-extension'
 import { verifySkillagerManagement } from './skillager-management'
 import { verifyExtensionPresentationUi } from './extension-presentation-ui'
@@ -506,20 +507,6 @@ export async function verifyExtensionScenario(
       }),
     )
   }
-}
-
-async function publicRequest(
-  guest: WebContents,
-  id: string,
-  capability: string,
-): Promise<{ ok?: boolean; error?: string; value?: unknown }> {
-  return guest.executeJavaScript(`new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Public extension request timed out')), 2000);
-    const unsubscribe = window.hvirExtension.onMessage(message => {
-      if (message.kind === 'result' && message.id === ${JSON.stringify(id)}) { clearTimeout(timer); unsubscribe(); resolve(message) }
-    });
-    window.hvirExtension.send({kind:'request',id:${JSON.stringify(id)},capability:${JSON.stringify(capability)}});
-  })`) as Promise<{ ok?: boolean; error?: string; value?: unknown }>
 }
 
 async function verifyPresentation(win: BrowserWindow, guest: WebContents): Promise<void> {

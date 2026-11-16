@@ -8,6 +8,8 @@ import {
   qualifyNativeFontCases,
 } from './artifacts.mts'
 import { execute } from './source.mts'
+import { inspectBinary, inspectLinuxDependencyIsolation } from './binary.mts'
+import { isDeepStrictEqual } from 'node:util'
 const [target, requested, development] = process.argv.slice(2)
 if (
   !target ||
@@ -25,6 +27,22 @@ const source = (
 ).stdout.trim()
 if (development !== '--development' && manifest.source !== source)
   throw new Error('native-artifact: selected source mismatch')
+await inspectBinary(join(directory, selected.library), selected.platform, selected.arch)
+if (selected.platform === 'linux') {
+  const isolation = await inspectLinuxDependencyIsolation(
+    join(directory, selected.library),
+  )
+  const recorded = manifest.build.dependencyIsolation as
+    Record<string, unknown> | undefined
+  const expected = { ...recorded }
+  delete expected.exportMapSha256
+  if (
+    !recorded ||
+    !/^[a-f0-9]{64}$/.test(String(recorded.exportMapSha256)) ||
+    !isDeepStrictEqual(isolation, expected)
+  )
+    throw new Error('native-binary: dependency isolation provenance mismatch')
+}
 const result = await execute(
   join(directory, 'loader-probe'),
   [join(directory, selected.library), pin.source.applicationVersion],

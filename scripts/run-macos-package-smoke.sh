@@ -89,6 +89,9 @@ remove_package_state() {
 cleanup() {
   status=$?
   trap - EXIT HUP INT TERM
+  if [[ -n "${relocated_application:-}" && -d "$relocated_application" ]]; then
+    sudo mv "$relocated_application" "$application"
+  fi
   if [[ "$installed_by_smoke" -eq 1 ]]; then remove_package_state; fi
   case "$invocation_root" in
   "$temporary_parent"/hvir-macos-package-smoke.*)
@@ -176,6 +179,10 @@ grep -Fq '<preinstall ' "$component_info"
 grep -Fq '<postinstall ' "$component_info"
 
 ditto 'dist/mac-arm64/hvir.app' "$old_root/hvir.app"
+if [[ "${HVIR_NATIVE_PACKAGE_ACCEPTANCE:-}" == '1' ]]; then
+  mv 'dist/mac-arm64/hvir.app' "$invocation_root/developer-app-unavailable"
+  test ! -e 'dist/mac-arm64/hvir.app'
+fi
 printf '%s\n' 'remove-during-package-upgrade' \
   >"$old_root/hvir.app/Contents/Resources/hvir-previous-only.txt"
 codesign \
@@ -273,6 +280,9 @@ assert_installer_output "$install_log" 0.0.0 installed
 test -f "$application/Contents/Resources/hvir-previous-only.txt"
 
 assert_packaged_runtime() {
+  if [[ "${1:-current}" == current && "${HVIR_NATIVE_PACKAGE_ACCEPTANCE:-}" == '1' ]]; then
+    node scripts/native-terminal/inspect-package.mts "$application/Contents/Resources" macos-arm64
+  fi
   node scripts/inspect-packaged-runtime.mts \
     --archive "$application/Contents/Resources/app.asar" \
     --native-architecture arm64 \
@@ -281,15 +291,20 @@ assert_packaged_runtime() {
 
 run_installed_startup() {
   local phase=$1
+  set --
+  if [[ "${HVIR_NATIVE_PACKAGE_ACCEPTANCE:-}" == '1' && "$phase" == current ]]; then
+    set -- --exercise-native-terminal
+  fi
   node scripts/installed-startup-probe.mts \
     --command "$command" \
     --expected-main "$executable" \
     --project-root "$project_root" \
     --runtime-root "$invocation_root/runtime-$phase" \
-    --path '/usr/bin:/bin:/usr/sbin:/sbin'
+    --path '/usr/bin:/bin:/usr/sbin:/sbin' \
+    "$@"
 }
 
-assert_packaged_runtime
+assert_packaged_runtime previous
 run_installed_startup previous
 
 cp "$command" "$previous_command"
@@ -458,6 +473,24 @@ fi
 assert_packaged_runtime
 HOME="$home_root" node scripts/agent-installed-reference-probe.mts --command "$agent_command"
 run_installed_startup current
+if [[ "${HVIR_NATIVE_PACKAGE_ACCEPTANCE:-}" == '1' ]]; then
+  relocated_application="$invocation_root/relocated-hvir.app"
+  sudo mv "$application" "$relocated_application"
+  if [[ "$package_mode" == 'signed' ]]; then
+    codesign --verify --deep --strict "$relocated_application"
+  fi
+  node scripts/native-terminal/inspect-package.mts "$relocated_application/Contents/Resources" macos-arm64
+  # The public command normalizes positional paths; this moved raw entry needs the existing explicit root.
+  HVIR_PROJECT_ROOT="$project_root" node scripts/installed-startup-probe.mts \
+    --command "$relocated_application/Contents/MacOS/hvir" \
+    --expected-main "$relocated_application/Contents/MacOS/hvir" \
+    --project-root "$project_root" \
+    --runtime-root "$invocation_root/runtime-relocated" \
+    --path '/usr/bin:/bin:/usr/sbin:/sbin' \
+    --exercise-native-terminal
+  sudo mv "$relocated_application" "$application"
+  relocated_application=''
+fi
 
 if HOME="$home_root" \
   PATH='/usr/bin:/bin:/usr/sbin:/sbin' \

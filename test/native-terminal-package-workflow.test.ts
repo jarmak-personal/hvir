@@ -1,0 +1,168 @@
+import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { dirname, resolve } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { parse } from 'yaml'
+
+const read = (name: string): string =>
+  readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), 'utf8')
+interface Job {
+  uses?: string
+  if?: string
+  needs?: string | string[]
+  with?: Record<string, unknown>
+  strategy?: { matrix: { include: Array<Record<string, unknown>> } }
+  steps?: Array<{
+    name?: string
+    run?: string
+    env?: Record<string, string>
+    with?: Record<string, unknown>
+  }>
+}
+const nativeSource = read('native-terminal')
+const packagesSource = read('native-terminal-packages')
+const signedSource = read('macos-package-release')
+const native = parse(nativeSource) as { jobs: Record<string, Job> }
+const packages = parse(packagesSource) as { jobs: Record<string, Job> }
+const signed = parse(signedSource) as { jobs: Record<string, Job> }
+
+describe('exact native candidate package workflow', () => {
+  it('routes registered PR/dispatch builds into candidate-only packaging after exact SDK and clients', () => {
+    expect(native.jobs.packages).toMatchObject({
+      needs: ['build', 'agent-clients'],
+      uses: './.github/workflows/native-terminal-packages.yml',
+      with: { source_sha: '${{ github.event.pull_request.head.sha || github.sha }}' },
+    })
+    expect(native.jobs['agent-clients']!.with?.source_sha).toBe(
+      '${{ github.event.pull_request.head.sha || github.sha }}',
+    )
+    expect(packagesSource).not.toMatch(
+      /gh release|softprops|action-gh-release|--no-sandbox|disable-setuid-sandbox/,
+    )
+  })
+  it('builds all targets natively and accepts the identical Linux22packages onUbuntu24/Debian13', () => {
+    expect(
+      packages.jobs.package!.strategy?.matrix.include.map((entry) => [
+        entry.target,
+        entry.os,
+      ]),
+    ).toEqual([
+      ['linux-x64', 'ubuntu-22.04'],
+      ['linux-arm64', 'ubuntu-22.04-arm'],
+      ['macos-arm64', 'macos-15'],
+    ])
+    for (const name of ['ubuntu-24', 'debian']) {
+      expect(packages.jobs[name]!.needs).toBe('package')
+      const commands =
+        packages.jobs[name]!.steps?.map((step) => step.run ?? '').join('\n') ?? ''
+      expect(commands).toContain('prepare-release-linux-package.mts')
+      expect(commands).toContain('smoke:linux:installed')
+      expect(commands).toContain('relocate-package-inputs.mts')
+      expect(commands).not.toContain('pack:linux')
+    }
+  })
+  it('restores approved compiled bindings, assembles production payload, moves developer inputs, then opts in installed probes', () => {
+    const steps = packages.jobs.package!.steps ?? []
+    const commands = steps.map((step) => step.run ?? '').join('\n')
+    expect(commands).toContain(
+      'native-terminal-bindings-$TARGET.tar.gz" -C packages/native-terminal/build Release',
+    )
+    expect(commands).toContain(
+      'package.mts "$TARGET" out/native-sdk/artifact out/native-terminal',
+    )
+    expect(commands).toContain('relocate-package-inputs.mts')
+    expect(steps.findIndex((step) => step.name?.startsWith('Move every'))).toBeLessThan(
+      steps.findIndex((step) => step.name?.startsWith('Accept installed Linux')),
+    )
+    expect(
+      steps.find((step) => step.name?.startsWith('Build candidate'))?.env
+        ?.HVIR_PACKAGE_NATIVE_TERMINAL,
+    ).toBe('1')
+    expect(
+      steps.find((step) => step.name?.startsWith('Accept installed Linux'))?.env
+        ?.HVIR_NATIVE_PACKAGE_ACCEPTANCE,
+    ).toBe('1')
+  })
+  it('keeps Debian atomic input relocation outside checkout on the workspace mount', () => {
+    const command = packages.jobs.debian!.steps?.find((step) =>
+      step.run?.includes('relocate-package-inputs.mts'),
+    )?.run
+    expect(command).toBeDefined()
+    const workspace = '/mounted workspace/hvir/hvir'
+    const result = spawnSync(
+      'sh',
+      ['-ec', `node() { printf '%s\\n' "$@"; }\n${command}`],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GITHUB_WORKSPACE: workspace,
+          RUNNER_TEMP: '/other-mount/temp',
+        },
+      },
+    )
+    expect(result.status, result.stderr).toBe(0)
+    const args = result.stdout.trim().split('\n')
+    expect(args).toHaveLength(2)
+    expect(args[0]).toBe('scripts/native-terminal/relocate-package-inputs.mts')
+    expect(resolve(args[1]!)).toBe(
+      resolve(dirname(workspace), 'native-package-inputs-unavailable'),
+    )
+  })
+  it('keeps candidate qualification unsigned and reserves the protected signing owner for releases', () => {
+    expect(nativeSource).not.toContain('sign_candidate')
+    expect(packagesSource).not.toMatch(/sign_candidate|signed-macos|macos-package-release/)
+    for (const job of [...Object.values(native.jobs), ...Object.values(packages.jobs)])
+      expect(job.uses).not.toBe('./.github/workflows/macos-package-release.yml')
+    expect(native.jobs.packages).not.toHaveProperty('secrets')
+    expect(parse(nativeSource)).toMatchObject({
+      concurrency: {
+        group: 'native-terminal-${{ github.event.pull_request.number || github.ref }}',
+        'cancel-in-progress': true,
+      },
+    })
+    expect(packages.jobs['signed-macos']).toBeUndefined()
+    expect(signedSource).not.toContain('candidate_only')
+    expect(signedSource).toContain('environment: native-release-signing')
+    expect(signedSource).toContain(
+      'git merge-base --is-ancestor "$SOURCE_SHA" "$branch_sha"',
+    )
+    expect(signedSource).toContain('npm run pack:mac:arm64:signed')
+    expect(signedSource).toContain('xcrun stapler validate')
+    expect(
+      signed.jobs['signed-package']!.steps?.some((step) =>
+        step.run?.includes('package.mts macos-arm64'),
+      ),
+    ).toBe(true)
+  })
+})
+
+const sourceGuard = signed.jobs['signed-package']!.steps?.find(
+  (step) => step.name === 'Require an exact protected merged release source',
+)?.run
+if (!sourceGuard) throw new Error('Exact signed-source intent guard missing')
+describe('formal release signed-source intent', () => {
+  it.each([
+    ['true', 'branch', 'a'.repeat(40), 0],
+    ['false', 'branch', 'a'.repeat(40), 1],
+    ['', 'branch', 'a'.repeat(40), 1],
+    ['true', 'tag', 'a'.repeat(40), 1],
+    ['true', 'branch', 'short', 1],
+    ['true', 'branch', 'g'.repeat(40), 1],
+  ])(
+    'merged=%s ref=%s source=%s yields %i',
+    (merged, ref, source, expected) => {
+      const result = spawnSync('bash', ['-se'], {
+        input: sourceGuard,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          ALLOW_MERGED_SOURCE: String(merged),
+          REF_TYPE: String(ref),
+          SOURCE_SHA: String(source),
+        },
+      })
+      expect(result.status, result.stderr || result.stdout).toBe(expected)
+    },
+  )
+})

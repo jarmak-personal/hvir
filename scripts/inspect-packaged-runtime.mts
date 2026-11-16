@@ -35,6 +35,19 @@ const APPROVED_RENAME_PACKAGE_ENTRIES = new Set([
 ])
 const EXTENSION_STORAGE_ROOT = '/node_modules/@hvir/extension-storage'
 const EXTENSION_STORAGE_NATIVE = `${EXTENSION_STORAGE_ROOT}/build/Release/extension_storage.node`
+const NATIVE_TERMINAL_ROOT = '/node_modules/@hvir/native-terminal'
+const APPROVED_NATIVE_TERMINAL_ENTRIES = new Set([
+  NATIVE_TERMINAL_ROOT,
+  `${NATIVE_TERMINAL_ROOT}/build`,
+  `${NATIVE_TERMINAL_ROOT}/build/Release`,
+  ...[
+    'package.json',
+    'engine.js',
+    'resource.js',
+    'build/Release/native_terminal_engine.node',
+    'build/Release/native_terminal_resource.node',
+  ].map((path) => `${NATIVE_TERMINAL_ROOT}/${path}`),
+])
 const REQUIRED_EXTENSION_STORAGE_ENTRIES = [
   `${EXTENSION_STORAGE_ROOT}/index.js`,
   `${EXTENSION_STORAGE_ROOT}/package.json`,
@@ -252,6 +265,15 @@ export function inspectPackagedRuntimeGraph(
       `Packaged no-replace helper retained unexpected build entry ${unexpectedRenameEntry}`,
     )
   }
+  const unexpectedNativeTerminalEntry = entries.find(
+    (entry) =>
+      entry.startsWith(`${NATIVE_TERMINAL_ROOT}/`) &&
+      !APPROVED_NATIVE_TERMINAL_ENTRIES.has(entry),
+  )
+  if (unexpectedNativeTerminalEntry)
+    throw new Error(
+      `Packaged native terminal retained unexpected build entry ${unexpectedNativeTerminalEntry}`,
+    )
 
   const smokeEntry = entries.find(
     (entry) =>

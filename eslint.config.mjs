@@ -610,6 +610,8 @@ export default tseslint.config(
       'src/main/project-host/local-agent-endpoint.ts',
       'src/agent-transport/endpoint-directory.ts',
       'src/agent-transport/reference-assets.ts',
+      // Application-owned installation bytes, never a project or caller path.
+      'src/main/terminal/native-terminal-package.ts',
     ],
     rules: {
       'no-restricted-imports': [
@@ -715,6 +717,9 @@ export default tseslint.config(
       'scripts/build-agent-client.mts',
       'scripts/node-pty/apply.mjs',
       'scripts/native-terminal/artifacts.mts',
+      'scripts/native-terminal/package.mts',
+      'scripts/native-terminal/package-artifacts.mts',
+      'scripts/native-terminal/relocate-package-inputs.mts',
       'scripts/native-terminal/build.mts',
       'scripts/native-terminal/bindings.mts',
       'scripts/native-terminal/resource-probe.mts',

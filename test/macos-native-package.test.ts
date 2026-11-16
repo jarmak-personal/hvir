@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
@@ -80,6 +81,76 @@ const signedWorkflow = parse(signedWorkflowSource) as {
 }
 
 describe('macOS native package contract', () => {
+  it.each([
+    {
+      mode: 'structural',
+      verifier: '7',
+      status: 0,
+      calls: ['move', 'manifest', 'startup', 'move'],
+    },
+    {
+      mode: 'signed',
+      verifier: '0',
+      status: 0,
+      calls: ['move', 'signature', 'manifest', 'startup', 'move'],
+    },
+    { mode: 'signed', verifier: '7', status: 7, calls: ['move', 'signature'] },
+  ])(
+    'keeps relocation mode $mode/$verifier truthful and preserves strict signed refusal',
+    ({ mode, verifier, status, calls }) => {
+      const begin = installedSmoke.indexOf(
+        '\nif [[ "${HVIR_NATIVE_PACKAGE_ACCEPTANCE:-}" == \'1\' ]]; then\n  relocated_application=',
+      )
+      const end = installedSmoke.indexOf('\nif HOME=', begin)
+      expect(begin).toBeGreaterThan(0)
+      expect(end).toBeGreaterThan(begin)
+      const result = spawnSync(
+        '/bin/bash',
+        [
+          '-eu',
+          '-c',
+          `
+      sudo() { test "$1" = mv; printf 'move\\n'; }
+      codesign() {
+        test "$*" = '--verify --deep --strict /owned/relocated-hvir.app'
+        printf 'signature\\n'
+        return "$VERIFY_RESULT"
+      }
+      node() {
+        case "$1" in
+          scripts/native-terminal/inspect-package.mts)
+            test -z "\${HVIR_PROJECT_ROOT:-}"
+            printf 'manifest\\n' ;;
+          scripts/installed-startup-probe.mts)
+            test "$HVIR_PROJECT_ROOT" = "$project_root"
+            printf 'startup\\n' ;;
+          *) return 91 ;;
+        esac
+      }
+      package_mode=$PACKAGE_MODE
+      invocation_root=/owned
+      application=/Applications/hvir.app
+      project_root=/owned/repository
+      unset HVIR_PROJECT_ROOT
+      ${installedSmoke.slice(begin, end)}
+      test -z "\${HVIR_PROJECT_ROOT:-}"
+    `,
+        ],
+        {
+          env: {
+            ...process.env,
+            HVIR_NATIVE_PACKAGE_ACCEPTANCE: '1',
+            PACKAGE_MODE: mode,
+            VERIFY_RESULT: verifier,
+          },
+          encoding: 'utf8',
+        },
+      )
+      expect(result.status).toBe(status)
+      expect(result.stderr).toBe('')
+      expect(result.stdout.trim().split('\n')).toEqual(calls)
+    },
+  )
   it('builds one non-relocatable Apple-silicon package with atomic bundle upgrades', () => {
     expect(builder.mac?.target).toEqual(['pkg'])
     expect(builder.mac?.icon).toBe('build/icon-macos.icns')
@@ -190,13 +261,11 @@ describe('macOS native package contract', () => {
     expect(installedStartupProbe).toContain("HVIR_SMOKE: '1'")
   })
 
-  it('keeps credentials out of CI and gates signing behind the protected merged source', () => {
+  it('keeps credentials out of CI and gates signing behind explicit protected source intent', () => {
     expect(ci.jobs['native-macos-package']).toBeUndefined()
     expect(ci.jobs['signed-macos-epic-acceptance']).toBeUndefined()
     expect(ciSource).not.toMatch(/MACOS_(APPLICATION|INSTALLER|NOTARY|TEAM)/)
-    expect(releaseSource).toContain(
-      'uses: ./.github/workflows/macos-package-release.yml',
-    )
+    expect(releaseSource).toContain('uses: ./.github/workflows/macos-package-release.yml')
     expect(releaseSource).toContain('source_sha: ${{ needs.prepare.outputs.sha }}')
     expect(releaseSource).toContain('allow_merged_source: true')
     expect(releaseSource).toContain('secrets: inherit')
@@ -206,6 +275,7 @@ describe('macOS native package contract', () => {
     expect(Object.keys(workflowCall.inputs)).toEqual([
       'source_sha',
       'allow_merged_source',
+      'native_terminal',
     ])
     expect(workflowCall.inputs).toMatchObject({
       source_sha: { required: true, type: 'string' },
@@ -214,6 +284,7 @@ describe('macOS native package contract', () => {
         default: false,
         type: 'boolean',
       },
+      native_terminal: { required: false, default: false, type: 'boolean' },
     })
     expect(Object.keys(workflowCall.secrets)).toEqual([
       'MACOS_APPLICATION_CERTIFICATE',
@@ -232,7 +303,8 @@ describe('macOS native package contract', () => {
     if (!signed) throw new Error('Missing signed-package release job')
     expect(signed.environment).toBe('native-release-signing')
     const sourceGuard = signed.steps.find(
-      (step) => step.name === 'Require an exact protected merged source',
+      (step) =>
+        step.name === 'Require an exact protected merged release source',
     )
     expect(sourceGuard?.env).toEqual({
       ALLOW_MERGED_SOURCE: '${{ inputs.allow_merged_source }}',
@@ -263,9 +335,7 @@ describe('macOS native package contract', () => {
     expect(signedWorkflowSource).toContain('MACOS_APPLICATION_CERTIFICATE')
     expect(signedWorkflowSource).toContain('MACOS_INSTALLER_CERTIFICATE')
     expect(signedWorkflowSource).toContain('MACOS_NOTARY_KEY')
-    expect(signedWorkflowSource).toContain(
-      'Require protected signing credentials',
-    )
+    expect(signedWorkflowSource).toContain('Require protected signing credentials')
     expect(signedWorkflowSource).toContain('xcrun stapler staple "$package"')
     const acceptanceIndex = signed.steps.findIndex(
       (step) => step.name === 'Install, update, launch, and remove signed package',
@@ -283,9 +353,7 @@ describe('macOS native package contract', () => {
       uses: 'actions/upload-artifact@v7',
       with: {
         name: 'release-macos-arm64',
-        path:
-          'dist/hvir-*-darwin-arm64.pkg\n' +
-          'dist/hvir-*-darwin-arm64.pkg.sha256\n',
+        path: 'dist/hvir-*-darwin-arm64.pkg\n' + 'dist/hvir-*-darwin-arm64.pkg.sha256\n',
         'if-no-files-found': 'error',
         'retention-days': 1,
       },

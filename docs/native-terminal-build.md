@@ -58,6 +58,23 @@ zlib, Oniguruma and Fontconfig's libxml2 dependency: `--system` enables Linux's 
 dependency lookup. These libraries come from the pinned dependency cache, as on macOS;
 ambient distribution development packages are not build inputs.
 
+The Linux full shared library also uses an anonymous ELF export map. Only `ghostty_*`
+and `hvir_ghostty_embed_abi` remain externally defined; bundled Fontconfig, HarfBuzz,
+FreeType, libpng, zlib, Oniguruma and libxml2 definitions bind within that library.
+LLVM/LLD is selected explicitly because Zig's self-hosted ELF linker may ignore the map.
+This is export localization of the private full renderer API, not a stable libghostty-vt
+symbol-version promise. Loader flags and sandbox policy stay unchanged.
+
+Build and matching-host checks inspect actual dynamic symbols and relocations, reject
+unexpected defined exports and preemptible bundled-dependency references, and record the
+map digest plus observed export/import inventory. The dependency list alone does not
+establish effective binding. Installed acceptance must also observe the utility's actual
+Fontconfig and HarfBuzz initialization calls under Electron (`21803` and `11.0.0` for
+these pinned inputs), normal font discovery and shaping. Host Fontconfig configuration
+and user fonts remain separate from library identity; controlled fixture configuration
+is never a production font default. Linux still requires the package-declared EGL dispatch
+runtime and a usable desktop driver; software package proof does not qualify real GPUs.
+
 Each manifest binds the hvir source commit, complete pin digest, target, upstream source digest,
 ordered patches, compiler/SDK identities, build options and output hashes. Dirty maintained build
 inputs are marked `development`; inspection rejects them unless `--development` is explicit.
@@ -70,7 +87,7 @@ for a trusted local build or an artifact from the exact trusted CI producer. Mat
 manifest's own hashes does not authenticate authorship; never run this on arbitrary downloaded
 bundles. Application source is statically forbidden from importing these contributor tools.
 Runtime integration must establish its trusted packaged artifact boundary before loading native
-code; M14 owns package signing and final-byte trust. Missing, corrupt, wrong-target,
+code; M14 owns unsigned package structure and final-byte trust. Missing, corrupt, wrong-target,
 wrong-ABI and wrong-version inputs fail before any terminal can be prepared. Later native-host
 integration must consume this prerequisite before reserving/spawning a PTY; these scripts do not
 enable or replace the application terminal path.
@@ -122,9 +139,12 @@ requires the real desktop path. No end user runs this compiler or downloads sour
 
 Artifact notices include Ghostty, embedded-font/vendor notices, Zig/LLVM runtime notices, and
 the full dependency-cache license/copyright files; build
-provenance remains immutable when later packaging signs outputs. Packaging must record signed
-final-byte integrity separately, following the existing agent-client convention. M14 owns final
-package contents, supported ABI/sandbox inspection, signing, relocation and installed acceptance.
+provenance remains immutable when formal-release packaging signs outputs. Formal releases record
+signed final-byte integrity separately, following the existing agent-client convention. M14 owns
+unsigned package contents, supported ABI/sandbox inspection, relocation and installed acceptance.
+Signing/notarization runs only for formal releases, never as a migration gate.
+The [candidate packaging contract](native-terminal-packaging.md) describes exact-source
+assembly, final-byte manifests, installed selection, rollback and formal-release signing.
 
 
 The private ABI also builds the [native facade](native-terminal-facade.md). Matching-target
