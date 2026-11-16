@@ -945,8 +945,35 @@ function assertGeometry(
     Math.round(b.canvasCssHeight * b.dpr) !== g.height ||
     g.columns !== Math.floor(g.contentWidth / g.cellWidth) ||
     g.rows !== Math.floor(g.contentHeight / g.cellHeight)
-  )
+  ) {
+    console.error(
+      'HVIR_NATIVE_APPEARANCE_GEOMETRY_FAILURE ' +
+        JSON.stringify({
+          geometry: {
+            serial: g.serial,
+            backingScale: g.backingScale,
+            width: g.width,
+            height: g.height,
+            columns: g.columns,
+            rows: g.rows,
+            contentWidth: g.contentWidth,
+            contentHeight: g.contentHeight,
+            cellWidth: g.cellWidth,
+            cellHeight: g.cellHeight,
+          },
+          bounds: {
+            dpr: b.dpr,
+            width: b.width,
+            height: b.height,
+            canvasWidth: b.canvasWidth,
+            canvasHeight: b.canvasHeight,
+            canvasCssWidth: b.canvasCssWidth,
+            canvasCssHeight: b.canvasCssHeight,
+          },
+        }),
+    )
     throw new Error('native-appearance-measured-geometry')
+  }
 }
 
 /** Bounded same-PTY fixture reports only named success/failure markers. */
