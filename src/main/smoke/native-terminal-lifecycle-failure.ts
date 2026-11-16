@@ -3,7 +3,11 @@ import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { verifyTerminalSplit } from './terminal-split'
-import type { NativeTerminalViewGrant } from '../../shared/native-terminal-presentation'
+import type {
+  NativeTerminalViewGrant,
+  NativeTerminalPresentationStatus,
+} from '../../shared/native-terminal-presentation'
+import { NativeTerminalAdmissionError } from '../../shared/native-terminal'
 import {
   observeNativeInputSend,
   type observeNativeTerminalUtilities,
@@ -70,27 +74,292 @@ export async function verifyNativeTerminalFailureLifetimes(
   // Fault only the immediate presentation-target edge. The real presenter,
   // native resize, IPC, isolated receiver, and browser canvas remain in use.
   const targetDescriptor = Object.getOwnPropertyDescriptor(native.targets, 'create')
-  const createTarget = native.targets.create.bind(native.targets)
+  const updateDescriptor = Object.getOwnPropertyDescriptor(native, 'update')
+  const demandDescriptor = Object.getOwnPropertyDescriptor(native, 'demand')
+  const createTarget = native.targets.create
+  // Public method references are invoked solely through .apply with the caller's this.
+  const update = Reflect.get<typeof native, 'update'>(native, 'update')
+  const demand = Reflect.get<typeof native, 'demand'>(native, 'demand')
+  const knownErrors = [
+    'native-view-foreign',
+    'native-session-foreign',
+    'native-view-stale',
+    'native-view-hidden',
+    'native-state-foreign',
+    'native-state-closed',
+    'native-attachment-stale',
+    'native-session-revoked',
+    'native-producer-revoked',
+    'native-host-lost',
+    'native-host-closed',
+    'native-command-bound',
+    'native-admission-bound',
+    'native-request-bound',
+    'native-request-timeout',
+    'native-operation-failed',
+    'cancelled',
+    'native-presentation-target-stale',
+    'native-presentation-view-stale',
+    'native-presentation-frame-stale',
+    'native-presentation-grant-stale',
+    'native-presentation-geometry-invalid',
+    'native-presentation-serial-bound',
+    'native-presentation-unavailable',
+    'native-presentation-closed',
+    'native-refit-revocation-failed',
+    'native-geometry-stale',
+    'native-geometry-failed',
+    'native-geometry-superseded',
+    'native-geometry-timeout',
+    'native-scale-unacknowledged',
+    'native-extent-invalid',
+    'native-status-invalid',
+    'native-visibility-invalid',
+    'native-mode-invalid',
+    'native-frame-bound',
+    'native-frame-stale',
+    'native-frame-invalid',
+    'native-frame-state-unavailable',
+    'native-pixel-bound',
+    'native-pixel-receiver-rejected',
+    'native-pixel-upload-bound',
+    'native-pixel-upload-timeout',
+    'native-pixel-upload-failed',
+    'native-import-target-stale',
+    'native-import-bound',
+    'native-import-released',
+    'native-import-presentation-invalid',
+    'native-gpu-import-unavailable',
+    'native-resource-kind',
+    'native-resource-ticket',
+    'native-resource-metadata',
+    'native-resource-format',
+    'native-resource-plane',
+    'native-input-unavailable',
+    'native-input-apply-timeout',
+    'native-input-capacity-invalid',
+    'native-view-unfocused',
+    'native-focus-stale',
+    'native-readonly-input-emitted',
+    'pty-native-output-closed',
+  ] as const
+  type Observation = {
+    operation: 'grant' | 'status' | 'update' | 'demand'
+    state: 'started' | 'fulfilled' | 'rejected' | 'returned' | 'threw'
+    viewId?: string
+    ownerId?: number
+    ownerGeneration?: number
+    visible?: boolean
+    result?: boolean
+    error?: (typeof knownErrors)[number] | 'admission' | 'other'
+    admission?: boolean
+    target?: number
+    frameCurrent?: boolean
+    issued?: boolean
+    refit?: boolean
+    attachment?: number
+    nativeEpoch?: string
+    geometrySerial?: number
+    mode?: NativeTerminalPresentationStatus['mode']
+    reason?: NativeTerminalPresentationStatus['reason']
+  }
+  const observations: (Observation & { sequence: number })[] = []
+  const demandSummary = { started: 0, fulfilled: 0, trueResults: 0, falseResults: 0 }
+  let observationTotal = 0,
+    truncated = false,
+    observationReadFailed = false
+  let observing = true,
+    startedBeforeReload = false,
+    targetCount = 0
+  function observe(value: Observation): void {
+    if (!observing) return
+    try {
+      observationTotal++
+      // Routine frame polling cannot evict a causal failure or status transition.
+      if (
+        value.operation === 'demand' &&
+        (value.state === 'started' || value.state === 'fulfilled')
+      ) {
+        if (value.state === 'started') demandSummary.started++
+        else {
+          demandSummary.fulfilled++
+          if (value.result === true) demandSummary.trueResults++
+          if (value.result === false) demandSummary.falseResults++
+        }
+        return
+      }
+      if (observations.length === 32) {
+        observations.shift()
+        truncated = true
+      }
+      observations.push({ ...value, sequence: observationTotal })
+    } catch {
+      observationReadFailed = true
+    }
+  }
+  function observeMain(
+    operation: 'update' | 'demand',
+    state: Observation['state'],
+    viewId: string,
+    owner: Parameters<typeof demand>[1],
+    layout?: { visible: boolean },
+    result?: void | boolean,
+    error?: unknown,
+  ): void {
+    try {
+      observe({
+        operation,
+        state,
+        viewId,
+        ownerId: owner.id,
+        ownerGeneration: owner.generation,
+        visible: layout?.visible,
+        ...(typeof result === 'boolean' ? { result } : {}),
+        ...(state === 'rejected'
+          ? {
+              error:
+                knownErrors.find(
+                  (code) => error instanceof Error && error.message === code,
+                ) ??
+                (error instanceof NativeTerminalAdmissionError ? 'admission' : 'other'),
+              admission: error instanceof NativeTerminalAdmissionError,
+            }
+          : {}),
+      })
+    } catch {
+      observationReadFailed = true
+    }
+  }
+  function observeCompletion(
+    result: Promise<void | boolean>,
+    operation: 'update' | 'demand',
+    viewId: string,
+    owner: Parameters<typeof demand>[1],
+    layout?: { visible: boolean },
+  ): void {
+    try {
+      const capturedOwner = { id: owner.id, generation: owner.generation }
+      const capturedLayout = layout && { visible: layout.visible }
+      // Side branches consume their own outcome; callers receive the original Promise.
+      void result.then(
+        (value) =>
+          observeMain(
+            operation,
+            'fulfilled',
+            viewId,
+            capturedOwner,
+            capturedLayout,
+            value,
+          ),
+        (error) =>
+          observeMain(
+            operation,
+            'rejected',
+            viewId,
+            capturedOwner,
+            capturedLayout,
+            undefined,
+            error,
+          ),
+      )
+    } catch {
+      observationReadFailed = true
+    }
+  }
   let rejectRefit = false
   let granted: NativeTerminalViewGrant | undefined
   const currentGrant = (): NativeTerminalViewGrant | undefined => granted
   let replacementGrants = 0
-  native.targets.create = (...args) => {
-    const target = createTarget(...args)
-    return {
-      ...target,
-      publishGrant(grant, refit) {
-        target.publishGrant(grant, refit)
-        granted = grant
-        if (grant) replacementGrants++
-        if (!grant && refit && rejectRefit) {
-          rejectRefit = false
-          throw new Error('native-lifecycle-injected-refit-refusal')
-        }
-      },
-    }
-  }
   try {
+    native.targets.create = function (...args) {
+      const target = createTarget.apply(this, args)
+      const ordinal = ++targetCount
+      let targetViewId: string | undefined
+      return {
+        ...target,
+        get ready() {
+          return target.ready
+        },
+        publishGrant(grant, refit) {
+          let state: 'returned' | 'threw' = 'threw'
+          try {
+            const result = target.publishGrant.call(this, grant, refit)
+            state = 'returned'
+            granted = grant
+            if (grant) replacementGrants++
+            if (!grant && refit && rejectRefit) {
+              rejectRefit = false
+              throw new Error('native-lifecycle-injected-refit-refusal')
+            }
+            return result
+          } finally {
+            try {
+              if (grant) targetViewId = grant.viewId
+              observe({
+                operation: 'grant',
+                state,
+                viewId: targetViewId,
+                target: ordinal,
+                frameCurrent: args[0] === win.webContents.mainFrame,
+                issued: !!grant,
+                refit: !!refit,
+                attachment: grant?.attachment ?? refit?.attachment,
+                nativeEpoch: grant?.nativeEpoch ?? refit?.nativeEpoch,
+                geometrySerial: grant?.geometrySerial,
+              })
+            } catch {
+              observationReadFailed = true
+            }
+          }
+        },
+        publishStatus(status) {
+          let state: 'returned' | 'threw' = 'threw'
+          try {
+            const result = target.publishStatus.call(this, status)
+            state = 'returned'
+            return result
+          } finally {
+            try {
+              targetViewId = status.viewId
+              observe({
+                operation: 'status',
+                state,
+                viewId: status.viewId,
+                target: ordinal,
+                frameCurrent: args[0] === win.webContents.mainFrame,
+                mode: status.mode,
+                reason: status.reason,
+              })
+            } catch {
+              observationReadFailed = true
+            }
+          }
+        },
+      }
+    }
+    native.update = function (...args) {
+      observeMain('update', 'started', args[0], args[1], args[2])
+      try {
+        const result = update.apply(this, args)
+        observeCompletion(result, 'update', args[0], args[1], args[2])
+        return result
+      } catch (error) {
+        observeMain('update', 'rejected', args[0], args[1], args[2], undefined, error)
+        throw error
+      }
+    }
+    native.demand = function (...args) {
+      observeMain('demand', 'started', args[0], args[1])
+      try {
+        const result = demand.apply(this, args)
+        observeCompletion(result, 'demand', args[0], args[1])
+        return result
+      } catch (error) {
+        observeMain('demand', 'rejected', args[0], args[1], undefined, undefined, error)
+        throw error
+      }
+    }
+    startedBeforeReload = true
     const loaded = new Promise<void>((resolve) =>
       win.webContents.once('did-finish-load', () => resolve()),
     )
@@ -146,12 +415,36 @@ export async function verifyNativeTerminalFailureLifetimes(
             ownerGeneration: state.session.ownerGeneration,
             retiring: state.retiring,
             unavailable: state.unavailable,
+            inputUnavailable: state.inputUnavailable,
+            inputClosed: state.inputClosed,
+            readonly: state.readonly,
           },
           presentation: {
             viewId: viewId ?? null,
             drawn: drawn
               ? { screen: drawn.screen, geometrySerial: drawn.geometrySerial }
               : null,
+            observations: {
+              startedBeforeReload,
+              total: observationTotal,
+              demandSummary: { ...demandSummary, scope: 'all-observed' },
+              truncated,
+              readFailed: observationReadFailed,
+              currentView: observations.filter(
+                (event) =>
+                  event.viewId === viewId &&
+                  event.frameCurrent !== false &&
+                  (event.ownerId === undefined ||
+                    (event.ownerId === current.id &&
+                      event.ownerGeneration === current.generation)),
+              ),
+              mainSendIsNotReceiverDelivery: true,
+              unboundRetained: observations.filter((event) => event.viewId === undefined)
+                .length,
+              otherViewRetained: observations.filter(
+                (event) => event.viewId !== undefined && event.viewId !== viewId,
+              ).length,
+            },
           },
           dom,
         }
@@ -450,8 +743,37 @@ export async function verifyNativeTerminalFailureLifetimes(
       hardwareQualified: false,
     }
   } finally {
-    if (targetDescriptor)
-      Object.defineProperty(native.targets, 'create', targetDescriptor)
-    else delete (native.targets as Partial<typeof native.targets>).create
+    observing = false
+    try {
+      if (targetDescriptor)
+        Object.defineProperty(native.targets, 'create', targetDescriptor)
+      else delete (native.targets as Partial<typeof native.targets>).create
+    } finally {
+      try {
+        if (updateDescriptor) Object.defineProperty(native, 'update', updateDescriptor)
+        else delete (native as Partial<typeof native>).update
+      } finally {
+        if (demandDescriptor) Object.defineProperty(native, 'demand', demandDescriptor)
+        else delete (native as Partial<typeof native>).demand
+      }
+    }
+    try {
+      console.log(
+        'HVIR_NATIVE_REPLACEMENT_OBSERVERS_RESTORED',
+        JSON.stringify({
+          create:
+            native.targets.create === createTarget &&
+            Object.hasOwn(native.targets, 'create') === !!targetDescriptor,
+          update:
+            native.update === update &&
+            Object.hasOwn(native, 'update') === !!updateDescriptor,
+          demand:
+            native.demand === demand &&
+            Object.hasOwn(native, 'demand') === !!demandDescriptor,
+        }),
+      )
+    } catch {
+      // A diagnostic receipt cannot replace the original qualification outcome.
+    }
   }
 }
