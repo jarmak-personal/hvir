@@ -308,8 +308,8 @@ export class NativeTerminalDomInput {
           }
           continue
         }
+        const geometryRevision = this.geometryRevision
         try {
-          const geometryRevision = this.geometryRevision
           let result: NativeTerminalInputCompletion
           if (next.operation.kind === 'clipboard') {
             this.port.clipboardPaste(next.operation.fallback)
@@ -366,7 +366,11 @@ export class NativeTerminalDomInput {
             }
           }
         } catch {
-          if (!this.disposed && next.revision === this.revision)
+          if (
+            !this.disposed &&
+            next.revision === this.revision &&
+            geometryRevision === this.geometryRevision
+          )
             this.port.failed('Native terminal input unavailable')
         }
       }

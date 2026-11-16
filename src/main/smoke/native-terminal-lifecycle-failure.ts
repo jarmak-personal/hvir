@@ -126,16 +126,24 @@ export async function verifyNativeTerminalFailureLifetimes(
     'fresh-canvas',
   )
   await verifyTerminalSplit(win)
-  await wait(() => ptys.list().length === 1, 'split-close')
+  const splitView: { id?: string } = {}
+  await wait(async () => {
+    if (ptys.list().length !== 1) return false
+    const id = await evaluate<string | null>(
+      `const panes=[...document.querySelectorAll('.terminal-deck:not([hidden]) .terminal-surface.visible.active .native-terminal-pane')].filter(pane=>pane.closest('[data-terminal-session]')?.getAttribute('data-terminal-session')===${JSON.stringify(managed.id)});if(panes.length!==1)return null;const pane=panes[0],input=pane.querySelector('textarea'),surface=pane.querySelector('[id^="native-terminal-"]');return pane.isConnected&&surface?.isConnected&&pane.getAttribute('aria-readonly')!=='true'&&input instanceof HTMLTextAreaElement&&!input.readOnly&&!input.disabled?surface.id.slice('native-terminal-'.length):null;`,
+    )
+    if (!id) return false
+    splitView.id = id
+    return true
+  }, 'split-close')
   if (
     ptys.get(managed.id)?.instanceId !== managed.instanceId ||
     native.sessions.get(managed.id)?.handle !== handle
   )
     throw new Error('native-lifecycle-split-replaced-seed')
 
-  const oldView = await evaluate<string>(
-    `return document.querySelector('.native-terminal-pane [id^="native-terminal-"]').id.slice('native-terminal-'.length);`,
-  )
+  const oldView = splitView.id
+  if (!oldView) throw new Error('native-lifecycle-split-current-input')
   // Fault only the immediate presentation-target edge. The real presenter,
   // native resize, IPC, isolated receiver, and browser canvas remain in use.
   const targetDescriptor = Object.getOwnPropertyDescriptor(native.targets, 'create')

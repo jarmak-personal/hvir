@@ -366,11 +366,109 @@ describe('native retained pane adapter', () => {
     expect(textarea.disabled).toBe(false)
     expect(textarea.readOnly).toBe(true)
     expect(f.element.textContent).toContain('Native input unavailable')
+    const refit = deferred<void>()
+    f.port.update.mockReturnValueOnce(refit.promise)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(0, 0, 800, 400),
+    )
+    await vi.waitFor(() =>
+      expect(f.port.update).toHaveBeenCalledWith(
+        'native-view',
+        expect.objectContaining({ width: 800, visible: true }),
+      ),
+    )
     f.key('KeyA', 'a')
+    refit.resolve()
+    await vi.waitFor(() => expect(f.port.demand.mock.calls.length).toBeGreaterThan(1))
+    expect(textarea.readOnly).toBe(true)
+    expect(f.element.getAttribute('aria-readonly')).toBe('true')
+    f.key('KeyB', 'b')
     expect(
       f.port.input.mock.calls.some(([request]) => request.input.kind === 'key'),
     ).toBe(false)
   })
+  it('does not latch a focus rejection from geometry withdrawn by a pending visible refit', async () => {
+    const frames = new Map<number, FrameRequestCallback>()
+    let next = 0
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++next, callback)
+      return next
+    })
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id))
+    const frame = () => {
+      const entry = frames.entries().next().value!
+      frames.delete(entry[0])
+      entry[1](0)
+    }
+    const f = fixture()
+    await f.pane.bind('session')
+    frame()
+    await vi.waitFor(() => expect(f.port.demand).toHaveBeenCalledOnce())
+    const focus = deferred<{ requestedMutation: number }>()
+    f.port.input.mockReturnValueOnce(focus.promise)
+    f.pane.focus()
+    const textarea = f.element.querySelector('textarea')!
+    expect(document.activeElement).toBe(textarea)
+    await vi.waitFor(() =>
+      expect(f.port.input).toHaveBeenCalledWith({
+        viewId: 'native-view',
+        input: { kind: 'focus', focused: true },
+      }),
+    )
+    const refit = deferred<void>()
+    f.port.update.mockReturnValueOnce(refit.promise)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(0, 0, 800, 400),
+    )
+    frame()
+    await vi.waitFor(() =>
+      expect(f.port.update).toHaveBeenCalledWith(
+        'native-view',
+        expect.objectContaining({ width: 800, visible: true }),
+      ),
+    )
+    const obsolete = new Error('native-presentation-unavailable')
+    focus.reject(obsolete)
+    await expect(focus.promise).rejects.toBe(obsolete)
+    await Promise.resolve()
+    expect(f.element.getAttribute('aria-readonly')).not.toBe('true')
+    expect(textarea.readOnly).toBe(false)
+    f.key('KeyB', 'b')
+    expect(
+      f.port.input.mock.calls.filter(([request]) => request.input.kind === 'key'),
+    ).toHaveLength(0)
+    refit.resolve()
+    await vi.waitFor(() =>
+      expect(
+        f.port.input.mock.calls.filter(([request]) => request.input.kind === 'key'),
+      ).toHaveLength(1),
+    )
+    expect(
+      f.port.input.mock.calls.filter(([request]) => request.input.kind === 'key')[0]![0]
+        .input,
+    ).toMatchObject({ text: 'b' })
+    expect(
+      f.port.input.mock.calls.filter(
+        ([request]) => request.input.kind === 'focus' && request.input.focused,
+      ),
+    ).toHaveLength(1)
+    expect(textarea.readOnly).toBe(false)
+  })
+
+  it('keeps a genuine focus failure in the current geometry fatal', async () => {
+    const f = fixture()
+    await f.ready()
+    f.port.input.mockRejectedValueOnce(new Error('native-presentation-unavailable'))
+    f.pane.focus()
+    await vi.waitFor(() => expect(f.element.getAttribute('aria-readonly')).toBe('true'))
+    expect(f.element.querySelector('textarea')!.readOnly).toBe(true)
+    expect(f.element.textContent).toContain('Native terminal input unavailable')
+    f.key('KeyB', 'b')
+    expect(
+      f.port.input.mock.calls.some(([request]) => request.input.kind === 'key'),
+    ).toBe(false)
+  })
+
   it('measures physical initial geometry and binds one retained view after launch', async () => {
     vi.spyOn(window, 'devicePixelRatio', 'get').mockReturnValue(2)
     const f = fixture()
