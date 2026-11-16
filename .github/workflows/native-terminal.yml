@@ -296,7 +296,119 @@ jobs:
             'samePtyOnDocumentReplacement', 'rejectedRefit', 'noReplacementGrantOnRefusal',
             'mainUnavailableCanResume', 'staleFailureIgnored', 'nativeHostLoss',
             'lostReadRejected', 'explicitClose']) assert.equal(failure[field], true);
-          assert.equal(failure.additionalLaunches, 3);
+          const replacement = failure.replacement;
+          assert(replacement && ['drawn', 'quarantined'].includes(replacement.outcome));
+          const expected = replacement.expected, observed = replacement.observed;
+          const positive = value => Number.isSafeInteger(value) && value > 0;
+          const named = value => typeof value === 'string' && value.length > 0;
+          for (const field of ['sessionId', 'instanceId', 'handle']) assert(named(expected[field]));
+          assert(named(expected.providerId));
+          assert(expected.profileId === null || named(expected.profileId));
+          assert(named(expected.workspaceRoot.hostId) && named(expected.workspaceRoot.path));
+          for (const field of ['pid', 'ownerId', 'previousOwnerGeneration']) assert(positive(expected[field]));
+          assert.equal(observed.owner.id, expected.ownerId);
+          assert(positive(observed.owner.generation) && observed.owner.generation > expected.previousOwnerGeneration);
+          assert.equal(observed.retained.id, expected.sessionId);
+          assert.equal(observed.retained.instanceId, expected.instanceId);
+          assert.equal(observed.retained.pid, expected.pid);
+          assert.equal(observed.native.handle, expected.handle);
+          assert.equal(observed.native.instanceId, expected.instanceId);
+          assert.deepEqual(observed.native.workspaceRoot, expected.workspaceRoot);
+          assert.deepEqual(observed.retained.workspaceRoot, expected.workspaceRoot);
+          assert.equal(observed.retained.providerId, expected.providerId);
+          assert.equal(observed.retained.profileId, expected.profileId);
+          for (const state of [observed.retained, observed.native]) {
+            assert.equal(state.ownerId, observed.owner.id);
+            assert.equal(state.ownerGeneration, observed.owner.generation);
+          }
+          for (const field of ['retiring', 'unavailable', 'inputUnavailable', 'inputClosed', 'readonly'])
+            assert.equal(observed.native[field], false);
+          const viewId = observed.presentation.viewId;
+          assert(named(viewId));
+          assert(Array.isArray(observed.dom.panes));
+          const panes = observed.dom.panes.filter(pane => pane.viewId === 'native-terminal-' + viewId && pane.sessionId === expected.sessionId);
+          assert.equal(panes.length, 1);
+          const pane = panes[0];
+          assert.equal(pane.connected, true);
+          assert.equal(pane.paneUnavailable, false);
+          assert.equal(pane.inputDisabled, false);
+          assert.equal(replacement.preShutdownReclamationQualified, false);
+          const lossFields = ['parserProgress', 'presentationRevoked', 'inputRevoked', 'unknownPhysicalReferencesRetained'];
+          if (replacement.outcome === 'drawn') {
+            const grant = observed.presentation.issuedGrant;
+            assert(grant);
+            assert.equal(grant.viewId, viewId);
+            assert.equal(grant.frameCurrent, true);
+            assert(positive(grant.target) && positive(grant.attachment) && positive(grant.geometrySerial));
+            assert(named(grant.nativeEpoch));
+            assert.equal(failure.additionalLaunches, 3);
+            assert.equal(pane.canvasPresent, true);
+            assert.equal(pane.surfaceUnavailable, false);
+            assert(observed.presentation.drawn && [0, 1].includes(observed.presentation.drawn.screen));
+            assert.equal(observed.presentation.drawn.geometrySerial, grant.geometrySerial);
+            for (const field of lossFields) assert.equal(replacement[field], null);
+            assert.equal(replacement.explicitRecovery, null);
+          } else {
+            const observations = observed.presentation.observations;
+            assert.equal(observations.startedBeforeReload, true);
+            assert.equal(observations.truncated, false);
+            assert.equal(observations.readFailed, false);
+            assert.equal(observations.mainSendIsNotReceiverDelivery, true);
+            assert(positive(observations.total));
+            const events = observations.currentView;
+            assert(Array.isArray(events) && events.length > 0 && events.length <= 32);
+            for (let index = 0; index < events.length; index++) {
+              const event = events[index];
+              assert.equal(event.viewId, viewId);
+              assert(positive(event.sequence) && event.sequence <= observations.total);
+              if (index) assert(event.sequence > events[index - 1].sequence);
+              if (event.operation === 'grant' || event.operation === 'status') {
+                assert.equal(event.state, 'returned');
+                assert.equal(event.frameCurrent, true);
+                assert(positive(event.target));
+              } else {
+                assert(['update', 'demand'].includes(event.operation));
+                assert.equal(event.ownerId, observed.owner.id);
+                assert.equal(event.ownerGeneration, observed.owner.generation);
+              }
+            }
+            assert(!events.some(event => ['update', 'demand'].includes(event.operation) && event.state === 'rejected'));
+            const grants = events.filter(event => event.operation === 'grant' && event.issued === true);
+            assert(grants.length > 0);
+            const grant = grants.at(-1);
+            assert(events.some(event => event.operation === 'update' && event.state === 'started' && event.visible === true && event.sequence < grant.sequence));
+            assert(positive(grant.attachment) && positive(grant.geometrySerial) && named(grant.nativeEpoch));
+            assert(events.filter(event => event.operation === 'grant' || event.operation === 'status').every(event => event.target === grant.target));
+            assert(events.some(event => event.operation === 'update' && event.state === 'fulfilled' && event.visible === true && event.sequence > grant.sequence));
+            assert.equal(failure.additionalLaunches, 4);
+            assert.equal(pane.canvasPresent, false);
+            assert.equal(pane.surfaceUnavailable, true);
+            assert.equal(observed.presentation.drawn, null);
+            const status = events.at(-1);
+            assert.equal(status.operation, 'status');
+            assert.equal(status.mode, 'unavailable');
+            assert.equal(status.reason, 'import-unavailable');
+            const update = events.find(event => event.operation === 'update' && event.state === 'fulfilled' && event.visible === true && event.sequence > grant.sequence);
+            assert(status.sequence > update.sequence);
+            assert(events.some(event => event.operation === 'grant' && event.issued === false && event.sequence > update.sequence && event.sequence < status.sequence));
+            for (const event of events.filter(event => event.operation === 'status' && event.mode === 'unavailable'))
+              assert.equal(event.reason, 'import-unavailable');
+            for (const field of lossFields) assert.equal(replacement[field], true);
+            const recovery = replacement.explicitRecovery;
+            assert(recovery);
+            for (const field of ['uiClose', 'uiNew', 'rootMatched', 'providerOwned']) assert.equal(recovery[field], true);
+            assert.equal(recovery.newActors, 1);
+            assert.equal(recovery.original.id, expected.sessionId);
+            assert.equal(recovery.original.instanceId, expected.instanceId);
+            assert.equal(recovery.original.pid, expected.pid);
+            for (const actor of [recovery.original, recovery.actor]) {
+              assert(named(actor.id) && named(actor.instanceId) && positive(actor.pid));
+              assert.equal(actor.providerId, expected.providerId);
+              assert.equal(actor.profileId, expected.profileId);
+              assert.deepEqual(actor.workspaceRoot, expected.workspaceRoot);
+            }
+            for (const field of ['id', 'instanceId', 'pid']) assert.notEqual(recovery.actor[field], recovery.original[field]);
+          }
           assert.equal(failure.explicitRecoveryDecision, true);
           assert.deepEqual(failure.pendingNativeInputLoss, {sent: true, rejected: true, observedEpoch: true});
           assert.equal(failure.silentRelaunches, 0);

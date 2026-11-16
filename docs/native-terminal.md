@@ -404,3 +404,20 @@ cannot be presented as controlled acceptance. A controlled workbench smoke still
 qualify M15's separate four-pair comparison protocol, capacity budgets or physical hardware.
 The focused M4 boundary/import and M5 presenter probes retain their explicit hosted 500 ms
 limits described in [the native host contract](native-terminal-host.md).
+
+Renderer document replacement has two qualified outcomes under
+[ADR-087](adr/ADR-087-indeterminate-native-presentation-quarantine.md). A healthy retained
+PTY/parser receives a current, drawn presentation. If a previously issued, exactly scoped
+grant instead becomes unavailable specifically through indeterminate import quarantine,
+the parser must continue processing authoritative output while presentation and input stay
+revoked. Generic unavailability, incomplete observations, wrong ownership, parser loss and
+other failure reasons do not qualify as this outcome.
+
+The quarantine path verifies retained readback, refused input, and ordinary explicit close
+before one separately identified, provider-owned new terminal performs the remaining fault
+checks. It never resets import credits or claims uncertain references were reclaimed before
+shutdown. Qualification records which outcome occurred and the explicit recovery actor;
+M15/M16 must retain the observed limitation and its frequency/all outcomes, then explicitly
+accept it or replace the physical-completion protocol before default cutover. A successful
+qualification run is not that cutover decision, universal renderer recovery, or a replay of
+lost terminal state.

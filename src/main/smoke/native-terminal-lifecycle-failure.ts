@@ -1,13 +1,19 @@
 import { app, type BrowserWindow } from 'electron'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
-import type { RendererResourceScopes } from '../renderer-resource-scopes'
+import type { RendererResourceScopes, RendererOwner } from '../renderer-resource-scopes'
 import { verifyTerminalSplit } from './terminal-split'
 import type {
   NativeTerminalViewGrant,
   NativeTerminalPresentationStatus,
 } from '../../shared/native-terminal-presentation'
 import { NativeTerminalAdmissionError } from '../../shared/native-terminal'
+import { hostPathEquals } from '../../shared/host-path'
+import {
+  qualifyNativeReplacement,
+  type NativeReplacementExpected,
+  type NativeReplacementSnapshot,
+} from './native-terminal-replacement-outcome'
 import {
   observeNativeInputSend,
   type observeNativeTerminalUtilities,
@@ -33,6 +39,54 @@ export async function verifyNativeTerminalFailureLifetimes(
     } while (Date.now() < deadline)
     throw new Error('native-lifecycle-failure-timeout:' + stage)
   }
+  function actorReceipt(actor: ManagedPty) {
+    return {
+      id: actor.id,
+      instanceId: actor.instanceId,
+      pid: actor.pid,
+      providerId: actor.providerId,
+      profileId: actor.profileId ?? null,
+      workspaceRoot: { ...actor.workspaceRoot },
+    }
+  }
+  async function launchShell(stage: string): Promise<ManagedPty> {
+    const before = new Set(ptys.list().map((actor) => actor.id))
+    await evaluate(
+      `const button=document.querySelector('button[aria-label="New terminal"]');if(!(button instanceof HTMLButtonElement)||button.disabled)throw new Error('native-lifecycle-shell-control');button.click();return true;`,
+    )
+    await wait(
+      () =>
+        evaluate(
+          `return [...document.querySelectorAll('.terminal-new-menu strong')].some(node=>node.textContent?.trim()==='Shell');`,
+        ),
+      stage + '-choice',
+    )
+    await evaluate(
+      `const choice=[...document.querySelectorAll('.terminal-new-menu button')].find(node=>node.querySelector('strong')?.textContent?.trim()==='Shell');if(!(choice instanceof HTMLButtonElement))throw new Error('native-lifecycle-shell-choice');choice.click();return true;`,
+    )
+    await wait(() => ptys.list().length === before.size + 1, stage + '-pty')
+    const launched = ptys.list().filter((actor) => !before.has(actor.id))
+    if (launched.length !== 1) throw new Error('native-lifecycle-shell-identity')
+    return launched[0]!
+  }
+  async function parserProgress(
+    actor: ManagedPty,
+    owner: RendererOwner,
+    marker: 'HVIR_LOSS_PARSER' | 'HVIR_QUARANTINE_PARSER',
+    stage: string,
+  ): Promise<void> {
+    const octal = [...(marker + '\n')]
+      .map((char) => '\\' + char.charCodeAt(0).toString(8).padStart(3, '0'))
+      .join('')
+    await ptys.writeConfirmed(actor.id, owner.id, `printf '${octal}'\r`, owner.generation)
+    await wait(
+      async () =>
+        new TextDecoder()
+          .decode(await native.readRetained(actor.id, owner))
+          .includes(marker),
+      stage,
+    )
+  }
   const oldState = native.sessions.get(seed.id)
   if (!oldState?.readonly || ptys.list().length !== 0)
     throw new Error('native-lifecycle-restart-not-readonly')
@@ -40,7 +94,7 @@ export async function verifyNativeTerminalFailureLifetimes(
     `const restart=document.querySelector('.terminal-surface.active .terminal-restart');if(!(restart instanceof HTMLButtonElement)||restart.textContent?.trim()!=='Restart')throw new Error('native-lifecycle-restart-control');restart.click();return true;`,
   )
   await wait(() => ptys.list().length === 1, 'explicit-restart')
-  const managed = ptys.list()[0]!
+  let managed = ptys.list()[0]!
   const restartedState = native.sessions.get(managed.id)
   if (
     managed.instanceId === seed.instanceId ||
@@ -54,8 +108,19 @@ export async function verifyNativeTerminalFailureLifetimes(
   )
     throw new Error('native-lifecycle-restart-identity')
   const initialOwner = { id: managed.ownerId, generation: managed.ownerGeneration }
-  const handle = native.sessions.get(managed.id)?.handle
+  let handle = native.sessions.get(managed.id)?.handle
   if (!handle) throw new Error('native-lifecycle-new-native-state')
+  const replacementExpected: NativeReplacementExpected = {
+    sessionId: managed.id,
+    instanceId: managed.instanceId,
+    pid: managed.pid,
+    handle,
+    ownerId: initialOwner.id,
+    previousOwnerGeneration: initialOwner.generation,
+    providerId: managed.providerId,
+    profileId: managed.profileId ?? null,
+    workspaceRoot: { ...managed.workspaceRoot },
+  }
   await wait(
     () => evaluate(`return !!document.querySelector('.native-terminal-pane canvas');`),
     'fresh-canvas',
@@ -268,6 +333,8 @@ export async function verifyNativeTerminalFailureLifetimes(
   }
   let rejectRefit = false
   let granted: NativeTerminalViewGrant | undefined
+  let grantedScope:
+    { target: number; frame: Parameters<typeof createTarget>[0] } | undefined
   const currentGrant = (): NativeTerminalViewGrant | undefined => granted
   let replacementGrants = 0
   try {
@@ -285,8 +352,15 @@ export async function verifyNativeTerminalFailureLifetimes(
           try {
             const result = target.publishGrant.call(this, grant, refit)
             state = 'returned'
-            granted = grant
-            if (grant) replacementGrants++
+            if (grant) {
+              targetViewId = grant.viewId
+              granted = grant
+              grantedScope = { target: ordinal, frame: args[0] }
+              replacementGrants++
+            } else if (granted?.viewId === targetViewId) {
+              granted = undefined
+              grantedScope = undefined
+            }
             if (!grant && refit && rejectRefit) {
               rejectRefit = false
               throw new Error('native-lifecycle-injected-refit-refusal')
@@ -375,7 +449,10 @@ export async function verifyNativeTerminalFailureLifetimes(
     const recoveryDecision = await evaluate<boolean>(
       `const dialog=document.querySelector('.terminal-recovery-dialog');if(!dialog)return false;const restore=[...dialog.querySelectorAll('button')].find(node=>node.textContent?.trim()==='Restore selected');if(!(restore instanceof HTMLButtonElement)||restore.disabled)throw new Error('native-lifecycle-recovery-control');restore.click();return true;`,
     )
-    let replacementObservation: unknown
+    const replacementResult: {
+      observed?: NativeReplacementSnapshot
+      outcome?: 'drawn' | 'quarantined'
+    } = {}
     try {
       await wait(async () => {
         const current = resources.currentOwner(initialOwner.id)
@@ -384,27 +461,30 @@ export async function verifyNativeTerminalFailureLifetimes(
           !resources.isCurrent(current)
         )
           return false
-        const dom = await evaluate<{
-          hasCanvas: boolean
-          panes: { viewId: string | null; sessionId: string | null }[]
-        }>(
-          `const panes=[...document.querySelectorAll('.native-terminal-pane')];const canvases=document.querySelectorAll('.native-terminal-pane canvas');const dialog=document.querySelector('.terminal-recovery-dialog');const restore=dialog&&[...dialog.querySelectorAll('button')].find(node=>node.textContent?.trim()==='Restore selected');return {hasCanvas:canvases.length>0,canvasCount:Math.min(canvases.length,8),panes:panes.slice(0,8).map(pane=>{const surface=pane.querySelector('[id^="native-terminal-"]');const input=pane.querySelector('textarea');return {viewId:surface?.id.slice(0,100)??null,sessionId:pane.closest('[data-terminal-session]')?.getAttribute('data-terminal-session')?.slice(0,100)??null,connected:pane.isConnected,paneUnavailable:pane.textContent?.includes('Native terminal unavailable')??false,surfaceUnavailable:surface?.querySelector('[role="status"]')?.textContent==='Terminal unavailable',inputDisabled:input instanceof HTMLTextAreaElement?input.disabled:null};}),dialogPresent:!!dialog,restorePresent:restore instanceof HTMLButtonElement,restoreDisabled:restore instanceof HTMLButtonElement?restore.disabled:null};`,
+        const frame = win.webContents.mainFrame
+        const dom = await evaluate<NonNullable<NativeReplacementSnapshot['dom']>>(
+          `const panes=[...document.querySelectorAll('.native-terminal-pane')];const canvases=document.querySelectorAll('.native-terminal-pane canvas');const dialog=document.querySelector('.terminal-recovery-dialog');const restore=dialog&&[...dialog.querySelectorAll('button')].find(node=>node.textContent?.trim()==='Restore selected');return {hasCanvas:canvases.length>0,canvasCount:Math.min(canvases.length,8),panes:panes.slice(0,8).map(pane=>{const surface=pane.querySelector('[id^="native-terminal-"]');const input=pane.querySelector('textarea');return {viewId:surface?.id.slice(0,100)??null,sessionId:pane.closest('[data-terminal-session]')?.getAttribute('data-terminal-session')?.slice(0,100)??null,connected:pane.isConnected,canvasPresent:!!surface?.querySelector('canvas'),paneUnavailable:pane.textContent?.includes('Native terminal unavailable')??false,surfaceUnavailable:surface?.querySelector('[role="status"]')?.textContent==='Terminal unavailable',inputDisabled:input instanceof HTMLTextAreaElement?input.disabled:null};}),dialogPresent:!!dialog,restorePresent:restore instanceof HTMLButtonElement,restoreDisabled:restore instanceof HTMLButtonElement?restore.disabled:null};`,
         )
-        const pane = dom.panes.find(
+        if (!resources.isCurrent(current) || frame !== win.webContents.mainFrame)
+          return false
+        const pane = dom.panes?.find(
           (pane) =>
             pane.sessionId === managed.id && pane.viewId?.startsWith('native-terminal-'),
         )
         const viewId = pane?.viewId?.slice('native-terminal-'.length)
-        const drawn = viewId && native.targets.drawn(viewId, win.webContents.mainFrame)
+        const drawn = viewId && native.targets.drawn(viewId, frame)
         const retained = ptys.get(managed.id)
         const state = native.sessions.get(managed.id)
-        replacementObservation = {
+        const replacementObservation: NativeReplacementSnapshot = {
           recoveryDecision,
           owner: { ...current },
           retained: retained && {
             id: retained.id,
             instanceId: retained.instanceId,
             pid: retained.pid,
+            providerId: retained.providerId,
+            profileId: retained.profileId ?? null,
+            workspaceRoot: { ...retained.workspaceRoot },
             ownerId: retained.ownerId,
             ownerGeneration: retained.ownerGeneration,
           },
@@ -413,6 +493,7 @@ export async function verifyNativeTerminalFailureLifetimes(
             instanceId: state.session.instanceId,
             ownerId: state.session.ownerId,
             ownerGeneration: state.session.ownerGeneration,
+            workspaceRoot: { ...state.session.workspaceRoot },
             retiring: state.retiring,
             unavailable: state.unavailable,
             inputUnavailable: state.inputUnavailable,
@@ -421,6 +502,17 @@ export async function verifyNativeTerminalFailureLifetimes(
           },
           presentation: {
             viewId: viewId ?? null,
+            issuedGrant:
+              granted && granted.viewId === viewId && grantedScope
+                ? {
+                    viewId: granted.viewId,
+                    target: grantedScope.target,
+                    frameCurrent: grantedScope.frame === frame,
+                    attachment: granted.attachment,
+                    nativeEpoch: granted.nativeEpoch,
+                    geometrySerial: granted.geometrySerial,
+                  }
+                : undefined,
             drawn: drawn
               ? { screen: drawn.screen, geometrySerial: drawn.geometrySerial }
               : null,
@@ -448,15 +540,24 @@ export async function verifyNativeTerminalFailureLifetimes(
           },
           dom,
         }
-        return dom.hasCanvas
+        replacementResult.observed = replacementObservation
+        replacementResult.outcome = qualifyNativeReplacement(
+          replacementExpected,
+          replacementObservation,
+        )
+        return replacementResult.outcome !== undefined
       }, 'replacement-document')
     } catch (error) {
       console.error(
         'HVIR_NATIVE_REPLACEMENT_FAILURE',
-        JSON.stringify(replacementObservation),
+        JSON.stringify(replacementResult.observed),
       )
       throw error
     }
+    const { observed: replacementObserved, outcome: replacementOutcome } =
+      replacementResult
+    if (!replacementObserved || !replacementOutcome)
+      throw new Error('native-lifecycle-replacement-unqualified')
     const owner = resources.currentOwner(initialOwner.id)
     const retained = ptys.get(managed.id),
       state = native.sessions.get(managed.id)
@@ -482,9 +583,110 @@ export async function verifyNativeTerminalFailureLifetimes(
     }
     if (!oldOwnerRejected) throw new Error('native-lifecycle-rollover-old-input')
 
-    const newView = await evaluate<string>(
-      `return document.querySelector('.native-terminal-pane [id^="native-terminal-"]').id.slice('native-terminal-'.length);`,
-    )
+    let newView = replacementObserved.presentation?.viewId
+    if (!newView) throw new Error('native-lifecycle-replacement-view')
+    let explicitRecovery: {
+      uiClose: true
+      uiNew: true
+      newActors: 1
+      original: ReturnType<typeof actorReceipt>
+      actor: ReturnType<typeof actorReceipt>
+      rootMatched: true
+      providerOwned: true
+    } | null = null
+    if (replacementOutcome === 'quarantined') {
+      await parserProgress(
+        managed,
+        owner,
+        'HVIR_QUARANTINE_PARSER',
+        'quarantine-parser-progress',
+      )
+      let inputRevoked = false
+      try {
+        await native.key(newView, owner, { key: 0, modifiers: 0, action: 1, text: 'x' })
+      } catch (error) {
+        if (error instanceof Error && error.message === 'native-presentation-unavailable')
+          inputRevoked = true
+        else throw error
+      }
+      if (
+        !inputRevoked ||
+        (await native.demand(newView, owner)) !== false ||
+        native.targets.drawn(newView, win.webContents.mainFrame)
+      )
+        throw new Error('native-lifecycle-quarantine-authority')
+      const original = actorReceipt(managed)
+      await evaluate(
+        `const close=document.querySelector('.terminal-list-row.active .terminal-close-button');if(!(close instanceof HTMLButtonElement))throw new Error('native-lifecycle-quarantine-close');close.click();return true;`,
+      )
+      await wait(
+        () => ptys.list().length === 0 && !native.sessions.get(original.id),
+        'quarantine-explicit-close',
+      )
+      await wait(
+        () =>
+          evaluate(
+            `return document.querySelectorAll('.native-terminal-pane canvas').length===0;`,
+          ),
+        'quarantine-close-canvas',
+      )
+      // The old immutable GPU references remain quarantined; explicit New shell
+      // uses the existing provider route and receives a different native state.
+      managed = await launchShell('quarantine-recovery')
+      const actor = actorReceipt(managed)
+      if (
+        actor.id === original.id ||
+        actor.instanceId === original.instanceId ||
+        actor.pid === original.pid ||
+        actor.providerId !== original.providerId ||
+        actor.profileId !== original.profileId ||
+        !hostPathEquals(actor.workspaceRoot, original.workspaceRoot)
+      )
+        throw new Error('native-lifecycle-quarantine-recovery-identity')
+      handle = native.sessions.get(managed.id)?.handle
+      if (!handle || handle === replacementExpected.handle)
+        throw new Error('native-lifecycle-quarantine-recovery-state')
+      const recoveryView: { id?: string } = {}
+      await wait(async () => {
+        const id = await evaluate<string | null>(
+          `const pane=document.querySelector('.terminal-surface.active .native-terminal-pane');if(pane?.closest('[data-terminal-session]')?.getAttribute('data-terminal-session')!==${JSON.stringify(managed.id)})return null;return pane.querySelector('[id^="native-terminal-"]')?.id.slice('native-terminal-'.length)??null;`,
+        )
+        const drawn = id && native.targets.drawn(id, win.webContents.mainFrame)
+        const grant = currentGrant()
+        if (
+          !id ||
+          !drawn ||
+          grant?.viewId !== id ||
+          drawn.geometrySerial !== grant.geometrySerial
+        )
+          return false
+        recoveryView.id = id
+        return true
+      }, 'quarantine-recovery-drawn')
+      if (!recoveryView.id) throw new Error('native-lifecycle-quarantine-recovery-view')
+      newView = recoveryView.id
+      explicitRecovery = {
+        uiClose: true,
+        uiNew: true,
+        newActors: 1,
+        original,
+        actor,
+        rootMatched: true,
+        providerOwned: true,
+      }
+    }
+    const replacement = {
+      outcome: replacementOutcome,
+      expected: replacementExpected,
+      observed: replacementObserved,
+      parserProgress: replacementOutcome === 'quarantined' ? true : null,
+      presentationRevoked: replacementOutcome === 'quarantined' ? true : null,
+      inputRevoked: replacementOutcome === 'quarantined' ? true : null,
+      unknownPhysicalReferencesRetained:
+        replacementOutcome === 'quarantined' ? true : null,
+      preShutdownReclamationQualified: false,
+      explicitRecovery,
+    }
     if (!granted || granted.viewId !== newView)
       throw new Error('native-lifecycle-replacement-grant')
     const beforeRejectedRefit = granted
@@ -547,21 +749,7 @@ export async function verifyNativeTerminalFailureLifetimes(
 
     // Context loss belongs to a separate disposable view so the original live
     // attachment can still exercise a physically pending native input afterward.
-    await evaluate(
-      `document.querySelector('button[aria-label="New terminal"]').click();return true;`,
-    )
-    await wait(
-      () =>
-        evaluate(
-          `return [...document.querySelectorAll('.terminal-new-menu strong')].some(node=>node.textContent?.trim()==='Shell');`,
-        ),
-      'gpu-new-choice',
-    )
-    await evaluate(
-      `const choice=[...document.querySelectorAll('.terminal-new-menu button')].find(node=>node.querySelector('strong')?.textContent?.trim()==='Shell');if(!(choice instanceof HTMLButtonElement))throw new Error('native-lifecycle-gpu-choice');choice.click();return true;`,
-    )
-    await wait(() => ptys.list().length === 2, 'gpu-new-pty')
-    const gpuPty = ptys.list().find((value) => value.id !== managed.id)!
+    const gpuPty = await launchShell('gpu-new')
     const gpuHandle = native.sessions.get(gpuPty.id)?.handle
     await wait(
       () =>
@@ -581,17 +769,10 @@ export async function verifyNativeTerminalFailureLifetimes(
           ),
         'context-loss-visible',
       )
-      await ptys.writeConfirmed(
-        gpuPty.id,
-        owner.id,
-        "printf '\\110\\126\\111\\122\\137\\114\\117\\123\\123\\137\\120\\101\\122\\123\\105\\122\\n'\r",
-        owner.generation,
-      )
-      await wait(
-        async () =>
-          new TextDecoder()
-            .decode(await native.readRetained(gpuPty.id, owner))
-            .includes('HVIR_LOSS_PARSER'),
+      await parserProgress(
+        gpuPty,
+        owner,
+        'HVIR_LOSS_PARSER',
         'context-loss-parser-progress',
       )
       if (
@@ -710,7 +891,8 @@ export async function verifyNativeTerminalFailureLifetimes(
       'closed-canvas',
     )
     return {
-      additionalLaunches: 3,
+      additionalLaunches: replacementOutcome === 'quarantined' ? 4 : 3,
+      replacement,
       explicitRestart: true,
       readonlyInstanceRetired: true,
       splitClosed: true,

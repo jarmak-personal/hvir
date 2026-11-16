@@ -82,6 +82,7 @@ function executeQualification(
     | 'ssh-input'
     | 'ssh-resource',
   timing?: TimingFixture,
+  replacement?: { outcome: 'drawn' | 'quarantined'; fault?: string },
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'hvir-native-workbench-report-'))
   try {
@@ -144,6 +145,63 @@ if(process.env.HVIR_TEST_BAD_LIFETIME==='authority')proof.nativeFailureLifetimes
 if(process.env.HVIR_TEST_BAD_LIFETIME==='resource')proof.nativeFailureLifetimes.final.canvases=1;
 if(process.env.HVIR_TEST_BAD_LIFETIME==='refit')proof.nativeFailureLifetimes.noReplacementGrantOnRefusal=false;
 if(process.env.HVIR_TEST_BAD_LIFETIME==='recovery')proof.nativeFailureLifetimes.silentRelaunches=1;
+const replacementOutcome=process.env.HVIR_TEST_REPLACEMENT_OUTCOME||'drawn';
+const expected={sessionId:'retained-session',instanceId:'retained-instance',pid:100,handle:'retained-handle',ownerId:1,previousOwnerGeneration:1,providerId:'fixture-shell-provider',profileId:null,workspaceRoot:{hostId:'local',path:'/fixture/root'}};
+const currentView=[
+ {operation:'update',state:'started',viewId:'current-view',ownerId:1,ownerGeneration:2,visible:true,sequence:9},
+ {operation:'grant',state:'returned',viewId:'current-view',target:1,frameCurrent:true,issued:true,refit:false,attachment:2,nativeEpoch:'native-epoch',geometrySerial:8,sequence:11},
+ {operation:'update',state:'fulfilled',viewId:'current-view',ownerId:1,ownerGeneration:2,visible:true,sequence:12},
+];
+if(replacementOutcome==='quarantined')currentView.push(
+ {operation:'grant',state:'returned',viewId:'current-view',target:1,frameCurrent:true,issued:false,refit:false,sequence:75},
+ {operation:'status',state:'returned',viewId:'current-view',target:1,frameCurrent:true,mode:'unavailable',reason:'import-unavailable',sequence:76});
+const observed={owner:{id:1,generation:2},retained:{id:expected.sessionId,instanceId:expected.instanceId,pid:100,ownerId:1,ownerGeneration:2,providerId:expected.providerId,profileId:expected.profileId,workspaceRoot:expected.workspaceRoot},native:{handle:expected.handle,workspaceRoot:expected.workspaceRoot,instanceId:expected.instanceId,ownerId:1,ownerGeneration:2,retiring:false,unavailable:false,inputUnavailable:false,inputClosed:false,readonly:false},presentation:{viewId:'current-view',issuedGrant:{viewId:'current-view',target:1,frameCurrent:true,attachment:2,nativeEpoch:'native-epoch',geometrySerial:8},drawn:replacementOutcome==='drawn'?{screen:0,geometrySerial:8}:null,observations:{startedBeforeReload:true,total:77,truncated:false,readFailed:false,currentView,mainSendIsNotReceiverDelivery:true}},dom:{panes:[{viewId:'native-terminal-current-view',sessionId:expected.sessionId,connected:true,paneUnavailable:false,surfaceUnavailable:replacementOutcome==='quarantined',inputDisabled:false,canvasPresent:replacementOutcome==='drawn'}]}};
+const recovery={uiClose:true,uiNew:true,newActors:1,original:{id:expected.sessionId,instanceId:expected.instanceId,pid:100,providerId:expected.providerId,profileId:expected.profileId,workspaceRoot:expected.workspaceRoot},actor:{id:'recovery-session',instanceId:'recovery-instance',pid:101,providerId:expected.providerId,profileId:expected.profileId,workspaceRoot:expected.workspaceRoot},rootMatched:true,providerOwned:true};
+const replacement=proof.nativeFailureLifetimes.replacement={outcome:replacementOutcome,expected,observed,parserProgress:replacementOutcome==='quarantined'?true:null,presentationRevoked:replacementOutcome==='quarantined'?true:null,inputRevoked:replacementOutcome==='quarantined'?true:null,unknownPhysicalReferencesRetained:replacementOutcome==='quarantined'?true:null,preShutdownReclamationQualified:false,explicitRecovery:replacementOutcome==='quarantined'?recovery:null};
+proof.nativeFailureLifetimes.additionalLaunches=replacementOutcome==='quarantined'?4:3;
+const replacementFault=process.env.HVIR_TEST_REPLACEMENT_FAULT;
+if(replacementFault==='mixed-update-rejection'||replacementFault==='mixed-demand-rejection')currentView.splice(3,0,{operation:replacementFault==='mixed-update-rejection'?'update':'demand',state:'rejected',viewId:'current-view',ownerId:1,ownerGeneration:2,visible:true,sequence:13});
+if(replacementFault==='mixed-prior-loss')currentView.unshift({operation:'status',state:'returned',viewId:'current-view',target:1,frameCurrent:true,mode:'unavailable',reason:'renderer-lost',sequence:8});
+if(replacementFault==='wrong-reason')currentView.at(-1).reason='native-lost';
+if(replacementFault==='wrong-view')currentView[1].viewId='old-view';
+if(replacementFault==='wrong-frame')currentView[1].frameCurrent=false;
+if(replacementFault==='wrong-target')currentView.at(-1).target=2;
+if(replacementFault==='bad-order')currentView.at(-1).sequence=10;
+if(replacementFault==='missing-epoch')delete currentView[1].nativeEpoch;
+if(replacementFault==='missing-start')currentView.shift();
+if(replacementFault==='missing-withdrawal')currentView.splice(-2,1);
+if(replacementFault==='drawn-epoch')delete observed.presentation.issuedGrant.nativeEpoch;
+if(replacementFault==='drawn-frame')observed.presentation.issuedGrant.frameCurrent=false;
+if(replacementFault==='drawn-view')observed.presentation.issuedGrant.viewId='old-view';
+if(replacementFault==='ring-evicted'){observed.presentation.observations.truncated=true;observed.presentation.observations.currentView=[];}
+if(replacementFault==='truncated')observed.presentation.observations.truncated=true;
+if(replacementFault==='unstarted')observed.presentation.observations.startedBeforeReload=false;
+if(replacementFault==='read-failed')observed.presentation.observations.readFailed=true;
+if(replacementFault==='owner')observed.native.ownerGeneration=1;
+if(replacementFault==='identity')observed.native.handle='other-handle';
+if(replacementFault==='producer-loss')observed.native.unavailable=true;
+if(replacementFault==='retiring')observed.native.retiring=true;
+if(replacementFault==='input-unavailable')observed.native.inputUnavailable=true;
+if(replacementFault==='input-closed')observed.native.inputClosed=true;
+if(replacementFault==='readonly')observed.native.readonly=true;
+if(replacementFault==='missing-parser')delete replacement.parserProgress;
+if(replacementFault==='missing-input')delete replacement.inputRevoked;
+if(replacementFault==='free-claim')replacement.preShutdownReclamationQualified=true;
+if(replacementFault==='refs-reclaimed')replacement.unknownPhysicalReferencesRetained=false;
+if(replacementFault==='implicit-actor')replacement.explicitRecovery=null;
+if(replacementFault==='duplicate-actor')recovery.newActors=2;
+if(replacementFault==='same-actor')recovery.actor.instanceId=recovery.original.instanceId;
+if(replacementFault==='provider')recovery.actor.providerId='other-provider';
+if(replacementFault==='root')recovery.rootMatched=false;
+if(replacementFault==='wrong-root')recovery.actor.workspaceRoot={hostId:'different-host',path:expected.workspaceRoot.path};
+if(replacementFault==='profile')recovery.actor.profileId='different-profile';
+if(replacementFault==='native-root')observed.native.workspaceRoot={hostId:'different-host',path:expected.workspaceRoot.path};
+if(replacementFault==='skipped-case')delete proof.nativeFailureLifetimes.rejectedRefit;
+if(replacementFault==='global-canvas')observed.dom.panes[0].canvasPresent=false;
+if(replacementFault==='drawn-serial')observed.presentation.drawn.geometrySerial=7;
+if(replacementFault==='pane-loss')observed.dom.panes[0].paneUnavailable=true;
+if(replacementFault==='missing-producer-flag')delete observed.native.retiring;
+if(replacementFault==='launches')proof.nativeFailureLifetimes.additionalLaunches=3;
 proof.largePaste={cases:['unicode','lnm'].map(name=>({name,paint:{frames:4,maxGapMs:20}}))};
 const timingMode=process.env.HVIR_CAPACITY_PERFORMANCE_GATE==='controlled'?'controlled':'evidence';
 const crossing=process.env.HVIR_TEST_TIMING_CROSSING;
@@ -222,6 +280,8 @@ exec "$HVIR_TEST_NODE" "$@"
         HVIR_CAPACITY_PERFORMANCE_GATE: timing?.mode === 'controlled' ? 'controlled' : '',
         HVIR_TEST_TIMING_CROSSING: timing?.crossing ?? '',
         HVIR_TEST_TIMING_FAULT: timing?.fault ?? '',
+        HVIR_TEST_REPLACEMENT_OUTCOME: replacement?.outcome ?? '',
+        HVIR_TEST_REPLACEMENT_FAULT: replacement?.fault ?? '',
       },
     })
     const proof = readFileSync(
@@ -235,6 +295,85 @@ exec "$HVIR_TEST_NODE" "$@"
 }
 
 describe('native workbench machine-readable workflow stream', () => {
+  const replacementResult = (outcome: 'drawn' | 'quarantined', fault?: string) =>
+    executeQualification(
+      qualification,
+      'macOS',
+      false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { outcome, fault },
+    )
+  it.each(['drawn', 'quarantined'] as const)(
+    'accepts the qualified %s replacement outcome',
+    (outcome) => {
+      expect(replacementResult(outcome).status).toBe(0)
+    },
+  )
+  it.each([
+    'wrong-reason',
+    'mixed-update-rejection',
+    'mixed-demand-rejection',
+    'mixed-prior-loss',
+    'wrong-view',
+    'wrong-frame',
+    'wrong-target',
+    'bad-order',
+    'missing-epoch',
+    'missing-start',
+    'missing-withdrawal',
+    'truncated',
+    'unstarted',
+    'read-failed',
+    'owner',
+    'identity',
+    'producer-loss',
+    'retiring',
+    'input-unavailable',
+    'input-closed',
+    'readonly',
+    'missing-parser',
+    'missing-input',
+    'free-claim',
+    'refs-reclaimed',
+    'implicit-actor',
+    'duplicate-actor',
+    'same-actor',
+    'provider',
+    'root',
+    'wrong-root',
+    'profile',
+    'native-root',
+    'skipped-case',
+    'pane-loss',
+    'missing-producer-flag',
+    'launches',
+  ])('rejects unsafe quarantine evidence: %s', (fault) => {
+    const result = replacementResult('quarantined', fault)
+    expect(result.error).toBeUndefined()
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('AssertionError')
+  })
+  it.each([
+    'global-canvas',
+    'drawn-epoch',
+    'drawn-frame',
+    'drawn-view',
+    'drawn-serial',
+    'pane-loss',
+    'missing-producer-flag',
+    'free-claim',
+    'skipped-case',
+  ])('rejects unsafe drawn evidence: %s', (fault) => {
+    expect(replacementResult('drawn', fault).status).not.toBe(0)
+  })
+  it('accepts current drawn evidence after healthy issuance history is evicted', () => {
+    expect(replacementResult('drawn', 'ring-evicted').status).toBe(0)
+  })
   const timingResult = (timing: TimingFixture) =>
     executeQualification(
       qualification,
