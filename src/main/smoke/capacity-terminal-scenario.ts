@@ -126,6 +126,7 @@ export async function runCapacityTerminalComparisonScenario(
       platform: process.platform,
       architecture: process.arch,
       buildChannel: 'smoke',
+      requestedRefreshHz: refreshHz,
       launchFlags: process.argv.filter(
         (value) =>
           value === '--no-sandbox' ||
@@ -142,7 +143,7 @@ export async function runCapacityTerminalComparisonScenario(
         paneWidth: 820,
         window: [1283, 800],
         fontSize: layout.fontSize,
-        refreshHz,
+        refreshHz: observed.refreshHz,
         backingScale: layout.scale,
         presentation: parent.presentation,
         ozone: parent.ozone,
@@ -163,7 +164,7 @@ export async function runCapacityTerminalComparisonScenario(
         temporaryReadinessProbes: 10,
       }),
       observationMethod: 'BrowserWindow.capturePage:synthetic-terminal-tag' as const,
-      refreshHz,
+      refreshHz: observed.refreshHz,
       rows: layout.rows,
       columns: layout.columns,
       fontSize: layout.fontSize,
