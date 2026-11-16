@@ -115,9 +115,18 @@ export async function verifyNativeTerminalFailureLifetimes(
           !resources.isCurrent(current)
         )
           return false
-        const dom = await evaluate<{ hasCanvas: boolean }>(
-          `const panes=[...document.querySelectorAll('.native-terminal-pane')];const dialog=document.querySelector('.terminal-recovery-dialog');const restore=dialog&&[...dialog.querySelectorAll('button')].find(node=>node.textContent?.trim()==='Restore selected');return {hasCanvas:!!document.querySelector('.native-terminal-pane canvas'),panes:panes.slice(0,8).map(pane=>({viewId:pane.querySelector('[id^="native-terminal-"]')?.id.slice(0,100)??null,sessionId:pane.closest('[data-terminal-session]')?.getAttribute('data-terminal-session')?.slice(0,100)??null,connected:pane.isConnected,unavailable:pane.textContent?.includes('Native terminal unavailable')??false})),dialogPresent:!!dialog,restorePresent:restore instanceof HTMLButtonElement,restoreDisabled:restore instanceof HTMLButtonElement?restore.disabled:null};`,
+        const dom = await evaluate<{
+          hasCanvas: boolean
+          panes: { viewId: string | null; sessionId: string | null }[]
+        }>(
+          `const panes=[...document.querySelectorAll('.native-terminal-pane')];const canvases=document.querySelectorAll('.native-terminal-pane canvas');const dialog=document.querySelector('.terminal-recovery-dialog');const restore=dialog&&[...dialog.querySelectorAll('button')].find(node=>node.textContent?.trim()==='Restore selected');return {hasCanvas:canvases.length>0,canvasCount:Math.min(canvases.length,8),panes:panes.slice(0,8).map(pane=>{const surface=pane.querySelector('[id^="native-terminal-"]');const input=pane.querySelector('textarea');return {viewId:surface?.id.slice(0,100)??null,sessionId:pane.closest('[data-terminal-session]')?.getAttribute('data-terminal-session')?.slice(0,100)??null,connected:pane.isConnected,paneUnavailable:pane.textContent?.includes('Native terminal unavailable')??false,surfaceUnavailable:surface?.querySelector('[role="status"]')?.textContent==='Terminal unavailable',inputDisabled:input instanceof HTMLTextAreaElement?input.disabled:null};}),dialogPresent:!!dialog,restorePresent:restore instanceof HTMLButtonElement,restoreDisabled:restore instanceof HTMLButtonElement?restore.disabled:null};`,
         )
+        const pane = dom.panes.find(
+          (pane) =>
+            pane.sessionId === managed.id && pane.viewId?.startsWith('native-terminal-'),
+        )
+        const viewId = pane?.viewId?.slice('native-terminal-'.length)
+        const drawn = viewId && native.targets.drawn(viewId, win.webContents.mainFrame)
         const retained = ptys.get(managed.id)
         const state = native.sessions.get(managed.id)
         replacementObservation = {
@@ -137,6 +146,12 @@ export async function verifyNativeTerminalFailureLifetimes(
             ownerGeneration: state.session.ownerGeneration,
             retiring: state.retiring,
             unavailable: state.unavailable,
+          },
+          presentation: {
+            viewId: viewId ?? null,
+            drawn: drawn
+              ? { screen: drawn.screen, geometrySerial: drawn.geometrySerial }
+              : null,
           },
           dom,
         }

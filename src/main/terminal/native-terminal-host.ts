@@ -200,6 +200,11 @@ export class NativeTerminalHost {
   ): string {
     return this.requireAttachment(handle, ownerId, generation, attachment).epoch
   }
+  geometryIssuanceFloor(
+    ...attachment: Parameters<NativeTerminalHost['nativeEpoch']>
+  ): number {
+    return this.requireAttachment(...attachment).requestedGeometry
+  }
   async setVisible(
     handle: string,
     ownerId: number,

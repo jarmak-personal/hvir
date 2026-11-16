@@ -90,6 +90,7 @@ type PresentationHost = Pick<
   | 'detach'
   | 'inspect'
   | 'nativeEpoch'
+  | 'geometryIssuanceFloor'
   | 'resize'
   | 'appearance'
   | 'setVisible'
@@ -174,7 +175,15 @@ export class NativeTerminalPresenter {
           session.ownerGeneration,
         )
         this.assertCurrent(view)
-        view.serial = status.geometry.serial
+        view.serial = Math.max(
+          status.geometry.serial,
+          this.host.geometryIssuanceFloor(
+            handle,
+            session.ownerId,
+            session.ownerGeneration,
+            attachment,
+          ),
+        )
         if (this.linuxMode && !view.failed) {
           await this.host.presentationMode(
             handle,
