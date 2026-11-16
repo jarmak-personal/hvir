@@ -27,6 +27,9 @@ const library = process.argv.find((a) => a.startsWith('--library='))?.slice(10)
 if (!library || !['darwin', 'linux'].includes(process.platform))
   throw new Error('presenter-probe requires macOS/Linux and --library')
 const compatibility = process.argv.includes('--compatibility')
+const largeViewport = process.argv.includes('--large-viewport')
+if (largeViewport && !compatibility)
+  throw new Error('large viewport diagnostic requires explicit compatibility')
 if (compatibility && process.platform === 'darwin') app.disableHardwareAcceleration()
 const linuxOptions =
   process.platform === 'linux'
@@ -392,6 +395,186 @@ void app
           .includes('parser-after-pixel-bound'),
       )
     }
+    let largeViewportDiagnostic: Record<string, unknown> | undefined
+    if (largeViewport) {
+      assert(pixelPresentation, 'large viewport diagnostic requires real pixel mode')
+      const cases: Record<string, unknown>[] = []
+      const identity = { actor: first.sessionId, instance: first.instanceId, view }
+      const code = (error: unknown): string =>
+        error instanceof Error && /^native-[a-z0-9:-]{1,96}$/.test(error.message)
+          ? error.message
+          : 'operation-failed'
+      const facts = async (record: Record<string, unknown> = {}) => {
+        const state = await host!.inspect(firstHandle, 1, 1)
+        const snapshot = {
+          geometry: state.geometry,
+          frameCopies: state.frameCopies,
+          failure: state.failure,
+          rendererHealth: state.rendererHealth,
+          ioAppliedMutation: state.ioAppliedMutation,
+          nativePixelFrames: null as number | null,
+        }
+        Object.assign(record, snapshot)
+        const renderer = await host!.rendererInfo(firstHandle, first.instanceId)
+        snapshot.nativePixelFrames = renderer.pixelFrames
+        Object.assign(record, snapshot)
+        return snapshot
+      }
+      const statuses = async () =>
+        (await contents.executeJavaScript(
+          `window.nativeStatuses.filter(s=>s.viewId===${JSON.stringify(view)}).slice(-4).map(s=>({mode:s.mode,reason:s.reason??null}))`,
+        )) as readonly { mode: string; reason: string | null }[]
+      const small = { width: 320, height: 192, backingScale: 1 }
+      const recover = async (hideReveal: boolean, record: Record<string, unknown>) => {
+        record.stage = hideReveal ? 'hide-update' : 'shrink-update'
+        if (hideReveal) await presenter.update(view, { ...small, visible: false })
+        record.stage = 'visible-update'
+        await presenter.update(view, { ...small, visible: true })
+        record.stage = 'paint'
+        await paint(firstHandle, first, 41)
+        record.stage = 'demand'
+        const deadline = performance.now() + 3000
+        let delivered = false,
+          error: string | undefined
+        while (!delivered && performance.now() < deadline) {
+          try {
+            delivered = await presenter.demand(view)
+          } catch (reason) {
+            error = code(reason)
+            break
+          }
+          if (!delivered) await new Promise((resolve) => setTimeout(resolve, 16))
+        }
+        record.stage = 'compositor-observation'
+        const pixels = delivered ? await capture() : undefined
+        const matchingPixels = !!pixels && pixels.redTop > 100 && pixels.blueBottom > 100
+        Object.assign(record, {
+          outcome: matchingPixels
+            ? 'drawn'
+            : delivered
+              ? 'submitted-unmatched-pixels'
+              : error
+                ? 'refused'
+                : 'no-submission',
+          observation: 'presenter-compositor-colors',
+          pixels: pixels ?? null,
+          error: error ?? null,
+        })
+        const recoveryFacts: Record<string, unknown> = {}
+        record.facts = recoveryFacts
+        record.stage = 'facts'
+        await facts(recoveryFacts)
+        record.stage = 'status'
+        record.statuses = await statuses()
+        record.stage = 'complete'
+        return record
+      }
+      for (const [width, height] of [
+        [3840, 2160],
+        [5120, 2880],
+      ] as const) {
+        phase(`large-viewport-${width}`)
+        const row: Record<string, unknown> = {
+          ...identity,
+          requested: { width, height, backingScale: 1 },
+          stage: 'small-baseline',
+        }
+        cases.push(row)
+        try {
+          await contents.executeJavaScript(
+            "document.getElementById('first').style.width='320px';document.getElementById('first').style.height='192px';true",
+          )
+          const initial: Record<string, unknown> = {}
+          row.initial = initial
+          await recover(true, initial)
+          assert.equal(
+            initial.outcome,
+            'drawn',
+            'small compatibility baseline has matching compositor pixels',
+          )
+          row.stage = 'before-facts'
+          const before: Record<string, unknown> = {}
+          row.before = before
+          await facts(before)
+          row.stage = 'large-update'
+          // Direct presenter geometry, not page zoom or a physical display test.
+          const grant = await presenter.update(view, {
+            width,
+            height,
+            backingScale: 1,
+            visible: true,
+          })
+          row.stage = 'applied-geometry'
+          const applied: NativeTerminalStatus['geometry'] = (
+            await host.inspect(firstHandle, 1, 1)
+          ).geometry
+          row.applied = applied
+          assert.equal(applied.width, width)
+          assert.equal(applied.height, height)
+          assert.equal(applied.backingScale, 1)
+          assert.equal(grant?.geometrySerial, applied.serial)
+          row.stage = 'large-demand'
+          let failure: string | undefined
+          const deadline = performance.now() + 3000
+          while (!failure && performance.now() < deadline) {
+            try {
+              await presenter.demand(view)
+            } catch (error) {
+              failure = code(error)
+            }
+            if (!failure) await new Promise((resolve) => setTimeout(resolve, 16))
+          }
+          const refused: Record<string, unknown> = {}
+          const refusal: Record<string, unknown> = {
+            code: failure ?? 'no-refusal',
+            facts: refused,
+          }
+          row.failure = refusal
+          row.stage = 'refusal-facts'
+          await facts(refused)
+          row.stage = 'refusal-status'
+          refusal.statuses = await statuses()
+          row.stage = 'parser-feed'
+          const marker = `large-viewport-parser-${width}`
+          await host.feed(
+            firstHandle,
+            first.instanceId,
+            new TextEncoder().encode(`\x1b[H${marker}`),
+          )
+          row.stage = 'parser-read'
+          const parserProgress = new TextDecoder()
+            .decode(await host.read(firstHandle, 1, 1))
+            .includes(marker)
+          row.parserProgress = parserProgress
+          const parserAfter: Record<string, unknown> = {}
+          row.parserAfter = parserAfter
+          row.stage = 'parser-facts'
+          await facts(parserAfter)
+          row.stage = 'shrink-update'
+          const shrink: Record<string, unknown> = {}
+          row.shrink = shrink
+          await recover(false, shrink)
+          row.stage = 'hide-reveal'
+          const hideReveal: Record<string, unknown> = {}
+          row.hideReveal = hideReveal
+          await recover(true, hideReveal)
+          assert(parserProgress, 'same actor parser continues after large viewport')
+          row.stage = 'complete'
+        } catch (error) {
+          row.error = code(error)
+          throw error
+        } finally {
+          writeSync(2, `native-presenter:large-viewport ${JSON.stringify(row)}\n`)
+        }
+      }
+      largeViewportDiagnostic = {
+        observationOwner: 'presenter',
+        uiShrinkRecoveryQualified: false,
+        physicalDisplayQualified: false,
+        capBytes: 16 * 1024 * 1024,
+        cases,
+      }
+    }
     const copied = (await host.inspect(firstHandle, 1, 1)).frameCopies
     assert(
       pixelPresentation ? copied > 0 : copied === 0,
@@ -588,6 +771,7 @@ void app
           occludedFeeds,
           maximumCompatibilityUploadBytes,
           compatibilityBoundRefused,
+          ...(largeViewportDiagnostic ? { largeViewportDiagnostic } : {}),
           translucentAlphaQualified: false,
           colorMaximumDifference,
           colorReference: 'opaque-css-srgb-midtones',

@@ -19,7 +19,10 @@ export async function runNativeElectronProbe(
   launch?: ProbeLaunch,
   presentation?: 'gpu' | 'pixels',
   ozone?: 'x11' | 'wayland',
+  largeViewport = false,
 ): Promise<Record<string, unknown>> {
+  if (typeof largeViewport !== 'boolean' || (largeViewport && presentation !== 'pixels'))
+    throw new Error('native-electron-probe: large viewport requires explicit pixels')
   const selectedOzone: string | undefined =
     ozone ?? process.env['HVIR_NATIVE_TERMINAL_OZONE']
   if (
@@ -53,6 +56,7 @@ export async function runNativeElectronProbe(
       `--library=${library}`,
       `--user-data-dir=${profile}`,
       ...(presentation === 'pixels' ? ['--compatibility'] : []),
+      ...(largeViewport ? ['--large-viewport'] : []),
       ...(selectedOzone ? [`--ozone-platform=${selectedOzone}`] : []),
     ],
     {
@@ -315,6 +319,7 @@ export async function runNativeElectronProbe(
           ? 'pixels'
           : 'auto',
         process.platform,
+        largeViewport,
       )
     )
       throw new Error('native-electron-probe: invalid presenter receipt')
@@ -348,11 +353,15 @@ export function nativePresenterReceiptMatches(
   proof: Record<string, unknown>,
   requested: 'auto' | 'pixels',
   platform: string,
+  largeViewport = false,
 ): boolean {
   if (
     proof.nativePresenter !== 'passed' ||
     proof.finalUtilityExit !== true ||
-    proof.requestedPresentation !== requested
+    proof.requestedPresentation !== requested ||
+    (largeViewport &&
+      (requested !== 'pixels' ||
+        !largeViewportReceiptMatches(proof.largeViewportDiagnostic)))
   )
     return false
   if (proof.mode === 'native-gpu')
@@ -373,11 +382,45 @@ export function nativePresenterReceiptMatches(
   )
 }
 
+/** This receipt records diagnostic failures; it never qualifies large-viewport support. */
+function largeViewportReceiptMatches(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const report = value as Record<string, unknown>
+  return (
+    report.observationOwner === 'presenter' &&
+    report.uiShrinkRecoveryQualified === false &&
+    report.physicalDisplayQualified === false &&
+    report.capBytes === 16 * 1024 * 1024 &&
+    Array.isArray(report.cases) &&
+    report.cases.length === 2 &&
+    report.cases.every((value: unknown, index: number) => {
+      if (!value || typeof value !== 'object') return false
+      const row = value as Record<string, unknown>
+      const applied = row.applied as Record<string, unknown> | undefined
+      return (
+        row.actor === 'presenter-first' &&
+        !!applied &&
+        applied.width === [3840, 5120][index] &&
+        applied.height === [2160, 2880][index] &&
+        applied.backingScale === 1 &&
+        row.parserProgress === true &&
+        typeof row.failure === 'object' &&
+        row.failure !== null &&
+        typeof row.shrink === 'object' &&
+        row.shrink !== null &&
+        typeof row.hideReveal === 'object' &&
+        row.hideReveal !== null
+      )
+    })
+  )
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2)
   const argument = args.find((value) => value.startsWith('--library='))
   const presenter = args.includes('--presenter')
   const compatibility = args.includes('--compatibility')
+  const largeViewport = args.includes('--large-viewport')
   const ozoneArgument = args.find((value) => value.startsWith('--ozone-platform='))
   const ozone = ozoneArgument?.slice('--ozone-platform='.length)
   if (ozone !== undefined && ozone !== 'x11' && ozone !== 'wayland')
@@ -391,11 +434,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (
     !argument ||
     args.length !==
-      1 + Number(presenter) + Number(compatibility) + Number(Boolean(ozoneArgument)) ||
-    (compatibility && !presenter)
+      1 +
+        Number(presenter) +
+        Number(compatibility) +
+        Number(largeViewport) +
+        Number(Boolean(ozoneArgument)) ||
+    (compatibility && !presenter) ||
+    (largeViewport && !compatibility)
   )
     throw new Error(
-      'Usage: run-electron-probe.mts --library=ABS_PATH [--presenter [--compatibility]] [--ozone-platform=x11|wayland]',
+      'Usage: run-electron-probe.mts --library=ABS_PATH [--presenter [--compatibility [--large-viewport]]] [--ozone-platform=x11|wayland]',
     )
   const library = argument.slice('--library='.length)
   const source = (
@@ -434,5 +482,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     undefined,
     presenter ? (compatibility ? 'pixels' : 'gpu') : undefined,
     ozone,
+    largeViewport,
   )
 }

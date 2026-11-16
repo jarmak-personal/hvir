@@ -10,13 +10,13 @@ import {
 } from '../scripts/native-terminal/run-electron-probe.mts'
 
 const directories: string[] = []
-async function fixture(mode: string) {
+async function fixture(mode: string, presentationProof?: Record<string, unknown>) {
   const directory = await mkdtemp(join(tmpdir(), 'hvir-native-probe-process-'))
   directories.push(directory)
   const entry = join(directory, 'fixture.cjs')
   const library = join(directory, 'configuration.json')
   const pids = join(directory, 'pids.json')
-  await writeFile(library, JSON.stringify({ mode, pids }))
+  await writeFile(library, JSON.stringify({ mode, pids, presentationProof }))
   await writeFile(
     entry,
     `
@@ -28,7 +28,9 @@ const proof = { nativeUtilityBoundary: 'passed', mainPid: process.pid, utilityPi
   receiverSandboxed: true, receiverContextIsolated: true, realGhostty: true,
   receivedOzone: process.argv.filter(v=>v.startsWith('--ozone-platform=')),
   receivedNoSandbox: process.argv.includes('--no-sandbox'),
+  receivedLargeViewport: process.argv.includes('--large-viewport'),
   selectedOzoneEnvironment: process.env.HVIR_NATIVE_TERMINAL_OZONE };
+Object.assign(proof, config.presentationProof || {});
 if (config.mode === 'hang' || config.mode === 'orphan') {
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 1, 2] });
   fs.writeFileSync(config.pids, JSON.stringify({ parent: process.pid, child: child.pid }));
@@ -260,6 +262,88 @@ describe('native presenter receipt mode fidelity', () => {
     compatibilityBoundRefused: true,
     maximumCompatibilityUploadBytes: 16 * 1024 * 1024,
   }
+  const largeViewportDiagnostic = {
+    observationOwner: 'presenter',
+    uiShrinkRecoveryQualified: false,
+    physicalDisplayQualified: false,
+    capBytes: 16 * 1024 * 1024,
+    cases: [
+      [3840, 2160],
+      [5120, 2880],
+    ].map(([width, height]) => ({
+      actor: 'presenter-first',
+      applied: { width, height, backingScale: 1 },
+      parserProgress: true,
+      failure: { code: 'native-pixel-bound' },
+      shrink: { outcome: 'submitted' },
+      hideReveal: { outcome: 'submitted' },
+    })),
+  }
+  it('forwards the explicit large viewport selector and requires its own receipt', async () => {
+    const proof = {
+      ...pixels,
+      requestedPresentation: 'pixels',
+      orientationQualified: true,
+      largeViewportDiagnostic,
+    }
+    const files = await fixture('success', proof)
+    const result = await runNativeElectronProbe(
+      files.library,
+      {
+        binary: process.execPath,
+        entry: files.entry,
+        timeoutMs: 2000,
+      },
+      'pixels',
+      undefined,
+      true,
+    )
+    expect(result.receivedLargeViewport).toBe(true)
+    expect(result.receivedNoSandbox).toBe(false)
+    expect(result.largeViewportDiagnostic).toEqual(largeViewportDiagnostic)
+  })
+  it('refuses a large viewport request without explicit compatibility before launch', async () => {
+    const files = await fixture('success')
+    await expect(
+      runNativeElectronProbe(
+        files.library,
+        {
+          binary: process.execPath,
+          entry: files.entry,
+          timeoutMs: 2000,
+        },
+        'gpu',
+        undefined,
+        true,
+      ),
+    ).rejects.toThrow('requires explicit pixels')
+  })
+  it.each([
+    undefined,
+    { ...largeViewportDiagnostic, uiShrinkRecoveryQualified: true },
+    { ...largeViewportDiagnostic, cases: largeViewportDiagnostic.cases.slice(0, 1) },
+    {
+      ...largeViewportDiagnostic,
+      cases: largeViewportDiagnostic.cases.map((row) => ({
+        ...row,
+        parserProgress: false,
+      })),
+    },
+    { ...largeViewportDiagnostic, cases: [...largeViewportDiagnostic.cases].reverse() },
+  ])('refuses incomplete or relabelled large viewport evidence %j', (diagnostic) => {
+    expect(
+      nativePresenterReceiptMatches(
+        {
+          ...pixels,
+          requestedPresentation: 'pixels',
+          largeViewportDiagnostic: diagnostic,
+        },
+        'pixels',
+        'linux',
+        true,
+      ),
+    ).toBe(false)
+  })
   it('accepts actual Linux compatibility under auto without relabelling it GPU', () => {
     expect(nativePresenterReceiptMatches(pixels, 'auto', 'linux')).toBe(true)
     expect(nativePresenterReceiptMatches(pixels, 'auto', 'darwin')).toBe(false)
