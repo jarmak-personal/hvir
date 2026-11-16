@@ -220,6 +220,9 @@ export class TerminalSurfaceAttachment {
       this.workspaceAttached = false
       this.current = undefined
       this.interactionRevision += 1
+      this.apply('hidden')
+      // Placement can return to retained DOM without restoring its presentation lease.
+      if (retained) this.pane?.reparent(retained)
       return
     }
     this.moveTo(retained)

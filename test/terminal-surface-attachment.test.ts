@@ -90,7 +90,7 @@ describe('TerminalSurfaceAttachment', () => {
   })
 
   it.each(['disconnected', 'detached while borrowed'] as const)(
-    'does not restore a %s workspace until a fresh connected attach',
+    'parks a %s workspace pane hidden until a fresh connected attach',
     (reason) => {
       const surface = new TerminalSurfaceAttachment()
       const pane = fakePane()
@@ -105,29 +105,51 @@ describe('TerminalSurfaceAttachment', () => {
       if (reason === 'detached while borrowed') surface.detach(workspace)
       workspace.remove()
       if (reason === 'detached while borrowed') document.body.append(workspace)
+      expect(detail.querySelector('.terminal-engine-host')).toBe(pane.engine)
       pane.reparent.mockClear()
+      pane.reparent.mockImplementationOnce((container: HTMLElement) => {
+        expect(surface.presentation).toBe('hidden')
+        expect(surface.currentContainer).toBeUndefined()
+        container.append(pane.engine)
+      })
 
       expect(surface.releaseLease(lease)).toBe(true)
-      expect(pane.reparent).not.toHaveBeenCalled()
+      expect(detail.querySelector('.terminal-engine-host')).toBeNull()
+      expect(workspace.querySelector('.terminal-engine-host')).toBe(pane.engine)
+      expect(pane.reparent).toHaveBeenCalledExactlyOnceWith(workspace)
       expect(surface.currentContainer).toBeUndefined()
       expect(surface.presentation).toBe('hidden')
       expect(surface.canFocus()).toBe(false)
       document.body.append(workspace)
       surface.synchronize('visible')
       expect(surface.presentation).toBe('hidden')
+      expect(surface.currentContainer).toBeUndefined()
+      expect(surface.canFocus()).toBe(false)
+      expect(surface.attachLease(lease, detail, 'visible')).toBe(false)
+      expect(surface.isCurrentLease(lease, detail)).toBe(false)
+      expect(detail.querySelector('.terminal-engine-host')).toBeNull()
+      expect(workspace.querySelector('.terminal-engine-host')).toBe(pane.engine)
 
       surface.attach(workspace, 'visible')
-      expect(pane.reparent).toHaveBeenCalledExactlyOnceWith(workspace)
+      expect(workspace.querySelector('.terminal-engine-host')).toBe(pane.engine)
+      expect(surface.currentContainer).toBe(workspace)
       expect(surface.canWorkspaceFocus()).toBe(true)
     },
   )
 })
 
 function fakePane() {
-  const mount = vi.fn()
-  const reparent = vi.fn()
+  const engine = document.createElement('div')
+  engine.className = 'terminal-engine-host'
+  const mount = vi.fn((container: HTMLElement) => {
+    container.append(engine)
+  })
+  const reparent = vi.fn((container: HTMLElement) => {
+    container.append(engine)
+  })
   const presentation = vi.fn<TerminalPane['setPresentation']>()
   return {
+    engine,
     mount,
     reparent,
     presentation,
