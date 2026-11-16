@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
@@ -55,6 +56,7 @@ describe('exact native candidate package workflow', () => {
         packages.jobs[name]!.steps?.map((step) => step.run ?? '').join('\n') ?? ''
       expect(commands).toContain('prepare-release-linux-package.mts')
       expect(commands).toContain('smoke:linux:installed')
+      expect(commands).toContain('relocate-package-inputs.mts')
       expect(commands).not.toContain('pack:linux')
     }
   })
@@ -67,8 +69,7 @@ describe('exact native candidate package workflow', () => {
     expect(commands).toContain(
       'package.mts "$TARGET" out/native-sdk/artifact out/native-terminal',
     )
-    expect(commands).toContain('mv out/native-download')
-    expect(commands).toContain('mv packages/native-terminal/build')
+    expect(commands).toContain('relocate-package-inputs.mts')
     expect(steps.findIndex((step) => step.name?.startsWith('Move every'))).toBeLessThan(
       steps.findIndex((step) => step.name?.startsWith('Accept installed Linux')),
     )
@@ -91,7 +92,8 @@ describe('exact native candidate package workflow', () => {
       uses: './.github/workflows/macos-package-release.yml',
       with: {
         source_sha: '${{ inputs.source_sha }}',
-        allow_merged_source: true,
+        allow_merged_source: false,
+        candidate_only: true,
         native_terminal: true,
       },
     })
@@ -107,4 +109,36 @@ describe('exact native candidate package workflow', () => {
       ),
     ).toBe(true)
   })
+})
+
+const sourceGuard = signed.jobs['signed-package']!.steps?.find(
+  (step) => step.name === 'Require an exact protected release or native candidate source',
+)?.run
+if (!sourceGuard) throw new Error('Exact signed-source intent guard missing')
+describe('explicit signed-source intent', () => {
+  it.each([
+    ['true', 'true', 'false', 'branch', 0],
+    ['true', 'true', 'true', 'branch', 1],
+    ['true', 'false', 'false', 'branch', 1],
+    ['false', 'false', 'true', 'branch', 0],
+    ['false', 'true', 'false', 'branch', 1],
+    ['true', 'true', 'false', 'tag', 1],
+  ])(
+    'candidate=%s native=%s merged=%s ref=%s yields %i',
+    (candidate, native, merged, ref, expected) => {
+      const result = spawnSync('bash', ['-se'], {
+        input: sourceGuard,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CANDIDATE_ONLY: String(candidate),
+          NATIVE_TERMINAL: String(native),
+          ALLOW_MERGED_SOURCE: String(merged),
+          REF_TYPE: String(ref),
+          SOURCE_SHA: 'a'.repeat(40),
+        },
+      })
+      expect(result.status, result.stderr || result.stdout).toBe(expected)
+    },
+  )
 })

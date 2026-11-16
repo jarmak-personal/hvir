@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   mkdtemp,
   mkdir,
@@ -14,6 +14,12 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { verifyPackagedNativeTerminal } from '../src/main/terminal/native-terminal-package'
+import pin from '../scripts/native-terminal/pin.json'
+import {
+  NATIVE_TERMINAL_PACKAGE_ABI,
+  NATIVE_TERMINAL_PACKAGE_VERSION,
+  NATIVE_TERMINAL_PACKAGE_VT_VERSION,
+} from '../src/shared/native-terminal-package'
 import {
   captureNativeTerminalPackage,
   inspectNativeTerminalPackage,
@@ -78,10 +84,37 @@ beforeEach(async () => {
   await captureNativeTerminalPackage(root, bindings, source, 'linux-x64')
 })
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await rm(resources, { recursive: true, force: true })
 })
 
 describe('trusted installed native code', () => {
+  it('keeps the runtime ABI and native versions tied to the authoritative SDK pin', () => {
+    expect(NATIVE_TERMINAL_PACKAGE_ABI).toBe(pin.source.embedAbi)
+    expect(NATIVE_TERMINAL_PACKAGE_VERSION).toBe(pin.source.applicationVersion)
+    expect(NATIVE_TERMINAL_PACKAGE_VT_VERSION).toBe(pin.source.vtVersion)
+  })
+  it.each(['packages/native-terminal', 'node_modules/@hvir/native-terminal'])(
+    'refuses unmanifested bindings from a non-opt-in %s package',
+    async (directory) => {
+      vi.stubEnv('HVIR_PACKAGE_NATIVE_TERMINAL', '')
+      const project = join(resources, 'contributor')
+      const output = join(project, directory, 'build/Release')
+      await mkdir(output, { recursive: true })
+      const require = createRequire(import.meta.url)
+      const prepare =
+        require('../build/native/prepare-native-terminal.cjs') as (context: {
+          packager: { projectDir: string }
+        }) => Promise<void>
+      await expect(
+        prepare({ packager: { projectDir: project } }),
+      ).resolves.toBeUndefined()
+      await writeFile(join(output, 'native_terminal_engine.node'), 'unmanifested')
+      await expect(prepare({ packager: { projectDir: project } })).rejects.toThrow(
+        'Native package bindings require explicit candidate selection',
+      )
+    },
+  )
   it('verifies relocated bundled native code without the developer source or SDK', async () => {
     expect(await verifyPackagedNativeTerminal(resources, 'linux', 'x64')).toBe(
       join(root, 'ghostty-internal.so'),

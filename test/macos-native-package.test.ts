@@ -190,7 +190,7 @@ describe('macOS native package contract', () => {
     expect(installedStartupProbe).toContain("HVIR_SMOKE: '1'")
   })
 
-  it('keeps credentials out of CI and gates signing behind the protected merged source', () => {
+  it('keeps credentials out of CI and gates signing behind explicit protected source intent', () => {
     expect(ci.jobs['native-macos-package']).toBeUndefined()
     expect(ci.jobs['signed-macos-epic-acceptance']).toBeUndefined()
     expect(ciSource).not.toMatch(/MACOS_(APPLICATION|INSTALLER|NOTARY|TEAM)/)
@@ -204,6 +204,7 @@ describe('macOS native package contract', () => {
     expect(Object.keys(workflowCall.inputs)).toEqual([
       'source_sha',
       'allow_merged_source',
+      'candidate_only',
       'native_terminal',
     ])
     expect(workflowCall.inputs).toMatchObject({
@@ -213,6 +214,7 @@ describe('macOS native package contract', () => {
         default: false,
         type: 'boolean',
       },
+      candidate_only: { required: false, default: false, type: 'boolean' },
       native_terminal: { required: false, default: false, type: 'boolean' },
     })
     expect(Object.keys(workflowCall.secrets)).toEqual([
@@ -232,10 +234,13 @@ describe('macOS native package contract', () => {
     if (!signed) throw new Error('Missing signed-package release job')
     expect(signed.environment).toBe('native-release-signing')
     const sourceGuard = signed.steps.find(
-      (step) => step.name === 'Require an exact protected merged source',
+      (step) =>
+        step.name === 'Require an exact protected release or native candidate source',
     )
     expect(sourceGuard?.env).toEqual({
       ALLOW_MERGED_SOURCE: '${{ inputs.allow_merged_source }}',
+      CANDIDATE_ONLY: '${{ inputs.candidate_only }}',
+      NATIVE_TERMINAL: '${{ inputs.native_terminal }}',
       REF_TYPE: '${{ github.ref_type }}',
       SOURCE_SHA: '${{ inputs.source_sha }}',
     })
@@ -280,7 +285,7 @@ describe('macOS native package contract', () => {
     expect(signed.steps[uploadIndex]).toMatchObject({
       uses: 'actions/upload-artifact@v7',
       with: {
-        name: "${{ inputs.native_terminal && 'native-terminal-candidate-macos-arm64-signed' || 'release-macos-arm64' }}",
+        name: "${{ inputs.candidate_only && 'native-terminal-candidate-macos-arm64-signed' || 'release-macos-arm64' }}",
         path: 'dist/hvir-*-darwin-arm64.pkg\n' + 'dist/hvir-*-darwin-arm64.pkg.sha256\n',
         'if-no-files-found': 'error',
         'retention-days': 1,

@@ -179,6 +179,10 @@ grep -Fq '<preinstall ' "$component_info"
 grep -Fq '<postinstall ' "$component_info"
 
 ditto 'dist/mac-arm64/hvir.app' "$old_root/hvir.app"
+if [[ "${HVIR_NATIVE_PACKAGE_ACCEPTANCE:-}" == '1' ]]; then
+  mv 'dist/mac-arm64/hvir.app' "$invocation_root/developer-app-unavailable"
+  test ! -e 'dist/mac-arm64/hvir.app'
+fi
 printf '%s\n' 'remove-during-package-upgrade' \
   >"$old_root/hvir.app/Contents/Resources/hvir-previous-only.txt"
 codesign \

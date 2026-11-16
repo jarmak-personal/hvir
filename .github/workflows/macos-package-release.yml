@@ -4,11 +4,16 @@ on:
   workflow_call:
     inputs:
       source_sha:
-        description: Full merged release source commit SHA to package.
+        description: Full exact release or native candidate source commit SHA to package.
         required: true
         type: string
       allow_merged_source:
         description: Permit an exact commit contained in the selected branch for release assembly.
+        required: false
+        default: false
+        type: boolean
+      candidate_only:
+        description: Sign an explicit native candidate without asserting release-source acceptance.
         required: false
         default: false
         type: boolean
@@ -49,9 +54,11 @@ jobs:
     environment: native-release-signing
 
     steps:
-      - name: Require an exact protected merged source
+      - name: Require an exact protected release or native candidate source
         env:
           ALLOW_MERGED_SOURCE: ${{ inputs.allow_merged_source }}
+          CANDIDATE_ONLY: ${{ inputs.candidate_only }}
+          NATIVE_TERMINAL: ${{ inputs.native_terminal }}
           REF_TYPE: ${{ github.ref_type }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
@@ -59,8 +66,13 @@ jobs:
             echo "::error::Signed packaging must be dispatched from a protected branch"
             exit 1
           fi
-          if [ "$ALLOW_MERGED_SOURCE" != true ]; then
-            echo "::error::Signed packaging requires an explicitly selected merged source"
+          if [ "$CANDIDATE_ONLY" = true ]; then
+            if [ "$NATIVE_TERMINAL" != true ] || [ "$ALLOW_MERGED_SOURCE" != false ]; then
+              echo "::error::Candidate signing requires explicit native-only intent without a merged-source assertion"
+              exit 1
+            fi
+          elif [ "$ALLOW_MERGED_SOURCE" != true ]; then
+            echo "::error::Release signing requires an explicitly selected merged source"
             exit 1
           fi
           if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
@@ -190,11 +202,9 @@ jobs:
 
       - name: Move native developer inputs before installed acceptance
         if: inputs.native_terminal
-        run: |
-          mv out/native-download "$RUNNER_TEMP/native-download-unavailable"
-          mv out/native-sdk "$RUNNER_TEMP/native-sdk-unavailable"
-          mv packages/native-terminal/build "$RUNNER_TEMP/native-bindings-unavailable"
-          mv out/native-terminal "$RUNNER_TEMP/native-package-input-unavailable"
+        env:
+          HVIR_NATIVE_PACKAGE_ACCEPTANCE: '1'
+        run: node scripts/native-terminal/relocate-package-inputs.mts "$RUNNER_TEMP/native-package-inputs-unavailable"
 
       - name: Install, update, launch, and remove signed package
         env:
@@ -227,7 +237,7 @@ jobs:
       - name: Retain accepted package for release assembly
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.native_terminal && 'native-terminal-candidate-macos-arm64-signed' || 'release-macos-arm64' }}
+          name: ${{ inputs.candidate_only && 'native-terminal-candidate-macos-arm64-signed' || 'release-macos-arm64' }}
           path: |
             dist/hvir-*-darwin-arm64.pkg
             dist/hvir-*-darwin-arm64.pkg.sha256

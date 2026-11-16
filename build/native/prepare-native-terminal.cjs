@@ -9,6 +9,15 @@ module.exports = async function prepareNativeTerminal(context) {
   if (process.env.HVIR_PACKAGE_NATIVE_TERMINAL !== '1') {
     if (existsSync(root))
       throw new Error('Native package payload requires explicit candidate selection')
+    const { NATIVE_TERMINAL_BINDING_FILES } =
+      await import('../../src/shared/native-terminal-package.ts')
+    for (const directory of [
+      'packages/native-terminal',
+      'node_modules/@hvir/native-terminal',
+    ])
+      for (const file of Object.values(NATIVE_TERMINAL_BINDING_FILES))
+        if (existsSync(join(project, directory, 'build/Release', file)))
+          throw new Error('Native package bindings require explicit candidate selection')
     return
   }
   const target = `${context.packager.platform.name === 'mac' ? 'macos' : 'linux'}-${context.arch === 3 ? 'arm64' : context.arch === 1 ? 'x64' : 'unsupported'}`

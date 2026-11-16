@@ -719,6 +719,7 @@ export default tseslint.config(
       'scripts/native-terminal/artifacts.mts',
       'scripts/native-terminal/package.mts',
       'scripts/native-terminal/package-artifacts.mts',
+      'scripts/native-terminal/relocate-package-inputs.mts',
       'scripts/native-terminal/build.mts',
       'scripts/native-terminal/bindings.mts',
       'scripts/native-terminal/resource-probe.mts',

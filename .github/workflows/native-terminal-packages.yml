@@ -83,11 +83,9 @@ jobs:
             npm run "pack:linux:$ARCH"
           fi
       - name: Move every native developer input before installed acceptance
-        run: |
-          mv out/native-download "$RUNNER_TEMP/native-download-unavailable"
-          mv out/native-sdk "$RUNNER_TEMP/native-sdk-unavailable"
-          mv packages/native-terminal/build "$RUNNER_TEMP/native-bindings-unavailable"
-          mv out/native-terminal "$RUNNER_TEMP/native-package-input-unavailable"
+        env:
+          HVIR_NATIVE_PACKAGE_ACCEPTANCE: '1'
+        run: node scripts/native-terminal/relocate-package-inputs.mts "$RUNNER_TEMP/native-package-inputs-unavailable"
       - name: Prepare explicit software-rendered Linux acceptance prerequisites
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes xvfb libgl1-mesa-dri
@@ -168,6 +166,10 @@ jobs:
           ARCH: ${{ matrix.arch }}
           DEB_ARCH: ${{ matrix.deb_arch }}
         run: node scripts/prepare-release-linux-package.mts "$ARCH" "$DEB_ARCH"
+      - name: Relocate application implementation before installed acceptance
+        env:
+          HVIR_NATIVE_PACKAGE_ACCEPTANCE: '1'
+        run: node scripts/native-terminal/relocate-package-inputs.mts "$RUNNER_TEMP/native-package-inputs-unavailable"
       - name: Prepare explicit software-rendered Linux acceptance prerequisites
         run: sudo apt-get update && sudo apt-get install --yes xvfb libgl1-mesa-dri
       - name: Accept installed native terminal with production sandbox
@@ -218,6 +220,10 @@ jobs:
         run: |
           node scripts/prepare-release-linux-package.mts "$ARCH" "$DEB_ARCH"
           chown -R hvir-acceptance:hvir-acceptance "$GITHUB_WORKSPACE"
+      - name: Relocate application implementation before installed acceptance
+        env:
+          HVIR_NATIVE_PACKAGE_ACCEPTANCE: '1'
+        run: node scripts/native-terminal/relocate-package-inputs.mts "$RUNNER_TEMP/native-package-inputs-unavailable"
       - name: Accept installed native compatibility with production sandbox
         run: |
           sudo -u hvir-acceptance env HOME=/home/hvir-acceptance \
@@ -230,6 +236,7 @@ jobs:
     uses: ./.github/workflows/macos-package-release.yml
     with:
       source_sha: ${{ inputs.source_sha }}
-      allow_merged_source: true
+      allow_merged_source: false
+      candidate_only: true
       native_terminal: true
     secrets: inherit

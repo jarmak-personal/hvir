@@ -35,6 +35,10 @@ EGL dispatch and a functioning graphics driver remain system
 requirements. Package acceptance preserves the glibc 2.35 and GCC-12-era libstdc++ floors,
 native package-manager ownership, and production Chromium sandbox rules.
 
+An ordinary package without the native candidate opt-in refuses built native addons
+as well as a staged native payload. Contributor bindings cannot silently enter a
+package without its corresponding verified native manifest.
+
 ## Loading and signing
 
 An installed candidate opts into native terminals with `HVIR_NATIVE_TERMINAL=1`.
@@ -64,6 +68,7 @@ No entitlement or production sandbox bypass is required.
 The registered native dependency workflow provides a candidate-only dispatch route
 to the reusable signed-package owner. Its protected environment must authorize the
 exact candidate branch and the maintainer must approve the deployment. Candidate
+intent is explicit and separate from the merged-release source gate. Candidate
 construction does not grant that authorization or publish a GitHub Release.
 
 ## Installed evidence
@@ -73,7 +78,10 @@ notices, target and ABI after package construction and signing. The existing dis
 installed-startup lifecycle uses the ordinary production app and local CDP to create,
 exercise and close a native shell. It retains source/target/digest proof and verifies
 native output, input, presentation, isolation and cleanup independently of the smoke
-build graph. Relocation acceptance removes access to developer build paths.
+build graph. Relocation acceptance moves the original application implementation,
+compiled output and native build-input paths before installed launch. Only shared
+contracts and acceptance-tool support remain available in the original checkout;
+the acceptance fixture and installer archives have separate owned paths.
 
 Linux builds use Ubuntu 22.04 on each architecture. The same `.deb` is accepted on the
 existing Ubuntu 22.04, Ubuntu 24.04 and Debian stable userspace matrix. Effective
