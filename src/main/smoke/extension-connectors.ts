@@ -228,6 +228,8 @@ export async function verifyExtensionConnectors(
     )
     throw error
   }
+  // Finite work may complete in the background; ongoing updater demand needs native foreground.
+  await focusSmokeWindow(win, 'window')
   try {
     await controls.wait(
       () =>

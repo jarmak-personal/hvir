@@ -8,8 +8,12 @@ import type { ProjectHost } from '../src/main/project-host/project-host'
 import type { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
 import { verifyExtensionConnectors } from '../src/main/smoke/extension-connectors'
 
+const foreground = vi.hoisted(() => ({ current: true }))
 vi.mock('../src/main/smoke/window-focus', () => ({
-  focusSmokeWindow: () => Promise.resolve(),
+  focusSmokeWindow: (_win: BrowserWindow, target?: 'document' | 'window') => {
+    if (target === 'window') foreground.current = true
+    return Promise.resolve()
+  },
 }))
 
 /** Immediate guest bridge/document only; real native authority stays in Electron. */
@@ -157,7 +161,12 @@ it('waits for the actual reference output page and idle Run control after comple
             )
             expect(await predicate()).toBe(true)
             readyObserved = true
+            // Finite native work may finish after the host loses foreground.
+            foreground.current = false
           } else if (label === 'approved updater observation without popup') {
+            expect(foreground.current, 'ongoing updater requires native foreground').toBe(
+              true,
+            )
             throw new Error('Later updater milestone outside this boundary proof')
           }
         },
