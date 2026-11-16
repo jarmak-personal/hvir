@@ -46,11 +46,14 @@ ipcRenderer.on(
     },
   ) => {
     if (!value || typeof value.ticket !== 'string') return
-    const accepted = nativeReceiver.pixels(value.frame)
+    const result = nativeReceiver.pixels(value.frame)
     ipcRenderer.send(nativePresentation.acknowledgementChannel, {
       kind: 'pixels',
       ticket: value.ticket,
-      accepted,
+      accepted: result === true,
+      ...(result === 'local-ineligible'
+        ? { discarded: result, grant: value.frame.nativeTerminal }
+        : {}),
     })
   },
 )
@@ -101,6 +104,7 @@ const api: HvirApi = {
   nativeTerminalPresentation: {
     mount: (viewId, elementId) => nativeReceiver.mount(viewId, elementId),
     unmount: (viewId) => nativeReceiver.unmount(viewId),
+    setEligible: (viewId, eligible) => nativeReceiver.setEligible(viewId, eligible),
     onStatus: (listener) => nativeReceiver.onStatus(listener),
   },
   rendererReady: () => {

@@ -75,7 +75,8 @@ export async function createSmokeTerminalSessionStore(
   }
   const selected =
     process.env['HVIR_EXTENSION_TERMINAL_PROBE'] === '1' ||
-    process.env['HVIR_SMOKE_SCENARIO'] === 'terminal-presentation'
+    process.env['HVIR_SMOKE_SCENARIO'] === 'terminal-presentation' ||
+    process.env['HVIR_SMOKE_SCENARIO'] === 'native-terminal-workbench'
       ? await TerminalSessionRegistry.load(
           resources.host,
           joinHostPath(defaultRoot, '.terminal-command-recovery.json'),

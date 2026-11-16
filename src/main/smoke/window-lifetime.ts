@@ -22,8 +22,25 @@ export async function createSmokeWindow(
   })
   cleanup.defer('smoke window', async () => {
     if (window.isDestroyed()) return
-    await ports.webPaneRoutes.closeOwner(window.webContents.id)
-    window.destroy()
+    const ownerId = window.webContents.id
+    // Window destruction also starts owner revocation, but its event callback
+    // cannot await it. Settle that real lifecycle before later smoke resources
+    // (Supervisor/native host) retire producers used by captured cleanup.
+    const failures: unknown[] = []
+    try {
+      await ports.rendererResources.revokeOwner(ownerId)
+    } catch (error) {
+      failures.push(error)
+    }
+    try {
+      await ports.webPaneRoutes.closeOwner(ownerId)
+    } catch (error) {
+      failures.push(error)
+    } finally {
+      window.destroy()
+    }
+    if (failures.length)
+      throw new AggregateError(failures, 'Smoke window owner cleanup failed')
   })
   await new Promise<void>((resolve) => window.once('ready-to-show', resolve))
   const generation = ports.rendererResources.currentOwner(

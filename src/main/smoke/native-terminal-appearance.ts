@@ -178,8 +178,15 @@ export async function verifyNativeTerminalAppearance(
     retained()
     return palettes as Record<'dark' | 'light', Palette>
   }
-  const capture = async (column: number, row: number, columns: number, rows = 1) => {
-    const { geometry: g, bounds: b } = await browser.layout()
+  type Layout = Awaited<ReturnType<typeof browser.layout>>
+  const capture = async (
+    layout: Layout,
+    column: number,
+    row: number,
+    columns: number,
+    rows = 1,
+  ) => {
+    const { geometry: g, bounds: b } = layout
     const pageZoom = win.webContents.getZoomFactor()
     const view = nativeTerminalViewRect(
       {
@@ -206,6 +213,7 @@ export async function verifyNativeTerminalAppearance(
     }
   }
   const colorPixels = async (
+    layout: Layout,
     color: string,
     column: number,
     row: number,
@@ -214,7 +222,7 @@ export async function verifyNativeTerminalAppearance(
     diagnosticBackground?: string,
   ) => {
     const { image, region, backingScale, pageZoom, cellViewWidth, cellViewHeight } =
-      await capture(column, row, columns, rows)
+      await capture(layout, column, row, columns, rows)
     const scaleFactors = image.getScaleFactors()
     const scaleFactor = scaleFactors.reduce(
       (nearest, value) =>
@@ -381,11 +389,13 @@ export async function verifyNativeTerminalAppearance(
       let sample: unknown
       await browser.wait(
         async () => {
+          const layout = await browser.layoutWhenReady()
+          if (!layout) return false
           const [background, foreground, green, blue] = await Promise.all([
-            colorPixels(palette.background, 10, 0, 5),
-            colorPixels(palette.foreground, 0, 2, 4),
-            colorPixels(palette.green, 0, 0, 3),
-            colorPixels(palette.blue, 4, 0, 3),
+            colorPixels(layout, palette.background, 10, 0, 5),
+            colorPixels(layout, palette.foreground, 0, 2, 4),
+            colorPixels(layout, palette.green, 0, 0, 3),
+            colorPixels(layout, palette.blue, 4, 0, 3),
           ])
           sample = {
             background: background.pixels,
@@ -414,8 +424,17 @@ export async function verifyNativeTerminalAppearance(
       try {
         await browser.wait(
           async () => {
-            const selection = await colorPixels(palette.selection, 0, 4, SHAPING.length)
+            const layout = await browser.layoutWhenReady()
+            if (!layout) return false
+            const selection = await colorPixels(
+              layout,
+              palette.selection,
+              0,
+              4,
+              SHAPING.length,
+            )
             const foreground = await colorPixels(
+              layout,
               palette.selectionText,
               0,
               4,
@@ -439,6 +458,7 @@ export async function verifyNativeTerminalAppearance(
               selection: lastSelection,
               foreground: lastForeground,
               histogram: await colorPixels(
+                await browser.layout(),
                 palette.selection,
                 0,
                 4,
@@ -495,8 +515,9 @@ export async function verifyNativeTerminalAppearance(
           )
         return ink.pixels > (ink.cellWidth * ink.cellHeight) / 2
       }
-      const sampleCursor = () =>
+      const sampleCursor = (layout: Layout) =>
         colorPixels(
+          layout,
           palettes.dark.cursor,
           shape === 'bar' ? 3.5 : 4,
           7,
@@ -510,7 +531,9 @@ export async function verifyNativeTerminalAppearance(
         // Preserve the original appearance-only paint assertion before any extra
         // PTY query output can wake native rendering.
         await browser.wait(async () => {
-          preQueryInk = await sampleCursor()
+          const layout = await browser.layoutWhenReady()
+          if (!layout) return false
+          preQueryInk = await sampleCursor(layout)
           return matchesCursor(preQueryInk)
         }, 'appearance-cursor-' + shape)
       } catch (error) {
@@ -527,6 +550,7 @@ export async function verifyNativeTerminalAppearance(
           ? {
               presentation: await domPresentation(),
               neighborhood: await colorPixels(
+                await browser.layout(),
                 palettes.dark.cursor,
                 3,
                 6,
@@ -569,7 +593,7 @@ export async function verifyNativeTerminalAppearance(
               ? error
               : new Error('Native cursor query failed', { cause: error })
         }
-        const postQueryInk = await sampleCursor()
+        const postQueryInk = await sampleCursor(await browser.layout())
         const postQueryMatches = matchesCursor(postQueryInk)
         console.log(
           'HVIR_NATIVE_APPEARANCE_CURSOR_OBSERVATION',
@@ -588,6 +612,7 @@ export async function verifyNativeTerminalAppearance(
             ...(preQueryFailure !== undefined || !postQueryMatches
               ? {
                   neighborhood: await colorPixels(
+                    await browser.layout(),
                     palettes.dark.cursor,
                     3,
                     6,
@@ -624,7 +649,9 @@ export async function verifyNativeTerminalAppearance(
     await browser.focus()
     await control('cursor-query', { name: 'application-cursor-query', expected: 2 })
     await browser.wait(async () => {
-      const ink = await colorPixels(palettes.dark.cursor, 4, 7, 1)
+      const layout = await browser.layoutWhenReady()
+      if (!layout) return false
+      const ink = await colorPixels(layout, palettes.dark.cursor, 4, 7, 1)
       return ink.pixels > ink.area / 2
     }, 'appearance-application-cursor-authority')
     await apply('Terminal', { 'settings-terminal-ligatures': true })
@@ -683,7 +710,9 @@ export async function verifyNativeTerminalAppearance(
     let fractionalCursor: Awaited<ReturnType<typeof colorPixels>> | undefined
     try {
       await browser.wait(async () => {
-        fractionalCursor = await colorPixels(palettes.dark.cursor, 4, 7, 1, 1.25)
+        const layout = await browser.layoutWhenReady()
+        if (!layout) return false
+        fractionalCursor = await colorPixels(layout, palettes.dark.cursor, 4, 7, 1, 1.25)
         return (
           fractionalCursor.pixels > 0 &&
           fractionalCursor.inkWidth > fractionalCursor.cellWidth / 2 &&
@@ -695,6 +724,7 @@ export async function verifyNativeTerminalAppearance(
         const before = await status()
         const presentation = await domPresentation()
         const neighborhood = await colorPixels(
+          await browser.layout(),
           palettes.dark.cursor,
           3,
           6,
@@ -719,7 +749,14 @@ export async function verifyNativeTerminalAppearance(
             pageZoom: win.webContents.getZoomFactor(),
             queryCode: 4,
             queryPassed,
-            postQuery: await colorPixels(palettes.dark.cursor, 4, 7, 1, 1.25),
+            postQuery: await colorPixels(
+              await browser.layout(),
+              palettes.dark.cursor,
+              4,
+              7,
+              1,
+              1.25,
+            ),
           }),
         )
       } catch {
@@ -728,10 +765,11 @@ export async function verifyNativeTerminalAppearance(
       throw error
     }
     await control('paint', { name: 'revealed-font' })
-    await browser.wait(
-      async () => (await colorPixels(palettes.dark.foreground, 0, 5, 8)).pixels > 2,
-      'appearance-fallback-unicode-painted',
-    )
+    await browser.wait(async () => {
+      const layout = await browser.layoutWhenReady()
+      if (!layout) return false
+      return (await colorPixels(layout, palettes.dark.foreground, 0, 5, 8)).pixels > 2
+    }, 'appearance-fallback-unicode-painted')
     await browser.copied(
       SHAPING,
       async () => {
@@ -824,8 +862,11 @@ export async function verifyNativeTerminalAppearance(
     )
     await browser.ready()
     await browser.wait(async () => {
-      const g = (await status()).geometry
+      const layout = await browser.layoutWhenReady()
+      if (!layout) return false
+      const g = layout.geometry
       const sample = await colorPixels(
+        layout,
         restoredBackgrounds[initial.theme]!,
         g.columns - 5,
         g.rows - 2,
@@ -904,8 +945,35 @@ function assertGeometry(
     Math.round(b.canvasCssHeight * b.dpr) !== g.height ||
     g.columns !== Math.floor(g.contentWidth / g.cellWidth) ||
     g.rows !== Math.floor(g.contentHeight / g.cellHeight)
-  )
+  ) {
+    console.error(
+      'HVIR_NATIVE_APPEARANCE_GEOMETRY_FAILURE ' +
+        JSON.stringify({
+          geometry: {
+            serial: g.serial,
+            backingScale: g.backingScale,
+            width: g.width,
+            height: g.height,
+            columns: g.columns,
+            rows: g.rows,
+            contentWidth: g.contentWidth,
+            contentHeight: g.contentHeight,
+            cellWidth: g.cellWidth,
+            cellHeight: g.cellHeight,
+          },
+          bounds: {
+            dpr: b.dpr,
+            width: b.width,
+            height: b.height,
+            canvasWidth: b.canvasWidth,
+            canvasHeight: b.canvasHeight,
+            canvasCssWidth: b.canvasCssWidth,
+            canvasCssHeight: b.canvasCssHeight,
+          },
+        }),
+    )
     throw new Error('native-appearance-measured-geometry')
+  }
 }
 
 /** Bounded same-PTY fixture reports only named success/failure markers. */

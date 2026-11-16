@@ -254,6 +254,15 @@ jobs:
             .filter(line => line.startsWith(prefix)).map(line => JSON.parse(line.slice(prefix.length)));
           assert.equal(records.length, 1);
           const proof = records[0];
+          const modeSelector = process.env.HVIR_CAPACITY_PERFORMANCE_GATE;
+          assert(modeSelector === undefined || modeSelector === '' || modeSelector === 'controlled');
+          const expectedPerformanceMode = modeSelector === 'controlled' ? 'controlled' : 'evidence';
+          const performanceProof = proof.performance;
+          assert(performanceProof && typeof performanceProof === 'object');
+          assert(Array.isArray(performanceProof.phases));
+          assert.equal(performanceProof.mode, expectedPerformanceMode);
+          assert.equal(performanceProof.maximumInclusiveMs, 500);
+          assert.equal(performanceProof.controlledCapacityQualified, false);
           assert.equal(proof.platform, process.env.RUNNER_OS === 'Linux' ? 'linux' : 'darwin');
           assert.equal(proof.actualWorkbench, true);
           assert.equal(proof.resizeControl, 'terminal-rail');
@@ -268,6 +277,160 @@ jobs:
           assert(proof.resizeAcknowledgedByStty.rows > 0 && proof.resizeAcknowledgedByStty.columns > 0);
           assert.equal(proof.development, true);
           assert.equal(proof.hardwareQualified, false);
+          const lifetime = proof.nativeLifetimes;
+          for (const field of ['samePty', 'sameNativeState', 'hiddenOutput', 'realSessionsHandoff'])
+            assert.equal(lifetime[field], true);
+          assert.equal(lifetime.realHostQualified, false);
+          assert.equal(lifetime.hiddenInputRefusals, 3);
+          assert.equal(lifetime.cycles.length, 3);
+          for (let index = 0; index < lifetime.cycles.length; index++) {
+            const cycle = lifetime.cycles[index];
+            assert.equal(cycle.cycle, index);
+            assert.equal(cycle.canvases, 1);
+            assert.equal(cycle.queuedReplyBytes, 0);
+            assert(Number.isSafeInteger(cycle.serial) && cycle.serial > 0);
+            if (index) assert(cycle.serial > lifetime.cycles[index - 1].serial);
+          }
+          const failure = proof.nativeFailureLifetimes;
+          for (const field of ['explicitRestart', 'readonlyInstanceRetired', 'splitClosed', 'documentReplacement', 'oldOwnerRejected',
+            'samePtyOnDocumentReplacement', 'rejectedRefit', 'noReplacementGrantOnRefusal',
+            'mainUnavailableCanResume', 'staleFailureIgnored', 'nativeHostLoss',
+            'lostReadRejected', 'explicitClose']) assert.equal(failure[field], true);
+          const replacement = failure.replacement;
+          assert(replacement && ['drawn', 'quarantined'].includes(replacement.outcome));
+          const expected = replacement.expected, observed = replacement.observed;
+          const positive = value => Number.isSafeInteger(value) && value > 0;
+          const named = value => typeof value === 'string' && value.length > 0;
+          for (const field of ['sessionId', 'instanceId', 'handle']) assert(named(expected[field]));
+          assert(named(expected.providerId));
+          assert(expected.profileId === null || named(expected.profileId));
+          assert(named(expected.workspaceRoot.hostId) && named(expected.workspaceRoot.path));
+          for (const field of ['pid', 'ownerId', 'previousOwnerGeneration']) assert(positive(expected[field]));
+          assert.equal(observed.owner.id, expected.ownerId);
+          assert(positive(observed.owner.generation) && observed.owner.generation > expected.previousOwnerGeneration);
+          assert.equal(observed.retained.id, expected.sessionId);
+          assert.equal(observed.retained.instanceId, expected.instanceId);
+          assert.equal(observed.retained.pid, expected.pid);
+          assert.equal(observed.native.handle, expected.handle);
+          assert.equal(observed.native.instanceId, expected.instanceId);
+          assert.deepEqual(observed.native.workspaceRoot, expected.workspaceRoot);
+          assert.deepEqual(observed.retained.workspaceRoot, expected.workspaceRoot);
+          assert.equal(observed.retained.providerId, expected.providerId);
+          assert.equal(observed.retained.profileId, expected.profileId);
+          for (const state of [observed.retained, observed.native]) {
+            assert.equal(state.ownerId, observed.owner.id);
+            assert.equal(state.ownerGeneration, observed.owner.generation);
+          }
+          for (const field of ['retiring', 'unavailable', 'inputUnavailable', 'inputClosed', 'readonly'])
+            assert.equal(observed.native[field], false);
+          const viewId = observed.presentation.viewId;
+          assert(named(viewId));
+          assert(Array.isArray(observed.dom.panes));
+          const panes = observed.dom.panes.filter(pane => pane.viewId === 'native-terminal-' + viewId && pane.sessionId === expected.sessionId);
+          assert.equal(panes.length, 1);
+          const pane = panes[0];
+          assert.equal(pane.connected, true);
+          assert.equal(pane.paneUnavailable, false);
+          assert.equal(pane.inputDisabled, false);
+          assert.equal(replacement.preShutdownReclamationQualified, false);
+          const lossFields = ['parserProgress', 'presentationRevoked', 'inputRevoked', 'unknownPhysicalReferencesRetained'];
+          if (replacement.outcome === 'drawn') {
+            const grant = observed.presentation.issuedGrant;
+            assert(grant);
+            assert.equal(grant.viewId, viewId);
+            assert.equal(grant.frameCurrent, true);
+            assert(positive(grant.target) && positive(grant.attachment) && positive(grant.geometrySerial));
+            assert(named(grant.nativeEpoch));
+            assert.equal(failure.additionalLaunches, 3);
+            assert.equal(pane.canvasPresent, true);
+            assert.equal(pane.surfaceUnavailable, false);
+            assert(observed.presentation.drawn && [0, 1].includes(observed.presentation.drawn.screen));
+            assert.equal(observed.presentation.drawn.geometrySerial, grant.geometrySerial);
+            for (const field of lossFields) assert.equal(replacement[field], null);
+            assert.equal(replacement.explicitRecovery, null);
+          } else {
+            const observations = observed.presentation.observations;
+            assert.equal(observations.startedBeforeReload, true);
+            assert.equal(observations.truncated, false);
+            assert.equal(observations.readFailed, false);
+            assert.equal(observations.mainSendIsNotReceiverDelivery, true);
+            assert(positive(observations.total));
+            const events = observations.currentView;
+            assert(Array.isArray(events) && events.length > 0 && events.length <= 32);
+            for (let index = 0; index < events.length; index++) {
+              const event = events[index];
+              assert.equal(event.viewId, viewId);
+              assert(positive(event.sequence) && event.sequence <= observations.total);
+              if (index) assert(event.sequence > events[index - 1].sequence);
+              if (event.operation === 'grant' || event.operation === 'status') {
+                assert.equal(event.state, 'returned');
+                assert.equal(event.frameCurrent, true);
+                assert(positive(event.target));
+              } else {
+                assert(['update', 'demand'].includes(event.operation));
+                assert.equal(event.ownerId, observed.owner.id);
+                assert.equal(event.ownerGeneration, observed.owner.generation);
+              }
+            }
+            assert(!events.some(event => ['update', 'demand'].includes(event.operation) && event.state === 'rejected'));
+            const grants = events.filter(event => event.operation === 'grant' && event.issued === true);
+            assert(grants.length > 0);
+            const grant = grants.at(-1);
+            assert(events.some(event => event.operation === 'update' && event.state === 'started' && event.visible === true && event.sequence < grant.sequence));
+            assert(positive(grant.attachment) && positive(grant.geometrySerial) && named(grant.nativeEpoch));
+            assert(events.filter(event => event.operation === 'grant' || event.operation === 'status').every(event => event.target === grant.target));
+            assert(events.some(event => event.operation === 'update' && event.state === 'fulfilled' && event.visible === true && event.sequence > grant.sequence));
+            assert.equal(failure.additionalLaunches, 4);
+            assert.equal(pane.canvasPresent, false);
+            assert.equal(pane.surfaceUnavailable, true);
+            assert.equal(observed.presentation.drawn, null);
+            const status = events.at(-1);
+            assert.equal(status.operation, 'status');
+            assert.equal(status.mode, 'unavailable');
+            assert.equal(status.reason, 'import-unavailable');
+            const update = events.find(event => event.operation === 'update' && event.state === 'fulfilled' && event.visible === true && event.sequence > grant.sequence);
+            assert(status.sequence > update.sequence);
+            assert(events.some(event => event.operation === 'grant' && event.issued === false && event.sequence > update.sequence && event.sequence < status.sequence));
+            for (const event of events.filter(event => event.operation === 'status' && event.mode === 'unavailable'))
+              assert.equal(event.reason, 'import-unavailable');
+            for (const field of lossFields) assert.equal(replacement[field], true);
+            const recovery = replacement.explicitRecovery;
+            assert(recovery);
+            for (const field of ['uiClose', 'uiNew', 'rootMatched', 'providerOwned']) assert.equal(recovery[field], true);
+            assert.equal(recovery.newActors, 1);
+            assert.equal(recovery.original.id, expected.sessionId);
+            assert.equal(recovery.original.instanceId, expected.instanceId);
+            assert.equal(recovery.original.pid, expected.pid);
+            for (const actor of [recovery.original, recovery.actor]) {
+              assert(named(actor.id) && named(actor.instanceId) && positive(actor.pid));
+              assert.equal(actor.providerId, expected.providerId);
+              assert.equal(actor.profileId, expected.profileId);
+              assert.deepEqual(actor.workspaceRoot, expected.workspaceRoot);
+            }
+            for (const field of ['id', 'instanceId', 'pid']) assert.notEqual(recovery.actor[field], recovery.original[field]);
+          }
+          assert.equal(failure.explicitRecoveryDecision, true);
+          assert.deepEqual(failure.pendingNativeInputLoss, {sent: true, rejected: true, observedEpoch: true});
+          assert.equal(failure.silentRelaunches, 0);
+          assert.equal(typeof failure.contextLoss.eligible, 'boolean');
+          assert.equal(failure.contextLoss.parserPreserved, failure.contextLoss.eligible);
+          assert.deepEqual(failure.final, {livePtys: 0, nativeSessionPresent: false, canvases: 0});
+          assert.equal(failure.realHostQualified, false);
+          assert.equal(failure.hardwareQualified, false);
+          const ssh = proof.nativeSshLifetimes;
+          for (const field of ['ordinaryTerminalUi', 'realSsh2Transport', 'realNativeParser',
+            'syntheticFilesystemMetadata', 'syntheticRemoteProgram', 'sameNamedHostPathsIsolated',
+            'hiddenOutputAndReply', 'ordinaryWorkspaceNavigation', 'ordinarySessionsHandoff',
+            'controlReconnectRetainedPty', 'terminalDisconnectRetainedParser', 'explicitUiClose', 'returnedInputLease'])
+            assert.equal(ssh[field], true);
+          for (const field of ['externalSshHostQualified', 'remoteOsPtyQualified', 'sharedNativeHostLossQualified'])
+            assert.equal(ssh[field], false);
+          assert.equal(ssh.inputBytes, 43);
+          assert.equal(ssh.replyBytes, 4);
+          assert.equal(ssh.inputAndReplySha256, require('node:crypto').createHash('sha256').update('hvir-m13-ssh-input\x1b[0nhvir-m13-ssh-return-input').digest('hex'));
+          assert.equal(ssh.terminalStarts, 1);
+          for (const field of ['remainingConnections', 'remainingChannels', 'remainingHostTransports'])
+            assert.equal(ssh[field], 0);
           const effects = proof.nativeEffects;
           assert.equal(effects.phases, 10);
           for (const field of ['causalEventSerials', 'titleProductDelivery', 'remoteCwdCopied', 'readQueriesRefused', 'newClipboardProtocolsRefused', 'queriesExact', 'linkUserIntentPortHostCorrect'])
@@ -300,7 +463,7 @@ jobs:
           assert.equal(query.movedOccurrence.sameSelection, true);
           assert.equal(query.movedOccurrence.noRevealGesture, true);
           assert.deepEqual(query.movedOccurrence.exactCopy, query.exactCopy);
-          assert(query.frames >= 2 && Number.isFinite(query.maximumFrameGapMs) && query.maximumFrameGapMs <= 500);
+          assert(query.frames >= 2 && Number.isFinite(query.maximumFrameGapMs) && query.maximumFrameGapMs >= 0);
           assert.equal(query.existingHighMatchFrameBudgetMs, 500);
           assert.equal(query.highMatch.initial, 12000);
           assert(query.highMatch.observedReducedCount > 0 && query.highMatch.observedReducedCount < query.highMatch.initial);
@@ -322,7 +485,7 @@ jobs:
           assert(Number.isSafeInteger(proof.readonlyQuery.matches) && proof.readonlyQuery.matches > 0);
           assert.equal(proof.readonlyQuery.exactCopy.bytes, Buffer.byteLength('HVIR_READONLY_SELECTION'));
           assert.equal(proof.readonlyQuery.exactCopy.sha256, crypto.createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex'));
-          assert(proof.readonlyQuery.frames >= 2 && Number.isFinite(proof.readonlyQuery.maximumFrameGapMs) && proof.readonlyQuery.maximumFrameGapMs <= 500);
+          assert(proof.readonlyQuery.frames >= 2 && Number.isFinite(proof.readonlyQuery.maximumFrameGapMs) && proof.readonlyQuery.maximumFrameGapMs >= 0);
           const appearance = proof.nativeAppearance;
           assert.equal(typeof appearance.fractionalScale.refitCanvas.eligible, 'boolean');
           assert.equal(typeof appearance.fractionalScale.refitCanvas.retained, 'boolean');
@@ -362,7 +525,7 @@ jobs:
           assert.equal(effects.responsiveness.maximumMs, 500);
           for (const loop of [effects.responsiveness.main, effects.responsiveness.renderer]) {
             assert(Number.isSafeInteger(loop.samples) && loop.samples >= 2);
-            assert(Number.isFinite(loop.maxMs) && loop.maxMs >= 0 && loop.maxMs <= 500);
+            assert(Number.isFinite(loop.maxMs) && loop.maxMs >= 0);
           }
           const selection = proof.nativeSelection;
           for (const field of ['samePty', 'originalReadyBeforeClear', 'clearScreenScrollback', 'resetTerminal',
@@ -406,14 +569,14 @@ jobs:
           for (const [samples, maximum] of [[selection.mainSamples,selection.mainMaxMs],
             [selection.rendererSamples,selection.rendererMaxMs]]) {
             assert(Number.isSafeInteger(samples) && samples >= 2);
-            assert(Number.isFinite(maximum) && maximum >= 0 && maximum <= 500);
+            assert(Number.isFinite(maximum) && maximum >= 0);
           }
           const isolatedClipboard = process.env.RUNNER_OS === 'Linux';
           assert.equal(selection.isolatedOsClipboardReadback, isolatedClipboard);
           assert.equal(selection.clipboardIntercepted, !isolatedClipboard);
           const readonlySelection = proof.readonlySelection;
           assert(Number.isSafeInteger(readonlySelection.rendererSamples) && readonlySelection.rendererSamples >= 2);
-          assert(Number.isFinite(readonlySelection.rendererMaxMs) && readonlySelection.rendererMaxMs >= 0 && readonlySelection.rendererMaxMs <= 500);
+          assert(Number.isFinite(readonlySelection.rendererMaxMs) && readonlySelection.rendererMaxMs >= 0);
           const gestureBlur = readonlySelection.gestureBlur;
           assert(Number.isSafeInteger(gestureBlur.pointerId) && gestureBlur.pointerId >= 0);
           for (const field of ['acknowledgedDrag', 'tabChangedFocus', 'nativeFocusCleanup',
@@ -427,6 +590,38 @@ jobs:
           assert.equal(readonlySelection.sha256,
             crypto.createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex'));
           assert.equal(readonlySelection.isolatedOsClipboardReadback, isolatedClipboard);
+          // Hosted workbench timing is evidence; controlled runs enforce the SAME 500 ms.
+          // Keep standalone native boundary/import/presenter quantitative gates unchanged.
+          const pasteCases = proof.largePaste.cases;
+          assert.deepEqual(pasteCases.map(item => item.name), ['unicode', 'lnm']);
+          const renderer = (samples, minimumSamples, maximumMs) => ({loop:'renderer', samples, minimumSamples, maximumMs});
+          const main = (samples, minimumSamples, maximumMs) => ({loop:'main', samples, minimumSamples, maximumMs});
+          const measuredPhases = [
+            ['query', [renderer(query.frames, 2, query.maximumFrameGapMs)]],
+            ['effects', [main(effects.responsiveness.main.samples, 2, effects.responsiveness.main.maxMs),
+              renderer(effects.responsiveness.renderer.samples, 2, effects.responsiveness.renderer.maxMs)]],
+            ['selection', [main(selection.mainSamples, 1, selection.mainMaxMs),
+              renderer(selection.rendererSamples, 1, selection.rendererMaxMs)]],
+            ...pasteCases.map(item => ['paste-' + item.name, [renderer(item.paint.frames, 1, item.paint.maxGapMs)]]),
+            ['readonly-selection', [renderer(readonlySelection.rendererSamples, 2, readonlySelection.rendererMaxMs)]],
+            ['readonly-query', [renderer(proof.readonlyQuery.frames, 2, proof.readonlyQuery.maximumFrameGapMs)]],
+          ];
+          assert.equal(performanceProof.phases.length, measuredPhases.length);
+          for (const [index, [phase, loops]] of measuredPhases.entries()) {
+            for (const loop of loops) {
+              assert(Number.isSafeInteger(loop.samples) && loop.samples >= loop.minimumSamples);
+              assert(Number.isFinite(loop.maximumMs) && loop.maximumMs >= 0);
+            }
+            const reported = performanceProof.phases[index];
+            assert.equal(reported.phase, phase);
+            assert.equal(reported.mode, expectedPerformanceMode);
+            assert.equal(reported.maximumInclusiveMs, 500);
+            assert.deepEqual(reported.loops, loops);
+            const violations = loops.filter(loop => loop.maximumMs > 500)
+              .map(loop => ({loop:loop.loop, actualMs:loop.maximumMs, maximumInclusiveMs:500}));
+            assert.deepEqual(reported.violations, violations);
+            if (expectedPerformanceMode === 'controlled') assert.equal(violations.length, 0);
+          }
           NODE
       - name: Diagnose failed Linux library relocation
         if: failure() && runner.os == 'Linux'

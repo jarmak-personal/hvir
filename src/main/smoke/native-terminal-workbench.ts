@@ -1,4 +1,9 @@
 import { verifyNativeTerminalAppearance } from './native-terminal-appearance'
+import { createNativeTerminalSshLifecycleFixture } from '../../../test/fixtures/native-terminal-ssh-lifecycle'
+import { createRemoteProjectFileSmokeHost } from './project-file-operations'
+import { verifyNativeTerminalLifetimes } from './native-terminal-lifecycle'
+import { verifyNativeTerminalFailureLifetimes } from './native-terminal-lifecycle-failure'
+import { observeNativeTerminalUtilities } from './native-terminal-utility-observation'
 import {
   verifyNativeTerminalSelection,
   verifyNativeReadonlySelection,
@@ -21,7 +26,7 @@ import {
 import { app, type BrowserWindow } from 'electron'
 import { nativeTerminalLinuxOptionsFromEnvironment } from '../../shared/native-terminal-linux'
 import { nativeTerminalDiagnostics } from '../terminal/native-terminal-diagnostics'
-import type { PtySupervisor } from '../pty/pty-supervisor'
+import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import {
   createNativeTerminalApplication,
   type NativeTerminalApplication,
@@ -30,6 +35,12 @@ import type { ElectronSmokeDependencies } from './bootstrap-contract'
 import type { SmokeCleanup } from './cleanup'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
+import type { ProjectHost } from '../project-host'
+import { asHostId, hostPath, type ProjectState } from '../../shared'
+import type { NativeTerminalGeometry } from '../../shared/native-terminal'
+import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
+import { nativeWorkbenchPerformanceMode } from './native-terminal-performance'
+import { nativeWorkbenchGeometryReadiness } from './native-terminal-workbench-geometry'
 
 /** Format the qualification receipt; the runner keeps stdout separate from diagnostics. */
 export function nativeWorkbenchReceiptLine(
@@ -43,10 +54,17 @@ export async function createNativeWorkbench(
   {
     mode,
     rendererResources,
-  }: Pick<ElectronSmokeDependencies, 'mode' | 'rendererResources'>,
+    projectRoot,
+    localHost,
+  }: Pick<ElectronSmokeDependencies, 'mode' | 'rendererResources' | 'projectRoot'> & {
+    readonly localHost: ProjectHost
+  },
   supervisor: PtySupervisor,
   cleanup: SmokeCleanup,
 ) {
+  const utilities =
+    mode === 'native-terminal-workbench' ? observeNativeTerminalUtilities() : undefined
+  if (utilities) cleanup.defer('native utility observation', () => utilities.dispose())
   const systemClipboard =
     mode === 'native-terminal-workbench'
       ? new NativeEffectsClipboardObservation()
@@ -61,10 +79,30 @@ export async function createNativeWorkbench(
       : undefined
   if (nativeTerminals)
     cleanup.defer('native development terminals', () => nativeTerminals.dispose())
+  const nativeSsh =
+    mode === 'native-terminal-workbench'
+      ? await createNativeTerminalSshLifecycleFixture(localHost, projectRoot)
+      : undefined
+  if (nativeSsh) cleanup.defer('native SSH lifecycle fixture', () => nativeSsh.dispose())
+  const smokeRemoteRoot =
+    nativeSsh?.root ?? hostPath(asHostId('smoke-remote'), '/srv/hvir')
+  const smokeRemoteHost =
+    nativeSsh?.host ??
+    createRemoteProjectFileSmokeHost({
+      localHost,
+      localRoot: projectRoot,
+      remoteRoot: smokeRemoteRoot,
+    })
   return {
     systemClipboard,
+    smokeRemoteRoot,
+    smokeRemoteHost,
     ipc: { nativeTerminals, nativeTerminalPresentation: nativeTerminals?.targets },
-    async run(win: BrowserWindow): Promise<boolean> {
+    async run(
+      win: BrowserWindow,
+      project: { get(): ProjectState; remoteFiles(): ProjectState },
+      publishProject: (state: ProjectState) => void,
+    ): Promise<boolean> {
       if (mode !== 'native-terminal-workbench') return false
       if (!nativeTerminals)
         throw new Error(
@@ -76,6 +114,14 @@ export async function createNativeWorkbench(
         nativeTerminals,
         rendererResources,
         systemClipboard,
+        utilities,
+        nativeSsh &&
+          ((application, managed) =>
+            nativeSsh.verify(win, supervisor, application, managed, {
+              get: () => project.get(),
+              remote: () => project.remoteFiles(),
+              publish: publishProject,
+            })),
       )
       console.log('HVIR_SMOKE_OK')
       return true
@@ -91,7 +137,13 @@ export async function verifyNativeTerminalWorkbench(
   native: NativeTerminalApplication,
   resources: RendererResourceScopes,
   clipboard?: NativeEffectsClipboardObservation,
+  utilities?: ReturnType<typeof observeNativeTerminalUtilities>,
+  qualifySsh?: (
+    application: NativeTerminalApplication,
+    managed: ManagedPty,
+  ) => Promise<unknown>,
 ): Promise<void> {
+  const performanceMode = nativeWorkbenchPerformanceMode()
   const rendererSandboxed = (await win.webContents.executeJavaScript(
     'window.hvir.diagnostics.processSandboxed',
   )) as unknown
@@ -135,7 +187,13 @@ export async function verifyNativeTerminalWorkbench(
   const text = async () =>
     new TextDecoder().decode(await native.readRetained(managed.id, owner))
   // M10's destructive fixture precedes M9's original-ready/retention lifetime.
-  const nativeQuery = await verifyNativeTerminalQuery(win, ptys, native, managed)
+  const nativeQuery = await verifyNativeTerminalQuery(
+    win,
+    ptys,
+    native,
+    managed,
+    performanceMode,
+  )
   await ptys.writeConfirmed(
     managed.id,
     owner.id,
@@ -187,16 +245,37 @@ export async function verifyNativeTerminalWorkbench(
     native,
     managed,
     clipboard,
+    performanceMode,
   )
-  const nativeSelection = await verifyNativeTerminalSelection(win, ptys, native, managed)
-  const largePaste = await verifyNativeTerminalPaste(win, ptys, native, managed)
+  const nativeSelection = await verifyNativeTerminalSelection(
+    win,
+    ptys,
+    native,
+    managed,
+    performanceMode,
+  )
+  const largePaste = await verifyNativeTerminalPaste(
+    win,
+    ptys,
+    native,
+    managed,
+    performanceMode,
+  )
   const nativeAppearance = await verifyNativeTerminalAppearance(
     win,
     ptys,
     native,
     managed,
   )
-  const initialGeometry = (await native.inspectRetained(managed.id, owner)).geometry
+  const nativeLifetimes = await verifyNativeTerminalLifetimes(win, ptys, native, managed)
+  const readGeometry = nativeWorkbenchGeometryReadiness(win, ptys, native, managed)
+  let initialGeometry!: NativeTerminalGeometry
+  await waitFor(async () => {
+    const current = await readGeometry()
+    if (!current) return false
+    initialGeometry = current
+    return true
+  })
   await win.webContents.executeJavaScript(`(() => {
     const control = [...document.querySelectorAll('button[aria-label="Collapse terminal rail"],button[aria-label="Restore terminal rail"]')]
       .find(button => button instanceof HTMLButtonElement && !button.closest('[hidden]') && button.getBoundingClientRect().width > 0);
@@ -204,23 +283,51 @@ export async function verifyNativeTerminalWorkbench(
     control.click();
     return true;
   })()`)
+  let geometry!: NativeTerminalGeometry
   await waitFor(async () => {
-    const geometry = (await native.inspectRetained(managed.id, owner)).geometry
-    return (
-      geometry.serial > initialGeometry.serial &&
-      geometry.columns !== initialGeometry.columns
+    const current = await readGeometry()
+    if (
+      !current ||
+      current.serial <= initialGeometry.serial ||
+      current.columns === initialGeometry.columns
     )
+      return false
+    geometry = current
+    return true
   })
-  const geometry = (await native.inspectRetained(managed.id, owner)).geometry
   await ptys.writeConfirmed(
     managed.id,
     owner.id,
     "printf 'HVIR_NATIVE_SIZE='; stty size\r",
     owner.generation,
   )
-  await waitFor(async () =>
-    (await text()).includes('HVIR_NATIVE_SIZE=' + geometry.rows + ' ' + geometry.columns),
-  )
+  let resizeObservation: unknown
+  try {
+    await waitFor(async () => {
+      const retained = await text()
+      const marker = retained.lastIndexOf('HVIR_NATIVE_SIZE=')
+      const size =
+        marker < 0
+          ? null
+          : /^HVIR_NATIVE_SIZE=(\d{1,6}) (\d{1,6})/.exec(
+              retained.slice(marker, marker + 50),
+            )
+      resizeObservation = {
+        expectedRows: geometry.rows,
+        expectedColumns: geometry.columns,
+        expectedSerial: geometry.serial,
+        markerPresent: marker >= 0,
+        observedRows: size ? Number(size[1]) : undefined,
+        observedColumns: size ? Number(size[2]) : undefined,
+      }
+      return retained.includes(
+        'HVIR_NATIVE_SIZE=' + geometry.rows + ' ' + geometry.columns,
+      )
+    })
+  } catch (error) {
+    console.error('HVIR_NATIVE_RESIZE_FAILURE', JSON.stringify(resizeObservation))
+    throw error
+  }
   console.log('[native-workbench] resized-stty')
   const nativeRenderer = await native.rendererInfo(managed.id, owner)
   const linuxOptions =
@@ -254,11 +361,27 @@ export async function verifyNativeTerminalWorkbench(
     ptys,
     native,
     managed,
+    performanceMode,
   )
-  const readonlyQuery = await verifyNativeReadonlyQuery(win, native, managed)
+  const readonlyQuery = await verifyNativeReadonlyQuery(
+    win,
+    native,
+    managed,
+    performanceMode,
+  )
   if (ptys.list().length) throw new Error('native-query-readonly-revived-pty')
-  await native.remove(managed.id, managed.instanceId)
-  if (native.sessions.get(managed.id)) throw new Error('native-workbench-removed-state')
+  if (!qualifySsh) throw new Error('native-lifecycle-ssh-fixture-missing')
+  const nativeSshLifetimes = await qualifySsh(native, managed)
+  console.log('HVIR_NATIVE_SSH_LIFECYCLE_OK ' + JSON.stringify(nativeSshLifetimes))
+  if (!utilities) throw new Error('native-lifecycle-utility-observation-missing')
+  const nativeFailureLifetimes = await verifyNativeTerminalFailureLifetimes(
+    win,
+    ptys,
+    native,
+    resources,
+    utilities,
+    managed,
+  )
   console.log(
     nativeWorkbenchReceiptLine({
       platform: process.platform,
@@ -266,6 +389,19 @@ export async function verifyNativeTerminalWorkbench(
       actualWorkbench: true,
       sourceCommit: process.env['HVIR_SMOKE_SOURCE_COMMIT'] ?? null,
       sourceDirty: process.env['HVIR_SMOKE_SOURCE_DIRTY'] === '1',
+      performance: {
+        mode: performanceMode,
+        maximumInclusiveMs: UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs,
+        controlledCapacityQualified: false,
+        phases: [
+          nativeQuery.performance,
+          nativeEffects.performance,
+          nativeSelection.performance,
+          ...largePaste.cases.map((fixture) => fixture.performance),
+          readonlySelection.performance,
+          readonlyQuery.performance,
+        ],
+      },
       rendererSandboxed: true,
       rendererContextIsolated: true,
       supervisorSpawns: 1,
@@ -280,6 +416,9 @@ export async function verifyNativeTerminalWorkbench(
       nativeSelection,
       nativeQuery,
       nativeAppearance,
+      nativeLifetimes,
+      nativeFailureLifetimes,
+      nativeSshLifetimes,
       readonlySelection,
       readonlyQuery,
       largePaste,

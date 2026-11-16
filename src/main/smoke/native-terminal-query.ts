@@ -4,6 +4,11 @@ import type { NativeTerminalApplication } from '../terminal/native-terminal-appl
 import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
 import { CAPACITY_PERFORMANCE_BUDGETS } from './capacity-performance'
 import {
+  nativeWorkbenchPerformanceEvidence,
+  enforceNativeWorkbenchPerformance,
+  type NativeWorkbenchPerformanceMode,
+} from './native-terminal-performance'
+import {
   clipboardInstall,
   nativeSelectionBrowser,
   paneScript,
@@ -23,6 +28,7 @@ export async function verifyNativeTerminalQuery(
   ptys: PtySupervisor,
   native: NativeTerminalApplication,
   managed: ManagedPty,
+  performanceMode: NativeWorkbenchPerformanceMode,
 ) {
   const browser = nativeSelectionBrowser(win, native, managed)
   const diagnostics =
@@ -574,9 +580,36 @@ export async function verifyNativeTerminalQuery(
     await browser.ready()
     phase = 'query-frame-proof'
     const proof = await browser.proof()
-    if (proof.frames < 2 || proof.maxGapMs > UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs)
-      throw nativeQueryFrameBudgetError('query', proof, browser.captureTiming())
+    const performanceEvidence = nativeWorkbenchPerformanceEvidence(
+      performanceMode,
+      'query',
+      [
+        {
+          loop: 'renderer',
+          samples: proof.frames,
+          minimumSamples: 2,
+          maximumMs: proof.maxGapMs,
+        },
+      ],
+    )
+    console.log(
+      'HVIR_NATIVE_WORKBENCH_PERFORMANCE ' + JSON.stringify(performanceEvidence),
+    )
+    if (performanceEvidence.violations.length)
+      console.log(
+        'HVIR_NATIVE_QUERY_RESPONSIVENESS ' +
+          JSON.stringify({
+            phase: 'query',
+            ...proof,
+            captureTiming: browser.captureTiming(),
+          }),
+      )
+    enforceNativeWorkbenchPerformance(
+      performanceEvidence,
+      nativeQueryFrameBudgetError('query', proof, browser.captureTiming()),
+    )
     return {
+      performance: performanceEvidence,
       actualNative: true,
       matches: 3,
       exactCopy: copy,
@@ -652,6 +685,7 @@ export async function verifyNativeReadonlyQuery(
   win: BrowserWindow,
   native: NativeTerminalApplication,
   managed: ManagedPty,
+  performanceMode: NativeWorkbenchPerformanceMode,
 ) {
   const browser = nativeSelectionBrowser(win, native, managed)
   const scope = paneScript(managed.id)
@@ -703,12 +737,36 @@ export async function verifyNativeReadonlyQuery(
       'readonly-query-paint-samples',
     )
     const timing = await browser.proof()
-    if (
-      timing.frames < 2 ||
-      timing.maxGapMs > UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs
+    const performanceEvidence = nativeWorkbenchPerformanceEvidence(
+      performanceMode,
+      'readonly-query',
+      [
+        {
+          loop: 'renderer',
+          samples: timing.frames,
+          minimumSamples: 2,
+          maximumMs: timing.maxGapMs,
+        },
+      ],
     )
-      throw nativeQueryFrameBudgetError('readonly-query', timing, browser.captureTiming())
+    console.log(
+      'HVIR_NATIVE_WORKBENCH_PERFORMANCE ' + JSON.stringify(performanceEvidence),
+    )
+    if (performanceEvidence.violations.length)
+      console.log(
+        'HVIR_NATIVE_QUERY_RESPONSIVENESS ' +
+          JSON.stringify({
+            phase: 'readonly-query',
+            ...timing,
+            captureTiming: browser.captureTiming(),
+          }),
+      )
+    enforceNativeWorkbenchPerformance(
+      performanceEvidence,
+      nativeQueryFrameBudgetError('readonly-query', timing, browser.captureTiming()),
+    )
     return {
+      performance: performanceEvidence,
       retainedAfterExit: true,
       matches: count,
       exactCopy: copy,
@@ -809,7 +867,9 @@ async function selectedHighlight(
   let latestCapture: object | undefined
   try {
     await browser.wait(async () => {
-      const { geometry, bounds } = await browser.layout()
+      const layout = await browser.layoutWhenReady()
+      if (!layout) return false
+      const { geometry, bounds } = layout
       const rect = (await win.webContents.executeJavaScript(
         `(()=>{${paneScript(session)}const r=canvas.getBoundingClientRect(),bar=panel.querySelector('.terminal-search')?.getBoundingClientRect();return{x:Math.ceil(r.x),y:Math.ceil(r.y),width:Math.floor(r.width),height:Math.floor(r.height),bar:bar?{left:bar.left,right:bar.right,top:bar.top,bottom:bar.bottom}:undefined};})()`,
       )) as {

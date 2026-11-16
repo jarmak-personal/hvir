@@ -183,6 +183,7 @@ async function fixture() {
     parsed: vi.fn(),
     repliesDispatched: vi.fn(),
     writeReply: vi.fn(() => Promise.resolve()),
+    writeControl: vi.fn(() => Promise.resolve()),
   }
   prepared.connect(writer)
   const send = vi.fn<WebFrameMain['send']>()
@@ -191,6 +192,7 @@ async function fixture() {
     'isDestroyed' | 'send'
   > as WebFrameMain
   const presenter = {
+    withdraw: vi.fn(),
     appearance: vi.fn(() => Promise.resolve(false)),
     attach: vi.fn(() => Promise.resolve(viewId)),
     update: vi.fn(() =>

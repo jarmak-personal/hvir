@@ -99,6 +99,7 @@ export function nativeTerminalPresenterFixture(linuxMode?: 'auto' | 'pixels') {
     attach: vi.fn(() => ++attachment),
     detach: vi.fn(),
     nativeEpoch: vi.fn(() => live.epoch),
+    geometryIssuanceFloor: vi.fn(() => serial),
     inspect: vi.fn(() => Promise.resolve(status())),
     appearance: vi.fn(() => Promise.resolve(status())),
     resize: vi.fn(

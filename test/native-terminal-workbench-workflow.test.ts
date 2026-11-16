@@ -19,6 +19,34 @@ const qualification = Object.values(workflow.jobs)
   .find((step) => step.name === 'Qualify the ordinary native workbench runtime')?.run
 if (!qualification) throw new Error('Native workbench qualification step missing')
 
+interface TimingFixture {
+  mode: 'evidence' | 'controlled'
+  crossing?:
+    | 'query'
+    | 'readonly-query'
+    | 'selection'
+    | 'readonly-selection'
+    | 'effects'
+    | 'paste-unicode'
+    | 'paste-lnm'
+  fault?:
+    | 'missing-mode'
+    | 'invalid-mode'
+    | 'omit-violation'
+    | 'invent-violation'
+    | 'round-maximum'
+    | 'missing-phase'
+    | 'raised-limit'
+    | 'invalid-samples'
+    | 'invalid-maximum'
+    | 'capacity-claim'
+    | 'wrong-minimum'
+    | 'missing-loop'
+    | 'phase-limit'
+    | 'unsafe-samples'
+    | 'negative-maximum'
+}
+
 /** Executes the real workflow shell and JSON assertions; only build/display/producer are fixtures. */
 function executeQualification(
   command: string,
@@ -45,6 +73,16 @@ function executeQualification(
     | 'lost-selection'
     | 'streaming-deadline',
   badAppearance?: 'selection' | 'geometry' | 'cursor' | 'unicode' | 'context',
+  badLifetime?:
+    | 'identity'
+    | 'authority'
+    | 'resource'
+    | 'refit'
+    | 'recovery'
+    | 'ssh-input'
+    | 'ssh-resource',
+  timing?: TimingFixture,
+  replacement?: { outcome: 'drawn' | 'quarantined'; fault?: string },
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'hvir-native-workbench-report-'))
   try {
@@ -70,6 +108,9 @@ const proof = {
   nativeSelection:{pendingPressAck:{pointerId:1,heldMoveButtons:1,trustedOutsideMove:true,trustedOutsideUp:true,ackHeldUntilOutsideUp:true,nativeOriginalViewOrder:true,captureReleasedBeforeAck:true,captureReleasedAfterAck:true,exactSelectedBytes:5,exactSelectedSha256:require('node:crypto').createHash('sha256').update('alpha').digest('hex')},samePty:true,originalReadyBeforeClear:true,clearScreenScrollback:true,resetTerminal:true,parserInputAlive:true,drag:true,word:true,line:true,unicodeWhitespace:true,softwrap:true,selectAll:true,menu:true,metaCopy:true,controlShiftCopy:true,fileUriAndPlainIntent:true,linkRootsMatched:true,loopbackRouteContent:true,externalOpenerObserved:true,osExternalOpenerInvoked:false,hardwareGpuQualified:false,retentionEpoch:'HVIR_M9_RETENTION_EPOCH',fixtureColumns:80,linkIntents:4,copies:[['drag','alpha'],['word','alpha'],['line','alpha beta'],['unicode-whitespace','  A界e\\u0301B  '],['all-softwrap','w'.repeat(100)],['continuous-drag','alpha']].map(([name,text])=>({name,bytes:Buffer.byteLength(text),sha256:require('node:crypto').createHash('sha256').update(text).digest('hex')})),continuous:{producedBytes:65536,copiedWhileActive:true},largeCopy:{fixtureBytes:4096*81-1,copyFinished:false,copyStale:true,refusalCode:6,inputWhilePending:false,writeWhilePending:false,userWrites:1,mutation:8},mainSamples:4,mainMaxMs:20,rendererSamples:4,rendererMaxMs:20,isolatedOsClipboardReadback:process.env.RUNNER_OS==='Linux'&&process.env.HVIR_NATIVE_TERMINAL_ISOLATED_CLIPBOARD==='1',clipboardIntercepted:process.env.RUNNER_OS!=='Linux'},
   readonlySelection:{gestureBlur:{pointerId:1,heldMoveButtons:1,acknowledgedDrag:true,tabChangedFocus:true,nativeFocusCleanup:true,captureReleased:true,ptyWrites:0,ptyCount:0,selectedRangePreserved:true},rendererSamples:4,rendererMaxMs:20,readonlyDrag:true,readonlyCopy:true,bytes:Buffer.byteLength('HVIR_READONLY_SELECTION'),sha256:require('node:crypto').createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex'),isolatedOsClipboardReadback:process.env.RUNNER_OS==='Linux'&&process.env.HVIR_NATIVE_TERMINAL_ISOLATED_CLIPBOARD==='1'},
   readonlyQuery:{retainedAfterExit:true,matches:1,exactCopy:{bytes:Buffer.byteLength('HVIR_READONLY_SELECTION'),sha256:require('node:crypto').createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex')},frames:10,maximumFrameGapMs:20},
+  nativeLifetimes:{samePty:true,sameNativeState:true,hiddenOutput:true,realSessionsHandoff:true,realHostQualified:false,hiddenInputRefusals:3,cycles:[0,1,2].map(cycle=>({cycle,canvases:1,queuedReplyBytes:0,serial:cycle+1}))},
+  nativeFailureLifetimes:{additionalLaunches:3,explicitRestart:true,readonlyInstanceRetired:true,explicitRecoveryDecision:true,pendingNativeInputLoss:{sent:true,rejected:true,observedEpoch:true},splitClosed:true,documentReplacement:true,oldOwnerRejected:true,samePtyOnDocumentReplacement:true,rejectedRefit:true,noReplacementGrantOnRefusal:true,mainUnavailableCanResume:true,staleFailureIgnored:true,nativeHostLoss:true,lostReadRejected:true,silentRelaunches:0,explicitClose:true,contextLoss:{eligible:true,parserPreserved:true},final:{livePtys:0,nativeSessionPresent:false,canvases:0},realHostQualified:false,hardwareQualified:false},
+  nativeSshLifetimes:{ordinaryTerminalUi:true,realSsh2Transport:true,realNativeParser:true,syntheticFilesystemMetadata:true,syntheticRemoteProgram:true,sameNamedHostPathsIsolated:true,hiddenOutputAndReply:true,ordinaryWorkspaceNavigation:true,ordinarySessionsHandoff:true,controlReconnectRetainedPty:true,terminalDisconnectRetainedParser:true,explicitUiClose:true,returnedInputLease:true,externalSshHostQualified:false,remoteOsPtyQualified:false,sharedNativeHostLossQualified:false,inputBytes:43,replyBytes:4,inputAndReplySha256:require('node:crypto').createHash('sha256').update('hvir-m13-ssh-input\\x1b[0nhvir-m13-ssh-return-input').digest('hex'),terminalStarts:1,remainingConnections:0,remainingChannels:0,remainingHostTransports:0},
   diagnosticPadding: 'x'.repeat(90000),
 };
 if(process.env.HVIR_TEST_BAD_EFFECT==='clipboard')proof.nativeEffects.clipboardWrites[1].sha256='incorrect';
@@ -97,6 +138,107 @@ if(process.env.HVIR_TEST_BAD_APPEARANCE==='geometry')proof.nativeAppearance.hidd
 if(process.env.HVIR_TEST_BAD_APPEARANCE==='cursor')proof.nativeAppearance.applicationCursorOverride=false;
 if(process.env.HVIR_TEST_BAD_APPEARANCE==='context')proof.nativeAppearance.fractionalScale.refitCanvas.retained=false;
 if(process.env.HVIR_TEST_BAD_APPEARANCE==='unicode')proof.nativeAppearance.hiddenFontReveal.unicodeExactPointerCopy.sha256='incorrect';
+if(process.env.HVIR_TEST_BAD_LIFETIME==='ssh-input')proof.nativeSshLifetimes.inputAndReplySha256='incorrect';
+if(process.env.HVIR_TEST_BAD_LIFETIME==='ssh-resource')proof.nativeSshLifetimes.remainingHostTransports=1;
+if(process.env.HVIR_TEST_BAD_LIFETIME==='identity')proof.nativeLifetimes.sameNativeState=false;
+if(process.env.HVIR_TEST_BAD_LIFETIME==='authority')proof.nativeFailureLifetimes.oldOwnerRejected=false;
+if(process.env.HVIR_TEST_BAD_LIFETIME==='resource')proof.nativeFailureLifetimes.final.canvases=1;
+if(process.env.HVIR_TEST_BAD_LIFETIME==='refit')proof.nativeFailureLifetimes.noReplacementGrantOnRefusal=false;
+if(process.env.HVIR_TEST_BAD_LIFETIME==='recovery')proof.nativeFailureLifetimes.silentRelaunches=1;
+const replacementOutcome=process.env.HVIR_TEST_REPLACEMENT_OUTCOME||'drawn';
+const expected={sessionId:'retained-session',instanceId:'retained-instance',pid:100,handle:'retained-handle',ownerId:1,previousOwnerGeneration:1,providerId:'fixture-shell-provider',profileId:null,workspaceRoot:{hostId:'local',path:'/fixture/root'}};
+const currentView=[
+ {operation:'update',state:'started',viewId:'current-view',ownerId:1,ownerGeneration:2,visible:true,sequence:9},
+ {operation:'grant',state:'returned',viewId:'current-view',target:1,frameCurrent:true,issued:true,refit:false,attachment:2,nativeEpoch:'native-epoch',geometrySerial:8,sequence:11},
+ {operation:'update',state:'fulfilled',viewId:'current-view',ownerId:1,ownerGeneration:2,visible:true,sequence:12},
+];
+if(replacementOutcome==='quarantined')currentView.push(
+ {operation:'grant',state:'returned',viewId:'current-view',target:1,frameCurrent:true,issued:false,refit:false,sequence:75},
+ {operation:'status',state:'returned',viewId:'current-view',target:1,frameCurrent:true,mode:'unavailable',reason:'import-unavailable',sequence:76});
+const observed={owner:{id:1,generation:2},retained:{id:expected.sessionId,instanceId:expected.instanceId,pid:100,ownerId:1,ownerGeneration:2,providerId:expected.providerId,profileId:expected.profileId,workspaceRoot:expected.workspaceRoot},native:{handle:expected.handle,workspaceRoot:expected.workspaceRoot,instanceId:expected.instanceId,ownerId:1,ownerGeneration:2,retiring:false,unavailable:false,inputUnavailable:false,inputClosed:false,readonly:false},presentation:{viewId:'current-view',issuedGrant:{viewId:'current-view',target:1,frameCurrent:true,attachment:2,nativeEpoch:'native-epoch',geometrySerial:8},drawn:replacementOutcome==='drawn'?{screen:0,geometrySerial:8}:null,observations:{startedBeforeReload:true,total:77,truncated:false,readFailed:false,currentView,mainSendIsNotReceiverDelivery:true}},dom:{panes:[{viewId:'native-terminal-current-view',sessionId:expected.sessionId,connected:true,paneUnavailable:false,surfaceUnavailable:replacementOutcome==='quarantined',inputDisabled:false,canvasPresent:replacementOutcome==='drawn'}]}};
+const recovery={uiClose:true,uiNew:true,newActors:1,original:{id:expected.sessionId,instanceId:expected.instanceId,pid:100,providerId:expected.providerId,profileId:expected.profileId,workspaceRoot:expected.workspaceRoot},actor:{id:'recovery-session',instanceId:'recovery-instance',pid:101,providerId:expected.providerId,profileId:expected.profileId,workspaceRoot:expected.workspaceRoot},rootMatched:true,providerOwned:true};
+const replacement=proof.nativeFailureLifetimes.replacement={outcome:replacementOutcome,expected,observed,parserProgress:replacementOutcome==='quarantined'?true:null,presentationRevoked:replacementOutcome==='quarantined'?true:null,inputRevoked:replacementOutcome==='quarantined'?true:null,unknownPhysicalReferencesRetained:replacementOutcome==='quarantined'?true:null,preShutdownReclamationQualified:false,explicitRecovery:replacementOutcome==='quarantined'?recovery:null};
+proof.nativeFailureLifetimes.additionalLaunches=replacementOutcome==='quarantined'?4:3;
+const replacementFault=process.env.HVIR_TEST_REPLACEMENT_FAULT;
+if(replacementFault==='mixed-update-rejection'||replacementFault==='mixed-demand-rejection')currentView.splice(3,0,{operation:replacementFault==='mixed-update-rejection'?'update':'demand',state:'rejected',viewId:'current-view',ownerId:1,ownerGeneration:2,visible:true,sequence:13});
+if(replacementFault==='mixed-prior-loss')currentView.unshift({operation:'status',state:'returned',viewId:'current-view',target:1,frameCurrent:true,mode:'unavailable',reason:'renderer-lost',sequence:8});
+if(replacementFault==='wrong-reason')currentView.at(-1).reason='native-lost';
+if(replacementFault==='wrong-view')currentView[1].viewId='old-view';
+if(replacementFault==='wrong-frame')currentView[1].frameCurrent=false;
+if(replacementFault==='wrong-target')currentView.at(-1).target=2;
+if(replacementFault==='bad-order')currentView.at(-1).sequence=10;
+if(replacementFault==='missing-epoch')delete currentView[1].nativeEpoch;
+if(replacementFault==='missing-start')currentView.shift();
+if(replacementFault==='missing-withdrawal')currentView.splice(-2,1);
+if(replacementFault==='drawn-epoch')delete observed.presentation.issuedGrant.nativeEpoch;
+if(replacementFault==='drawn-frame')observed.presentation.issuedGrant.frameCurrent=false;
+if(replacementFault==='drawn-view')observed.presentation.issuedGrant.viewId='old-view';
+if(replacementFault==='ring-evicted'){observed.presentation.observations.truncated=true;observed.presentation.observations.currentView=[];}
+if(replacementFault==='truncated')observed.presentation.observations.truncated=true;
+if(replacementFault==='unstarted')observed.presentation.observations.startedBeforeReload=false;
+if(replacementFault==='read-failed')observed.presentation.observations.readFailed=true;
+if(replacementFault==='owner')observed.native.ownerGeneration=1;
+if(replacementFault==='identity')observed.native.handle='other-handle';
+if(replacementFault==='producer-loss')observed.native.unavailable=true;
+if(replacementFault==='retiring')observed.native.retiring=true;
+if(replacementFault==='input-unavailable')observed.native.inputUnavailable=true;
+if(replacementFault==='input-closed')observed.native.inputClosed=true;
+if(replacementFault==='readonly')observed.native.readonly=true;
+if(replacementFault==='missing-parser')delete replacement.parserProgress;
+if(replacementFault==='missing-input')delete replacement.inputRevoked;
+if(replacementFault==='free-claim')replacement.preShutdownReclamationQualified=true;
+if(replacementFault==='refs-reclaimed')replacement.unknownPhysicalReferencesRetained=false;
+if(replacementFault==='implicit-actor')replacement.explicitRecovery=null;
+if(replacementFault==='duplicate-actor')recovery.newActors=2;
+if(replacementFault==='same-actor')recovery.actor.instanceId=recovery.original.instanceId;
+if(replacementFault==='provider')recovery.actor.providerId='other-provider';
+if(replacementFault==='root')recovery.rootMatched=false;
+if(replacementFault==='wrong-root')recovery.actor.workspaceRoot={hostId:'different-host',path:expected.workspaceRoot.path};
+if(replacementFault==='profile')recovery.actor.profileId='different-profile';
+if(replacementFault==='native-root')observed.native.workspaceRoot={hostId:'different-host',path:expected.workspaceRoot.path};
+if(replacementFault==='skipped-case')delete proof.nativeFailureLifetimes.rejectedRefit;
+if(replacementFault==='global-canvas')observed.dom.panes[0].canvasPresent=false;
+if(replacementFault==='drawn-serial')observed.presentation.drawn.geometrySerial=7;
+if(replacementFault==='pane-loss')observed.dom.panes[0].paneUnavailable=true;
+if(replacementFault==='missing-producer-flag')delete observed.native.retiring;
+if(replacementFault==='launches')proof.nativeFailureLifetimes.additionalLaunches=3;
+proof.largePaste={cases:['unicode','lnm'].map(name=>({name,paint:{frames:4,maxGapMs:20}}))};
+const timingMode=process.env.HVIR_CAPACITY_PERFORMANCE_GATE==='controlled'?'controlled':'evidence';
+const crossing=process.env.HVIR_TEST_TIMING_CROSSING;
+if(crossing==='query')proof.nativeQuery.maximumFrameGapMs=518.5;
+if(crossing==='readonly-query')proof.readonlyQuery.maximumFrameGapMs=518.5;
+if(crossing==='selection')proof.nativeSelection.rendererMaxMs=518.5;
+if(crossing==='readonly-selection')proof.readonlySelection.rendererMaxMs=518.5;
+if(crossing==='effects')proof.nativeEffects.responsiveness.main.maxMs=518.5;
+if(crossing==='paste-unicode')proof.largePaste.cases[0].paint.maxGapMs=518.5;
+if(crossing==='paste-lnm')proof.largePaste.cases[1].paint.maxGapMs=518.5;
+if(process.env.HVIR_TEST_TIMING_FAULT==='invalid-samples')proof.nativeQuery.frames=0;
+if(process.env.HVIR_TEST_TIMING_FAULT==='invalid-maximum')proof.nativeQuery.maximumFrameGapMs=NaN;
+if(process.env.HVIR_TEST_TIMING_FAULT==='negative-maximum')proof.nativeQuery.maximumFrameGapMs=-1;
+if(process.env.HVIR_TEST_TIMING_FAULT==='unsafe-samples')proof.nativeQuery.frames=1e20;
+const renderer=(samples,minimumSamples,maximumMs)=>({loop:'renderer',samples,minimumSamples,maximumMs});
+const main=(samples,minimumSamples,maximumMs)=>({loop:'main',samples,minimumSamples,maximumMs});
+const phases=[
+ ['query',[renderer(proof.nativeQuery.frames,2,proof.nativeQuery.maximumFrameGapMs)]],
+ ['effects',[main(proof.nativeEffects.responsiveness.main.samples,2,proof.nativeEffects.responsiveness.main.maxMs),renderer(proof.nativeEffects.responsiveness.renderer.samples,2,proof.nativeEffects.responsiveness.renderer.maxMs)]],
+ ['selection',[main(proof.nativeSelection.mainSamples,1,proof.nativeSelection.mainMaxMs),renderer(proof.nativeSelection.rendererSamples,1,proof.nativeSelection.rendererMaxMs)]],
+ ...proof.largePaste.cases.map(item=>['paste-'+item.name,[renderer(item.paint.frames,1,item.paint.maxGapMs)]]),
+ ['readonly-selection',[renderer(proof.readonlySelection.rendererSamples,2,proof.readonlySelection.rendererMaxMs)]],
+ ['readonly-query',[renderer(proof.readonlyQuery.frames,2,proof.readonlyQuery.maximumFrameGapMs)]],
+].map(([phase,loops])=>({phase,mode:timingMode,maximumInclusiveMs:500,loops,violations:loops.filter(item=>item.maximumMs>500).map(item=>({loop:item.loop,actualMs:item.maximumMs,maximumInclusiveMs:500}))}));
+proof.performance={mode:timingMode,maximumInclusiveMs:500,controlledCapacityQualified:false,phases};
+const timingFault=process.env.HVIR_TEST_TIMING_FAULT;
+if(timingFault==='missing-mode')delete proof.performance.mode;
+if(timingFault==='invalid-mode')proof.performance.mode='automatic';
+if(timingFault==='omit-violation')phases.find(item=>item.violations.length).violations=[];
+if(timingFault==='invent-violation')phases[0].violations=[{loop:'renderer',actualMs:501,maximumInclusiveMs:500}];
+if(timingFault==='round-maximum')phases.find(item=>item.violations.length).loops[0].maximumMs=500;
+if(timingFault==='missing-phase')phases.pop();
+if(timingFault==='raised-limit')proof.performance.maximumInclusiveMs=501;
+if(timingFault==='capacity-claim')proof.performance.controlledCapacityQualified=true;
+if(timingFault==='wrong-minimum')phases[0].loops[0].minimumSamples=1;
+if(timingFault==='missing-loop')phases.find(item=>item.phase==='effects').loops.pop();
+if(timingFault==='phase-limit')phases[0].maximumInclusiveMs=501;
 const line = 'HVIR_NATIVE_WORKBENCH_OK ' + JSON.stringify(proof) + '\\n';
 process.stdout.write(line.slice(0, 65536), () => {
   process.stderr.write('controlled native cleanup diagnostic\\n', () => {
@@ -134,6 +276,12 @@ exec "$HVIR_TEST_NODE" "$@"
         HVIR_TEST_BAD_SELECTION: badSelection ?? '',
         HVIR_TEST_BAD_QUERY: badQuery ?? '',
         HVIR_TEST_BAD_APPEARANCE: badAppearance ?? '',
+        HVIR_TEST_BAD_LIFETIME: badLifetime ?? '',
+        HVIR_CAPACITY_PERFORMANCE_GATE: timing?.mode === 'controlled' ? 'controlled' : '',
+        HVIR_TEST_TIMING_CROSSING: timing?.crossing ?? '',
+        HVIR_TEST_TIMING_FAULT: timing?.fault ?? '',
+        HVIR_TEST_REPLACEMENT_OUTCOME: replacement?.outcome ?? '',
+        HVIR_TEST_REPLACEMENT_FAULT: replacement?.fault ?? '',
       },
     })
     const proof = readFileSync(
@@ -147,11 +295,205 @@ exec "$HVIR_TEST_NODE" "$@"
 }
 
 describe('native workbench machine-readable workflow stream', () => {
+  const replacementResult = (outcome: 'drawn' | 'quarantined', fault?: string) =>
+    executeQualification(
+      qualification,
+      'macOS',
+      false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { outcome, fault },
+    )
+  it.each(['drawn', 'quarantined'] as const)(
+    'accepts the qualified %s replacement outcome',
+    (outcome) => {
+      expect(replacementResult(outcome).status).toBe(0)
+    },
+  )
+  it.each([
+    'wrong-reason',
+    'mixed-update-rejection',
+    'mixed-demand-rejection',
+    'mixed-prior-loss',
+    'wrong-view',
+    'wrong-frame',
+    'wrong-target',
+    'bad-order',
+    'missing-epoch',
+    'missing-start',
+    'missing-withdrawal',
+    'truncated',
+    'unstarted',
+    'read-failed',
+    'owner',
+    'identity',
+    'producer-loss',
+    'retiring',
+    'input-unavailable',
+    'input-closed',
+    'readonly',
+    'missing-parser',
+    'missing-input',
+    'free-claim',
+    'refs-reclaimed',
+    'implicit-actor',
+    'duplicate-actor',
+    'same-actor',
+    'provider',
+    'root',
+    'wrong-root',
+    'profile',
+    'native-root',
+    'skipped-case',
+    'pane-loss',
+    'missing-producer-flag',
+    'launches',
+  ])('rejects unsafe quarantine evidence: %s', (fault) => {
+    const result = replacementResult('quarantined', fault)
+    expect(result.error).toBeUndefined()
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('AssertionError')
+  })
+  it.each([
+    'global-canvas',
+    'drawn-epoch',
+    'drawn-frame',
+    'drawn-view',
+    'drawn-serial',
+    'pane-loss',
+    'missing-producer-flag',
+    'free-claim',
+    'skipped-case',
+  ])('rejects unsafe drawn evidence: %s', (fault) => {
+    expect(replacementResult('drawn', fault).status).not.toBe(0)
+  })
+  it('accepts current drawn evidence after healthy issuance history is evicted', () => {
+    expect(replacementResult('drawn', 'ring-evicted').status).toBe(0)
+  })
+  const timingResult = (timing: TimingFixture) =>
+    executeQualification(
+      qualification,
+      'macOS',
+      false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      timing,
+    )
+  it.each([
+    'query',
+    'readonly-query',
+    'selection',
+    'readonly-selection',
+    'effects',
+    'paste-unicode',
+    'paste-lnm',
+  ] as const)(
+    'retains hosted %s crossings as exact evidence and enforces the same 500 ms controlled limit',
+    (phase) => {
+      const hosted = timingResult({ mode: 'evidence', crossing: phase })
+      expect(hosted.error).toBeUndefined()
+      expect(hosted.status).toBe(0)
+      const receipt = JSON.parse(hosted.proof.split('HVIR_NATIVE_WORKBENCH_OK ')[1]!) as {
+        performance: {
+          phases: Array<{
+            phase: string
+            violations: Array<{ actualMs: number; maximumInclusiveMs: number }>
+          }>
+        }
+      }
+      expect(
+        receipt.performance.phases.find((item) => item.phase === phase)?.violations,
+      ).toEqual([
+        {
+          loop: phase === 'effects' ? 'main' : 'renderer',
+          actualMs: 518.5,
+          maximumInclusiveMs: 500,
+        },
+      ])
+      const controlled = timingResult({ mode: 'controlled', crossing: phase })
+      expect(controlled.status).not.toBe(0)
+      expect(controlled.stderr).toContain('AssertionError')
+    },
+  )
+  it.each([
+    'missing-mode',
+    'invalid-mode',
+    'omit-violation',
+    'invent-violation',
+    'round-maximum',
+    'missing-phase',
+    'raised-limit',
+    'invalid-samples',
+    'invalid-maximum',
+    'capacity-claim',
+    'wrong-minimum',
+    'missing-loop',
+    'phase-limit',
+    'unsafe-samples',
+    'negative-maximum',
+  ] as const)('rejects malformed or dishonest performance evidence: %s', (fault) => {
+    const result = timingResult({
+      mode: 'evidence',
+      fault,
+      crossing:
+        fault === 'omit-violation' || fault === 'round-maximum' ? 'query' : undefined,
+    })
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('AssertionError')
+  })
+  it.each(['clipboard', 'pixels', 'progress', 'streaming-deadline'] as const)(
+    'keeps controlled functional query facts blocking: %s',
+    (fault) => {
+      const result = executeQualification(
+        qualification,
+        'macOS',
+        false,
+        undefined,
+        undefined,
+        fault,
+        undefined,
+        undefined,
+        { mode: 'controlled' },
+      )
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain('AssertionError')
+    },
+  )
+
+  it.each([
+    'identity',
+    'authority',
+    'resource',
+    'refit',
+    'recovery',
+    'ssh-input',
+    'ssh-resource',
+  ] as const)('rejects false lifecycle evidence: %s', (kind) => {
+    const result = executeQualification(
+      qualification,
+      'macOS',
+      false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      kind,
+    )
+    expect(result.error).toBeUndefined()
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('AssertionError')
+  })
   it.each([
     'clipboard',
     'pixels',
     'progress',
-    'responsiveness',
     'lost-selection',
     'streaming-deadline',
   ] as const)('rejects false native retained-query evidence: %s', (kind) => {
@@ -184,7 +526,6 @@ describe('native workbench machine-readable workflow stream', () => {
     'clipboard',
     'liveness',
     'authority',
-    'responsiveness',
     'os-clipboard',
     'readonly',
     'pending-ack',
@@ -243,7 +584,7 @@ describe('native workbench machine-readable workflow stream', () => {
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('AssertionError')
   })
-  it.each(['clipboard', 'responsiveness', 'disposition'] as const)(
+  it.each(['clipboard', 'disposition'] as const)(
     'rejects an incorrect native effect %s proof with the actual reader',
     (kind) => {
       const result = executeQualification(qualification, 'macOS', false, kind)

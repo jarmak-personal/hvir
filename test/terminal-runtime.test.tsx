@@ -88,6 +88,7 @@ describe('TerminalRuntimeRegistry', () => {
     const runtimeOptions = options(localPath('/repo'), 'disconnected')
     const runtime = new TerminalRuntimeRegistry().acquire(runtimeOptions)
     const container = document.createElement('div')
+    document.body.append(container)
 
     runtime.attach(container)
     runtime.focus()
@@ -95,6 +96,7 @@ describe('TerminalRuntimeRegistry', () => {
     expect(runtimeOptions.onFocus).toHaveBeenCalledOnce()
 
     runtime.detach(container)
+    container.remove()
     runtime.focus()
 
     expect(runtimeOptions.onFocus).toHaveBeenCalledOnce()

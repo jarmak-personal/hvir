@@ -251,31 +251,7 @@ export async function verifyExtensionContributions(
       'current observation renewed after restore',
     )
   } catch (error) {
-    try {
-      const current = observation(),
-        updaters = guests.snapshot(renderer).filter((view) => view.role === 'updater')
-      console.log(
-        '[smoke] updater restore state',
-        JSON.stringify({
-          window: win.isDestroyed()
-            ? { destroyed: true }
-            : {
-                focused: win.isFocused(),
-                visible: win.isVisible(),
-                minimized: win.isMinimized(),
-              },
-          foreground: extensions.surface.foreground(renderer),
-          demand: extensions.contributions!.connectorDemand(installationId),
-          updaterCount: updaters.length,
-          updaterFailed: updaters.some((view) => !!view.failure),
-          guestDestroyed: updaterGuest.isDestroyed(),
-          availability: current?.availability ?? null,
-          newerObservation: (current?.observedAt ?? 0) > frozen!,
-        }),
-      )
-    } catch {
-      console.log('[smoke] updater restore state unavailable')
-    }
+    logUpdaterDemandFailure('updater restore state', frozen)
     throw error
   }
   if (guests.snapshot(renderer).filter((view) => view.role === 'updater').length !== 1)
@@ -602,10 +578,15 @@ export async function verifyExtensionContributions(
       'Visible-viewer independent demand lacked compact-rail positive control',
     )
   const viewerObserved = observation()!.observedAt!
-  await controls.wait(
-    () => (observation()?.observedAt ?? 0) > viewerObserved,
-    'visible viewer refresh with compact rail',
-  )
+  try {
+    await controls.wait(
+      () => (observation()?.observedAt ?? 0) > viewerObserved,
+      'visible viewer refresh with compact rail',
+    )
+  } catch (error) {
+    logUpdaterDemandFailure('viewer updater refresh state', viewerObserved, detail.id)
+    throw error
+  }
   await controls.click('Sessions')
   await controls.wait(
     () =>
@@ -785,6 +766,53 @@ export async function verifyExtensionContributions(
     '[smoke] static header/session items without guest, shared visible updater pause/renew, left/top navigation, exact-session popup/native Escape/focus, Settings action, hidden finite work and close/Disable cancellation OK',
   )
 
+  function logUpdaterDemandFailure(
+    stage: 'updater restore state' | 'viewer updater refresh state',
+    baseline: number | undefined,
+    viewerId?: string,
+  ): void {
+    try {
+      const current = observation(),
+        updaters = guests.snapshot(renderer).filter((view) => view.role === 'updater')
+      console.log(
+        '[smoke] ' + stage,
+        JSON.stringify({
+          atFailure: true,
+          window: win.isDestroyed()
+            ? { destroyed: true }
+            : {
+                focused: win.isFocused(),
+                visible: win.isVisible(),
+                minimized: win.isMinimized(),
+              },
+          foreground: extensions.surface.foreground(renderer),
+          demand: extensions.contributions!.connectorDemand(installationId),
+          updaterCount: updaters.length,
+          updaterIds: updaters.slice(0, 2).map((view) => view.id),
+          updaterFailed: updaters.some((view) => !!view.failure),
+          guestDestroyed: updaterGuest.isDestroyed(),
+          viewerId,
+          viewerDemand:
+            viewerId &&
+            guests
+              .visibleViewContributions()
+              .some(
+                ({ owner, view }) =>
+                  view.id === viewerId &&
+                  owner.id === renderer.id &&
+                  owner.generation === renderer.generation,
+              ),
+          availability: current?.availability ?? null,
+          observedAt: current?.observedAt ?? null,
+          baselineObservedAt: baseline ?? null,
+          newerObservation:
+            baseline !== undefined && (current?.observedAt ?? 0) > baseline,
+        }),
+      )
+    } catch {
+      console.log('[smoke] ' + stage + ' unavailable')
+    }
+  }
   function observation() {
     return extensions
       .contributions!.snapshot()

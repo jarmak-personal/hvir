@@ -110,6 +110,7 @@ it('keeps the reviewed owner and authority channel policies explicit', () => {
       'web-pane:open-external',
       'web-pane:open-browser',
       'terminal:rename',
+      'terminal:forget',
       'terminal:plan-move',
       'terminal:move',
       'terminal:record-recovery-decision',

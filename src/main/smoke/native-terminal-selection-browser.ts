@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { clipboard, type BrowserWindow, type Rectangle } from 'electron'
 import type { ManagedPty } from '../pty/pty-supervisor'
 import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
+import { NativeTerminalAdmissionError } from '../../shared/native-terminal'
 
 const digest = (text: string) => createHash('sha256').update(text).digest('hex')
 
@@ -152,8 +153,26 @@ export function nativeSelectionBrowser(
   native: NativeTerminalApplication,
   managed: ManagedPty,
 ) {
-  const owner = { id: managed.ownerId, generation: managed.ownerGeneration },
-    scope = paneScript(managed.id)
+  const sessionId = managed.id,
+    instanceId = managed.instanceId,
+    owner = { id: managed.ownerId, generation: managed.ownerGeneration },
+    scope = paneScript(sessionId)
+  let handle: string | undefined
+  const assertLayoutOwner = () => {
+    const record = native.sessions.get(sessionId)
+    if (
+      !record ||
+      record.retiring ||
+      record.unavailable ||
+      record.session.sessionId !== sessionId ||
+      record.session.instanceId !== instanceId ||
+      record.session.ownerId !== owner.id ||
+      record.session.ownerGeneration !== owner.generation ||
+      (handle !== undefined && record.handle !== handle)
+    )
+      throw new Error('native-selection-layout-owner')
+    handle ??= record.handle
+  }
   const wait = async (check: () => boolean | Promise<boolean>, phase: string) => {
     const deadline = Date.now() + 15000
     do {
@@ -163,9 +182,18 @@ export function nativeSelectionBrowser(
     throw new Error('native-selection-' + phase + '-timeout')
   }
   const readLayout = async (readiness: boolean) => {
-    const geometry = (await native.inspectRetained(managed.id, owner)).geometry
+    assertLayoutOwner()
+    let geometry
+    try {
+      geometry = (await native.inspectRetained(sessionId, owner)).geometry
+    } catch (error) {
+      assertLayoutOwner()
+      if (readiness && error instanceof NativeTerminalAdmissionError) return undefined
+      throw error
+    }
+    assertLayoutOwner()
     const bounds = (await win.webContents.executeJavaScript(
-      `(()=>{${paneScript(managed.id, readiness)}const r=pane.getBoundingClientRect(),c=canvas.getBoundingClientRect();return{x:r.x,y:r.y,viewId,width:r.width,height:r.height,canvasWidth:canvas.width,canvasHeight:canvas.height,canvasCssWidth:c.width,canvasCssHeight:c.height,dpr:devicePixelRatio};})()`,
+      `(()=>{${paneScript(sessionId, readiness)}const r=pane.getBoundingClientRect(),c=canvas.getBoundingClientRect();return{x:r.x,y:r.y,viewId,width:r.width,height:r.height,canvasWidth:canvas.width,canvasHeight:canvas.height,canvasCssWidth:c.width,canvasCssHeight:c.height,dpr:devicePixelRatio};})()`,
     )) as
       | {
           x: number
@@ -180,8 +208,12 @@ export function nativeSelectionBrowser(
           dpr: number
         }
       | undefined
+    assertLayoutOwner()
     if (!bounds) return undefined
-    if (Math.round(bounds.width * geometry.backingScale) !== geometry.width)
+    if (
+      Math.fround(bounds.dpr) !== geometry.backingScale ||
+      Math.round(bounds.width * bounds.dpr) !== geometry.width
+    )
       if (readiness) return undefined
       else throw new Error('native-selection-layout-not-current')
     return { geometry, bounds }
@@ -210,7 +242,18 @@ export function nativeSelectionBrowser(
     })
   }
   const point = async (column: number, row: number) => {
-    const { geometry: g, bounds: b } = await layout()
+    let observed: Awaited<ReturnType<typeof layout>> | undefined
+    await wait(async () => {
+      try {
+        observed = await layout()
+        return true
+      } catch (error) {
+        if (!(error instanceof NativeTerminalAdmissionError)) throw error
+        return false
+      }
+    }, 'point-layout')
+    if (!observed) throw new Error('native-selection-elements')
+    const { geometry: g, bounds: b } = observed
     return {
       x: b.x + (g.paddingLeft + g.cellWidth * column) / g.backingScale,
       y: b.y + (g.paddingTop + g.cellHeight * row) / g.backingScale,
@@ -351,7 +394,9 @@ export function nativeSelectionBrowser(
   }
   const painted = () =>
     wait(async () => {
-      const { geometry: g, bounds: b } = await layout()
+      const observed = await readLayout(true)
+      if (!observed) return false
+      const { geometry: g, bounds: b } = observed
       const view = nativeTerminalViewRect(
         {
           x: b.x + g.paddingLeft / g.backingScale,

@@ -3,7 +3,12 @@ import { app, type BrowserWindow } from 'electron'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
 import type { NativeTerminalInputCompletion } from '../../shared/native-terminal-input'
-import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
+import {
+  nativeWorkbenchPerformanceEvidence,
+  enforceNativeWorkbenchPerformance,
+  type NativeWorkbenchPerformanceMode,
+  type NativeWorkbenchPerformanceEvidence,
+} from './native-terminal-performance'
 import { terminalProbeSourceDelivery } from './terminal-probe-source'
 
 const PREFIX = '__HVIR_NATIVE_LARGE_PASTE_'
@@ -143,6 +148,7 @@ export async function verifyNativeTerminalPaste(
   ptys: PtySupervisor,
   native: NativeTerminalApplication,
   managed: ManagedPty,
+  performanceMode: NativeWorkbenchPerformanceMode,
 ) {
   const owner = { id: managed.ownerId, generation: managed.ownerGeneration }
   const write = (body: string) =>
@@ -200,6 +206,7 @@ export async function verifyNativeTerminalPaste(
     )
   }
   const results: Array<{
+    performance: NativeWorkbenchPerformanceEvidence
     name: string
     sourceBytes: number
     wireBytes: number
@@ -291,12 +298,30 @@ export async function verifyNativeTerminalPaste(
       const paint = (await win.webContents.executeJavaScript(
         `(() => {const value=window.nativeLargePasteObservation;value.active=false;return{frames:value.frames,maxGapMs:Math.max(value.maxGapMs,performance.now()-value.last),heapBefore:value.heapBefore,heapAfter:performance.memory?.usedJSHeapSize};})()`,
       )) as { frames: number; maxGapMs: number; heapBefore?: number; heapAfter?: number }
-      if (!paint.frames || paint.maxGapMs > UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs)
-        throw new Error('native-large-paste-paint-budget')
+      const performanceEvidence = nativeWorkbenchPerformanceEvidence(
+        performanceMode,
+        fixture.name === 'unicode' ? 'paste-unicode' : 'paste-lnm',
+        [
+          {
+            loop: 'renderer',
+            samples: paint.frames,
+            minimumSamples: 1,
+            maximumMs: paint.maxGapMs,
+          },
+        ],
+      )
+      console.log(
+        'HVIR_NATIVE_WORKBENCH_PERFORMANCE ' + JSON.stringify(performanceEvidence),
+      )
+      enforceNativeWorkbenchPerformance(
+        performanceEvidence,
+        new Error('native-large-paste-paint-budget'),
+      )
       clearInterval(sampleTimer)
       sampleTimer = undefined
       sample()
       results.push({
+        performance: performanceEvidence,
         name: fixture.name,
         sourceBytes: fixture.sourceBytes,
         wireBytes: fixture.wireBytes,

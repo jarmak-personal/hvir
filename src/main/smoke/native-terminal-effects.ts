@@ -3,6 +3,11 @@ import type { BrowserWindow } from 'electron'
 import type { PtySupervisor, ManagedPty } from '../pty/pty-supervisor'
 import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
 import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
+import {
+  nativeWorkbenchPerformanceEvidence,
+  enforceNativeWorkbenchPerformance,
+  type NativeWorkbenchPerformanceMode,
+} from './native-terminal-performance'
 import { terminalProbeSourceDelivery } from './terminal-probe-source'
 
 const PREFIX = '__HVIR_NATIVE_EFFECTS_'
@@ -115,6 +120,7 @@ export async function verifyNativeTerminalEffects(
   native: NativeTerminalApplication,
   managed: ManagedPty,
   clipboard: NativeEffectsClipboardObservation,
+  performanceMode: NativeWorkbenchPerformanceMode,
 ) {
   if (!native.effects) throw new Error('native-effects-policy-unavailable')
   const owner = { id: managed.ownerId, generation: managed.ownerGeneration }
@@ -323,10 +329,28 @@ export async function verifyNativeTerminalEffects(
       samples: mainSamples,
       maxMs: Math.max(mainMaximum, performance.now() - lastMainBeat),
     }
-    for (const loop of [main, renderer])
-      if (loop.samples < 2 || loop.maxMs > UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs)
-        throw new Error('native-effects-responsiveness-budget')
+    const performanceEvidence = nativeWorkbenchPerformanceEvidence(
+      performanceMode,
+      'effects',
+      [
+        { loop: 'main', samples: main.samples, minimumSamples: 2, maximumMs: main.maxMs },
+        {
+          loop: 'renderer',
+          samples: renderer.samples,
+          minimumSamples: 2,
+          maximumMs: renderer.maxMs,
+        },
+      ],
+    )
+    console.log(
+      'HVIR_NATIVE_WORKBENCH_PERFORMANCE ' + JSON.stringify(performanceEvidence),
+    )
+    enforceNativeWorkbenchPerformance(
+      performanceEvidence,
+      new Error('native-effects-responsiveness-budget'),
+    )
     return {
+      performance: performanceEvidence,
       responsiveness: {
         main,
         renderer,

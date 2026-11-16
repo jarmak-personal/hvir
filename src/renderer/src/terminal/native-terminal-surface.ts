@@ -50,6 +50,7 @@ export class NativeTerminalSurface {
     if (this.disposed) throw new Error('native-surface-closed')
     container.appendChild(this.element)
     this.api.mount(this.viewId, this.element.id)
+    this.api.setEligible(this.viewId, false)
     this.schedule()
   }
   reparent(container: HTMLElement): void {
@@ -64,6 +65,7 @@ export class NativeTerminalSurface {
     const revision = this.revision
     if (this.visible) this.schedule()
     else {
+      this.api.setEligible(this.viewId, false)
       if (this.animation !== undefined) cancelAnimationFrame(this.animation)
       this.animation = undefined
       this.geometry = undefined
@@ -112,10 +114,11 @@ export class NativeTerminalSurface {
     try {
       const size = this.element.getBoundingClientRect()
       const scale = window.devicePixelRatio
-      if (size.width < 32 || size.height < 32) return
+      if (!this.element.isConnected || size.width < 32 || size.height < 32) return
       const geometry = `${size.width}:${size.height}:${scale}`
       this.lastLayout = { width: size.width, height: size.height, backingScale: scale }
       if (geometry !== this.geometry) {
+        this.api.setEligible(this.viewId, true)
         await this.port.update(this.viewId, {
           width: size.width,
           height: size.height,

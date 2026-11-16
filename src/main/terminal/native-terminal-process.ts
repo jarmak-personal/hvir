@@ -34,6 +34,8 @@ interface Pending {
   readonly bytes: number
   readonly inputCredit?: NativeTerminalInputResultCredit
   readonly physicalInput: boolean
+  readonly resourceSettlement?: Promise<void>
+  releaseResource?(): void
   sent: boolean
   cancelled: boolean
   complete(value: unknown): void
@@ -245,6 +247,12 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
     }
     return new Promise((resolve, reject) => {
       const eligibility = new AbortController()
+      let releaseResource: (() => void) | undefined
+      const resourceSettlement = physicalInput
+        ? new Promise<void>((release) => {
+            releaseResource = release
+          })
+        : undefined
       let delivered = false
       const settle = (error?: Error, value?: unknown): void => {
         if (delivered) return
@@ -271,6 +279,8 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
         bytes: byteCount,
         inputCredit,
         physicalInput,
+        resourceSettlement,
+        releaseResource,
         sent: false,
         cancelled: false,
         complete: (value) => settle(undefined, value),
@@ -557,6 +567,7 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
     this.pending.delete(id)
     this.bytes -= item.bytes
     item.inputCredit?.release()
+    item.releaseResource?.()
     item.cleanup()
     if (!this.pending.size) {
       this.settled?.()
@@ -574,7 +585,9 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
     this.ready = undefined
     for (const [id, item] of this.pending) {
       if (item.physicalInput && item.sent && !this.hasExited(this.epoch)) {
-        item.fail(new NativeTerminalInputPhysicalFailure(error.message))
+        item.fail(
+          new NativeTerminalInputPhysicalFailure(error.message, item.resourceSettlement),
+        )
         item.cleanup()
       } else {
         item.fail(error)

@@ -131,6 +131,7 @@ export class NativeTerminalApplication {
       appearanceRevision?: number
       layout?: { width: number; height: number; backingScale: number; visible: boolean }
       input: NativeTerminalInputState
+      detaching?: Promise<void>
       frame: WebFrameMain
     }
   >()
@@ -141,6 +142,7 @@ export class NativeTerminalApplication {
       | 'get'
       | 'resolve'
       | 'remove'
+      | 'retire'
       | 'transferOwner'
       | 'writeControl'
       | 'blockInput'
@@ -163,6 +165,7 @@ export class NativeTerminalApplication {
       NativeTerminalPresenter,
       | 'attach'
       | 'update'
+      | 'withdraw'
       | 'appearance'
       | 'demand'
       | 'detach'
@@ -201,6 +204,7 @@ export class NativeTerminalApplication {
       const native = this.sessions.get(managed.id)
       if (
         !native ||
+        native.retiring ||
         native.session.instanceId !== managed.instanceId ||
         native.session.workspaceRoot.hostId !== managed.workspaceRoot.hostId ||
         !this.isCurrent({ id: managed.ownerId, generation: managed.ownerGeneration })
@@ -235,10 +239,16 @@ export class NativeTerminalApplication {
     return info
   }
   preparation(viewport: NativeTerminalViewport) {
-    return (
+    return async (
       reservation: Parameters<NativeTerminalSessions['prepare']>[0],
       signal: AbortSignal,
-    ) => this.sessions.prepare(reservation, signal, viewport)
+    ) => {
+      const prepared = await this.sessions.prepare(reservation, signal, viewport)
+      return {
+        ...prepared,
+        dispose: () => this.remove(reservation.sessionId, reservation.instanceId),
+      }
+    }
   }
   async metadata(
     id: string,
@@ -274,6 +284,7 @@ export class NativeTerminalApplication {
       if (
         !current ||
         current.unavailable ||
+        current.retiring ||
         current.handle !== handle ||
         current.session.instanceId !== session.instanceId
       )
@@ -366,6 +377,7 @@ export class NativeTerminalApplication {
     for (const view of this.views.values()) {
       if (
         view.sessionId !== session.sessionId ||
+        view.detaching ||
         view.instanceId !== session.instanceId ||
         view.owner.id !== session.ownerId ||
         view.owner.generation !== session.ownerGeneration ||
@@ -376,6 +388,7 @@ export class NativeTerminalApplication {
       const current = this.sessions.get(session.sessionId)
       if (
         !current ||
+        current.retiring ||
         current.session.instanceId !== session.instanceId ||
         current.session.ownerId !== session.ownerId ||
         current.session.ownerGeneration !== session.ownerGeneration ||
@@ -411,6 +424,7 @@ export class NativeTerminalApplication {
             this.isCurrent(owner) &&
             !!current &&
             !current.unavailable &&
+            !current.retiring &&
             current.session.instanceId === record.session.instanceId &&
             current.session.ownerId === owner.id &&
             current.session.ownerGeneration === owner.generation
@@ -479,18 +493,15 @@ export class NativeTerminalApplication {
   async update(
     viewId: string,
     owner: RendererOwner,
-    layout: {
-      width: number
-      height: number
-      backingScale: number
-      visible: boolean
-    },
+    layout: Parameters<NativeTerminalPresenter['update']>[1],
   ): Promise<void> {
     const view = this.requireView(viewId, owner)
     view.layout = { ...layout }
     this.selectionOwner.revoke(viewId)
     const cleanup = !layout.visible
-      ? this.inputOwner.blur(this.inputContext(viewId, owner, true))
+      ? this.withdrawPresentation(viewId, () =>
+          this.inputOwner.blur(this.inputContext(viewId, owner, true)),
+        )
       : undefined
     if (!layout.visible) {
       view.visible = false
@@ -498,6 +509,7 @@ export class NativeTerminalApplication {
     }
     const revision = ++view.revision
     await cleanup
+    if (this.requireView(viewId, owner) !== view || view.revision !== revision) return
     const grant = await this.presenter.update(viewId, layout)
     this.requireView(viewId, owner)
     if (!grant || view.revision !== revision) return
@@ -609,6 +621,7 @@ export class NativeTerminalApplication {
       : this.requireSession(view.sessionId, owner)
     if (!record || record.session.instanceId !== view.instanceId)
       throw new Error('native-view-stale')
+    if (record.retiring || view.detaching) throw new Error('native-view-stale')
     const revision = view.revision
     const readOnly =
       record.readonly ||
@@ -652,25 +665,71 @@ export class NativeTerminalApplication {
       blockInput: () => this.sessions.blockInput(view.sessionId, view.instanceId),
     }
   }
+  private withdrawPresentation(
+    viewId: string,
+    captureCleanup: () => Promise<void>,
+  ): Promise<void> {
+    // Executors capture both synchronous cleanup faults and immediate local withdrawal.
+    const cleanup = new Promise<void>((resolve) => resolve(captureCleanup()))
+    const withdrawal = new Promise<void>((resolve) => {
+      this.presenter.withdraw(viewId)
+      resolve()
+    })
+    return Promise.allSettled([withdrawal, cleanup]).then((results) => {
+      const failures = results.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason as unknown] : [],
+      )
+      if (failures.length)
+        throw failures.length === 1
+          ? failures[0]
+          : new AggregateError(failures, 'native-view-withdrawal-failed')
+    })
+  }
   async detach(viewId: string, owner: RendererOwner): Promise<void> {
+    return this.detachView(viewId, owner, false)
+  }
+  private detachView(
+    viewId: string,
+    owner: RendererOwner,
+    destroying: boolean,
+  ): Promise<void> {
     const view = this.views.get(viewId)
-    if (!view) return
+    if (!view) return Promise.resolve()
     if (view.owner.id !== owner.id || view.owner.generation !== owner.generation)
       throw new Error('native-view-foreign')
     this.selectionOwner.revoke(viewId)
     this.queryOwner.revoke(viewId)
-    const context = this.inputContext(viewId, owner, true)
-    this.views.delete(viewId)
-    const results = await Promise.allSettled([this.inputOwner.revoke(context)])
-    results.push(...(await Promise.allSettled([this.presenter.detach(viewId)])))
-    const failure = results.find((result) => result.status === 'rejected')
-    if (failure?.status === 'rejected') throw failure.reason
+    if (destroying) this.inputOwner.retire(view.input)
+    if (view.detaching) return view.detaching
+    const context = destroying ? undefined : this.inputContext(viewId, owner, true)
+    view.detaching = Promise.resolve()
+      .then(async () => {
+        const results = await Promise.allSettled([cleanup])
+        results.push(...(await Promise.allSettled([this.presenter.detach(viewId)])))
+        const failures = results.flatMap((result) =>
+          result.status === 'rejected' ? [result.reason as unknown] : [],
+        )
+        if (failures.length)
+          throw failures.length === 1
+            ? failures[0]
+            : new AggregateError(failures, 'native-view-detach-failed')
+      })
+      .finally(() => {
+        if (this.views.get(viewId) === view) this.views.delete(viewId)
+      })
+    const cleanup = this.withdrawPresentation(viewId, () =>
+      context ? this.inputOwner.revoke(context) : Promise.resolve(),
+    )
+    return view.detaching
   }
-  async remove(id: string, instanceId: string): Promise<void> {
+  remove(id: string, instanceId: string): Promise<void> {
+    return this.sessions.retire(id, instanceId, () => this.removeInstance(id, instanceId))
+  }
+  private async removeInstance(id: string, instanceId: string): Promise<void> {
     const detaching: Promise<void>[] = []
     for (const [viewId, view] of this.views) {
       if (view.sessionId === id && view.instanceId === instanceId) {
-        detaching.push(this.detach(viewId, view.owner))
+        detaching.push(this.detachView(viewId, view.owner, true))
       }
     }
     const results = await Promise.allSettled(detaching)
@@ -742,6 +801,7 @@ export class NativeTerminalApplication {
         if (
           !current ||
           current.unavailable ||
+          current.retiring ||
           current.handle !== handle ||
           current.session !== session
         )
@@ -908,6 +968,7 @@ export class NativeTerminalApplication {
     if (
       !record ||
       record.unavailable ||
+      record.retiring ||
       !this.isCurrent(owner) ||
       record.session.ownerId !== owner.id ||
       record.session.ownerGeneration !== owner.generation
@@ -917,7 +978,12 @@ export class NativeTerminalApplication {
   }
   private requireView(id: string, owner: RendererOwner) {
     const view = this.views.get(id)
-    if (!view || view.owner.id !== owner.id || view.owner.generation !== owner.generation)
+    if (
+      !view ||
+      view.detaching ||
+      view.owner.id !== owner.id ||
+      view.owner.generation !== owner.generation
+    )
       throw new Error('native-view-foreign')
     const record = this.requireSession(view.sessionId, owner)
     if (record.session.instanceId !== view.instanceId)

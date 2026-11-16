@@ -11,6 +11,8 @@ import {
 import {
   nativePresentationSpanEnd,
   nativePresentationSpanStart,
+  nativePresentationFailure,
+  type NativePresentationFailureStage,
 } from './native-terminal-presentation-smoke'
 
 export interface NativeTerminalCanvasPort {
@@ -25,6 +27,7 @@ interface ImportedTexture {
 }
 interface View {
   readonly elementId: string
+  eligible: boolean
   canvas?: NativeTerminalCanvasPort
   binding?: symbol
   issued?: { attachment: number; nativeEpoch: string; geometrySerial: number }
@@ -34,6 +37,16 @@ interface CurrentFrame {
   metadata: NativeTerminalPresentedFrame
   view: View
   binding: symbol
+}
+function validMetadata(value: unknown): value is NativeTerminalPresentedFrame {
+  if (!value || typeof value !== 'object') return false
+  const metadata = value as NativeTerminalPresentedFrame
+  return (
+    validNativeTerminalViewGrant(metadata.nativeTerminal) &&
+    [0, 1].includes(metadata.screen) &&
+    [1, 2].includes(metadata.origin) &&
+    [1, 2].includes(metadata.colorSpace)
+  )
 }
 
 /** One isolated-world receiver multiplexes main-issued grants. DOM registration
@@ -64,6 +77,7 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
     const grant = this.grants.get(viewId)
     this.mounts.set(viewId, {
       elementId,
+      eligible: true,
       issued: grant && {
         attachment: grant.attachment,
         nativeEpoch: grant.nativeEpoch,
@@ -77,6 +91,15 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
     this.grants.delete(viewId)
     if (view) this.disposeCanvas(view)
     this.failed.delete(viewId)
+  }
+  setEligible(viewId: string, eligible: boolean): void {
+    const view = this.mounts.get(viewId)
+    if (!view || typeof eligible !== 'boolean') return
+    view.eligible = eligible
+    if (!eligible) {
+      this.grants.delete(viewId)
+      this.disposeCanvas(view)
+    }
   }
   onStatus(listener: (status: NativeTerminalPresentationStatus) => void): () => void {
     this.listeners.add(listener)
@@ -125,7 +148,7 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
         try {
           view.canvas.suspendForRefit()
         } catch {
-          if (binding) this.failure(value.viewId, view, binding)
+          if (binding) this.failure(value.viewId, view, binding, 'receiver-refit-suspend')
         }
       } else this.disposeCanvas(view)
       return
@@ -168,12 +191,14 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
         this.reportFailure(Object.freeze({ ...grant }))
         return
       }
+      if (!view.eligible) return
     }
     this.grants.set(value.viewId, Object.freeze({ ...grant }))
   }
   receive(texture: ImportedTexture, metadata: unknown): void {
     let frame: ReturnType<ImportedTexture['getVideoFrame']> | undefined
     let current: CurrentFrame | undefined
+    let failureStage: NativePresentationFailureStage = 'receiver-draw'
     try {
       current = this.current(metadata)
       if (!current) return
@@ -182,6 +207,9 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
         started = nativePresentationSpanStart()
       try {
         frame = texture.getVideoFrame()
+      } catch (error) {
+        failureStage = 'receiver-get-video-frame'
+        throw error
       } finally {
         if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
           nativePresentationSpanEnd('get-video-frame', started)
@@ -195,6 +223,7 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
           current.metadata.nativeTerminal.viewId,
           current.view,
           current.binding,
+          failureStage,
         )
     } finally {
       try {
@@ -220,12 +249,11 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
       }
     }
   }
-  pixels(value: NativeTerminalPixelFrame): boolean {
+  pixels(value: NativeTerminalPixelFrame): boolean | 'local-ineligible' {
     let current: CurrentFrame | undefined
     try {
-      current = this.current(value)
       if (
-        !current ||
+        !validMetadata(value) ||
         value.premultiplied !== false ||
         !(value.bytes instanceof Uint8Array) ||
         value.stride !== value.nativeTerminal.width * 4 ||
@@ -233,16 +261,20 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
         value.bytes.byteLength > limits.maximumPixelBytes
       )
         return false
+      if (this.locallyIneligible(value)) return 'local-ineligible'
+      current = this.current(value)
+      if (!current) return this.locallyIneligible(value) ? 'local-ineligible' : false
       current.canvas.pixels(value)
       const accepted = this.isCurrentFrame(current)
       if (accepted) this.reportDraw(current.metadata)
-      return accepted
+      return accepted || (this.locallyIneligible(value) ? 'local-ineligible' : false)
     } catch {
       if (current)
         this.failure(
           current.metadata.nativeTerminal.viewId,
           current.view,
           current.binding,
+          'receiver-pixels',
         )
       return false
     }
@@ -253,21 +285,28 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
     this.failed.clear()
     this.listeners.clear()
   }
-  private current(value: unknown): CurrentFrame | undefined {
-    if (!value || typeof value !== 'object') return
-    const metadata = value as NativeTerminalPresentedFrame
-    if (
-      !validNativeTerminalViewGrant(metadata.nativeTerminal) ||
-      ![0, 1].includes(metadata.screen) ||
-      ![1, 2].includes(metadata.origin) ||
-      ![1, 2].includes(metadata.colorSpace)
+  private locallyIneligible(metadata: NativeTerminalPresentedFrame): boolean {
+    const grant = metadata.nativeTerminal
+    const view = this.mounts.get(grant.viewId)
+    const issued = view?.issued
+    return !!(
+      view &&
+      !view.eligible &&
+      !this.failed.has(grant.viewId) &&
+      issued?.attachment === grant.attachment &&
+      issued.nativeEpoch === grant.nativeEpoch &&
+      issued.geometrySerial >= grant.geometrySerial
     )
-      return
+  }
+  private current(value: unknown): CurrentFrame | undefined {
+    if (!validMetadata(value)) return
+    const metadata = value
     const grant = this.grants.get(metadata.nativeTerminal.viewId)
     const view = this.mounts.get(metadata.nativeTerminal.viewId)
     if (
       !grant ||
       !view ||
+      !view.eligible ||
       this.failed.has(grant.viewId) ||
       !sameNativeTerminalView(grant, metadata.nativeTerminal)
     )
@@ -281,10 +320,10 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
       let canvas: NativeTerminalCanvasPort | undefined
       try {
         canvas = this.createCanvas(view.elementId, () =>
-          this.failure(grant.viewId, view, binding),
+          this.failure(grant.viewId, view, binding, 'receiver-canvas-loss-callback'),
         )
       } catch {
-        this.failure(grant.viewId, view, binding)
+        this.failure(grant.viewId, view, binding, 'receiver-factory-throw')
         return
       } finally {
         if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
@@ -293,6 +332,7 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
       if (
         this.mounts.get(grant.viewId) !== view ||
         view.binding !== binding ||
+        !view.eligible ||
         this.failed.has(grant.viewId) ||
         !this.grants.has(grant.viewId) ||
         !sameNativeTerminalView(this.grants.get(grant.viewId)!, grant)
@@ -302,7 +342,7 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
         return
       }
       if (!canvas) {
-        this.failure(grant.viewId, view, binding)
+        this.failure(grant.viewId, view, binding, 'receiver-factory-absent')
         return
       }
       view.canvas = canvas
@@ -314,6 +354,7 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
     const grant = this.grants.get(current.metadata.nativeTerminal.viewId)
     return (
       this.mounts.get(current.metadata.nativeTerminal.viewId) === current.view &&
+      current.view.eligible &&
       current.view.binding === current.binding &&
       current.view.canvas === current.canvas &&
       !!grant &&
@@ -328,11 +369,34 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
     view.canvas = undefined
     canvas?.dispose()
   }
-  private failure(viewId: string, view: View, binding: symbol): void {
+  private failure(
+    viewId: string,
+    view: View,
+    binding: symbol,
+    stage: NativePresentationFailureStage,
+  ): void {
     if (this.mounts.get(viewId) !== view || view.binding !== binding) return
     const grant = this.grants.get(viewId)
+    let facts: Parameters<typeof nativePresentationFailure>[1] | undefined
+    if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__) {
+      try {
+        const parent = document.getElementById(view.elementId)
+        facts = {
+          parentPresent: !!parent,
+          parentConnected: parent?.isConnected ?? false,
+          canvasConnected: parent?.querySelector('canvas')?.isConnected ?? false,
+          mounted: true,
+          bindingCurrent: true,
+          grantPresent: !!grant,
+        }
+      } catch {
+        /* Failure evidence cannot interfere with receiver cleanup. */
+      }
+    }
     this.grants.delete(viewId)
     this.failed.add(viewId)
+    if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__ && facts)
+      nativePresentationFailure(stage, facts)
     const errors: unknown[] = []
     try {
       this.disposeCanvas(view)

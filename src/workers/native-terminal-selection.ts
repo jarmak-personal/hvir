@@ -2,6 +2,7 @@ import {
   validNativeTerminalSelectionOperation,
   type NativeTerminalSelectionOperation,
 } from '../shared/native-terminal-selection'
+import { NATIVE_TERMINAL_LIMITS } from '../shared/native-terminal'
 
 export interface NativeSelectionEngineResult {
   result: number
@@ -20,6 +21,15 @@ export interface NativeSelectionEngineResult {
   visited?: number
   work?: number
   link?: unknown
+}
+
+/** A physical cursor was acquired and its exact cleanup could not be proven. */
+export class NativeSelectionCleanupFailed extends Error {
+  readonly cleanup: Readonly<{ kind: 'close'; cursor: string }>
+  constructor(cleanup: { kind: 'close'; cursor: string }, cause: unknown) {
+    super('native-selection-cancel-cleanup-failed', { cause })
+    this.cleanup = Object.freeze({ ...cleanup })
+  }
 }
 
 function counter(value: unknown): number {
@@ -45,8 +55,24 @@ export async function runNativeSelectionStep(
     if (closing || !begin || typeof value.cursor !== 'bigint' || value.cursor <= 0n)
       return
     closing = true
-    const closed = await invoke({ kind: 'close', cursor: value.cursor.toString() })
-    if (closed.result !== 0) throw new Error('native-selection-cancel-cleanup-failed')
+    const cleanup = Object.freeze({
+      kind: 'close' as const,
+      cursor: value.cursor.toString(),
+    })
+    try {
+      const deadline = Date.now() + NATIVE_TERMINAL_LIMITS.requestMs
+      for (;;) {
+        const closed = await invoke(cleanup)
+        if (closed.result === 0) return
+        if (closed.result !== 6 || closed.stale !== false || Date.now() >= deadline)
+          throw new Error('native-selection-cleanup-refused-or-timeout', {
+            cause: { result: closed.result, stale: closed.stale },
+          })
+        await new Promise<void>((resolve) => setTimeout(resolve, 1))
+      }
+    } catch (error) {
+      throw new NativeSelectionCleanupFailed(cleanup, error)
+    }
   }
   try {
     if (begin && cancelled()) throw new Error('cancelled')
@@ -128,7 +154,8 @@ function normalize(
     geometrySerial: counter(value.geometrySerial),
     requestedMutation: counter(value.requestedMutation),
     ...(value.effectSerialCutoff === undefined || value.effectSerialCutoff === 0n
-      ? {} : { effectSerialCutoff: counter(value.effectSerialCutoff) }),
+      ? {}
+      : { effectSerialCutoff: counter(value.effectSerialCutoff) }),
     ...(value.clickedByteOffset === undefined
       ? {}
       : { clickedByteOffset: counter(value.clickedByteOffset) }),

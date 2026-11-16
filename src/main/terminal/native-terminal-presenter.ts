@@ -27,6 +27,15 @@ import {
   type NativeTerminalFrameImports,
 } from './native-terminal-import'
 
+/** The exact CPU upload was discarded after local presentation authority withdrew.
+ * This is neither a draw receipt nor a failed native state or receiver. */
+export class NativeTerminalPixelLocallyIneligibleError extends Error {
+  constructor() {
+    super('native-pixel-locally-ineligible')
+    this.name = 'NativeTerminalPixelLocallyIneligibleError'
+  }
+}
+
 export interface NativeTerminalPresentationTarget {
   readonly frame: WebFrameMain
   readonly ready: boolean
@@ -81,6 +90,7 @@ type PresentationHost = Pick<
   | 'detach'
   | 'inspect'
   | 'nativeEpoch'
+  | 'geometryIssuanceFloor'
   | 'resize'
   | 'appearance'
   | 'setVisible'
@@ -165,7 +175,15 @@ export class NativeTerminalPresenter {
           session.ownerGeneration,
         )
         this.assertCurrent(view)
-        view.serial = status.geometry.serial
+        view.serial = Math.max(
+          status.geometry.serial,
+          this.host.geometryIssuanceFloor(
+            handle,
+            session.ownerId,
+            session.ownerGeneration,
+            attachment,
+          ),
+        )
         if (this.linuxMode && !view.failed) {
           await this.host.presentationMode(
             handle,
@@ -259,6 +277,17 @@ export class NativeTerminalPresenter {
     )
     view.appearanceWork = work
     return work
+  }
+  /** Withdraw logical presentation immediately; physical input cleanup keeps its lifetime. */
+  withdraw(viewId: string): void {
+    const view = this.views.get(viewId)
+    if (!view || view.closed) return
+    view.revision++
+    view.visible = false
+    view.desired = undefined
+    view.pixelDeadline = undefined
+    view.grant = undefined
+    view.target.publishGrant(undefined)
   }
   update(viewId: string, layout: Layout): Promise<NativeTerminalViewGrant | undefined> {
     const view = this.require(viewId)
@@ -548,6 +577,7 @@ export class NativeTerminalPresenter {
         this.status(view, 'native-pixels', 'import-unavailable')
       return true
     } catch (error) {
+      if (error instanceof NativeTerminalPixelLocallyIneligibleError) return false
       if (
         error instanceof NativeTerminalAdmissionError ||
         (error instanceof Error && error.message === 'native-frame-bound')

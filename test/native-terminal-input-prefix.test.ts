@@ -170,7 +170,13 @@ async function ingress() {
   const parsed = vi.fn((bytes: number) => output.parsed(bytes))
   const writeReply = vi.fn<(_bytes: Uint8Array) => Promise<void>>(() => Promise.resolve())
   const repliesDispatched = vi.fn((bytes: number) => output.repliesDispatched(bytes))
-  prepared.connect({ live: true, writeReply, parsed, repliesDispatched })
+  prepared.connect({
+    live: true,
+    writeReply,
+    writeControl: writeReply,
+    parsed,
+    repliesDispatched,
+  })
   const handle = sessions.get('session')!.handle
   return {
     process,

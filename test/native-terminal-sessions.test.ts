@@ -4,6 +4,7 @@ import { NativeTerminalSessions } from '../src/main/terminal/native-terminal-ses
 import { NativeTerminalAdmissionError } from '../src/shared/native-terminal'
 import { hostPath, LOCAL_HOST_ID, type HostId } from '../src/shared/host-path'
 import { nativeTerminalStatus } from './fixtures/native-terminal-host'
+import { createPtySupervisorFixture } from './fixtures/pty-supervisor-fixture'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -64,6 +65,7 @@ function fixture(effectPolicy?: NativeTerminalEffectPolicy) {
     parsed: vi.fn<(bytes: number) => void>(),
     repliesDispatched: vi.fn<(bytes: number) => void>(),
     writeReply: vi.fn((_bytes: Uint8Array) => Promise.resolve()),
+    writeControl: vi.fn((_bytes: Uint8Array) => Promise.resolve()),
   }
   const prepare = () =>
     sessions.prepare(reservation, signal.signal, {
@@ -76,6 +78,247 @@ function fixture(effectPolicy?: NativeTerminalEffectPolicy) {
 afterEach(() => vi.useRealTimers())
 
 describe('native supervisor session state', () => {
+  it.each([false, true])(
+    'rejects a nonretiring duplicate without closing its live/readonly state (readonly=%s)',
+    async (readonly) => {
+      const f = fixture(),
+        prepared = await f.prepare()
+      prepared.connect(f.writer)
+      if (readonly) await prepared.exited({ exitCode: 0, signal: undefined })
+      await expect(
+        f.sessions.prepare(
+          { ...f.reservation, instanceId: 'replacement' },
+          new AbortController().signal,
+          { width: 640, height: 400, backingScale: 1 },
+        ),
+      ).rejects.toThrow('native-session-bound')
+      expect(f.host.prepare).toHaveBeenCalledOnce()
+      expect(f.host.end).not.toHaveBeenCalled()
+      await prepared.dispose()
+    },
+  )
+  it('cancels a new admission promptly while preserving the old physical retirement owner', async () => {
+    const f = fixture(),
+      prepared = await f.prepare(),
+      ended = deferred<void>()
+    prepared.connect(f.writer)
+    f.host.end.mockReturnValueOnce(ended.promise)
+    const retiring = prepared.dispose(),
+      controller = new AbortController()
+    const removeAbort = vi.spyOn(controller.signal, 'removeEventListener')
+    const replacement = f.sessions.prepare(
+      { ...f.reservation, instanceId: 'replacement' },
+      controller.signal,
+      { width: 640, height: 400, backingScale: 1 },
+    )
+    const rejected = expect(replacement).rejects.toThrow('cancelled-new-start')
+    controller.abort(new Error('cancelled-new-start'))
+    await rejected
+    expect(removeAbort).toHaveBeenCalledWith('abort', expect.any(Function))
+    expect(f.host.prepare).toHaveBeenCalledOnce()
+    ended.resolve()
+    await retiring
+    expect(f.host.prepare).toHaveBeenCalledOnce()
+  })
+  it('cancels the composed Supervisor spawn on owner-generation revocation before old retirement settles', async () => {
+    const f = fixture(),
+      prepared = await f.prepare(),
+      ended = deferred<void>()
+    prepared.connect(f.writer)
+    f.host.end.mockReturnValueOnce(ended.promise)
+    const retiring = prepared.dispose(),
+      pty = createPtySupervisorFixture()
+    const preparing = vi.fn(
+      (
+        reservation: Parameters<NativeTerminalSessions['prepare']>[0],
+        signal: AbortSignal,
+      ) =>
+        f.sessions.prepare(reservation, signal, {
+          width: 640,
+          height: 400,
+          backingScale: 1,
+        }),
+    )
+    const started = pty.spawn({
+      sessionId: 'session',
+      ownerGeneration: 7,
+      prepareTerminal: preparing,
+    })
+    const rejected = expect(started).rejects.toMatchObject({ name: 'AbortError' })
+    await vi.waitFor(() => expect(preparing).toHaveBeenCalledOnce())
+    pty.supervisor.disposeOwner(17, 7)
+    await rejected
+    expect(pty.snapshot().spawns).toEqual([])
+    expect(f.host.prepare).toHaveBeenCalledOnce()
+    ended.resolve()
+    await retiring
+    expect(pty.supervisor.list()).toEqual([])
+  })
+  it('revalidates the current owner after old retirement instead of creating late state', async () => {
+    const f = fixture(),
+      prepared = await f.prepare(),
+      ended = deferred<void>()
+    prepared.connect(f.writer)
+    f.host.end.mockReturnValueOnce(ended.promise)
+    const retiring = prepared.dispose()
+    const replacement = f.sessions.prepare(
+      { ...f.reservation, instanceId: 'replacement' },
+      new AbortController().signal,
+      { width: 640, height: 400, backingScale: 1 },
+    )
+    const rejected = expect(replacement).rejects.toThrow('native-session-revoked')
+    f.current.mockReturnValue(false)
+    ended.resolve()
+    await retiring
+    await rejected
+    expect(f.host.prepare).toHaveBeenCalledOnce()
+  })
+  it('admits only one competing new instance after the same old physical retirement settles', async () => {
+    const f = fixture(),
+      prepared = await f.prepare(),
+      ended = deferred<void>()
+    prepared.connect(f.writer)
+    f.host.end.mockReturnValueOnce(ended.promise)
+    const retiring = prepared.dispose()
+    const waiting = ['a', 'b'].map((instanceId) =>
+      f.sessions.prepare({ ...f.reservation, instanceId }, new AbortController().signal, {
+        width: 640,
+        height: 400,
+        backingScale: 1,
+      }),
+    )
+    const settled = Promise.allSettled(waiting)
+    ended.resolve()
+    await retiring
+    const results = await settled
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    for (const result of results)
+      if (result.status === 'rejected')
+        expect(result.reason as unknown).toMatchObject({
+          message: 'native-session-bound',
+        })
+    expect(f.host.prepare).toHaveBeenCalledTimes(2)
+    const winner = results.find((result) => result.status === 'fulfilled')!
+    if (winner.status === 'fulfilled') await winner.value.dispose()
+  })
+  it('propagates old physical retirement failure without allocating replacement state', async () => {
+    const f = fixture(),
+      prepared = await f.prepare(),
+      failure = new Error('old-native-end-failed')
+    prepared.connect(f.writer)
+    f.host.end.mockRejectedValueOnce(failure)
+    const retiring = prepared.dispose()
+    const replacement = f.sessions.prepare(
+      { ...f.reservation, instanceId: 'replacement' },
+      new AbortController().signal,
+      { width: 640, height: 400, backingScale: 1 },
+    )
+    await expect(replacement).rejects.toBe(failure)
+    await expect(retiring).rejects.toBe(failure)
+    expect(f.host.prepare).toHaveBeenCalledOnce()
+  })
+  it('waits for full application retirement when new admission begins after raw end', async () => {
+    const f = fixture(),
+      prepared = await f.prepare()
+    prepared.connect(f.writer)
+    const rawEnded = deferred<void>(),
+      applicationTail = deferred<void>()
+    const retiring = f.sessions.retire('session', 'instance', async () => {
+      await f.sessions.remove('session', 'instance')
+      rawEnded.resolve()
+      await applicationTail.promise
+    })
+    await rawEnded.promise
+    expect(f.sessions.get('session')).toBeUndefined()
+    const replacement = f.sessions.prepare(
+      { ...f.reservation, instanceId: 'replacement' },
+      new AbortController().signal,
+      { width: 640, height: 400, backingScale: 1 },
+    )
+    void replacement.catch(() => undefined)
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(f.host.prepare).toHaveBeenCalledOnce()
+    } finally {
+      applicationTail.resolve()
+      await retiring
+      const result = await replacement.catch(() => undefined)
+      await result?.dispose()
+    }
+    expect(f.host.prepare).toHaveBeenCalledTimes(2)
+  })
+  it.each([false, true])(
+    'owns complete application retirement on the exact record through raw destruction (readonly=%s)',
+    async (readonly) => {
+      const f = fixture(),
+        prepared = await f.prepare()
+      prepared.connect(f.writer)
+      if (readonly) await prepared.exited({ exitCode: 0, signal: undefined })
+      const presentation = deferred<void>(),
+        raw = deferred<void>()
+      f.host.end.mockReturnValue(raw.promise)
+      let reentered: Promise<void> | undefined
+      const workflow = vi.fn(async () => {
+        reentered = f.sessions.retire('session', 'instance', workflow)
+        await presentation.promise
+        await f.sessions.remove('session', 'instance')
+      })
+      const retiring = f.sessions.retire('session', 'instance', workflow)
+      expect(f.sessions.get('session')?.retiring).toBe(true)
+      expect(() =>
+        f.sessions.transferOwner(
+          'session',
+          'instance',
+          2,
+          2,
+          f.reservation.workspaceRoot,
+        ),
+      ).toThrow('transfer-stale')
+      expect(workflow).not.toHaveBeenCalled()
+      expect(f.sessions.retire('session', 'instance', workflow)).toBe(retiring)
+      await vi.waitFor(() => expect(workflow).toHaveBeenCalledOnce())
+      expect(reentered).toBe(retiring)
+      expect(f.host.end).not.toHaveBeenCalled()
+      presentation.resolve()
+      await vi.waitFor(() => expect(f.host.end).toHaveBeenCalledOnce())
+      expect(f.sessions.get('session')).toBeUndefined()
+      // The record still owns full application retirement while raw end is pending.
+      expect(f.sessions.retire('session', 'instance', workflow)).toBe(retiring)
+      raw.resolve()
+      await retiring
+      expect(workflow).toHaveBeenCalledOnce()
+    },
+  )
+  it('retains an exact application retirement failure and rejects a foreign current instance', async () => {
+    const f = fixture(),
+      failure = new Error('raw-native-end-failed')
+    const prepared = await f.prepare()
+    prepared.connect(f.writer)
+    const foreign = vi.fn(() => Promise.resolve())
+    await expect(f.sessions.retire('session', 'other-instance', foreign)).rejects.toThrow(
+      'native-session-instance-stale',
+    )
+    expect(foreign).not.toHaveBeenCalled()
+    expect(f.sessions.get('session')?.retiring).toBe(false)
+    f.host.end.mockRejectedValue(failure)
+    const workflow = vi.fn(() => f.sessions.remove('session', 'instance'))
+    const retiring = f.sessions.retire('session', 'instance', workflow)
+    await expect(retiring).rejects.toBe(failure)
+    expect(f.sessions.retire('session', 'instance', workflow)).toBe(retiring)
+    expect(workflow).toHaveBeenCalledOnce()
+    expect(f.host.end).toHaveBeenCalledOnce()
+  })
+  it('allows exact local cleanup for an already absent record without touching another instance', async () => {
+    const f = fixture(),
+      prepared = await f.prepare()
+    prepared.connect(f.writer)
+    const cleanup = vi.fn(() => f.sessions.remove('already-closed', 'old-instance'))
+    await f.sessions.retire('already-closed', 'old-instance', cleanup)
+    expect(cleanup).toHaveBeenCalledOnce()
+    expect(f.host.end).not.toHaveBeenCalled()
+    expect(f.sessions.get('session')?.retiring).toBe(false)
+    await prepared.dispose()
+  })
   it('awaits initial settings and measured geometry before returning PTY launch dimensions', async () => {
     const f = fixture()
     const appearance = {
@@ -650,6 +893,7 @@ describe('native supervisor session state', () => {
     expect(f.writer.parsed).toHaveBeenCalledTimes(2)
     expect(f.writer.repliesDispatched).toHaveBeenCalledTimes(2)
     expect(f.writer.writeReply).not.toHaveBeenCalled()
+    expect(f.writer.writeControl).not.toHaveBeenCalled()
     expect(f.host.end).not.toHaveBeenCalled()
   })
 
@@ -668,6 +912,7 @@ describe('native supervisor session state', () => {
     expect(f.host.feed).toHaveBeenCalledOnce()
     expect(f.host.drainReplies).toHaveBeenCalledOnce()
     expect(f.writer.writeReply).not.toHaveBeenCalled()
+    expect(f.writer.writeControl).not.toHaveBeenCalled()
   })
   it('joins active input and captured cleanup across owner transfer without an old ACK clearing newer work', async () => {
     const f = fixture()
