@@ -476,7 +476,9 @@ run_installed_startup current
 if [[ "${HVIR_NATIVE_PACKAGE_ACCEPTANCE:-}" == '1' ]]; then
   relocated_application="$invocation_root/relocated-hvir.app"
   sudo mv "$application" "$relocated_application"
-  codesign --verify --deep --strict "$relocated_application"
+  if [[ "$package_mode" == 'signed' ]]; then
+    codesign --verify --deep --strict "$relocated_application"
+  fi
   node scripts/native-terminal/inspect-package.mts "$relocated_application/Contents/Resources" macos-arm64
   node scripts/installed-startup-probe.mts \
     --command "$relocated_application/Contents/MacOS/hvir" \

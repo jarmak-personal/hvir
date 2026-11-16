@@ -26,8 +26,10 @@ export async function installTerminalApplication(
     }),
     (supervisor) => supervisor.disposeAllAndWait(),
   )
+  const native = await installNativeTerminalApplication(runtime, ptySupervisor, scopes)
   return {
     ptySupervisor,
-    ...(await installNativeTerminalApplication(runtime, ptySupervisor, scopes)),
+    ...native,
+    nativeTerminalPresentation: native.nativeTerminals?.targets,
   }
 }

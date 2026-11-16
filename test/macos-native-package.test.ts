@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
@@ -80,6 +81,70 @@ const signedWorkflow = parse(signedWorkflowSource) as {
 }
 
 describe('macOS native package contract', () => {
+  it.each([
+    {
+      mode: 'structural',
+      verifier: '7',
+      status: 0,
+      calls: ['move', 'manifest', 'startup', 'move'],
+    },
+    {
+      mode: 'signed',
+      verifier: '0',
+      status: 0,
+      calls: ['move', 'signature', 'manifest', 'startup', 'move'],
+    },
+    { mode: 'signed', verifier: '7', status: 7, calls: ['move', 'signature'] },
+  ])(
+    'keeps relocation mode $mode/$verifier truthful and preserves strict signed refusal',
+    ({ mode, verifier, status, calls }) => {
+      const begin = installedSmoke.indexOf(
+        '\nif [[ "${HVIR_NATIVE_PACKAGE_ACCEPTANCE:-}" == \'1\' ]]; then\n  relocated_application=',
+      )
+      const end = installedSmoke.indexOf('\nif HOME=', begin)
+      expect(begin).toBeGreaterThan(0)
+      expect(end).toBeGreaterThan(begin)
+      const result = spawnSync(
+        '/bin/bash',
+        [
+          '-eu',
+          '-c',
+          `
+      sudo() { test "$1" = mv; printf 'move\\n'; }
+      codesign() {
+        test "$*" = '--verify --deep --strict /owned/relocated-hvir.app'
+        printf 'signature\\n'
+        return "$VERIFY_RESULT"
+      }
+      node() {
+        case "$1" in
+          scripts/native-terminal/inspect-package.mts) printf 'manifest\\n' ;;
+          scripts/installed-startup-probe.mts) printf 'startup\\n' ;;
+          *) return 91 ;;
+        esac
+      }
+      package_mode=$PACKAGE_MODE
+      invocation_root=/owned
+      application=/Applications/hvir.app
+      project_root=/owned/repository
+      ${installedSmoke.slice(begin, end)}
+    `,
+        ],
+        {
+          env: {
+            ...process.env,
+            HVIR_NATIVE_PACKAGE_ACCEPTANCE: '1',
+            PACKAGE_MODE: mode,
+            VERIFY_RESULT: verifier,
+          },
+          encoding: 'utf8',
+        },
+      )
+      expect(result.status).toBe(status)
+      expect(result.stderr).toBe('')
+      expect(result.stdout.trim().split('\n')).toEqual(calls)
+    },
+  )
   it('builds one non-relocatable Apple-silicon package with atomic bundle upgrades', () => {
     expect(builder.mac?.target).toEqual(['pkg'])
     expect(builder.mac?.icon).toBe('build/icon-macos.icns')
