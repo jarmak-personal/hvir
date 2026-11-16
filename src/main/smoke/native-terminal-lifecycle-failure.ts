@@ -106,16 +106,49 @@ export async function verifyNativeTerminalFailureLifetimes(
     const recoveryDecision = await evaluate<boolean>(
       `const dialog=document.querySelector('.terminal-recovery-dialog');if(!dialog)return false;const restore=[...dialog.querySelectorAll('button')].find(node=>node.textContent?.trim()==='Restore selected');if(!(restore instanceof HTMLButtonElement)||restore.disabled)throw new Error('native-lifecycle-recovery-control');restore.click();return true;`,
     )
-    await wait(async () => {
-      const current = resources.currentOwner(initialOwner.id)
-      return (
-        current.generation > initialOwner.generation &&
-        resources.isCurrent(current) &&
-        (await evaluate<boolean>(
-          `return !!document.querySelector('.native-terminal-pane canvas');`,
-        ))
+    let replacementObservation: unknown
+    try {
+      await wait(async () => {
+        const current = resources.currentOwner(initialOwner.id)
+        if (
+          current.generation <= initialOwner.generation ||
+          !resources.isCurrent(current)
+        )
+          return false
+        const dom = await evaluate<{ hasCanvas: boolean }>(
+          `const panes=[...document.querySelectorAll('.native-terminal-pane')];const dialog=document.querySelector('.terminal-recovery-dialog');const restore=dialog&&[...dialog.querySelectorAll('button')].find(node=>node.textContent?.trim()==='Restore selected');return {hasCanvas:!!document.querySelector('.native-terminal-pane canvas'),panes:panes.slice(0,8).map(pane=>({viewId:pane.querySelector('[id^="native-terminal-"]')?.id.slice(0,100)??null,sessionId:pane.closest('[data-terminal-session]')?.getAttribute('data-terminal-session')?.slice(0,100)??null,connected:pane.isConnected,unavailable:pane.textContent?.includes('Native terminal unavailable')??false})),dialogPresent:!!dialog,restorePresent:restore instanceof HTMLButtonElement,restoreDisabled:restore instanceof HTMLButtonElement?restore.disabled:null};`,
+        )
+        const retained = ptys.get(managed.id)
+        const state = native.sessions.get(managed.id)
+        replacementObservation = {
+          recoveryDecision,
+          owner: { ...current },
+          retained: retained && {
+            id: retained.id,
+            instanceId: retained.instanceId,
+            pid: retained.pid,
+            ownerId: retained.ownerId,
+            ownerGeneration: retained.ownerGeneration,
+          },
+          native: state && {
+            handle: state.handle,
+            instanceId: state.session.instanceId,
+            ownerId: state.session.ownerId,
+            ownerGeneration: state.session.ownerGeneration,
+            retiring: state.retiring,
+            unavailable: state.unavailable,
+          },
+          dom,
+        }
+        return dom.hasCanvas
+      }, 'replacement-document')
+    } catch (error) {
+      console.error(
+        'HVIR_NATIVE_REPLACEMENT_FAILURE',
+        JSON.stringify(replacementObservation),
       )
-    }, 'replacement-document')
+      throw error
+    }
     const owner = resources.currentOwner(initialOwner.id)
     const retained = ptys.get(managed.id),
       state = native.sessions.get(managed.id)
