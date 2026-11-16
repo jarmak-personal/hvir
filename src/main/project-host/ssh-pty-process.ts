@@ -2,13 +2,11 @@ import { StringDecoder } from 'node:string_decoder'
 import type { ClientChannel } from 'ssh2'
 
 import {
-  PtyWriteIndeterminateError,
+  PtyWriteResourceSettlementError,
   type Disposer,
   type PtyExit,
   type PtyProcess,
 } from './project-host'
-
-export const SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS = 5_000
 
 type TransportFailureRegistration = (callback: () => void) => Disposer
 
@@ -100,37 +98,65 @@ export function createSshPtyProcess(channel: ClientChannel, pid: number): SshPty
       channel.write(typeof value === 'string' ? value : Buffer.from(value))
     },
     writeConfirmed(value) {
-      if (inputClosed) return Promise.reject(new Error('SSH PTY already exited'))
+      if (inputClosed)
+        return Promise.reject(
+          new PtyWriteResourceSettlementError(
+            'SSH PTY already exited',
+            Promise.resolve(),
+          ),
+        )
       return new Promise<void>((resolve, reject) => {
         let settled = false
-        let timer: ReturnType<typeof setTimeout> | undefined
         let stopInput: Disposer = () => undefined
+        let releaseResource!: () => void
+        const resourceSettlement = new Promise<void>((release) => {
+          let released = false
+          releaseResource = () => {
+            if (released) return
+            released = true
+            channel.removeListener('close', releaseResource)
+            release()
+          }
+        })
+        channel.once('close', releaseResource)
         const finish = (error?: Error): void => {
           if (settled) return
           settled = true
-          if (timer) clearTimeout(timer)
-          timer = undefined
           void stopInput()
           if (error) reject(error)
           else resolve()
         }
         stopInput = subscribe(inputClosures, () =>
           finish(
-            new PtyWriteIndeterminateError('SSH PTY exited before write completion'),
+            new PtyWriteResourceSettlementError(
+              'SSH PTY exited before write completion',
+              resourceSettlement,
+            ),
           ),
         )
-        timer = setTimeout(
-          () =>
-            finish(new PtyWriteIndeterminateError('SSH PTY write completion timed out')),
-          SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS,
-        )
+        // SSH window pressure can hold this callback while the transport stays
+        // healthy. Its callback confirms the immediate channel write, not remote
+        // application consumption. Transport failure/exit/kill still settle an
+        // unknown write through closeInput; SshHost owns heartbeat detection.
         try {
           channel.write(
             typeof value === 'string' ? value : Buffer.from(value),
-            (error?: Error | null) => finish(error ?? undefined),
+            (error?: Error | null) => {
+              releaseResource()
+              finish(
+                error
+                  ? new PtyWriteResourceSettlementError(error.message, resourceSettlement)
+                  : undefined,
+              )
+            },
           )
         } catch (error) {
-          finish(error instanceof Error ? error : new Error(String(error)))
+          finish(
+            new PtyWriteResourceSettlementError(
+              error instanceof Error ? error.message : String(error),
+              resourceSettlement,
+            ),
+          )
         }
       })
     },

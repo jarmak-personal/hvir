@@ -36,6 +36,8 @@ export interface PtyPreparedTerminal {
   connect(writer: {
     readonly live: boolean
     writeReply(bytes: Uint8Array): Promise<void>
+    /** Captured native input cleanup retains the exact physical write outcome. */
+    writeControl(bytes: Uint8Array): Promise<void>
     /** Real parser acknowledgement, before reply/effect housekeeping. */
     parsed(bytes: number): void
     repliesDispatched(bytes: number): void

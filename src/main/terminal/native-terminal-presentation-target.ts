@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { WebFrameMain } from 'electron'
+import { NativeTerminalPixelLocallyIneligibleError } from './native-terminal-presenter'
 import {
   NATIVE_TERMINAL_PRESENTATION as channels,
   sameNativeTerminalView,
@@ -17,6 +18,7 @@ export class NativeTerminalPresentationTargets {
     string,
     {
       frame: WebFrameMain
+      grant: NativeTerminalViewGrant
       finish(error?: Error): void
       current(): boolean
     }
@@ -52,6 +54,7 @@ export class NativeTerminalPresentationTargets {
       kind?: string
       grant?: unknown
       screen?: unknown
+      discarded?: unknown
     }
     if (ack.kind === 'drawn' && validNativeTerminalViewGrant(ack.grant)) {
       const routed = this.granted.get(ack.grant.viewId)
@@ -78,8 +81,17 @@ export class NativeTerminalPresentationTargets {
     if (ack.kind !== 'pixels' || typeof ack.ticket !== 'string') return
     const pending = this.pending.get(ack.ticket)
     if (!pending || frame !== pending.frame) return
+    if (
+      ack.accepted === false &&
+      ack.discarded === 'local-ineligible' &&
+      validNativeTerminalViewGrant(ack.grant) &&
+      sameNativeTerminalView(pending.grant, ack.grant)
+    ) {
+      pending.finish(new NativeTerminalPixelLocallyIneligibleError())
+      return
+    }
     pending.finish(
-      ack.accepted === true && pending.current()
+      ack.accepted === true && ack.discarded === undefined && pending.current()
         ? undefined
         : new Error('native-pixel-receiver-rejected'),
     )
@@ -160,7 +172,12 @@ export class NativeTerminalPresentationTargets {
             if (error) reject(error)
             else resolve()
           }
-          this.pending.set(ticket, { frame, finish, current })
+          this.pending.set(ticket, {
+            frame,
+            grant: Object.freeze({ ...pixels.nativeTerminal }),
+            finish,
+            current,
+          })
           try {
             send(channels.pixelsChannel, { ticket, frame: pixels })
           } catch {

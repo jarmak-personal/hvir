@@ -241,6 +241,7 @@ class FakeHvirApi implements HvirApi {
   readonly nativeTerminalPresentation = {
     mount: vi.fn(),
     unmount: vi.fn(),
+    setEligible: vi.fn(),
     onStatus: vi.fn(() => () => undefined),
   }
   rendererReady(): void {}

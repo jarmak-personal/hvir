@@ -268,6 +268,48 @@ jobs:
           assert(proof.resizeAcknowledgedByStty.rows > 0 && proof.resizeAcknowledgedByStty.columns > 0);
           assert.equal(proof.development, true);
           assert.equal(proof.hardwareQualified, false);
+          const lifetime = proof.nativeLifetimes;
+          for (const field of ['samePty', 'sameNativeState', 'hiddenOutput', 'realSessionsHandoff'])
+            assert.equal(lifetime[field], true);
+          assert.equal(lifetime.realHostQualified, false);
+          assert.equal(lifetime.hiddenInputRefusals, 3);
+          assert.equal(lifetime.cycles.length, 3);
+          for (let index = 0; index < lifetime.cycles.length; index++) {
+            const cycle = lifetime.cycles[index];
+            assert.equal(cycle.cycle, index);
+            assert.equal(cycle.canvases, 1);
+            assert.equal(cycle.queuedReplyBytes, 0);
+            assert(Number.isSafeInteger(cycle.serial) && cycle.serial > 0);
+            if (index) assert(cycle.serial > lifetime.cycles[index - 1].serial);
+          }
+          const failure = proof.nativeFailureLifetimes;
+          for (const field of ['explicitRestart', 'readonlyInstanceRetired', 'splitClosed', 'documentReplacement', 'oldOwnerRejected',
+            'samePtyOnDocumentReplacement', 'rejectedRefit', 'noReplacementGrantOnRefusal',
+            'mainUnavailableCanResume', 'staleFailureIgnored', 'nativeHostLoss',
+            'lostReadRejected', 'explicitClose']) assert.equal(failure[field], true);
+          assert.equal(failure.additionalLaunches, 3);
+          assert.equal(failure.explicitRecoveryDecision, true);
+          assert.deepEqual(failure.pendingNativeInputLoss, {sent: true, rejected: true, observedEpoch: true});
+          assert.equal(failure.silentRelaunches, 0);
+          assert.equal(typeof failure.contextLoss.eligible, 'boolean');
+          assert.equal(failure.contextLoss.parserPreserved, failure.contextLoss.eligible);
+          assert.deepEqual(failure.final, {livePtys: 0, nativeSessionPresent: false, canvases: 0});
+          assert.equal(failure.realHostQualified, false);
+          assert.equal(failure.hardwareQualified, false);
+          const ssh = proof.nativeSshLifetimes;
+          for (const field of ['ordinaryTerminalUi', 'realSsh2Transport', 'realNativeParser',
+            'syntheticFilesystemMetadata', 'syntheticRemoteProgram', 'sameNamedHostPathsIsolated',
+            'hiddenOutputAndReply', 'ordinaryWorkspaceNavigation', 'ordinarySessionsHandoff',
+            'controlReconnectRetainedPty', 'terminalDisconnectRetainedParser', 'explicitUiClose', 'returnedInputLease'])
+            assert.equal(ssh[field], true);
+          for (const field of ['externalSshHostQualified', 'remoteOsPtyQualified', 'sharedNativeHostLossQualified'])
+            assert.equal(ssh[field], false);
+          assert.equal(ssh.inputBytes, 43);
+          assert.equal(ssh.replyBytes, 4);
+          assert.equal(ssh.inputAndReplySha256, require('node:crypto').createHash('sha256').update('hvir-m13-ssh-input\x1b[0nhvir-m13-ssh-return-input').digest('hex'));
+          assert.equal(ssh.terminalStarts, 1);
+          for (const field of ['remainingConnections', 'remainingChannels', 'remainingHostTransports'])
+            assert.equal(ssh[field], 0);
           const effects = proof.nativeEffects;
           assert.equal(effects.phases, 10);
           for (const field of ['causalEventSerials', 'titleProductDelivery', 'remoteCwdCopied', 'readQueriesRefused', 'newClipboardProtocolsRefused', 'queriesExact', 'linkUserIntentPortHostCorrect'])

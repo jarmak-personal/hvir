@@ -63,6 +63,7 @@ function fixture() {
   const presentation = {
     mount: vi.fn<(_viewId: string, _elementId: string) => void>(),
     unmount: vi.fn<(_viewId: string) => void>(),
+    setEligible: vi.fn<(_viewId: string, _eligible: boolean) => void>(),
     onStatus: vi.fn(() => vi.fn()),
   }
   const api = {

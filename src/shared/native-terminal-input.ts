@@ -77,7 +77,10 @@ export class NativeTerminalInputResourceRefused extends Error {
 }
 /** The owned native input did not produce an observable physical completion. */
 export class NativeTerminalInputPhysicalFailure extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly resourceSettlement?: Promise<void>,
+  ) {
     super(message)
     this.name = 'NativeTerminalInputPhysicalFailure'
   }

@@ -409,6 +409,10 @@ export class PtySupervisor {
             if (canReply()) throw error
           }
         },
+        writeControl: async (bytes) => {
+          if (!canReply()) return
+          await entry.lifetime.writeConfirmed(bytes)
+        },
       })
       stream.start(
         pty,

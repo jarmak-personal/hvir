@@ -5,6 +5,7 @@ import { plainShellProvider } from '../harness/harness-provider'
 import type { ProjectHost, PtyExit } from '../project-host'
 import type { PtyPreparedTerminal } from '../pty/pty-contract'
 import type { PtySupervisor } from '../pty/pty-supervisor'
+import { verifyPausedPtyExit } from './pty-paused-exit'
 
 const MARKER = 'HVIR_FINAL_1114_TAIL_f729c8e1'
 const BLOCK = '0123456789abcdef'.repeat(4096)
@@ -18,6 +19,7 @@ export async function verifyPtyExitTail(
   supervisor: PtySupervisor,
   root: HostPath,
 ): Promise<void> {
+  await verifyPausedPtyExit(host, supervisor, root)
   const results = []
   for (const [mode, blocks] of [
     ['baseline', 1],

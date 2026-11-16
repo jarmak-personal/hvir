@@ -15,7 +15,10 @@ import {
 } from '../../shared/native-terminal'
 import type { NativeTerminalHost } from './native-terminal-host'
 import type { PtyTerminalInputPrefix } from '../pty/pty-contract'
-import { PtyWriteConfirmedRevokedError } from '../project-host/project-host'
+import {
+  PtyWriteConfirmedRevokedError,
+  PtyWriteResourceSettlementError,
+} from '../project-host/project-host'
 import {
   providerComposerEncoding,
   type ProviderComposerKeyboardPolicy,
@@ -28,6 +31,7 @@ export interface NativeTerminalInputState {
   appended?: Promise<void>
   cleanup?: Promise<void>
   revoked: boolean
+  retired?: boolean
 }
 export interface NativeTerminalInputContext {
   readonly handle: string
@@ -49,7 +53,7 @@ export interface NativeTerminalInputContext {
 interface InputCompletionOptions {
   captured?: boolean
   fallback?: NativeTerminalKeyEncodingFallback
-  retainIndeterminate?: () => void
+  retainIndeterminate?: (resourceSettlement?: Promise<void>) => void
   appended?: () => void
 }
 /** Input effects share native state and PTY authority; this owner owns no PTY queue. */
@@ -68,8 +72,9 @@ export class NativeTerminalInput {
     if (!validNativeTerminalInput(input))
       return Promise.reject(new Error('native-input-invalid'))
     if (
-      context.state.revoked &&
-      !(context.readOnly && ['wheel', 'pointer', 'caret'].includes(input.kind))
+      context.state.retired ||
+      (context.state.revoked &&
+        !(context.readOnly && ['wheel', 'pointer', 'caret'].includes(input.kind)))
     )
       return Promise.reject(new Error('native-view-stale'))
     if (context.state.active || context.state.cleanup)
@@ -111,6 +116,7 @@ export class NativeTerminalInput {
     }
     const focusRevision = this.focusRevision
     const assertCurrent = () => {
+      if (context.state.retired) throw new Error('native-view-stale')
       context.assertCurrent()
       if (
         needsFocus &&
@@ -155,10 +161,16 @@ export class NativeTerminalInput {
         },
         {
           fallback: policy?.fallback,
-          retainIndeterminate: () => {
+          retainIndeterminate: (resourceSettlement) => {
             held = true
             context.state.revoked = true
             context.blockInput()
+            // Resource settlement releases only this credit; the failed immutable
+            // instance stays blocked and uncertain delivery is never replayed.
+            void resourceSettlement?.then(
+              () => credit.release(),
+              () => undefined,
+            )
           },
           appended,
         },
@@ -187,6 +199,7 @@ export class NativeTerminalInput {
 
   /** Captured old-instance cleanup remains valid after logical hide/revocation. */
   blur(context: NativeTerminalInputContext): Promise<void> {
+    if (context.state.retired) return Promise.resolve()
     if (context.state.cleanup) return context.state.cleanup
     const prefix = context.prefix()
     const credit = this.resultCredits.reserve(
@@ -195,17 +208,23 @@ export class NativeTerminalInput {
       true,
     )
     let held = false
-    const retain = () => {
+    const retain = (resourceSettlement?: Promise<void>) => {
       held = true
       context.state.revoked = true
       context.blockInput()
+      void resourceSettlement?.then(
+        () => credit.release(),
+        () => undefined,
+      )
     }
     const cleanup = (async () => {
       await context.state.appended
+      if (context.state.retired) return
       await this.perform(context, { kind: 'preedit', text: null }, prefix, {
         captured: true,
         retainIndeterminate: retain,
       })
+      if (context.state.retired) return
       await this.perform(context, { kind: 'focus', focused: false }, prefix, {
         captured: true,
         retainIndeterminate: retain,
@@ -226,6 +245,15 @@ export class NativeTerminalInput {
   revoke(context: NativeTerminalInputContext): Promise<void> {
     context.state.revoked = true
     return this.blur(context)
+  }
+
+  /** Destruction revokes only local authority; physical work keeps its credits. */
+  retire(state: NativeTerminalInputState): void {
+    state.retired = state.revoked = true
+    if (this.focused?.state === state) {
+      this.focused = undefined
+      this.focusRevision++
+    }
   }
 
   private async perform(
@@ -250,7 +278,7 @@ export class NativeTerminalInput {
         break
       } catch (error) {
         if (error instanceof NativeTerminalInputPhysicalFailure)
-          options.retainIndeterminate?.()
+          options.retainIndeterminate?.(error.resourceSettlement)
         if (
           !(
             error instanceof NativeTerminalAdmissionError ||
@@ -287,6 +315,10 @@ export class NativeTerminalInput {
         clearTimeout(timer)
       }
     }
+    if (context.state.retired) {
+      if (options.captured) return { requestedMutation: 0 }
+      throw new Error('native-view-stale')
+    }
     if (prefix && !options.captured) context.assertCurrent()
     const bytes = result.bytes
     if (bytes.byteLength) {
@@ -300,7 +332,11 @@ export class NativeTerminalInput {
           await writing
         } catch (error) {
           if (!(error instanceof PtyWriteConfirmedRevokedError))
-            options.retainIndeterminate?.()
+            options.retainIndeterminate?.(
+              error instanceof PtyWriteResourceSettlementError
+                ? error.resourceSettlement
+                : undefined,
+            )
           throw error
         }
       } else {
@@ -310,7 +346,11 @@ export class NativeTerminalInput {
           await writing
         } catch (error) {
           if (!(error instanceof PtyWriteConfirmedRevokedError))
-            options.retainIndeterminate?.()
+            options.retainIndeterminate?.(
+              error instanceof PtyWriteResourceSettlementError
+                ? error.resourceSettlement
+                : undefined,
+            )
           throw error
         }
       }

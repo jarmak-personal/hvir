@@ -259,6 +259,16 @@ export interface PtyExit {
 export class PtyWriteIndeterminateError extends Error {
   override readonly name = 'PtyWriteIndeterminateError'
 }
+/** Delivery is uncertain. The exact write's resources settle
+ * separately; this receipt never authorizes replay or proves remote consumption. */
+export class PtyWriteResourceSettlementError extends PtyWriteIndeterminateError {
+  constructor(
+    message: string,
+    readonly resourceSettlement: Promise<void>,
+  ) {
+    super(message)
+  }
+}
 /** Bytes were confirmed; delivery authority expired before the caller resumed.
  * Conservative callers still treat this as non-retryable through the base class. */
 export class PtyWriteConfirmedRevokedError extends PtyWriteIndeterminateError {}

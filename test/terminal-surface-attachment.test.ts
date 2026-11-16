@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TerminalSurfaceAttachment } from '../src/renderer/src/terminal/terminal-surface-attachment'
 import type { TerminalPane } from '../src/renderer/src/terminal/terminal-pane'
+
+afterEach(() => document.body.replaceChildren())
 
 describe('TerminalSurfaceAttachment', () => {
   it('grants one exact lease, hides before reparenting, and restores the current workspace container', () => {
@@ -14,6 +16,7 @@ describe('TerminalSurfaceAttachment', () => {
     const detail = document.createElement('div')
     const staleDetail = document.createElement('div')
 
+    document.body.append(workspace, replacementWorkspace, detail, staleDetail)
     surface.attach(workspace, 'visible')
     surface.mountPane(pane.value, workspace)
     surface.synchronize('visible')
@@ -50,6 +53,7 @@ describe('TerminalSurfaceAttachment', () => {
     const workspace = document.createElement('div')
     const first = document.createElement('div')
     const second = document.createElement('div')
+    document.body.append(workspace, first, second)
     surface.attach(workspace, 'hidden')
     surface.mountPane(pane.value, workspace)
 
@@ -66,6 +70,57 @@ describe('TerminalSurfaceAttachment', () => {
     expect(surface.currentContainer).toBe(second)
     expect(surface.isCurrentLease(secondLease, second)).toBe(true)
   })
+
+  it('withdraws focus from a borrowed surface whose DOM is removed', () => {
+    const surface = new TerminalSurfaceAttachment()
+    const pane = fakePane()
+    const workspace = document.createElement('div')
+    const detail = document.createElement('div')
+    document.body.append(workspace, detail)
+    surface.attach(workspace, 'visible')
+    surface.mountPane(pane.value, workspace)
+    const lease = surface.acquireLease()!
+    surface.attachLease(lease, detail, 'visible')
+    expect(surface.canFocus()).toBe(true)
+
+    detail.remove()
+    expect(surface.canFocus()).toBe(false)
+    surface.setLeasePresentation(lease, detail, 'visible')
+    expect(surface.presentation).toBe('hidden')
+  })
+
+  it.each(['disconnected', 'detached while borrowed'] as const)(
+    'does not restore a %s workspace until a fresh connected attach',
+    (reason) => {
+      const surface = new TerminalSurfaceAttachment()
+      const pane = fakePane()
+      const workspace = document.createElement('div')
+      const detail = document.createElement('div')
+      document.body.append(workspace, detail)
+      surface.attach(workspace, 'visible')
+      surface.mountPane(pane.value, workspace)
+      surface.synchronize('visible')
+      const lease = surface.acquireLease()!
+      surface.attachLease(lease, detail, 'visible')
+      if (reason === 'detached while borrowed') surface.detach(workspace)
+      workspace.remove()
+      if (reason === 'detached while borrowed') document.body.append(workspace)
+      pane.reparent.mockClear()
+
+      expect(surface.releaseLease(lease)).toBe(true)
+      expect(pane.reparent).not.toHaveBeenCalled()
+      expect(surface.currentContainer).toBeUndefined()
+      expect(surface.presentation).toBe('hidden')
+      expect(surface.canFocus()).toBe(false)
+      document.body.append(workspace)
+      surface.synchronize('visible')
+      expect(surface.presentation).toBe('hidden')
+
+      surface.attach(workspace, 'visible')
+      expect(pane.reparent).toHaveBeenCalledExactlyOnceWith(workspace)
+      expect(surface.canWorkspaceFocus()).toBe(true)
+    },
+  )
 })
 
 function fakePane() {

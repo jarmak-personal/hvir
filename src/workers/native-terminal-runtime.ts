@@ -5,6 +5,7 @@ import { validNativeTerminalQueryOperation } from '../shared/native-terminal-que
 import { runNativeQueryStep, NativeQueryCleanupFailed } from './native-terminal-query'
 import {
   runNativeSelectionStep,
+  NativeSelectionCleanupFailed,
   type NativeSelectionEngineResult,
 } from './native-terminal-selection'
 import { Worker } from 'node:worker_threads'
@@ -239,11 +240,16 @@ export function runNativeTerminalHost(
         return { ...(plain(metadata) as object), bytes: data }
       }
       case 'selection':
-        return runNativeSelectionStep(
-          command.operation,
-          (operation) => invoke(state, 'selection', [state, operation]),
-          cancelled,
-        )
+        try {
+          return await runNativeSelectionStep(
+            command.operation,
+            (operation) => invoke(state, 'selection', [state, operation]),
+            cancelled,
+          )
+        } catch (error) {
+          if (error instanceof NativeSelectionCleanupFailed) return fatal()
+          throw error
+        }
       case 'query': {
         try {
           return await runNativeQueryStep(

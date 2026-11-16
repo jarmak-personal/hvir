@@ -68,6 +68,8 @@ interface NativeSession {
   inputSettlement?: Promise<void>
   effectDrain?: Promise<void>
   disposing?: Promise<void>
+  stateEnded?: boolean
+  applicationRemoval?: Promise<void>
 }
 export interface NativeTerminalViewport {
   /** Physical backing extent; the presenter performs CSS conversion once. */
@@ -106,6 +108,7 @@ export class NativeTerminalSessions {
         inputClosed: boolean
         inputUnavailable: boolean
         unavailable: boolean
+        retiring: boolean
         title?: { readonly title: string; readonly eventSerial: number }
         cwd?: HostPath
         effectState?: {
@@ -127,6 +130,7 @@ export class NativeTerminalSessions {
       inputClosed: record.phase !== 'live' || record.writer?.live === false,
       inputUnavailable: record.inputUnavailable,
       unavailable: record.phase === 'failed',
+      retiring: record.applicationRemoval !== undefined,
     }
   }
 
@@ -143,11 +147,46 @@ export class NativeTerminalSessions {
         !validNativeTerminalAppearance(viewport.appearance))
     )
       throw new Error('native-initial-geometry-invalid')
+    const previous = this.sessions.get(reservation.sessionId)
+    const retirement =
+      previous?.applicationRemoval ??
+      (previous?.phase === 'removed' ? previous.disposing : undefined)
+    if (retirement) {
+      await new Promise<void>((resolve, reject) => {
+        const abort = () => {
+          signal.removeEventListener('abort', abort)
+          reject(signal.reason instanceof Error ? signal.reason : new Error('cancelled'))
+        }
+        signal.addEventListener('abort', abort, { once: true })
+        void retirement.then(
+          () => {
+            signal.removeEventListener('abort', abort)
+            resolve()
+          },
+          (error: unknown) => {
+            signal.removeEventListener('abort', abort)
+            reject(
+              error instanceof Error
+                ? error
+                : new Error('native-retirement-failed', { cause: error }),
+            )
+          },
+        )
+        if (signal.aborted) abort()
+      })
+      signal.throwIfAborted()
+    }
     if (
       this.sessions.has(reservation.sessionId) ||
       this.sessions.size >= NATIVE_TERMINAL_LIMITS.states
     )
-      throw new Error('native-session-bound')
+      throw new Error('native-session-bound', {
+        cause: {
+          phase: this.sessions.get(reservation.sessionId)?.phase ?? 'absent',
+          stateLimit: this.sessions.size >= NATIVE_TERMINAL_LIMITS.states,
+          waitedForRetirement: retirement !== undefined,
+        },
+      })
     if (!this.isRendererCurrent(reservation.ownerId, reservation.ownerGeneration))
       throw new Error('native-session-revoked')
     const abort = new AbortController()
@@ -244,6 +283,7 @@ export class NativeTerminalSessions {
       record.session.instanceId !== instanceId ||
       record.phase === 'preparing' ||
       record.phase === 'removed' ||
+      record.applicationRemoval ||
       record.session.workspaceRoot.hostId !== workspaceRoot.hostId ||
       !this.isRendererCurrent(ownerId, ownerGeneration)
     )
@@ -257,6 +297,26 @@ export class NativeTerminalSessions {
     if (record.session.instanceId !== instanceId)
       throw new Error('native-session-instance-stale')
     await this.dispose(record)
+  }
+
+  /** Full application teardown shares this exact record's lifetime, separately
+   * from raw state disposal. Publish before cleanup can reenter its owner. */
+  retire(
+    sessionId: string,
+    instanceId: string,
+    remove: () => Promise<void>,
+  ): Promise<void> {
+    const record = this.sessions.get(sessionId)
+    if (!record) return remove()
+    if (record.session.instanceId !== instanceId)
+      return Promise.reject(new Error('native-session-instance-stale'))
+    record.applicationRemoval ??= Promise.resolve()
+      .then(remove)
+      .finally(() => {
+        if (record.stateEnded && this.sessions.get(sessionId) === record)
+          this.sessions.delete(sessionId)
+      })
+    return record.applicationRemoval
   }
   /** An indeterminate write belongs to the immutable PTY, not its current view. */
   blockInput(sessionId: string, instanceId: string): void {
@@ -299,7 +359,7 @@ export class NativeTerminalSessions {
       throw new Error('native-session-instance-stale')
     this.assertCurrent(record)
     if (!record.inputUnavailable && record.writer?.live && bytes.byteLength)
-      await record.writer.writeReply(bytes)
+      await record.writer.writeControl(bytes)
   }
 
   private async output(record: NativeSession, decoded: string): Promise<void> {
@@ -507,7 +567,11 @@ export class NativeTerminalSessions {
     record.parentSignal.removeEventListener('abort', record.cancel)
     record.disposing = (async () => {
       if (record.handle) await this.host.end(record.handle, record.session.instanceId)
-      if (this.sessions.get(record.session.sessionId) === record)
+      record.stateEnded = true
+      if (
+        !record.applicationRemoval &&
+        this.sessions.get(record.session.sessionId) === record
+      )
         this.sessions.delete(record.session.sessionId)
     })()
     return record.disposing

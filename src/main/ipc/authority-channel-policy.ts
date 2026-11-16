@@ -113,6 +113,7 @@ export const OWNER_SCOPED_INVOKE_CHANNELS = [
   'web-pane:open-external',
   'web-pane:open-browser',
   'terminal:rename',
+  'terminal:forget',
   'terminal:plan-move',
   'terminal:move',
   'terminal:record-recovery-decision',

@@ -1,4 +1,9 @@
 import { verifyNativeTerminalAppearance } from './native-terminal-appearance'
+import { createNativeTerminalSshLifecycleFixture } from '../../../test/fixtures/native-terminal-ssh-lifecycle'
+import { createRemoteProjectFileSmokeHost } from './project-file-operations'
+import { verifyNativeTerminalLifetimes } from './native-terminal-lifecycle'
+import { verifyNativeTerminalFailureLifetimes } from './native-terminal-lifecycle-failure'
+import { observeNativeTerminalUtilities } from './native-terminal-utility-observation'
 import {
   verifyNativeTerminalSelection,
   verifyNativeReadonlySelection,
@@ -21,7 +26,7 @@ import {
 import { app, type BrowserWindow } from 'electron'
 import { nativeTerminalLinuxOptionsFromEnvironment } from '../../shared/native-terminal-linux'
 import { nativeTerminalDiagnostics } from '../terminal/native-terminal-diagnostics'
-import type { PtySupervisor } from '../pty/pty-supervisor'
+import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import {
   createNativeTerminalApplication,
   type NativeTerminalApplication,
@@ -30,6 +35,8 @@ import type { ElectronSmokeDependencies } from './bootstrap-contract'
 import type { SmokeCleanup } from './cleanup'
 import type { RendererResourceScopes } from '../renderer-resource-scopes'
 import { ensureExplicitBareShellLaunch } from './terminal-explicit-launch'
+import type { ProjectHost } from '../project-host'
+import { asHostId, hostPath, type ProjectState } from '../../shared'
 
 /** Format the qualification receipt; the runner keeps stdout separate from diagnostics. */
 export function nativeWorkbenchReceiptLine(
@@ -43,10 +50,17 @@ export async function createNativeWorkbench(
   {
     mode,
     rendererResources,
-  }: Pick<ElectronSmokeDependencies, 'mode' | 'rendererResources'>,
+    projectRoot,
+    localHost,
+  }: Pick<ElectronSmokeDependencies, 'mode' | 'rendererResources' | 'projectRoot'> & {
+    readonly localHost: ProjectHost
+  },
   supervisor: PtySupervisor,
   cleanup: SmokeCleanup,
 ) {
+  const utilities =
+    mode === 'native-terminal-workbench' ? observeNativeTerminalUtilities() : undefined
+  if (utilities) cleanup.defer('native utility observation', () => utilities.dispose())
   const systemClipboard =
     mode === 'native-terminal-workbench'
       ? new NativeEffectsClipboardObservation()
@@ -61,10 +75,30 @@ export async function createNativeWorkbench(
       : undefined
   if (nativeTerminals)
     cleanup.defer('native development terminals', () => nativeTerminals.dispose())
+  const nativeSsh =
+    mode === 'native-terminal-workbench'
+      ? await createNativeTerminalSshLifecycleFixture(localHost, projectRoot)
+      : undefined
+  if (nativeSsh) cleanup.defer('native SSH lifecycle fixture', () => nativeSsh.dispose())
+  const smokeRemoteRoot =
+    nativeSsh?.root ?? hostPath(asHostId('smoke-remote'), '/srv/hvir')
+  const smokeRemoteHost =
+    nativeSsh?.host ??
+    createRemoteProjectFileSmokeHost({
+      localHost,
+      localRoot: projectRoot,
+      remoteRoot: smokeRemoteRoot,
+    })
   return {
     systemClipboard,
+    smokeRemoteRoot,
+    smokeRemoteHost,
     ipc: { nativeTerminals, nativeTerminalPresentation: nativeTerminals?.targets },
-    async run(win: BrowserWindow): Promise<boolean> {
+    async run(
+      win: BrowserWindow,
+      project: { get(): ProjectState; remoteFiles(): ProjectState },
+      publishProject: (state: ProjectState) => void,
+    ): Promise<boolean> {
       if (mode !== 'native-terminal-workbench') return false
       if (!nativeTerminals)
         throw new Error(
@@ -76,6 +110,14 @@ export async function createNativeWorkbench(
         nativeTerminals,
         rendererResources,
         systemClipboard,
+        utilities,
+        nativeSsh &&
+          ((application, managed) =>
+            nativeSsh.verify(win, supervisor, application, managed, {
+              get: () => project.get(),
+              remote: () => project.remoteFiles(),
+              publish: publishProject,
+            })),
       )
       console.log('HVIR_SMOKE_OK')
       return true
@@ -91,6 +133,11 @@ export async function verifyNativeTerminalWorkbench(
   native: NativeTerminalApplication,
   resources: RendererResourceScopes,
   clipboard?: NativeEffectsClipboardObservation,
+  utilities?: ReturnType<typeof observeNativeTerminalUtilities>,
+  qualifySsh?: (
+    application: NativeTerminalApplication,
+    managed: ManagedPty,
+  ) => Promise<unknown>,
 ): Promise<void> {
   const rendererSandboxed = (await win.webContents.executeJavaScript(
     'window.hvir.diagnostics.processSandboxed',
@@ -196,6 +243,7 @@ export async function verifyNativeTerminalWorkbench(
     native,
     managed,
   )
+  const nativeLifetimes = await verifyNativeTerminalLifetimes(win, ptys, native, managed)
   const initialGeometry = (await native.inspectRetained(managed.id, owner)).geometry
   await win.webContents.executeJavaScript(`(() => {
     const control = [...document.querySelectorAll('button[aria-label="Collapse terminal rail"],button[aria-label="Restore terminal rail"]')]
@@ -257,8 +305,18 @@ export async function verifyNativeTerminalWorkbench(
   )
   const readonlyQuery = await verifyNativeReadonlyQuery(win, native, managed)
   if (ptys.list().length) throw new Error('native-query-readonly-revived-pty')
-  await native.remove(managed.id, managed.instanceId)
-  if (native.sessions.get(managed.id)) throw new Error('native-workbench-removed-state')
+  if (!qualifySsh) throw new Error('native-lifecycle-ssh-fixture-missing')
+  const nativeSshLifetimes = await qualifySsh(native, managed)
+  console.log('HVIR_NATIVE_SSH_LIFECYCLE_OK ' + JSON.stringify(nativeSshLifetimes))
+  if (!utilities) throw new Error('native-lifecycle-utility-observation-missing')
+  const nativeFailureLifetimes = await verifyNativeTerminalFailureLifetimes(
+    win,
+    ptys,
+    native,
+    resources,
+    utilities,
+    managed,
+  )
   console.log(
     nativeWorkbenchReceiptLine({
       platform: process.platform,
@@ -280,6 +338,9 @@ export async function verifyNativeTerminalWorkbench(
       nativeSelection,
       nativeQuery,
       nativeAppearance,
+      nativeLifetimes,
+      nativeFailureLifetimes,
+      nativeSshLifetimes,
       readonlySelection,
       readonlyQuery,
       largePaste,

@@ -45,6 +45,14 @@ function executeQualification(
     | 'lost-selection'
     | 'streaming-deadline',
   badAppearance?: 'selection' | 'geometry' | 'cursor' | 'unicode' | 'context',
+  badLifetime?:
+    | 'identity'
+    | 'authority'
+    | 'resource'
+    | 'refit'
+    | 'recovery'
+    | 'ssh-input'
+    | 'ssh-resource',
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'hvir-native-workbench-report-'))
   try {
@@ -70,6 +78,9 @@ const proof = {
   nativeSelection:{pendingPressAck:{pointerId:1,heldMoveButtons:1,trustedOutsideMove:true,trustedOutsideUp:true,ackHeldUntilOutsideUp:true,nativeOriginalViewOrder:true,captureReleasedBeforeAck:true,captureReleasedAfterAck:true,exactSelectedBytes:5,exactSelectedSha256:require('node:crypto').createHash('sha256').update('alpha').digest('hex')},samePty:true,originalReadyBeforeClear:true,clearScreenScrollback:true,resetTerminal:true,parserInputAlive:true,drag:true,word:true,line:true,unicodeWhitespace:true,softwrap:true,selectAll:true,menu:true,metaCopy:true,controlShiftCopy:true,fileUriAndPlainIntent:true,linkRootsMatched:true,loopbackRouteContent:true,externalOpenerObserved:true,osExternalOpenerInvoked:false,hardwareGpuQualified:false,retentionEpoch:'HVIR_M9_RETENTION_EPOCH',fixtureColumns:80,linkIntents:4,copies:[['drag','alpha'],['word','alpha'],['line','alpha beta'],['unicode-whitespace','  A界e\\u0301B  '],['all-softwrap','w'.repeat(100)],['continuous-drag','alpha']].map(([name,text])=>({name,bytes:Buffer.byteLength(text),sha256:require('node:crypto').createHash('sha256').update(text).digest('hex')})),continuous:{producedBytes:65536,copiedWhileActive:true},largeCopy:{fixtureBytes:4096*81-1,copyFinished:false,copyStale:true,refusalCode:6,inputWhilePending:false,writeWhilePending:false,userWrites:1,mutation:8},mainSamples:4,mainMaxMs:20,rendererSamples:4,rendererMaxMs:20,isolatedOsClipboardReadback:process.env.RUNNER_OS==='Linux'&&process.env.HVIR_NATIVE_TERMINAL_ISOLATED_CLIPBOARD==='1',clipboardIntercepted:process.env.RUNNER_OS!=='Linux'},
   readonlySelection:{gestureBlur:{pointerId:1,heldMoveButtons:1,acknowledgedDrag:true,tabChangedFocus:true,nativeFocusCleanup:true,captureReleased:true,ptyWrites:0,ptyCount:0,selectedRangePreserved:true},rendererSamples:4,rendererMaxMs:20,readonlyDrag:true,readonlyCopy:true,bytes:Buffer.byteLength('HVIR_READONLY_SELECTION'),sha256:require('node:crypto').createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex'),isolatedOsClipboardReadback:process.env.RUNNER_OS==='Linux'&&process.env.HVIR_NATIVE_TERMINAL_ISOLATED_CLIPBOARD==='1'},
   readonlyQuery:{retainedAfterExit:true,matches:1,exactCopy:{bytes:Buffer.byteLength('HVIR_READONLY_SELECTION'),sha256:require('node:crypto').createHash('sha256').update('HVIR_READONLY_SELECTION').digest('hex')},frames:10,maximumFrameGapMs:20},
+  nativeLifetimes:{samePty:true,sameNativeState:true,hiddenOutput:true,realSessionsHandoff:true,realHostQualified:false,hiddenInputRefusals:3,cycles:[0,1,2].map(cycle=>({cycle,canvases:1,queuedReplyBytes:0,serial:cycle+1}))},
+  nativeFailureLifetimes:{additionalLaunches:3,explicitRestart:true,readonlyInstanceRetired:true,explicitRecoveryDecision:true,pendingNativeInputLoss:{sent:true,rejected:true,observedEpoch:true},splitClosed:true,documentReplacement:true,oldOwnerRejected:true,samePtyOnDocumentReplacement:true,rejectedRefit:true,noReplacementGrantOnRefusal:true,mainUnavailableCanResume:true,staleFailureIgnored:true,nativeHostLoss:true,lostReadRejected:true,silentRelaunches:0,explicitClose:true,contextLoss:{eligible:true,parserPreserved:true},final:{livePtys:0,nativeSessionPresent:false,canvases:0},realHostQualified:false,hardwareQualified:false},
+  nativeSshLifetimes:{ordinaryTerminalUi:true,realSsh2Transport:true,realNativeParser:true,syntheticFilesystemMetadata:true,syntheticRemoteProgram:true,sameNamedHostPathsIsolated:true,hiddenOutputAndReply:true,ordinaryWorkspaceNavigation:true,ordinarySessionsHandoff:true,controlReconnectRetainedPty:true,terminalDisconnectRetainedParser:true,explicitUiClose:true,returnedInputLease:true,externalSshHostQualified:false,remoteOsPtyQualified:false,sharedNativeHostLossQualified:false,inputBytes:43,replyBytes:4,inputAndReplySha256:require('node:crypto').createHash('sha256').update('hvir-m13-ssh-input\\x1b[0nhvir-m13-ssh-return-input').digest('hex'),terminalStarts:1,remainingConnections:0,remainingChannels:0,remainingHostTransports:0},
   diagnosticPadding: 'x'.repeat(90000),
 };
 if(process.env.HVIR_TEST_BAD_EFFECT==='clipboard')proof.nativeEffects.clipboardWrites[1].sha256='incorrect';
@@ -97,6 +108,13 @@ if(process.env.HVIR_TEST_BAD_APPEARANCE==='geometry')proof.nativeAppearance.hidd
 if(process.env.HVIR_TEST_BAD_APPEARANCE==='cursor')proof.nativeAppearance.applicationCursorOverride=false;
 if(process.env.HVIR_TEST_BAD_APPEARANCE==='context')proof.nativeAppearance.fractionalScale.refitCanvas.retained=false;
 if(process.env.HVIR_TEST_BAD_APPEARANCE==='unicode')proof.nativeAppearance.hiddenFontReveal.unicodeExactPointerCopy.sha256='incorrect';
+if(process.env.HVIR_TEST_BAD_LIFETIME==='ssh-input')proof.nativeSshLifetimes.inputAndReplySha256='incorrect';
+if(process.env.HVIR_TEST_BAD_LIFETIME==='ssh-resource')proof.nativeSshLifetimes.remainingHostTransports=1;
+if(process.env.HVIR_TEST_BAD_LIFETIME==='identity')proof.nativeLifetimes.sameNativeState=false;
+if(process.env.HVIR_TEST_BAD_LIFETIME==='authority')proof.nativeFailureLifetimes.oldOwnerRejected=false;
+if(process.env.HVIR_TEST_BAD_LIFETIME==='resource')proof.nativeFailureLifetimes.final.canvases=1;
+if(process.env.HVIR_TEST_BAD_LIFETIME==='refit')proof.nativeFailureLifetimes.noReplacementGrantOnRefusal=false;
+if(process.env.HVIR_TEST_BAD_LIFETIME==='recovery')proof.nativeFailureLifetimes.silentRelaunches=1;
 const line = 'HVIR_NATIVE_WORKBENCH_OK ' + JSON.stringify(proof) + '\\n';
 process.stdout.write(line.slice(0, 65536), () => {
   process.stderr.write('controlled native cleanup diagnostic\\n', () => {
@@ -134,6 +152,7 @@ exec "$HVIR_TEST_NODE" "$@"
         HVIR_TEST_BAD_SELECTION: badSelection ?? '',
         HVIR_TEST_BAD_QUERY: badQuery ?? '',
         HVIR_TEST_BAD_APPEARANCE: badAppearance ?? '',
+        HVIR_TEST_BAD_LIFETIME: badLifetime ?? '',
       },
     })
     const proof = readFileSync(
@@ -147,6 +166,29 @@ exec "$HVIR_TEST_NODE" "$@"
 }
 
 describe('native workbench machine-readable workflow stream', () => {
+  it.each([
+    'identity',
+    'authority',
+    'resource',
+    'refit',
+    'recovery',
+    'ssh-input',
+    'ssh-resource',
+  ] as const)('rejects false lifecycle evidence: %s', (kind) => {
+    const result = executeQualification(
+      qualification,
+      'macOS',
+      false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      kind,
+    )
+    expect(result.error).toBeUndefined()
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('AssertionError')
+  })
   it.each([
     'clipboard',
     'pixels',

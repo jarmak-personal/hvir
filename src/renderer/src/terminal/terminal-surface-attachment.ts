@@ -14,6 +14,7 @@ export interface TerminalSurfacePort {
 export class TerminalSurfaceAttachment {
   private current?: HTMLElement
   private retained?: HTMLElement
+  private workspaceAttached = false
   private pane?: TerminalSurfacePort
   private route?: TerminalEventRoute
   private applied: TerminalPresentation = 'hidden'
@@ -44,6 +45,7 @@ export class TerminalSurfaceAttachment {
 
   attach(container: HTMLElement, requested: TerminalPresentation): boolean {
     this.retained = container
+    this.workspaceAttached = container.isConnected
     this.workspacePresentation = requested
     if (this.lease) return false
     if (this.current === container) {
@@ -56,6 +58,7 @@ export class TerminalSurfaceAttachment {
   }
 
   detach(container: HTMLElement): void {
+    if (this.retained === container) this.workspaceAttached = false
     if (this.current !== container || this.lease?.container) return
     this.apply('hidden')
     this.current = undefined
@@ -77,7 +80,9 @@ export class TerminalSurfaceAttachment {
 
   synchronize(requested: TerminalPresentation): void {
     this.workspacePresentation = requested
-    if (!this.lease) this.apply(this.current ? requested : 'hidden')
+    if (!this.lease) {
+      this.apply(this.workspaceAttached && this.current ? requested : 'hidden')
+    }
   }
 
   hide(): void {
@@ -85,7 +90,7 @@ export class TerminalSurfaceAttachment {
   }
 
   canFocus(): boolean {
-    return Boolean(this.current && this.pane && this.applied === 'visible')
+    return Boolean(this.current?.isConnected && this.pane && this.applied === 'visible')
   }
 
   canWorkspaceFocus(): boolean {
@@ -93,7 +98,9 @@ export class TerminalSurfaceAttachment {
   }
 
   isWorkspaceCurrent(): boolean {
-    return Boolean(!this.lease && this.current === this.retained)
+    return Boolean(
+      this.workspaceAttached && !this.lease && this.current === this.retained,
+    )
   }
 
   acquireLease(): number | undefined {
@@ -183,11 +190,13 @@ export class TerminalSurfaceAttachment {
     this.hide()
     this.current = undefined
     this.retained = undefined
+    this.workspaceAttached = false
     this.lease = undefined
     this.releaseResources()
   }
 
   private apply(presentation: TerminalPresentation): void {
+    if (presentation === 'visible' && !this.current?.isConnected) presentation = 'hidden'
     if (this.applied === presentation) return
     this.applied = presentation
     this.interactionRevision += 1
@@ -207,7 +216,8 @@ export class TerminalSurfaceAttachment {
 
   private restoreWorkspace(presentation: TerminalPresentation): void {
     const retained = this.retained
-    if (!retained) {
+    if (!this.workspaceAttached || !retained?.isConnected) {
+      this.workspaceAttached = false
       this.current = undefined
       this.interactionRevision += 1
       return

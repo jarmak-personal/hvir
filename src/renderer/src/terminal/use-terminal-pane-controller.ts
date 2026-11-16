@@ -16,7 +16,7 @@ export function useTerminalPaneController(
   runtimes: TerminalRuntimeRegistry,
   presented: boolean,
 ) {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const attachedContainer = useRef<HTMLDivElement | null>(null)
   const runtimeRef = useRef<ReturnType<TerminalRuntimeRegistry['acquire']> | undefined>(
     undefined,
   )
@@ -35,13 +35,16 @@ export function useTerminalPaneController(
     interactions.paneEvents.snapshot,
   )
 
-  useEffect(() => {
-    if (!presented) return
-    const container = containerRef.current
-    if (!container) return
-    runtime.attach(container)
-    return () => runtime.detach(container)
-  }, [presented, runtime])
+  const containerRef = useCallback(
+    (container: HTMLDivElement | null) => {
+      const previous = attachedContainer.current
+      if (previous === container) return
+      if (previous) runtime.detach(previous)
+      attachedContainer.current = container
+      if (container && presented) runtime.attach(container)
+    },
+    [presented, runtime],
+  )
 
   useLayoutEffect(
     () => runtime.synchronizeLifecycle(),

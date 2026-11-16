@@ -2,8 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   NativeTerminalInput,
   type NativeTerminalInputContext,
+  type NativeTerminalInputState,
 } from '../src/main/terminal/native-terminal-input'
-import { PtyWriteConfirmedRevokedError } from '../src/main/project-host/project-host'
+import {
+  PtyWriteConfirmedRevokedError,
+  PtyWriteResourceSettlementError,
+} from '../src/main/project-host/project-host'
 import { NativeTerminalAdmissionError } from '../src/shared/native-terminal'
 import {
   NATIVE_INPUT_RESULTS,
@@ -109,6 +113,96 @@ function fixture(cleanupBytes = new Uint8Array()) {
 }
 
 describe('native input authority, completion and provider policy', () => {
+  it('retires only the captured view and never clears another view focus or emits blur', async () => {
+    const f = fixture(),
+      a = f.context('a'),
+      b = f.context('b')
+    await f.owner.dispatch(a.port, { kind: 'focus', focused: true })
+    f.host.input.mockClear()
+    f.owner.retire(a.port.state)
+    expect(f.host.input).not.toHaveBeenCalled()
+    expect(a.port.state.revoked).toBe(true)
+    await expect(f.owner.dispatch(a.port, wheel)).rejects.toThrow('native-view-stale')
+    await f.owner.dispatch(b.port, { kind: 'focus', focused: true })
+    f.host.input.mockClear()
+    f.owner.retire(a.port.state)
+    await f.owner.dispatch(b.port, key())
+    expect(f.host.input).toHaveBeenCalledOnce()
+    expect(f.host.input.mock.calls[0]![2].kind).toBe('key')
+    expect(b.port.state.revoked).toBe(false)
+  })
+  it('does not start queued captured native blur after destructive view retirement', async () => {
+    const f = fixture(),
+      queued = deferred<void>()
+    const state: NativeTerminalInputState = { revoked: false, appended: queued.promise }
+    const context = { ...f.context().port, state }
+    const cleanup = f.owner.blur(context)
+    f.owner.retire(state)
+    expect(state.cleanup).toBe(cleanup)
+    expect(state.appended).toBe(queued.promise)
+    queued.resolve()
+    await cleanup
+    expect(f.host.input).not.toHaveBeenCalled()
+    expect(context.writeControl).not.toHaveBeenCalled()
+  })
+  it('settles captured blur locally only after its physical native result arrives following retirement', async () => {
+    const f = fixture(),
+      { port } = f.context(),
+      native = deferred<NativeTerminalInputResult>()
+    f.host.input
+      .mockResolvedValueOnce({
+        bytes: new Uint8Array(),
+        capacity: 0,
+        source: 'user',
+        requestedMutation: 0,
+      })
+      .mockReturnValueOnce(native.promise)
+    const cleanup = f.owner.blur(port)
+    await vi.waitFor(() => expect(f.host.input).toHaveBeenCalledTimes(2))
+    f.owner.retire(port.state)
+    expect((port.state as NativeTerminalInputState).cleanup).toBe(cleanup)
+    native.resolve({
+      bytes: Uint8Array.of(1),
+      capacity: 1,
+      source: 'terminal-response',
+      requestedMutation: 0,
+    })
+    await cleanup
+    expect(f.host.input).toHaveBeenCalledTimes(2)
+    expect(port.writeControl).not.toHaveBeenCalled()
+    expect(port.blockInput).not.toHaveBeenCalled()
+  })
+  it('does not release retired-view unknown physical credits before their exact receipts', async () => {
+    const f = fixture(),
+      receipts = []
+    const capacity = Math.floor(
+      (NATIVE_INPUT_RESULTS.aggregateBytes - NATIVE_INPUT_RESULTS.cleanupBytes) /
+        NATIVE_INPUT_RESULTS.wheelBytes,
+    )
+    for (let i = 0; i < capacity; i++) {
+      const item = f.context(`retiring-${i}`),
+        receipt = deferred<void>()
+      receipts.push(receipt)
+      f.host.input.mockRejectedValueOnce(
+        new NativeTerminalInputPhysicalFailure('native-result-unknown', receipt.promise),
+      )
+      await expect(f.owner.dispatch(item.port, wheel)).rejects.toBeInstanceOf(
+        NativeTerminalInputPhysicalFailure,
+      )
+      f.owner.retire(item.port.state)
+      await expect(f.owner.dispatch(item.port, wheel)).rejects.toThrow(
+        'native-view-stale',
+      )
+    }
+    expect(() => f.owner.dispatch(f.context('still-held').port, wheel)).toThrow(
+      NativeTerminalAdmissionError,
+    )
+    receipts[0]!.resolve()
+    await receipts[0]!.promise
+    await f.owner.dispatch(f.context('physically-released').port, wheel)
+    for (const receipt of receipts) receipt.resolve()
+    await Promise.all(receipts.map((receipt) => receipt.promise))
+  })
   it('can encode after parsing but never appends user bytes ahead of the captured response prefix', async () => {
     const f = fixture(),
       { port } = f.context(),
@@ -464,6 +558,161 @@ describe('native input authority, completion and provider policy', () => {
     expect(b.port.blockInput).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['transport', false],
+    ['transport', true],
+    ['native', false],
+  ] as const)(
+    'returns an oversized %s credit only after exact physical settlement (already settled=%s) without reviving its input',
+    async (boundary, alreadySettled) => {
+      const f = fixture(),
+        a = f.context('a'),
+        b = f.context('b')
+      const source = 'p'.repeat(33 * 1024 * 1024)
+      f.host.input.mockImplementation((_handle, _instance, operation) =>
+        Promise.resolve({
+          bytes: operation.kind === 'paste' ? Uint8Array.of(1) : new Uint8Array(),
+          capacity:
+            operation.kind === 'paste' ? 2 * Buffer.byteLength(operation.text) + 12 : 0,
+          source: operation.kind === 'focus' ? 'terminal-response' : 'user',
+          requestedMutation: 1,
+        }),
+      )
+      const closed = deferred<void>()
+      if (alreadySettled) closed.resolve()
+      await f.owner.dispatch(a.port, { kind: 'focus', focused: true })
+      if (boundary === 'transport')
+        a.port.writeUser.mockRejectedValueOnce(
+          new PtyWriteResourceSettlementError('closed-write', closed.promise),
+        )
+      else
+        f.host.input.mockRejectedValueOnce(
+          new NativeTerminalInputPhysicalFailure('closed-write', closed.promise),
+        )
+      await expect(
+        f.owner.dispatch(a.port, { kind: 'paste', text: source }),
+      ).rejects.toThrow('closed-write')
+      expect(a.port.blockInput).toHaveBeenCalledOnce()
+      expect(a.port.state.revoked).toBe(true)
+      await f.owner.dispatch(b.port, { kind: 'focus', focused: true })
+      if (!alreadySettled)
+        expect(() => f.owner.dispatch(b.port, { kind: 'paste', text: source })).toThrow(
+          NativeTerminalAdmissionError,
+        )
+      closed.resolve()
+      await closed.promise
+      const nextWrite = deferred<void>()
+      b.port.writeUser.mockReturnValueOnce(nextWrite.promise)
+      const next = f.owner.dispatch(b.port, { kind: 'paste', text: source })
+      void next.catch(() => undefined)
+      await vi.waitFor(() => expect(b.port.writeUser).toHaveBeenCalledOnce())
+      const third = f.context('third')
+      await f.owner.dispatch(third.port, { kind: 'focus', focused: true })
+      closed.resolve()
+      expect(() => f.owner.dispatch(third.port, { kind: 'paste', text: source })).toThrow(
+        NativeTerminalAdmissionError,
+      )
+      await expect(f.owner.dispatch(a.port, key())).rejects.toThrow('native-view-stale')
+      nextWrite.resolve()
+      await expect(next).rejects.toThrow('native-view-unfocused')
+      await f.owner.dispatch(third.port, { kind: 'paste', text: 'fresh' })
+      expect(a.port.writeUser).toHaveBeenCalledTimes(boundary === 'transport' ? 1 : 0)
+      expect(a.port.blockInput).toHaveBeenCalledOnce()
+    },
+  )
+
+  it.each(['settled', 'unknown', 'already-settled'] as const)(
+    'keeps captured cleanup credit until its exact closed-write receipt is %s',
+    async (outcome) => {
+      const f = fixture(Uint8Array.of(2))
+      const receipts = []
+      const contexts = []
+      const cleanupCapacity =
+        NATIVE_INPUT_RESULTS.aggregateBytes / NATIVE_INPUT_RESULTS.ordinaryBytes
+      for (let i = 0; i < cleanupCapacity; i++) {
+        const item = f.context(`cleanup-${i}`)
+        const receipt = deferred<void>()
+        if (outcome === 'already-settled') receipt.resolve()
+        receipts.push(receipt)
+        contexts.push(item)
+        item.port.writeControl.mockRejectedValueOnce(
+          new PtyWriteResourceSettlementError('cleanup-closed', receipt.promise),
+        )
+        await expect(f.owner.blur(item.port)).rejects.toThrow('cleanup-closed')
+        expect(item.port.blockInput).toHaveBeenCalledOnce()
+      }
+      if (outcome !== 'already-settled')
+        expect(() => f.owner.blur(f.context('refused').port)).toThrow(
+          NativeTerminalAdmissionError,
+        )
+      for (const receipt of receipts) {
+        if (outcome !== 'unknown') receipt.resolve()
+        else receipt.reject(new Error('unknown-physical-cleanup'))
+      }
+      await Promise.allSettled(receipts.map(({ promise }) => promise))
+      if (outcome !== 'unknown') {
+        await f.owner.blur(f.context('fresh').port)
+        for (const item of contexts) {
+          expect(item.port.state.revoked).toBe(true)
+          expect(item.port.writeControl).toHaveBeenCalledOnce()
+        }
+      } else
+        expect(() => f.owner.blur(f.context('still-refused').port)).toThrow(
+          NativeTerminalAdmissionError,
+        )
+    },
+  )
+
+  it('does not release a pending transport paste when an independent native resource settles', async () => {
+    const f = fixture(),
+      a = f.context('a'),
+      b = f.context('b'),
+      c = f.context('c')
+    const source = 'p'.repeat(33 * 1024 * 1024)
+    f.host.input.mockImplementation((_handle, _instance, operation) =>
+      Promise.resolve({
+        bytes:
+          operation.kind === 'paste' || operation.kind === 'key'
+            ? Uint8Array.of(1)
+            : new Uint8Array(),
+        capacity:
+          operation.kind === 'paste'
+            ? 2 * Buffer.byteLength(operation.text) + 12
+            : operation.kind === 'key'
+              ? 1
+              : 0,
+        source: operation.kind === 'focus' ? 'terminal-response' : 'user',
+        requestedMutation: 1,
+      }),
+    )
+    await f.owner.dispatch(a.port, { kind: 'focus', focused: true })
+    const transport = deferred<void>(),
+      native = deferred<void>()
+    a.port.writeUser.mockReturnValueOnce(transport.promise)
+    const pasting = f.owner
+      .dispatch(a.port, { kind: 'paste', text: source })
+      .catch((error: unknown) => error)
+    await vi.waitFor(() => expect(a.port.writeUser).toHaveBeenCalledOnce())
+    await f.owner.dispatch(b.port, { kind: 'focus', focused: true })
+    f.host.input.mockRejectedValueOnce(
+      new NativeTerminalInputPhysicalFailure('native-result-unknown', native.promise),
+    )
+    await expect(f.owner.dispatch(b.port, key())).rejects.toThrow('native-result-unknown')
+    native.resolve()
+    await native.promise
+    await f.owner.dispatch(c.port, { kind: 'focus', focused: true })
+    expect(() => f.owner.dispatch(c.port, { kind: 'paste', text: source })).toThrow(
+      NativeTerminalAdmissionError,
+    )
+    transport.resolve()
+    expect(await pasting).toEqual(
+      expect.objectContaining({ message: 'native-view-unfocused' }),
+    )
+    await f.owner.dispatch(c.port, { kind: 'paste', text: 'fresh' })
+    expect(a.port.writeUser).toHaveBeenCalledOnce()
+    expect(b.port.blockInput).toHaveBeenCalledOnce()
+  })
+
   it('releases proven-unsent allocation refusal immediately without retry or poisoning the parser instance', async () => {
     const f = fixture(),
       { port } = f.context()
@@ -480,16 +729,21 @@ describe('native input authority, completion and provider policy', () => {
   })
 
   it('retains an encoded-result credit when its native physical completion is unknown', async () => {
-    const f = fixture(),
-      { port } = f.context()
-    await f.owner.dispatch(port, { kind: 'focus', focused: true })
-    f.host.input.mockRejectedValueOnce(
+    const f = fixture()
+    f.host.input.mockRejectedValue(
       new NativeTerminalInputPhysicalFailure('native-result-lost'),
     )
-    await expect(f.owner.dispatch(port, key())).rejects.toBeInstanceOf(
-      NativeTerminalInputPhysicalFailure,
+    for (let i = 0; i < 3; i++) {
+      const { port } = f.context(`unknown-native-${i}`)
+      await expect(f.owner.dispatch(port, wheel)).rejects.toBeInstanceOf(
+        NativeTerminalInputPhysicalFailure,
+      )
+      expect(port.blockInput).toHaveBeenCalledOnce()
+      expect(port.state.revoked).toBe(true)
+    }
+    expect(() => f.owner.dispatch(f.context('unadmitted').port, wheel)).toThrow(
+      NativeTerminalAdmissionError,
     )
-    expect(port.blockInput).toHaveBeenCalledOnce()
-    expect(port.state.revoked).toBe(true)
+    expect(f.host.input).toHaveBeenCalledTimes(3)
   })
 })

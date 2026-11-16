@@ -45,7 +45,6 @@ import { startBufferedSshExec } from './ssh-buffered-exec'
 import { remoteCommand } from './ssh-command'
 import { SshStreamLocalOwner } from './ssh-stream-local'
 import { createSshPtyProcess, type SshPtyProcess } from './ssh-pty-process'
-export { SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS } from './ssh-pty-process'
 
 export {
   SSH_CONTROL_CHANNEL_BUDGET,

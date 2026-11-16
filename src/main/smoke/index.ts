@@ -62,10 +62,7 @@ import { verifyGitWorkflow } from './git-workflow'
 import { verifyPlatformContracts } from './platform-contracts'
 import { verifyRendererAuthorityLifecycle } from './renderer-authority'
 import { createExternalMoveSmokeControl } from './external-file-move'
-import {
-  createRemoteProjectFileSmokeHost,
-  verifyProjectFileOperationsSmoke,
-} from './project-file-operations'
+import { verifyProjectFileOperationsSmoke } from './project-file-operations'
 import { verifyFocusedViewer } from './viewer-position'
 import { verifyViewerContent } from './viewer-content'
 import { verifyWorkbenchHealthScenario } from './workbench-health-scenario'
@@ -82,8 +79,6 @@ import { verifyWebPaneWorkflow } from './web-pane'
 import { verifyWorkspaceRemoteWorkflow } from './workspace-remote'
 import { workspaceCloseSmokeCommands } from './workspace-close'
 import {
-  asHostId,
-  hostPath,
   joinHostPath,
   localPath,
   type Disposer,
@@ -191,7 +186,11 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     cleanup.defer('filename search', () => filenameSearch.dispose())
     const externalMoveSmoke = createExternalMoveSmokeControl()
     const supervisor = new PtySupervisor()
-    const native = await createNativeWorkbench(dependencies, supervisor, cleanup)
+    const native = await createNativeWorkbench(
+      { ...dependencies, localHost: host },
+      supervisor,
+      cleanup,
+    )
     smokeSupervisor = supervisor
     cleanup.defer('supervised terminals', () => supervisor.disposeAllAndWait())
     const smokeCloseableRoot = joinHostPath(smokeRoot, '.hvir-smoke-closed-project')
@@ -203,12 +202,7 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
     cleanup.defer('harness profile fixture', () =>
       host.exec('rm', ['-f', '--', harnessProfilesPath.path]).then(() => undefined),
     )
-    const smokeRemoteRoot = hostPath(asHostId('smoke-remote'), '/srv/hvir')
-    const smokeRemoteHost = createRemoteProjectFileSmokeHost({
-      localHost: host,
-      localRoot: smokeRoot,
-      remoteRoot: smokeRemoteRoot,
-    })
+    const { smokeRemoteRoot, smokeRemoteHost } = native
     const projectFixture = createSmokeProjectState(
       host,
       smokeRoot,
@@ -662,7 +656,12 @@ export async function runSmoke(dependencies: ElectronSmokeDependencies): Promise
       console.log('HVIR_SMOKE_OK')
       return 0
     }
-    if (await native.run(win)) return 0
+    if (
+      await native.run(win, projectFixture, (state) =>
+        emit('project:state', setSmokeProjectState(state)),
+      )
+    )
+      return 0
     if (mode === 'terminal-lifecycle') {
       await verifyTerminalLifecycleScenario({
         win,

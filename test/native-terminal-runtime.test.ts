@@ -147,6 +147,127 @@ afterEach(async () => {
 })
 
 describe('native utility owner', () => {
+  it('keeps late selection cleanup owned through known-unsent BUSY before cancellation', async () => {
+    await create()
+    port.send(2, {
+      kind: 'selection',
+      state: '7',
+      operation: {
+        kind: 'begin',
+        selectionSerial: 7,
+        context: { screen: 0, geometrySerial: 1 },
+      },
+    })
+    port.cancel(2)
+    await complete({ result: 0, cursor: 71n })
+    expect(last()).toMatchObject({
+      operation: 'selection',
+      args: ['7', { kind: 'close', cursor: '71' }],
+    })
+    await complete({ result: 6, stale: false })
+    expect(port.result(2)).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(last()).toMatchObject({
+      operation: 'selection',
+      args: ['7', { kind: 'close', cursor: '71' }],
+    })
+    await complete({ result: 0 })
+    expect(exited).toBe(false)
+    expect(port.result(2)).toMatchObject({ ok: false, error: 'cancelled' })
+    expect(engine.calls.filter((call) => call.operation === 'selection')).toHaveLength(3)
+  })
+  it('closes the exact late selection cursor after state destruction and keeps another state usable', async () => {
+    await create()
+    port.send(2, { kind: 'create', width: 800, height: 600 })
+    await complete({ result: 0, id: 9n })
+    await complete({ result: 0, status: status() })
+    port.send(3, {
+      kind: 'selection',
+      state: '7',
+      operation: {
+        kind: 'begin',
+        selectionSerial: 7,
+        context: { screen: 0, geometrySerial: 1 },
+      },
+    })
+    const acquisition = last()
+    port.cancel(3)
+    port.send(4, { kind: 'destroy', state: '7' })
+    await complete({ result: 0, cursor: 71n }, acquisition)
+    expect(last()).toMatchObject({ operation: 'destroy', args: ['7'] })
+    await complete({ result: 0 })
+    expect(port.result(4)).toMatchObject({ ok: true })
+    expect(last()).toMatchObject({
+      operation: 'selection',
+      args: ['7', { kind: 'close', cursor: '71' }],
+    })
+    // extract_close returns OK after that exact state's Surface is destroyed.
+    await complete({ result: 0 })
+    expect(port.result(3)).toMatchObject({ ok: false, error: 'cancelled' })
+    expect(exited).toBe(false)
+    port.send(5, { kind: 'feed', state: '9', sequence: 1, bytes: Uint8Array.of(65) })
+    expect(last()).toMatchObject({ operation: 'feed', args: ['9', 1, Uint8Array.of(65)] })
+    await complete({ result: 0 })
+    expect(port.result(5)).toMatchObject({ ok: true })
+    expect(engine.calls.filter((call) => call.operation === 'selection')).toEqual([
+      acquisition,
+      expect.objectContaining({ args: ['7', { kind: 'close', cursor: '71' }] }),
+    ])
+  })
+  it('keeps ordinary no-resource selection refusal nonfatal', async () => {
+    await create()
+    port.send(2, {
+      kind: 'selection',
+      state: '7',
+      operation: {
+        kind: 'begin',
+        selectionSerial: 7,
+        context: { screen: 0, geometrySerial: 1 },
+      },
+    })
+    await complete({ result: 7, stale: false, cursor: 0n })
+    expect(port.result(2)).toMatchObject({
+      ok: true,
+      value: { unavailable: 7, stale: false },
+    })
+    expect(exited).toBe(false)
+    port.send(3, { kind: 'feed', state: '7', sequence: 1, bytes: Uint8Array.of(65) })
+    await complete({ result: 0 })
+    expect(port.result(3)).toMatchObject({ ok: true })
+    expect(engine.calls.filter((call) => call.operation === 'selection')).toHaveLength(1)
+  })
+  it.each([false, true])(
+    'fences only unprovable late selection cleanup (refused=%s)',
+    async (refused) => {
+      await create()
+      port.send(2, {
+        kind: 'selection',
+        state: '7',
+        operation: {
+          kind: 'begin',
+          selectionSerial: 7,
+          context: { screen: 0, geometrySerial: 1 },
+        },
+      })
+      port.cancel(2)
+      await complete({ result: 0, cursor: 71n })
+      expect(last()).toMatchObject({
+        operation: 'selection',
+        args: ['7', { kind: 'close', cursor: '71' }],
+      })
+      await complete({ result: refused ? 7 : 0 })
+      expect(exited).toBe(refused)
+      if (!refused) {
+        expect(port.result(2)).toMatchObject({ ok: false, error: 'cancelled' })
+        port.send(3, { kind: 'feed', state: '7', sequence: 1, bytes: Uint8Array.of(65) })
+        await complete({ result: 0 })
+        expect(port.result(3)).toMatchObject({ ok: true })
+      }
+      expect(engine.calls.filter((call) => call.operation === 'selection')).toHaveLength(
+        2,
+      )
+    },
+  )
   it('accepts idempotent late query cleanup after destroying its state and keeps another state usable', async () => {
     await create()
     port.send(2, { kind: 'create', width: 800, height: 600 })

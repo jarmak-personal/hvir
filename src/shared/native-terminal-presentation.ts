@@ -39,7 +39,13 @@ export interface NativeTerminalPresentationStatus {
     | 'geometry-failed'
 }
 export type NativeTerminalPresentationAcknowledgement =
-  | { readonly kind: 'pixels'; readonly ticket: string; readonly accepted: boolean }
+  | {
+      readonly kind: 'pixels'
+      readonly ticket: string
+      readonly accepted: boolean
+      readonly discarded?: 'local-ineligible'
+      readonly grant?: NativeTerminalViewGrant
+    }
   | { readonly kind: 'renderer-failure'; readonly grant: NativeTerminalViewGrant }
   | {
       readonly kind: 'drawn'
@@ -60,6 +66,8 @@ export const NATIVE_TERMINAL_PRESENTATION = {
 export interface NativeTerminalPresentationApi {
   mount(viewId: string, elementId: string): void
   unmount(viewId: string): void
+  /** Local readiness can withdraw authority; only a newer main grant restores it. */
+  setEligible(viewId: string, eligible: boolean): void
   onStatus(listener: (status: NativeTerminalPresentationStatus) => void): () => void
 }
 export function validNativeTerminalScale(value: number): boolean {

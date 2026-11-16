@@ -21,6 +21,8 @@ export function nativeTerminalApplicationFixture() {
     inputClosed: false,
     inputUnavailable: false,
     unavailable: false,
+    retiring: false,
+    applicationRemoval: undefined as Promise<void> | undefined,
     inputSettlement: undefined as Promise<void> | undefined,
     title: undefined as { title: string; eventSerial: number } | undefined,
   }
@@ -35,6 +37,14 @@ export function nativeTerminalApplicationFixture() {
     resolve: vi.fn(() => session),
     prepare: vi.fn(),
     remove: vi.fn(() => Promise.resolve(undefined)),
+    retire: vi.fn((id: string, instance: string, remove: () => Promise<void>) => {
+      const record = sessions.get(id)
+      if (!record || record.session.instanceId !== instance)
+        return Promise.reject(new Error('native-session-instance-stale'))
+      record.retiring = true
+      record.applicationRemoval ??= Promise.resolve().then(remove)
+      return record.applicationRemoval
+    }),
     transferOwner: vi.fn(),
     blockInput: vi.fn(() => {
       state.inputUnavailable = true
@@ -143,6 +153,7 @@ export function nativeTerminalApplicationFixture() {
     backingScale: 1,
   }
   const presenter = {
+    withdraw: vi.fn(),
     appearance: vi.fn(() => Promise.resolve(false)),
     isInputCurrent: vi.fn(() => true),
     attach: vi.fn(() => Promise.resolve('view')),

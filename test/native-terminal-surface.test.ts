@@ -28,6 +28,7 @@ function fixture(useAttachment = false) {
   const api = {
     mount: vi.fn<NativeTerminalPresentationApi['mount']>(),
     unmount: vi.fn<NativeTerminalPresentationApi['unmount']>(),
+    setEligible: vi.fn<NativeTerminalPresentationApi['setEligible']>(),
     onStatus: vi.fn<NativeTerminalPresentationApi['onStatus']>((listener) => {
       status = listener
       return unsubscribe
@@ -110,6 +111,25 @@ afterEach(async () => {
 })
 
 describe('retained native terminal surface adapter', () => {
+  it('withdraws local eligibility before reparent and cannot enable in a detached container', async () => {
+    const f = fixture()
+    f.surface.setPresentation('visible')
+    await frame()
+    const destination = document.createElement('div')
+    f.api.setEligible.mockImplementation((_view, eligible) => {
+      if (!eligible) expect(f.element.parentElement).toBe(f.workspace)
+    })
+    f.surface.reparent(destination)
+    f.api.setEligible.mockReset()
+    f.surface.setPresentation('visible')
+    await frame()
+    expect(f.api.setEligible).not.toHaveBeenCalled()
+    document.body.append(destination)
+    await frame()
+    expect(f.api.setEligible).toHaveBeenCalledExactlyOnceWith(viewId, true)
+    expect(f.api.mount).toHaveBeenCalledOnce()
+  })
+
   it('requests visible geometry and demand on animation frames while retaining one mount', async () => {
     const f = fixture()
     expect(f.port.update).not.toHaveBeenCalled()

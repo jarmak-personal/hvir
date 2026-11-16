@@ -149,6 +149,7 @@ describe('terminal resume unavailable state', () => {
 
   afterEach(() => {
     registry.dispose()
+    document.body.replaceChildren()
     Reflect.deleteProperty(window, 'hvir')
     vi.restoreAllMocks()
   })
@@ -198,7 +199,9 @@ describe('terminal resume unavailable state', () => {
       resumeOnStart: false,
     }
     const runtime = registry.acquire(runtimeOptions)
-    runtime.attach(document.createElement('div'))
+    const container = document.createElement('div')
+    document.body.append(container)
+    runtime.attach(container)
     await vi.waitFor(() => expect(runtimeOptions.onStarted).toHaveBeenCalledOnce())
     expect(invoke).toHaveBeenCalledOnce()
 
@@ -247,6 +250,7 @@ describe('terminal resume unavailable state', () => {
     }
     const runtime = registry.acquire(runtimeOptions)
     const initialContainer = document.createElement('div')
+    document.body.append(initialContainer)
     runtime.attach(initialContainer)
     await vi.waitFor(() => expect(runtime.interactions.search.open()).toBe(true))
     runtime.interactions.search.close()
@@ -259,7 +263,9 @@ describe('terminal resume unavailable state', () => {
     runtime.update(runtimeOptions)
     runtime.synchronizeLifecycle()
     expect(runtime.interactions.search.open()).toBe(false)
-    runtime.attach(document.createElement('div'))
+    const restoredContainer = document.createElement('div')
+    document.body.append(restoredContainer)
+    runtime.attach(restoredContainer)
 
     expect(runtime.interactions.search.open()).toBe(true)
     expect(paneState.instances).toHaveLength(1)
@@ -289,6 +295,7 @@ describe('terminal resume unavailable state', () => {
       const runtimeOptions = { ...options(), ...configure() }
       const runtime = registry.acquire(runtimeOptions)
       const initialContainer = document.createElement('div')
+      document.body.append(initialContainer)
 
       runtime.attach(initialContainer)
       await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce())

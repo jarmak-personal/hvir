@@ -25,7 +25,12 @@ function fixture(
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
     new DOMRect(0, 0, 640, 400),
   )
-  const api = { mount: vi.fn(), unmount: vi.fn(), onStatus: vi.fn(() => vi.fn()) }
+  const api = {
+    mount: vi.fn(),
+    unmount: vi.fn(),
+    setEligible: vi.fn(),
+    onStatus: vi.fn(() => vi.fn()),
+  }
   const port = {
     appearance: vi.fn<ConstructorParameters<typeof NativeTerminalPane>[1]['appearance']>(
       () => Promise.resolve(true),

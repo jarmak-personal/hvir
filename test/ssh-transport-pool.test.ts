@@ -15,10 +15,10 @@ import {
   SSH_CONTROL_CHANNEL_BUDGET,
   SSH_MAX_KEYBOARD_INTERACTIVE_ROUNDS,
   SSH_MAX_PHYSICAL_TRANSPORTS,
-  SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS,
   SSH_TERMINAL_CHANNEL_BUDGET,
   SSH_TRANSPORT_IDLE_GRACE_MS,
   PtyWriteIndeterminateError,
+  PtyWriteResourceSettlementError,
   SshHost,
   type SshPrompt,
 } from '../src/main/project-host'
@@ -198,7 +198,8 @@ describe('SshHost transport pool', () => {
       .writeConfirmed('shell-0', OWNER_ID, 'too-late')
       .catch((reason: unknown) => reason)
     expect(rejected).toBeInstanceOf(Error)
-    expect(rejected).not.toBeInstanceOf(PtyWriteIndeterminateError)
+    expect(rejected).toBeInstanceOf(PtyWriteResourceSettlementError)
+    await (rejected as PtyWriteResourceSettlementError).resourceSettlement
     expect((rejected as Error).message).toMatch(/SSH PTY already exited/)
     expect(fixture.supervisor.get('shell-0')).toBeDefined()
     expect(channel.write.mock.calls).toEqual([])
@@ -211,7 +212,7 @@ describe('SshHost transport pool', () => {
     await fixture.host.dispose()
   })
 
-  it('bounds stalled SSH write completion and cleans timeout authority', async () => {
+  it('keeps a healthy stalled write owned until transport failure settles it', async () => {
     const fixture = await poolFixture()
     await spawnShells(fixture, 1)
     const channel = fixture.clients[1]?.channels[0] as
@@ -230,9 +231,11 @@ describe('SshHost transport pool', () => {
       const timersBefore = vi.getTimerCount()
       const pending = fixture.supervisor.writeConfirmed('shell-0', OWNER_ID, 'stalled')
       const rejected = expect(pending).rejects.toBeInstanceOf(PtyWriteIndeterminateError)
-      expect(vi.getTimerCount()).toBe(timersBefore + 1)
+      expect(vi.getTimerCount()).toBe(timersBefore)
 
-      await vi.advanceTimersByTimeAsync(SSH_PTY_WRITE_CONFIRM_TIMEOUT_MS)
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(vi.getTimerCount()).toBe(timersBefore)
+      fixture.clients[1]?.emit('close')
 
       await rejected
       expect(vi.getTimerCount()).toBe(timersBefore)

@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   runNativeSelectionStep,
+  NativeSelectionCleanupFailed,
   type NativeSelectionEngineResult,
 } from '../src/workers/native-terminal-selection'
 import type { NativeTerminalSelectionOperation } from '../src/shared/native-terminal-selection'
+import { NATIVE_TERMINAL_LIMITS } from '../src/shared/native-terminal'
 const begin: NativeTerminalSelectionOperation = {
   kind: 'begin',
   selectionSerial: 7,
@@ -25,26 +27,108 @@ function engine(value: NativeSelectionEngineResult) {
   >((op) => Promise.resolve(op.kind === 'close' ? { result: 0 } : value))
 }
 describe('native worker selection step ownership', () => {
-  it('closes a real physical begin result before exposing logical cancellation', async () => {
-    let resolve!: (value: NativeSelectionEngineResult) => void
-    const calls: NativeTerminalSelectionOperation[] = []
-    const invoke = vi.fn<
-      (op: NativeTerminalSelectionOperation) => Promise<NativeSelectionEngineResult>
-    >((op) => {
-      calls.push(op)
-      return op.kind === 'close'
-        ? Promise.resolve({ result: 0 })
-        : new Promise((yes) => {
-            resolve = yes
-          })
-    })
-    let cancelled = false
-    const pending = runNativeSelectionStep(begin, invoke, () => cancelled)
-    cancelled = true
-    resolve(state())
-    await expect(pending).rejects.toThrow('cancelled')
-    expect(calls).toEqual([begin, { kind: 'close', cursor: '19' }])
+  it.each([
+    [6, false, true],
+    [6, true, false],
+    [6, undefined, false],
+    [7, false, false],
+  ] as const)(
+    'retries only known-unsent selection cleanup (%s/stale=%s)',
+    async (result, stale, retries) => {
+      const acquired = state()
+      const invoke = vi
+        .fn<
+          (
+            operation: NativeTerminalSelectionOperation,
+          ) => Promise<NativeSelectionEngineResult>
+        >()
+        .mockResolvedValueOnce(acquired)
+        .mockImplementationOnce(() => {
+          // Native result objects may be reused; cleanup retains the actual token.
+          acquired.cursor = 20n
+          return Promise.resolve({ result, stale })
+        })
+        .mockResolvedValue({ result: 0 })
+      const pending = runNativeSelectionStep(begin, invoke, () => true)
+      await expect(pending).rejects.toThrow(retries ? 'cancelled' : 'cleanup-failed')
+      const error: unknown = await pending.catch((value: unknown) => value)
+      expect(error instanceof NativeSelectionCleanupFailed).toBe(!retries)
+      if (error instanceof NativeSelectionCleanupFailed) {
+        expect(error.cleanup).toEqual({ kind: 'close', cursor: '19' })
+        expect(Object.isFrozen(error.cleanup)).toBe(true)
+      }
+      expect(invoke).toHaveBeenCalledTimes(retries ? 3 : 2)
+      expect(invoke.mock.calls.slice(1).map(([operation]) => operation)).toEqual(
+        Array.from({ length: retries ? 2 : 1 }, () => ({ kind: 'close', cursor: '19' })),
+      )
+      expect(Object.isFrozen(invoke.mock.calls[1]![0])).toBe(true)
+    },
+  )
+  it('retains the exact cursor when known-unsent cleanup exhausts the existing deadline', async () => {
+    const now = vi
+      .spyOn(Date, 'now')
+      .mockReturnValueOnce(0)
+      .mockReturnValue(NATIVE_TERMINAL_LIMITS.requestMs + 1)
+    try {
+      const invoke = vi
+        .fn()
+        .mockResolvedValueOnce(state())
+        .mockResolvedValue({ result: 6, stale: false })
+      const pending = runNativeSelectionStep(begin, invoke, () => true)
+      await expect(pending).rejects.toBeInstanceOf(NativeSelectionCleanupFailed)
+      await expect(pending).rejects.toMatchObject({
+        cleanup: { kind: 'close', cursor: '19' },
+      })
+      expect(invoke).toHaveBeenCalledTimes(2)
+    } finally {
+      now.mockRestore()
+    }
   })
+  it('does not invent cleanup for an ordinary refusal without a physical acquisition', async () => {
+    const invoke = vi.fn().mockResolvedValue({ result: 7, stale: false, cursor: 0n })
+    await expect(runNativeSelectionStep(begin, invoke, () => false)).resolves.toEqual({
+      unavailable: 7,
+      stale: false,
+    })
+    expect(invoke).toHaveBeenCalledOnce()
+  })
+  it('classifies a thrown exact physical close as unprovable cleanup', async () => {
+    const cause = new Error('physical-close-failed')
+    const invoke = vi.fn().mockResolvedValueOnce(state()).mockRejectedValue(cause)
+    await expect(runNativeSelectionStep(begin, invoke, () => true)).rejects.toMatchObject(
+      {
+        cleanup: { kind: 'close', cursor: '19' },
+        cause,
+      },
+    )
+    expect(invoke).toHaveBeenCalledTimes(2)
+  })
+  it.each<NativeTerminalSelectionOperation>([
+    begin,
+    { kind: 'link-row-begin', query: { screen: 0, geometrySerial: 3, x: 1, y: 2 } },
+  ])(
+    'closes a real physical $kind result before exposing logical cancellation',
+    async (operation) => {
+      let resolve!: (value: NativeSelectionEngineResult) => void
+      const calls: NativeTerminalSelectionOperation[] = []
+      const invoke = vi.fn<
+        (op: NativeTerminalSelectionOperation) => Promise<NativeSelectionEngineResult>
+      >((op) => {
+        calls.push(op)
+        return op.kind === 'close'
+          ? Promise.resolve({ result: 0 })
+          : new Promise((yes) => {
+              resolve = yes
+            })
+      })
+      let cancelled = false
+      const pending = runNativeSelectionStep(operation, invoke, () => cancelled)
+      cancelled = true
+      resolve(state())
+      await expect(pending).rejects.toThrow('cancelled')
+      expect(calls).toEqual([operation, { kind: 'close', cursor: '19' }])
+    },
+  )
   it.each([
     { ...state(), stale: undefined },
     { ...state(), result: 42 },
