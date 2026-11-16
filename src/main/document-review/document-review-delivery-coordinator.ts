@@ -20,7 +20,7 @@ import type {
 } from '../harness/harness-provider-contract'
 import type { HarnessProviderRegistry } from '../harness/harness-provider-registry'
 import type { HarnessProfileStoreContract } from '../harness/harness-profile-store'
-import { isPtyWriteIndeterminateError } from '../project-host'
+import { isPtyWriteIndeterminateError, PtyWriteIndeterminateError } from '../project-host'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 import type {
   RendererOwner,
@@ -57,6 +57,7 @@ interface PreparedRecord {
   inFlight?: symbol
   revoked?: boolean
 }
+const SEND_NOW_CONFIRMATION_PATIENCE_MS = 5_000
 
 export interface DocumentReviewDeliveryCoordinatorOptions {
   readonly workspace: Pick<
@@ -201,13 +202,28 @@ export class DocumentReviewDeliveryCoordinator {
         before.payload.body,
         sendNow.launch,
       )
+      let confirmationTimer: ReturnType<typeof setTimeout> | undefined
       try {
-        await this.options.ptys.writeConfirmed(
+        const physical = this.options.ptys.writeConfirmed(
           before.terminal.id,
           owner.id,
           transport,
           owner.generation,
         )
+        // Bound this explicit feature action's patience, not the transport's
+        // physical lifetime. The race observes late ACKs/errors without replay.
+        await Promise.race([
+          physical,
+          new Promise<never>((_resolve, reject) => {
+            confirmationTimer = setTimeout(
+              () =>
+                reject(
+                  new PtyWriteIndeterminateError('Send Now PTY confirmation timed out'),
+                ),
+              SEND_NOW_CONFIRMATION_PATIENCE_MS,
+            )
+          }),
+        ])
       } catch (reason) {
         if (!isPtyWriteIndeterminateError(reason)) throw reason
         this.consumePrepared(prepared)
@@ -216,6 +232,8 @@ export class DocumentReviewDeliveryCoordinator {
           ptyAcceptance: 'indeterminate',
           reason: errorMessage(reason),
         }
+      } finally {
+        clearTimeout(confirmationTimer)
       }
 
       // Once the transport confirms acceptance, the exact send authority is

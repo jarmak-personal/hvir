@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   DocumentReviewDeliveryCoordinator,
@@ -27,6 +27,7 @@ import {
 } from '../src/shared'
 
 const OWNER = { id: 41, generation: 1 }
+afterEach(() => vi.useRealTimers())
 
 describe('document review delivery coordinator', () => {
   it.each([
@@ -380,6 +381,115 @@ describe('document review delivery coordinator', () => {
     await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(/stale/)
     expect(fixture.writeConfirmed).toHaveBeenCalledOnce()
   })
+
+  it.each(['acknowledged', 'failed'] as const)(
+    'consumes send-now patience at exactly five seconds and ignores a later %s write',
+    async (late) => {
+      vi.useFakeTimers()
+      const fixture = deliveryFixture()
+      fixture.addSendTerminal('codex-send', 'Codex', 'ctrl-enter')
+      const prepared = fixture.coordinator.prepare(OWNER, {
+        ...fixture.scope,
+        selection: { kind: 'batch', batchId: 'active-review' },
+        terminalId: 'codex-send',
+      })
+      const physical = deferred<void>()
+      fixture.writeConfirmed.mockReturnValueOnce(physical.promise)
+      const timersBefore = vi.getTimerCount()
+      const sending = fixture.coordinator.sendNow(OWNER, prepared.id)
+      let settled = false
+      void sending.then(
+        () => {
+          settled = true
+        },
+        () => {
+          settled = true
+        },
+      )
+      try {
+        await vi.advanceTimersByTimeAsync(4999)
+        expect(settled).toBe(false)
+        await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
+          /already in progress/,
+        )
+        expect(() => fixture.coordinator.insert(OWNER, prepared.id)).toThrow(
+          /already in progress/,
+        )
+        expect(fixture.writeConfirmed).toHaveBeenCalledOnce()
+        expect(fixture.completeDelivery).not.toHaveBeenCalled()
+        await vi.advanceTimersByTimeAsync(1)
+        expect(settled).toBe(true)
+        const result = await sending
+        expect(result).toMatchObject({
+          outcome: 'send-authority-consumed',
+          ptyAcceptance: 'indeterminate',
+        })
+        if (result.outcome !== 'send-authority-consumed')
+          throw new Error('Expected indeterminate send outcome')
+        expect(result.reason).toMatch(/timed out/)
+        expect(vi.getTimerCount()).toBe(timersBefore)
+        await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
+          /stale/,
+        )
+        expect(() => fixture.coordinator.insert(OWNER, prepared.id)).toThrow(/stale/)
+        if (late === 'acknowledged') physical.resolve()
+        else physical.reject(new Error('late physical write failure'))
+        // Leave the late physical rejection to the production race observer;
+        // Vitest's unhandled-rejection checks remain active across this turn.
+        await vi.advanceTimersByTimeAsync(0)
+        expect(fixture.completeDelivery).not.toHaveBeenCalled()
+        expect(fixture.model.comments[0]?.lifecycle).toBe('draft')
+        expect(fixture.model.batches[0]?.commentIds).toEqual(['comment-1'])
+        expect(fixture.writeConfirmed).toHaveBeenCalledOnce()
+        expect(vi.getTimerCount()).toBe(timersBefore)
+      } finally {
+        physical.resolve()
+        await Promise.allSettled([sending, physical.promise])
+      }
+    },
+  )
+
+  it.each(['acknowledged', 'failed'] as const)(
+    'clears send-now patience after an early %s write without changing retry authority',
+    async (completion) => {
+      vi.useFakeTimers()
+      const fixture = deliveryFixture()
+      fixture.addSendTerminal('codex-send', 'Codex', 'enter')
+      const prepared = fixture.coordinator.prepare(OWNER, {
+        ...fixture.scope,
+        selection: { kind: 'comment', commentId: 'comment-1' },
+        terminalId: 'codex-send',
+      })
+      const physical = deferred<void>()
+      fixture.writeConfirmed.mockReturnValueOnce(physical.promise)
+      const timersBefore = vi.getTimerCount()
+      const sending = fixture.coordinator.sendNow(OWNER, prepared.id)
+      void sending.catch(() => undefined)
+      expect(vi.getTimerCount()).toBe(timersBefore + 1)
+      await vi.advanceTimersByTimeAsync(4999)
+      if (completion === 'acknowledged') {
+        physical.resolve()
+        await expect(sending).resolves.toMatchObject({ outcome: 'sent' })
+      } else {
+        physical.reject(new Error('early physical refusal'))
+        await expect(sending).rejects.toThrow('early physical refusal')
+      }
+      expect(vi.getTimerCount()).toBe(timersBefore)
+      await vi.advanceTimersByTimeAsync(5001)
+      expect(fixture.completeDelivery).toHaveBeenCalledTimes(
+        completion === 'acknowledged' ? 1 : 0,
+      )
+      if (completion === 'failed')
+        await expect(
+          fixture.coordinator.sendNow(OWNER, prepared.id),
+        ).resolves.toMatchObject({ outcome: 'sent' })
+      else
+        await expect(fixture.coordinator.sendNow(OWNER, prepared.id)).rejects.toThrow(
+          /stale/,
+        )
+      expect(vi.getTimerCount()).toBe(timersBefore)
+    },
+  )
 
   it('holds one main-side single-flight authority while send-now awaits completion', async () => {
     const fixture = deliveryFixture()

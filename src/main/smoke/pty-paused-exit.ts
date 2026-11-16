@@ -7,8 +7,8 @@ import type { PtyPreparedTerminal } from '../pty/pty-contract'
 import type { ManagedPty, PtySupervisor } from '../pty/pty-supervisor'
 
 const PREFIX = 'HVIR_1120_PREFIX_' + '0123456789abcdef'.repeat(8)
-// Keep the final fixture tail within the small macOS PTY kernel queue, so its
-// writer can physically exit without requiring the paused application to read.
+// Qualify a small final write while application consumption is paused.
+// Larger unadmitted producer-exit tails are outside this fixture's evidence.
 const TAIL = 'é🙂'.repeat(32) + 'HVIR_1120_FINAL_7e298c1d'
 const BODY = PREFIX + TAIL
 const BODY_HASH = createHash('sha256').update(BODY).digest('hex')
@@ -62,6 +62,8 @@ export async function verifyPausedPtyExit(
         },
         realSupervisorAndInstalledLocalPty: true,
         nativeConsumerSimulated: true,
+        fixtureTailBytes: Buffer.byteLength(TAIL),
+        largeUnadmittedProducerExitQualified: false,
         hardwareQualified: false,
       }),
   )
@@ -297,7 +299,7 @@ async function verifyCase(
       expectedBodySha256: BODY_HASH,
       heldResources,
       parserFailed: failures === 1,
-      exactBodyPreserved: mode === 'admitted' || mode === 'unadmitted',
+      exactFixtureBodyPreserved: mode === 'admitted' || mode === 'unadmitted',
       maximumBatch,
       maximumActive,
       nativeDisposed: disposed,
