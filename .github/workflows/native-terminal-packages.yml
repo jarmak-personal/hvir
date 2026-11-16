@@ -6,10 +6,6 @@ on:
       source_sha:
         required: true
         type: string
-      sign_candidate:
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -229,14 +225,3 @@ jobs:
           sudo -u hvir-acceptance env HOME=/home/hvir-acceptance \
             HVIR_LINUX_PACKAGE_ACCEPTANCE=1 HVIR_NATIVE_PACKAGE_ACCEPTANCE=1 \
             PATH=/usr/local/bin:/usr/bin:/bin xvfb-run -a npm run smoke:linux:installed -- --software-rendering
-
-  signed-macos:
-    name: Sign exact native candidate (explicit protected dispatch)
-    if: github.event_name == 'workflow_dispatch' && inputs.sign_candidate
-    uses: ./.github/workflows/macos-package-release.yml
-    with:
-      source_sha: ${{ inputs.source_sha }}
-      allow_merged_source: false
-      candidate_only: true
-      native_terminal: true
-    secrets: inherit

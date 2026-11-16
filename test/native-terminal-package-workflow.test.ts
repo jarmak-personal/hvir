@@ -109,21 +109,20 @@ describe('exact native candidate package workflow', () => {
       resolve(dirname(workspace), 'native-package-inputs-unavailable'),
     )
   })
-  it('keeps signing behind explicit branch dispatch and the existing protected source/sign/notary owner', () => {
-    expect(nativeSource).toContain("inputs.sign_candidate && 'signed' || 'unsigned'")
-    expect(nativeSource).toContain(
-      "cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || !inputs.sign_candidate }}",
-    )
-    expect(packages.jobs['signed-macos']).toMatchObject({
-      if: "github.event_name == 'workflow_dispatch' && inputs.sign_candidate",
-      uses: './.github/workflows/macos-package-release.yml',
-      with: {
-        source_sha: '${{ inputs.source_sha }}',
-        allow_merged_source: false,
-        candidate_only: true,
-        native_terminal: true,
+  it('keeps candidate qualification unsigned and reserves the protected signing owner for releases', () => {
+    expect(nativeSource).not.toContain('sign_candidate')
+    expect(packagesSource).not.toMatch(/sign_candidate|signed-macos|macos-package-release/)
+    for (const job of [...Object.values(native.jobs), ...Object.values(packages.jobs)])
+      expect(job.uses).not.toBe('./.github/workflows/macos-package-release.yml')
+    expect(native.jobs.packages).not.toHaveProperty('secrets')
+    expect(parse(nativeSource)).toMatchObject({
+      concurrency: {
+        group: 'native-terminal-${{ github.event.pull_request.number || github.ref }}',
+        'cancel-in-progress': true,
       },
     })
+    expect(packages.jobs['signed-macos']).toBeUndefined()
+    expect(signedSource).not.toContain('candidate_only')
     expect(signedSource).toContain('environment: native-release-signing')
     expect(signedSource).toContain(
       'git merge-base --is-ancestor "$SOURCE_SHA" "$branch_sha"',
@@ -139,30 +138,28 @@ describe('exact native candidate package workflow', () => {
 })
 
 const sourceGuard = signed.jobs['signed-package']!.steps?.find(
-  (step) => step.name === 'Require an exact protected release or native candidate source',
+  (step) => step.name === 'Require an exact protected merged release source',
 )?.run
 if (!sourceGuard) throw new Error('Exact signed-source intent guard missing')
-describe('explicit signed-source intent', () => {
+describe('formal release signed-source intent', () => {
   it.each([
-    ['true', 'true', 'false', 'branch', 0],
-    ['true', 'true', 'true', 'branch', 1],
-    ['true', 'false', 'false', 'branch', 1],
-    ['false', 'false', 'true', 'branch', 0],
-    ['false', 'true', 'false', 'branch', 1],
-    ['true', 'true', 'false', 'tag', 1],
+    ['true', 'branch', 'a'.repeat(40), 0],
+    ['false', 'branch', 'a'.repeat(40), 1],
+    ['', 'branch', 'a'.repeat(40), 1],
+    ['true', 'tag', 'a'.repeat(40), 1],
+    ['true', 'branch', 'short', 1],
+    ['true', 'branch', 'g'.repeat(40), 1],
   ])(
-    'candidate=%s native=%s merged=%s ref=%s yields %i',
-    (candidate, native, merged, ref, expected) => {
+    'merged=%s ref=%s source=%s yields %i',
+    (merged, ref, source, expected) => {
       const result = spawnSync('bash', ['-se'], {
         input: sourceGuard,
         encoding: 'utf8',
         env: {
           ...process.env,
-          CANDIDATE_ONLY: String(candidate),
-          NATIVE_TERMINAL: String(native),
           ALLOW_MERGED_SOURCE: String(merged),
           REF_TYPE: String(ref),
-          SOURCE_SHA: 'a'.repeat(40),
+          SOURCE_SHA: String(source),
         },
       })
       expect(result.status, result.stderr || result.stdout).toBe(expected)

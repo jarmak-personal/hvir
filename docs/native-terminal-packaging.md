@@ -39,7 +39,7 @@ An ordinary package without the native candidate opt-in refuses built native add
 as well as a staged native payload. Contributor bindings cannot silently enter a
 package without its corresponding verified native manifest.
 
-## Loading and signing
+## Loading and formal-release signing
 
 An installed candidate opts into native terminals with `HVIR_NATIVE_TERMINAL=1`.
 Main resolves only its own `Resources/native-terminal` library and the two fixed
@@ -56,25 +56,30 @@ opt-in and relaunch to select the existing web terminal, or reinstall the previo
 verified package through the ordinary package manager. Settings, project registration
 and provider-owned session recovery keep their existing formats and ownership.
 
-On macOS the existing signing lifecycle signs the native dylib and both addons before
+Signing and notarization run only for formal releases, never for M14/M15/M16 or the
+cumulative migration PR. Migration candidates use unsigned structural, installed and
+relocation acceptance.
+
+For a formal macOS release, the existing signing lifecycle signs the native dylib and both addons before
 sealing the application. It records final hashes separately from immutable build
 hashes and excludes those already signed files from subsequent ordinary re-signing.
 The existing client signing owner then signs clients and seals the complete app.
 Developer ID Application/Installer identities, hardened runtime, protected signing
 credentials, exact source containment, notarization and stapling remain mandatory for
-signed acceptance. A structural or ad-hoc candidate is not Developer ID acceptance.
+formal-release signed acceptance. An unsigned structural candidate is not Developer ID acceptance.
 No entitlement or production sandbox bypass is required.
 
-The registered native dependency workflow provides a candidate-only dispatch route
-to the reusable signed-package owner. Its protected environment must authorize the
-exact candidate branch and the maintainer must approve the deployment. Candidate
-intent is explicit and separate from the merged-release source gate. Candidate
-construction does not grant that authorization or publish a GitHub Release.
+The native dependency and candidate package workflows have no signing route or signing
+approval gate. Only the existing formal-release caller reaches the reusable protected
+signed-package owner, with explicit merged-source intent and exact branch containment.
+Native payload support remains in that owner; M16 owns wiring the accepted native default
+and exact SDK artifacts into formal releases. Candidate construction neither requests
+signing-environment authorization nor publishes a GitHub Release.
 
 ## Installed evidence
 
 The installed package inspectors verify original receipts, final library/addon bytes,
-notices, target and ABI after package construction and signing. The existing disposable
+notices, target and ABI after package construction, and after signing for formal releases. The existing disposable
 installed-startup lifecycle uses the ordinary production app and local CDP to create,
 exercise and close a native shell. It retains source/target/digest proof and verifies
 native output, input, presentation, isolation and cleanup independently of the smoke
@@ -90,7 +95,7 @@ addition to ELF export/relocation inspection. Library inventory alone does not p
 which implementation an Electron-loaded dependency call executes.
 
 Installed package and loader success is software acceptance. Hosted/Xvfb rendering,
-pixel compatibility, signed relocation and clean teardown do not qualify physical
+pixel compatibility, unsigned relocation and clean teardown do not qualify physical
 Linux GPUs, display backends or controlled performance. The separate hardware and
 performance acceptance, including retained presentation-quarantine limitations,
 remains required before default cutover.

@@ -171,7 +171,8 @@ or pointer Buffer and pretend its resource belongs to the receiving process.
 The leading macOS rendezvous is private C `bootstrap_check_in` / `bootstrap_look_up` with
 real Mach messages, bound to the expected utility PID/kernel audit identity and host
 generation. M4 proves this inside the actual Electron utility lifecycle; M14 proves the
-signed, relocated package. Use no deprecated bootstrap registration, Chromium private
+unsigned installed and relocated package; signing is reserved for formal releases. Use no
+deprecated bootstrap registration, Chromium private
 symbols or unverified launch hook. Linux's private endpoint likewise admits only the
 current app/host peer and closes unexpected/stale received descriptors.
 

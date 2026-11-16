@@ -87,7 +87,7 @@ for a trusted local build or an artifact from the exact trusted CI producer. Mat
 manifest's own hashes does not authenticate authorship; never run this on arbitrary downloaded
 bundles. Application source is statically forbidden from importing these contributor tools.
 Runtime integration must establish its trusted packaged artifact boundary before loading native
-code; M14 owns package signing and final-byte trust. Missing, corrupt, wrong-target,
+code; M14 owns unsigned package structure and final-byte trust. Missing, corrupt, wrong-target,
 wrong-ABI and wrong-version inputs fail before any terminal can be prepared. Later native-host
 integration must consume this prerequisite before reserving/spawning a PTY; these scripts do not
 enable or replace the application terminal path.
@@ -139,11 +139,12 @@ requires the real desktop path. No end user runs this compiler or downloads sour
 
 Artifact notices include Ghostty, embedded-font/vendor notices, Zig/LLVM runtime notices, and
 the full dependency-cache license/copyright files; build
-provenance remains immutable when later packaging signs outputs. Packaging must record signed
-final-byte integrity separately, following the existing agent-client convention. M14 owns final
-package contents, supported ABI/sandbox inspection, signing, relocation and installed acceptance.
+provenance remains immutable when formal-release packaging signs outputs. Formal releases record
+signed final-byte integrity separately, following the existing agent-client convention. M14 owns
+unsigned package contents, supported ABI/sandbox inspection, relocation and installed acceptance.
+Signing/notarization runs only for formal releases, never as a migration gate.
 The [candidate packaging contract](native-terminal-packaging.md) describes exact-source
-assembly, final signed-byte manifests, installed selection and rollback.
+assembly, final-byte manifests, installed selection, rollback and formal-release signing.
 
 
 The private ABI also builds the [native facade](native-terminal-facade.md). Matching-target
