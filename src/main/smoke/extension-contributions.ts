@@ -1,5 +1,6 @@
 import { chooseExtensionWorkspace } from './extension-project-picker'
 import { extensionSettingsControls } from './extension-settings-controls'
+import { requestExtensionGuest } from './extension-guest-request'
 import { app, type BrowserWindow, type WebContents } from 'electron'
 import { joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ExtensionManifest } from '../../shared/extensions/contract'
@@ -283,6 +284,7 @@ export async function verifyExtensionContributions(
   await controls.wait(() => leftGuest.isDestroyed(), 'left explicit native close')
 
   console.log('[smoke] left workspace selection/hide/reopen/close OK')
+  console.log('[smoke] top destination navigation starting')
   await controls.click('Reference library')
   await controls.wait(
     () =>
@@ -301,6 +303,7 @@ export async function verifyExtensionContributions(
   const topGuest = await controls.guest(top)
   await connected(topGuest)
   await subscribed(topGuest, 'top')
+  console.log('[smoke] top destination context request starting')
   const topContext = (await request(topGuest, 'top-context', 'context.read')) as {
     workspace?: unknown
     sessions?: unknown[]
@@ -971,9 +974,7 @@ export async function verifyExtensionContributions(
     id: string,
     capability: string,
   ): Promise<unknown> {
-    const result = (await guest.executeJavaScript(
-      `new Promise(resolve => { const unsubscribe = window.hvirExtension.onMessage(message => { if (message.kind === 'result' && message.id === ${JSON.stringify(id)}) { unsubscribe(); resolve(message) } }); window.hvirExtension.send({kind:'request',id:${JSON.stringify(id)},capability:${JSON.stringify(capability)}}); })`,
-    )) as { ok: boolean; value?: unknown; error?: string }
+    const result = await requestExtensionGuest(guest, id, capability)
     if (!result.ok) throw new Error(result.error)
     return result.value
   }
