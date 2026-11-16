@@ -1,0 +1,25 @@
+--- a/src/build/GhosttyLib.zig
++++ b/src/build/GhosttyLib.zig
+@@ -112,6 +112,12 @@
+     if (deps.config.target.result.os.tag.isDarwin())
+         lib.root_module.linkFramework("Metal", .{});
+     if (deps.config.target.result.os.tag == .linux) {
++        // Full-app embedding is a private API, distinct from the versioned VT ABI.
++        // Localize bundled dependencies so Electron's ambient libraries cannot
++        // preempt their internal calls. Zig's own ELF linker ignores this map.
++        lib.version_script = b.path("src/ghostty-embedded.map");
++        lib.use_llvm = true;
++        lib.use_lld = true;
+         lib.root_module.linkSystemLibrary("egl", dynamic_link_opts);
+         lib.root_module.addIncludePath(b.path("vendor/glad/include"));
+         lib.root_module.addCSourceFiles(.{ .files = &.{ "vendor/glad/src/gl.c", "vendor/glad/src/glad_egl.c" }, .flags = &.{} });
+--- /dev/null
++++ b/src/ghostty-embedded.map
+@@ -0,0 +1,7 @@
++{
++    global:
++        ghostty_*;
++        hvir_ghostty_embed_abi;
++    local:
++        *;
++};

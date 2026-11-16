@@ -194,9 +194,7 @@ describe('macOS native package contract', () => {
     expect(ci.jobs['native-macos-package']).toBeUndefined()
     expect(ci.jobs['signed-macos-epic-acceptance']).toBeUndefined()
     expect(ciSource).not.toMatch(/MACOS_(APPLICATION|INSTALLER|NOTARY|TEAM)/)
-    expect(releaseSource).toContain(
-      'uses: ./.github/workflows/macos-package-release.yml',
-    )
+    expect(releaseSource).toContain('uses: ./.github/workflows/macos-package-release.yml')
     expect(releaseSource).toContain('source_sha: ${{ needs.prepare.outputs.sha }}')
     expect(releaseSource).toContain('allow_merged_source: true')
     expect(releaseSource).toContain('secrets: inherit')
@@ -206,6 +204,7 @@ describe('macOS native package contract', () => {
     expect(Object.keys(workflowCall.inputs)).toEqual([
       'source_sha',
       'allow_merged_source',
+      'native_terminal',
     ])
     expect(workflowCall.inputs).toMatchObject({
       source_sha: { required: true, type: 'string' },
@@ -214,6 +213,7 @@ describe('macOS native package contract', () => {
         default: false,
         type: 'boolean',
       },
+      native_terminal: { required: false, default: false, type: 'boolean' },
     })
     expect(Object.keys(workflowCall.secrets)).toEqual([
       'MACOS_APPLICATION_CERTIFICATE',
@@ -263,9 +263,7 @@ describe('macOS native package contract', () => {
     expect(signedWorkflowSource).toContain('MACOS_APPLICATION_CERTIFICATE')
     expect(signedWorkflowSource).toContain('MACOS_INSTALLER_CERTIFICATE')
     expect(signedWorkflowSource).toContain('MACOS_NOTARY_KEY')
-    expect(signedWorkflowSource).toContain(
-      'Require protected signing credentials',
-    )
+    expect(signedWorkflowSource).toContain('Require protected signing credentials')
     expect(signedWorkflowSource).toContain('xcrun stapler staple "$package"')
     const acceptanceIndex = signed.steps.findIndex(
       (step) => step.name === 'Install, update, launch, and remove signed package',
@@ -282,10 +280,8 @@ describe('macOS native package contract', () => {
     expect(signed.steps[uploadIndex]).toMatchObject({
       uses: 'actions/upload-artifact@v7',
       with: {
-        name: 'release-macos-arm64',
-        path:
-          'dist/hvir-*-darwin-arm64.pkg\n' +
-          'dist/hvir-*-darwin-arm64.pkg.sha256\n',
+        name: "${{ inputs.native_terminal && 'native-terminal-candidate-macos-arm64-signed' || 'release-macos-arm64' }}",
+        path: 'dist/hvir-*-darwin-arm64.pkg\n' + 'dist/hvir-*-darwin-arm64.pkg.sha256\n',
         'if-no-files-found': 'error',
         'retention-days': 1,
       },

@@ -14,7 +14,7 @@ import {
   qualifyNativeFontCases,
 } from './artifacts.mts'
 import { execute, prepareSource, prepareZig } from './source.mts'
-import { inspectBinary } from './binary.mts'
+import { inspectBinary, inspectLinuxDependencyIsolation } from './binary.mts'
 
 import {
   APPEARANCE_FONT_SOURCE,
@@ -157,6 +157,13 @@ const dependencyReport = await inspectBinary(
   selected.platform,
   selected.arch,
 )
+const dependencyIsolation =
+  selected.platform === 'linux'
+    ? {
+        ...(await inspectLinuxDependencyIsolation(join(output, selected.library))),
+        exportMapSha256: await digest(join(source, 'src/ghostty-embedded.map')),
+      }
+    : undefined
 console.log(dependencyReport)
 await run(
   join(output, 'loader-probe'),
@@ -590,6 +597,7 @@ await writeFile(
         loaderRefusals: ['missing-library', 'wrong-version', 'missing-embedding-ABI'],
         relocatedLoader: 'passed',
         dependencyReport,
+        ...(dependencyIsolation ? { dependencyIsolation } : {}),
       },
       files,
     },

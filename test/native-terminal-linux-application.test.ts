@@ -35,6 +35,7 @@ beforeEach(() => {
   mocks.packaged = false
   Object.defineProperty(process, 'platform', { ...platform, value: 'linux' })
   vi.stubEnv('HVIR_NATIVE_TERMINAL_LIBRARY', '/trusted/libghostty')
+  vi.stubEnv('HVIR_NATIVE_TERMINAL', '')
   vi.stubEnv('HVIR_NATIVE_TERMINAL_DEVICE', 'default')
   vi.stubEnv('HVIR_NATIVE_TERMINAL_PRESENTATION', 'auto')
 })

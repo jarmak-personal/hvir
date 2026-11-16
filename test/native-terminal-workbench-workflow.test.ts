@@ -15,7 +15,7 @@ const workflow = parse(
   ),
 ) as Workflow
 const qualification = Object.values(workflow.jobs)
-  .flatMap((job) => job.steps)
+  .flatMap((job) => job.steps ?? [])
   .find((step) => step.name === 'Qualify the ordinary native workbench runtime')?.run
 if (!qualification) throw new Error('Native workbench qualification step missing')
 

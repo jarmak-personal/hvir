@@ -313,7 +313,7 @@ describe('focused native client verification', () => {
       'scripts/probe-agent-ssh-client.mts',
       'scripts/agent-client-artifacts.mjs',
       'scripts/assemble-agent-clients.mts',
-      'build/native/sign-agent-clients.cjs',
+      'build/native/sign-runtime-payloads.cjs',
       '.github/workflows/agent-clients.yml',
       '.github/workflows/release.yml',
       '.github/workflows/macos-package-release.yml',

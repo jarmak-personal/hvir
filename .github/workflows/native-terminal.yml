@@ -37,7 +37,19 @@ on:
       - package.json
       - package-lock.json
       - .github/workflows/native-terminal.yml
+      - .github/workflows/native-terminal-packages.yml
+      - .github/workflows/macos-package-release.yml
+      - electron-builder.yml
+      - build/native/**
+      - scripts/installed-*-probe.mts
+      - scripts/run-*-package-smoke.sh
   workflow_dispatch:
+    inputs:
+      sign_candidate:
+        description: Request exact candidate signing through the protected environment.
+        required: false
+        default: false
+        type: boolean
 
 defaults:
   run:
@@ -47,8 +59,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: native-terminal-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: native-terminal-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.sign_candidate && 'signed' || 'unsigned' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || !inputs.sign_candidate }}
 
 jobs:
   build:
@@ -736,3 +748,18 @@ jobs:
           path: ${{ runner.temp }}/native-terminal-${{ matrix.target }}.tar.gz
           if-no-files-found: error
           retention-days: 7
+
+  agent-clients:
+    name: Exact candidate agent clients
+    uses: ./.github/workflows/agent-clients.yml
+    with:
+      source_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+
+  packages:
+    name: Exact native candidate package acceptance
+    needs: [build, agent-clients]
+    uses: ./.github/workflows/native-terminal-packages.yml
+    with:
+      source_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      sign_candidate: ${{ github.event_name == 'workflow_dispatch' && inputs.sign_candidate || false }}
+    secrets: inherit

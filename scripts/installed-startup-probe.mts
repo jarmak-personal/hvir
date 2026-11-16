@@ -6,6 +6,7 @@ import { parseArgs, promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 
 import { exerciseInstalledHarnessDialogs } from './installed-harness-dialog-probe.mts'
+import { exerciseInstalledNativeTerminal } from './installed-native-terminal-probe.mts'
 
 const execFileAsync = promisify(execFile)
 const STARTUP_TIMEOUT_MS = 30_000
@@ -212,6 +213,7 @@ interface StartupProbeOptions {
   readonly runtimeRoot: string
   readonly path: string
   readonly exerciseHarnessDialogs: boolean
+  readonly exerciseNativeTerminal: boolean
   readonly disableGpu: boolean
 }
 
@@ -261,6 +263,12 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
     PATH: providerBin ? `${providerBin}:${options.path}` : options.path,
     HVIR_SMOKE: '1',
     HVIR_SMOKE_SCENARIO: 'pty-native',
+    ...(options.exerciseNativeTerminal
+      ? {
+          HVIR_NATIVE_TERMINAL: '1',
+          GHOSTTY_LOG: 'stderr',
+        }
+      : {}),
     ...(process.platform === 'linux'
       ? { XDG_CONFIG_HOME: configRoot, XDG_CACHE_HOME: cacheRoot }
       : {}),
@@ -280,7 +288,7 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
       '.',
       `--user-data-dir=${userDataRoot}`,
       ...(options.disableGpu ? ['--disable-gpu'] : []),
-      ...(options.exerciseHarnessDialogs
+      ...(options.exerciseHarnessDialogs || options.exerciseNativeTerminal
         ? ['--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0']
         : []),
     ],
@@ -292,6 +300,9 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
     },
   )
   let appOutput = ''
+  let pinnedFontconfig = false
+  let pinnedHarfbuzz = false
+  let dependencyOutput = ''
   let childExit: ChildExit | null = null
   let spawnFailure: Error | undefined
   child.once('error', (error) => {
@@ -300,6 +311,10 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
   const observe = (chunk: Buffer): void => {
     const text = chunk.toString('utf8')
     appOutput = `${appOutput}${text}`.slice(-4_096)
+    const dependencyChunk = `${dependencyOutput}${text}`
+    pinnedFontconfig ||= /dependency fontconfig=21803\r?\n/.test(dependencyChunk)
+    pinnedHarfbuzz ||= /dependency harfbuzz=11\.0\.0\r?\n/.test(dependencyChunk)
+    dependencyOutput = dependencyChunk.slice(-256)
     process.stderr.write(text)
   }
   child.stdout?.on('data', observe)
@@ -377,6 +392,20 @@ async function runInstalledStartupProbe(options: StartupProbeOptions): Promise<v
       )
       console.log(`Installed harness dialogs OK (${evidence})`)
     }
+    if (options.exerciseNativeTerminal) {
+      const evidence = await runWithInstalledStartupLiveness(
+        () =>
+          exerciseInstalledNativeTerminal(() =>
+            Promise.resolve(
+              readFileSync(join(userDataRoot, 'DevToolsActivePort'), 'utf8'),
+            ),
+          ),
+        assertInstalledProcessAlive,
+      )
+      if (process.platform === 'linux' && (!pinnedFontconfig || !pinnedHarfbuzz))
+        throw new Error('Installed native terminal: effective dependency versions')
+      console.log(evidence)
+    }
     await assertInstalledProcessAlive()
     await stopProcessGroup(child, 'SIGTERM', SHUTDOWN_TIMEOUT_MS, true, () => {
       deliberateShutdownStarted = true
@@ -437,6 +466,7 @@ async function main(): Promise<void> {
       'runtime-root': { type: 'string' },
       path: { type: 'string' },
       'exercise-harness-dialogs': { type: 'boolean' },
+      'exercise-native-terminal': { type: 'boolean' },
       'disable-gpu': { type: 'boolean' },
     },
     strict: true,
@@ -459,6 +489,7 @@ async function main(): Promise<void> {
     runtimeRoot: resolve(values['runtime-root']),
     path: values.path,
     exerciseHarnessDialogs: values['exercise-harness-dialogs'] === true,
+    exerciseNativeTerminal: values['exercise-native-terminal'] === true,
     disableGpu: values['disable-gpu'] === true,
   })
 }

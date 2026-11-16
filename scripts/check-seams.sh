@@ -32,6 +32,7 @@ hits=$(grep -rnE "from ['\"](node:)?(fs|fs/promises|child_process)['\"]|from ['\
   | grep -vE "^src/agent-transport/(endpoint-directory|reference-assets)\.ts:.*from ['\"]node:fs(/promises)?['\"]" \
   | grep -vE "^src/main/project-host/local-agent-endpoint\.ts:.*from ['\"]node:fs/promises['\"]" \
   | grep -vE "^src/main/project-host/local-extension-authoring\.ts:.*from ['\"]node:fs['\"]" \
+  | grep -vE "^src/main/terminal/native-terminal-package\.ts:.*from ['\"]node:fs(/promises)?['\"]" \
   | grep -vE '^src/main/project-host/(local-host|local-extension-storage)\.ts:' || true)
 report "host primitives imported only in local-host.ts" "$hits"
 

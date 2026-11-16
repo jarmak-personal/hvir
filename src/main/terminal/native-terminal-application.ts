@@ -43,6 +43,7 @@ import { NativeTerminalFrameImports } from './native-terminal-import'
 import { NativeTerminalPresenter } from './native-terminal-presenter'
 import { NativeTerminalPresentationTargets } from './native-terminal-presentation-target'
 import { NativeTerminalSelection } from './native-terminal-selection'
+import { nativeTerminalLibraryForStartup } from './native-terminal-package'
 
 /** Application lifetime wiring stays beside the native resource owner. */
 export async function installNativeTerminalApplication(
@@ -55,12 +56,11 @@ export async function installNativeTerminalApplication(
   )
   return {
     nativeTerminals:
-      native &&
-      lifetime.own('Native development terminals', native, (owner) => owner.dispose()),
+      native && lifetime.own('Native terminals', native, (owner) => owner.dispose()),
   }
 }
 
-/** Development opt-in is selected by trusted main startup, never a renderer path.
+/** Development and bundled candidate opt-ins belong to trusted main startup.
  * Keeping the concrete process import conditional also keeps native addons out of
  * ordinary startup when contributor bindings have not been built. */
 export async function createNativeTerminalApplication(
@@ -68,8 +68,8 @@ export async function createNativeTerminalApplication(
   isCurrent: (owner: RendererOwner) => boolean,
   systemClipboard: { writeText(text: string): void } = clipboard,
 ): Promise<NativeTerminalApplication | undefined> {
-  const library = process.env['HVIR_NATIVE_TERMINAL_LIBRARY']
-  if (!library || app.isPackaged) return
+  const library = await nativeTerminalLibraryForStartup(app.isPackaged)
+  if (!library) return
   if (process.platform !== 'darwin' && process.platform !== 'linux')
     throw new Error('Native workbench development runtime requires macOS or Linux')
   const linux =

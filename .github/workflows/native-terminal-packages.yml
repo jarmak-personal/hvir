@@ -1,0 +1,235 @@
+name: Native terminal candidate packages
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      sign_candidate:
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package and accept native terminal (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-22.04
+            arch: x64
+            deb_arch: amd64
+          - target: linux-arm64
+            os: ubuntu-22.04-arm
+            arch: arm64
+            deb_arch: arm64
+          - target: macos-arm64
+            os: macos-15
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Require exact candidate source
+        env:
+          SOURCE: ${{ inputs.source_sha }}
+        run: '[[ "$SOURCE" =~ ^[0-9a-f]{40}$ ]] && [ "$(git rev-parse HEAD)" = "$SOURCE" ]'
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: agent-client-*
+          path: out/agent-client-downloads
+      - run: node scripts/assemble-agent-clients.mts
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-terminal-${{ matrix.target }}
+          path: out/native-download
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-terminal-bindings-${{ matrix.target }}
+          path: out/native-download
+      - name: Restore exact SDK and compiled native bindings
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir out/native-sdk
+          tar -xf "out/native-download/native-terminal-$TARGET.tar.gz" -C out/native-sdk
+          mkdir -p packages/native-terminal/build
+          tar -xf "out/native-download/native-terminal-bindings-$TARGET.tar.gz" -C packages/native-terminal/build Release
+          node scripts/native-terminal/package.mts "$TARGET" out/native-sdk/artifact out/native-terminal
+      - name: Build candidate package without publication
+        env:
+          HVIR_PACKAGE_NATIVE_TERMINAL: '1'
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          if [[ "$TARGET" == macos-arm64 ]]; then
+            npm run pack:mac:arm64
+          else
+            npm run "pack:linux:$ARCH"
+          fi
+      - name: Move every native developer input before installed acceptance
+        run: |
+          mv out/native-download "$RUNNER_TEMP/native-download-unavailable"
+          mv out/native-sdk "$RUNNER_TEMP/native-sdk-unavailable"
+          mv packages/native-terminal/build "$RUNNER_TEMP/native-bindings-unavailable"
+          mv out/native-terminal "$RUNNER_TEMP/native-package-input-unavailable"
+      - name: Prepare explicit software-rendered Linux acceptance prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes xvfb libgl1-mesa-dri
+      - name: Accept installed Linux candidate and native terminal
+        if: runner.os == 'Linux'
+        env:
+          HVIR_LINUX_PACKAGE_ACCEPTANCE: '1'
+          HVIR_NATIVE_PACKAGE_ACCEPTANCE: '1'
+        run: xvfb-run -a npm run smoke:linux:installed
+      - name: Accept installed macOS structural candidate and native terminal
+        if: runner.os == 'macOS'
+        env:
+          HVIR_MACOS_PACKAGE_ACCEPTANCE: '1'
+          HVIR_MACOS_PACKAGE_MODE: structural
+          HVIR_NATIVE_PACKAGE_ACCEPTANCE: '1'
+        run: npm run smoke:macos:installed
+      - name: Bind the exact Linux candidate package digest
+        if: runner.os == 'Linux'
+        env:
+          ARCH: ${{ matrix.arch }}
+          DEB_ARCH: ${{ matrix.deb_arch }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          target="hvir-$version-linux-$ARCH.deb"
+          mv "dist/hvir_${version}_${DEB_ARCH}.deb" "dist/$target"
+          (cd dist && sha256sum "$target" > "$target.sha256" && sha256sum --check --strict "$target.sha256")
+      - name: Retain exact Linux candidate package
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-terminal-candidate-linux-${{ matrix.arch }}
+          path: |
+            dist/hvir-*-linux-${{ matrix.arch }}.deb
+            dist/hvir-*-linux-${{ matrix.arch }}.deb.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Retain structural macOS candidate
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-terminal-candidate-macos-arm64-structural
+          path: dist/hvir-*-macos-arm64.pkg
+          if-no-files-found: error
+          retention-days: 7
+
+  ubuntu-24:
+    name: Accept exact native candidate (Ubuntu 24.04 ${{ matrix.arch }})
+    needs: package
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            deb_arch: amd64
+            os: ubuntu-24.04
+          - arch: arm64
+            deb_arch: arm64
+            os: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-terminal-candidate-linux-${{ matrix.arch }}
+          path: dist
+      - name: Verify the unchanged baseline package digest
+        env:
+          ARCH: ${{ matrix.arch }}
+          DEB_ARCH: ${{ matrix.deb_arch }}
+        run: node scripts/prepare-release-linux-package.mts "$ARCH" "$DEB_ARCH"
+      - name: Prepare explicit software-rendered Linux acceptance prerequisites
+        run: sudo apt-get update && sudo apt-get install --yes xvfb libgl1-mesa-dri
+      - name: Accept installed native terminal with production sandbox
+        env:
+          HVIR_LINUX_PACKAGE_ACCEPTANCE: '1'
+          HVIR_NATIVE_PACKAGE_ACCEPTANCE: '1'
+        run: xvfb-run -a npm run smoke:linux:installed
+
+  debian:
+    name: Accept exact native candidate (Debian 13 ${{ matrix.arch }})
+    needs: package
+    runs-on: ${{ matrix.os }}
+    container:
+      image: node:24-trixie
+      options: --security-opt seccomp=unconfined
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            deb_arch: amd64
+            os: ubuntu-22.04
+          - arch: arm64
+            deb_arch: arm64
+            os: ubuntu-22.04-arm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-terminal-candidate-linux-${{ matrix.arch }}
+          path: dist
+      - name: Prepare disposable Debian userspace
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y file git sudo xauth xvfb libgl1-mesa-dri
+          useradd --create-home --shell /bin/bash hvir-acceptance
+          printf 'hvir-acceptance ALL=(ALL) NOPASSWD: ALL\n' >/etc/sudoers.d/hvir-acceptance
+          chmod 0440 /etc/sudoers.d/hvir-acceptance
+      - run: npm ci --ignore-scripts
+      - name: Verify the unchanged baseline package digest
+        env:
+          ARCH: ${{ matrix.arch }}
+          DEB_ARCH: ${{ matrix.deb_arch }}
+        run: |
+          node scripts/prepare-release-linux-package.mts "$ARCH" "$DEB_ARCH"
+          chown -R hvir-acceptance:hvir-acceptance "$GITHUB_WORKSPACE"
+      - name: Accept installed native compatibility with production sandbox
+        run: |
+          sudo -u hvir-acceptance env HOME=/home/hvir-acceptance \
+            HVIR_LINUX_PACKAGE_ACCEPTANCE=1 HVIR_NATIVE_PACKAGE_ACCEPTANCE=1 \
+            PATH=/usr/local/bin:/usr/bin:/bin xvfb-run -a npm run smoke:linux:installed -- --software-rendering
+
+  signed-macos:
+    name: Sign exact native candidate (explicit protected dispatch)
+    if: github.event_name == 'workflow_dispatch' && inputs.sign_candidate
+    uses: ./.github/workflows/macos-package-release.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+      allow_merged_source: true
+      native_terminal: true
+    secrets: inherit

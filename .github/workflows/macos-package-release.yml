@@ -12,6 +12,11 @@ on:
         required: false
         default: false
         type: boolean
+      native_terminal:
+        description: Assemble and accept the exact bundled native terminal candidate.
+        required: false
+        default: false
+        type: boolean
     secrets:
       MACOS_APPLICATION_CERTIFICATE:
         required: false
@@ -102,6 +107,27 @@ jobs:
       - name: Validate and assemble bundled client set
         run: node scripts/assemble-agent-clients.mts
 
+      - name: Download exact native terminal SDK
+        if: inputs.native_terminal
+        uses: actions/download-artifact@v8
+        with:
+          name: native-terminal-macos-arm64
+          path: out/native-download
+      - name: Download exact native terminal compiled bindings
+        if: inputs.native_terminal
+        uses: actions/download-artifact@v8
+        with:
+          name: native-terminal-bindings-macos-arm64
+          path: out/native-download
+      - name: Assemble exact bundled native terminal
+        if: inputs.native_terminal
+        run: |
+          mkdir out/native-sdk
+          tar -xf out/native-download/native-terminal-macos-arm64.tar.gz -C out/native-sdk
+          mkdir -p packages/native-terminal/build
+          tar -xf out/native-download/native-terminal-bindings-macos-arm64.tar.gz -C packages/native-terminal/build Release
+          node scripts/native-terminal/package.mts macos-arm64 out/native-sdk/artifact out/native-terminal
+
       - name: Require protected signing credentials
         env:
           MACOS_APPLICATION_CERTIFICATE: ${{ secrets.MACOS_APPLICATION_CERTIFICATE }}
@@ -143,6 +169,7 @@ jobs:
 
       - name: Build signed and notarized package
         env:
+          HVIR_PACKAGE_NATIVE_TERMINAL: ${{ inputs.native_terminal && '1' || '' }}
           CSC_LINK: ${{ secrets.MACOS_APPLICATION_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_APPLICATION_CERTIFICATE_PASSWORD }}
           CSC_INSTALLER_LINK: ${{ secrets.MACOS_INSTALLER_CERTIFICATE }}
@@ -161,8 +188,17 @@ jobs:
           xcrun stapler staple "$package"
           xcrun stapler validate "$package"
 
+      - name: Move native developer inputs before installed acceptance
+        if: inputs.native_terminal
+        run: |
+          mv out/native-download "$RUNNER_TEMP/native-download-unavailable"
+          mv out/native-sdk "$RUNNER_TEMP/native-sdk-unavailable"
+          mv packages/native-terminal/build "$RUNNER_TEMP/native-bindings-unavailable"
+          mv out/native-terminal "$RUNNER_TEMP/native-package-input-unavailable"
+
       - name: Install, update, launch, and remove signed package
         env:
+          HVIR_NATIVE_PACKAGE_ACCEPTANCE: ${{ inputs.native_terminal && '1' || '' }}
           HVIR_MACOS_PACKAGE_ACCEPTANCE: '1'
           HVIR_MACOS_PACKAGE_MODE: signed
           HVIR_MACOS_EXPECTED_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
@@ -191,7 +227,7 @@ jobs:
       - name: Retain accepted package for release assembly
         uses: actions/upload-artifact@v7
         with:
-          name: release-macos-arm64
+          name: ${{ inputs.native_terminal && 'native-terminal-candidate-macos-arm64-signed' || 'release-macos-arm64' }}
           path: |
             dist/hvir-*-darwin-arm64.pkg
             dist/hvir-*-darwin-arm64.pkg.sha256
