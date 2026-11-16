@@ -129,10 +129,15 @@ fn send_request_until(
 }
 fn receive_response_until(stream: &mut UnixStream, deadline: Instant) -> Result<Response, String> {
     let mut response = Vec::new();
+    let mut queued_only = false;
     loop {
-        stream
-            .set_read_timeout(Some(remaining(deadline)?))
-            .map_err(|_| INTERRUPTED)?;
+        let timeout = remaining(deadline)?;
+        if !queued_only && stream.set_read_timeout(Some(timeout)).is_err() {
+            // Darwin can reject timeout configuration after close with a result still queued.
+            // Drain only immediately available bytes; never block without a configured bound.
+            stream.set_nonblocking(true).map_err(|_| INTERRUPTED)?;
+            queued_only = true;
+        }
         let mut chunk = [0; 4096];
         let bytes = match stream.read(&mut chunk) {
             Ok(0) => return Err("Connection ended without a result; execution may be uncertain; request was not replayed".into()),
@@ -336,6 +341,40 @@ mod tests {
         let error = receive_response_until(&mut client, deadline).err().unwrap();
         assert!(error.contains("uncertain"), "{error}");
         assert!(error.contains("not replayed"), "{error}");
+    }
+    #[test]
+    fn complete_result_queued_before_peer_close_is_accepted() {
+        let (mut client, mut server) = UnixStream::pair().unwrap();
+        let stdout = "😃".repeat(1100);
+        let mut frame = serde_json::to_vec(&serde_json::json!({
+            "contract": CONTRACT, "stdout": stdout, "stderr": "err", "exitStatus": 75
+        }))
+        .unwrap();
+        frame.push(b'\n');
+        assert!(frame.len() > 4096);
+        server.write_all(&frame).unwrap();
+        drop(server);
+
+        let result = receive_response_until(&mut client, Instant::now() + DEADLINE).unwrap();
+        assert_eq!(result.stdout, stdout);
+        assert_eq!(result.stderr, "err");
+        assert_eq!(result.exit_status, 75);
+    }
+    #[test]
+    fn incomplete_result_queued_before_peer_close_preserves_uncertainty() {
+        for frame in [
+            b"".as_slice(),
+            b"{\"contract\":\"1.0\",\"stdout\":\"partial",
+        ] {
+            let (mut client, mut server) = UnixStream::pair().unwrap();
+            server.write_all(frame).unwrap();
+            drop(server);
+            let error = receive_response_until(&mut client, Instant::now() + DEADLINE)
+                .err()
+                .unwrap();
+            assert!(error.contains("uncertain"), "{error}");
+            assert!(error.contains("not replayed"), "{error}");
+        }
     }
     #[test]
     fn peer_closed_before_request_deadline_reports_no_replay() {
