@@ -140,8 +140,20 @@ export function nativeTerminalApplicationFixture() {
       (
         id: string,
         frame: WebFrameMain,
-      ) => { screen: 0 | 1; geometrySerial: number } | undefined
-    >(() => ({ screen: 0, geometrySerial: grant.geometrySerial })),
+      ) =>
+        | {
+            screen: 0 | 1
+            geometrySerial: number
+            nativeEpoch: string
+            attachment: number
+          }
+        | undefined
+    >(() => ({
+      screen: 0,
+      geometrySerial: grant.geometrySerial,
+      nativeEpoch: grant.nativeEpoch,
+      attachment: grant.attachment,
+    })),
   }
   const grant = {
     viewId: 'view',

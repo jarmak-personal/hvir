@@ -26,6 +26,9 @@ export interface CapacityTerminalLayout {
   readonly paddingTop: number
   readonly fontSize: number
   readonly viewId?: string
+  readonly webViewportY?: number
+  readonly nativeEpoch?: string
+  readonly attachment?: number
   readonly geometrySerial?: number
 }
 
@@ -67,6 +70,7 @@ export async function readCapacityTerminalLayout(
       columns:stats?.cols,rows:stats?.rows,cellWidth:stats?.cellWidth,
       cellHeight:stats?.cellHeight,paddingLeft:0,paddingTop:0,
       fontSize:appearance?.fontSize??stats?.fontSize,
+      webViewportY:engine.__hvirTerminalViewport?.viewportY,
       viewId:engine.querySelector('[id^="native-terminal-"]')?.id.slice('native-terminal-'.length)}};
   })()`)) as
     | { state: 'ready'; layout: CapacityTerminalLayout }
@@ -96,6 +100,8 @@ export async function readCapacityTerminalLayout(
     return {
       ...layout,
       geometrySerial: geometry.serial,
+      nativeEpoch: grant.nativeEpoch,
+      attachment: grant.attachment,
       columns: geometry.columns,
       rows: geometry.rows,
       cellWidth: geometry.cellWidth / geometry.backingScale,

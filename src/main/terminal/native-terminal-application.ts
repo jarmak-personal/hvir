@@ -623,6 +623,7 @@ export class NativeTerminalApplication {
       throw new Error('native-view-stale')
     if (record.retiring || view.detaching) throw new Error('native-view-stale')
     const revision = view.revision
+    const drawn = captured ? undefined : this.targets.drawn(viewId, view.frame)
     const readOnly =
       record.readonly ||
       record.inputClosed ||
@@ -632,7 +633,9 @@ export class NativeTerminalApplication {
       handle: record.handle,
       instanceId: view.instanceId,
       geometrySerial: view.geometrySerial,
-      selectionContext: captured ? undefined : this.targets.drawn(viewId, view.frame),
+      selectionContext: drawn
+        ? { screen: drawn.screen, geometrySerial: drawn.geometrySerial }
+        : undefined,
       state: view.input,
       inputSettled: () => this.sessions.inputSettled(view.sessionId, view.instanceId),
       retainInput: (pending) =>
@@ -842,7 +845,7 @@ export class NativeTerminalApplication {
             !this.presenter.isInputCurrent(viewId)
           )
             throw new Error('native-query-not-drawn')
-          return drawn
+          return { screen: drawn.screen, geometrySerial: drawn.geometrySerial }
         }
         const value = nativeQueryResult(
           await this.host.query(
@@ -920,7 +923,7 @@ export class NativeTerminalApplication {
       handle: record.handle,
       instanceId: view.instanceId,
       workspaceRoot: session.workspaceRoot,
-      geometry,
+      geometry: { screen: geometry.screen, geometrySerial: geometry.geometrySerial },
       retainControl: (pending: Promise<unknown>) =>
         this.sessions.retainInput(view.sessionId, view.instanceId, pending),
       controlApplied: (_action: 'clear' | 'reset', cutoff: number, mutation: number) =>

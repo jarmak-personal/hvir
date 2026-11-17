@@ -76,6 +76,8 @@ describe('private native presentation Electron target', () => {
     expect(f.owner.drawn(f.grant.viewId, f.frame)).toEqual({
       screen: 0,
       geometrySerial: 1,
+      nativeEpoch: f.grant.nativeEpoch,
+      attachment: f.grant.attachment,
     })
     f.target.publishGrant({ ...f.grant, geometrySerial: 2 })
     f.owner.acknowledge(f.frame, ack)

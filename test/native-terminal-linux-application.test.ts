@@ -175,6 +175,8 @@ describe('trusted native Linux application startup', () => {
       expect(native.targets.drawn(grant.viewId, frame)).toEqual({
         screen: 0,
         geometrySerial: 1,
+        nativeEpoch: grant.nativeEpoch,
+        attachment: grant.attachment,
       })
       acknowledge(event, { kind: 'pixels', ticket, accepted: true })
       await expect(uploaded).resolves.toBe(true)

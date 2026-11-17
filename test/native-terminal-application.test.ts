@@ -464,6 +464,8 @@ describe('native workbench application ownership', () => {
     await f.app.input('view', f.owner, { kind: 'preedit', text: null })
     await f.app.key('view', f.owner, { key: 0, modifiers: 0, action: 1, text: '日本' })
     await f.app.key('view', f.owner, { key: 43, modifiers: 0, action: 1, text: 'x' })
+    for (const call of f.host.input.mock.calls)
+      expect(call[6]).toEqual({ screen: 0, geometrySerial: 1 })
     expect(f.host.input.mock.calls.map(([, , operation]) => operation)).toEqual([
       { kind: 'focus', focused: true },
       { kind: 'preedit', text: '' },

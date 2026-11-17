@@ -3,7 +3,12 @@ import { dirnameHostPath, joinHostPath, type HostPath } from '../../shared/host-
 import type { ProjectHost } from '../project-host/project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
-import { addCapacityTerminals } from './capacity-terminals'
+import {
+  addCapacityTerminals,
+  activateCapacityTerminal,
+  measureAdditionalTerminalReadiness,
+} from './capacity-terminals'
+import { observeCapacityNativeWheel } from './capacity-native-wheel-observation'
 import { focusSmokeWindow } from './window-focus'
 import {
   capacityTerminalTaggedProducer,
@@ -34,6 +39,7 @@ export async function createCapacityTerminalFixture(
   native?: NativeTerminalApplication,
 ) {
   const source = observeCapacityTerminalSource()
+  const wheel = native && observeCapacityNativeWheel(native)
   const producer = joinHostPath(
     dirnameHostPath(existingFixture),
     '.hvir-capacity-terminal-producer.cjs',
@@ -102,7 +108,7 @@ export async function createCapacityTerminalFixture(
     await win.webContents.executeJavaScript(`(()=>{
       const engine=document.querySelector('.terminal-surface.active .terminal-engine-host');
       if(!(engine instanceof HTMLElement))throw new Error('capacity-tagged-scroll-owner');
-      const state={sequence:0};
+      const state={sequence:0,trace:false,events:[]};
       engine.addEventListener('wheel',()=>{state.sequence++},{capture:true});
       window.__hvirCapacityWheelObservation=state;return true;
     })()`)
@@ -135,7 +141,9 @@ export async function createCapacityTerminalFixture(
       expected: CapacityTerminalTag,
       viewport: 'top' | 'bottom',
       expectedViewport: Pick<CapacityTerminalTag, 'columns' | 'rows'> = expected,
+      state?: (layout: CapacityTerminalLayout) => Promise<{ engine: string } | undefined>,
     ) => {
+      let firstMatchingVisibleFrameAtMs: number | undefined
       let lastObserved: string | undefined
       let lastLayout: CapacityTerminalLayout | undefined
       let lastPixelProbe
@@ -145,6 +153,8 @@ export async function createCapacityTerminalFixture(
             assertActor()
             const layout = await readCapacityTerminalLayout(win, terminal, native)
             lastLayout = layout
+            const stateProof = state ? await state(layout) : undefined
+            const stateCheckedAtMs = performance.now()
             const captured = await captureCapacityTerminalTag(
               win,
               layout,
@@ -160,6 +170,8 @@ export async function createCapacityTerminalFixture(
             })
             lastObserved = captured.tag && tagIdentity(captured.tag)
             if (lastObserved !== tagIdentity(expected)) return
+            firstMatchingVisibleFrameAtMs ??= captured.completedAtMs
+            if (state && stateProof === undefined) return
             if (
               layout.columns !== expectedViewport.columns ||
               layout.rows !== expectedViewport.rows
@@ -171,6 +183,9 @@ export async function createCapacityTerminalFixture(
             return {
               layout,
               captured,
+              firstMatchingVisibleFrameAtMs,
+              stateCheckedAtMs,
+              stateProof,
               tag: captured.tag!,
               expectedTag: expected,
               expectedViewport: {
@@ -200,7 +215,9 @@ export async function createCapacityTerminalFixture(
             const p=${JSON.stringify(points)};
             const nav=document.querySelector('.terminal-surface.active .terminal-semantic-navigation');
             const b=nav?.getBoundingClientRect();
-            return {semanticNavigation: b?{x:b.x,y:b.y,width:b.width,height:b.height,
+            return {webViewport:document.querySelector('.terminal-surface.active .terminal-engine-host')?.__hvirTerminalViewport??null,
+              wheelTrace:window.__hvirCapacityWheelObservation?.trace?window.__hvirCapacityWheelObservation.events:undefined,
+              semanticNavigation: b?{x:b.x,y:b.y,width:b.width,height:b.height,
               visibility:getComputedStyle(nav).visibility,display:getComputedStyle(nav).display}:null,
               cells:Array.from({length:p.count},(_,index)=>{const x=p.x+(index+0.5)*p.cellWidth;
                 const hit=document.elementFromPoint(x,p.y);
@@ -280,7 +297,10 @@ export async function createCapacityTerminalFixture(
       }
     }
     const scroll = async (direction: 'up' | 'down') => {
-      const layout = await readCapacityTerminalLayout(win, terminal, native)
+      const layout = await wait(
+        () => readCapacityTerminalLayout(win, terminal, native),
+        'scroll-applied-layout',
+      )
       if (layout.columns !== current.columns || layout.rows !== current.rows)
         throw new Error('capacity-tagged-scroll-source-geometry')
       const previous = scrollOffset
@@ -291,23 +311,93 @@ export async function createCapacityTerminalFixture(
       if (previous === scrollOffset) throw new Error('capacity-tagged-scroll-no-change')
       const expected = tagForRow(current.row - layout.rows + 1 - scrollOffset)
       const expectedInputSequence = ++scrollInputSequence
+      if (
+        native &&
+        (!layout.viewId || !layout.nativeEpoch || layout.attachment === undefined)
+      )
+        throw new Error('capacity-tagged-wheel-grant-missing')
+      const arm = wheel?.arm({
+        viewId: layout.viewId!,
+        owner: { id: terminal.ownerId, generation: terminal.ownerGeneration },
+      })
       const startedAtMs = performance.now()
-      await win.webContents.executeJavaScript(`(()=>{
+      try {
+        await win.webContents.executeJavaScript(`(()=>{
         const engine=document.querySelector('.terminal-surface.active .terminal-engine-host');
         if(!(engine instanceof HTMLElement))throw new Error('capacity-tagged-scroll-control');
         const b=engine.getBoundingClientRect();
+        const state=window.__hvirCapacityWheelObservation;
+        const before=state.trace?engine.__hvirTerminalViewport?.viewportY:undefined;
         engine.dispatchEvent(new WheelEvent('wheel',{deltaMode:2,deltaY:${direction === 'up' ? -1 : 1},
-          clientX:b.x+b.width/2,clientY:b.y+b.height/2,bubbles:true,cancelable:true}));return true;
+          clientX:b.x+b.width/2,clientY:b.y+b.height/2,bubbles:true,cancelable:true}));
+        if(state.trace){if(state.events.length>=32)throw new Error('capacity-scroll-trace-bound');
+          state.events.push({sequence:state.sequence,before,afterDispatch:engine.__hvirTerminalViewport?.viewportY,atEpochMs:performance.timeOrigin+performance.now()});}
+        return true;
       })()`)
-      // Historical content keeps its original emission geometry. The current
-      // viewport is independently pinned to the latest actual PTY observation.
-      const observed = await observe(expected, 'top', current)
-      const observedInputSequence: unknown = await win.webContents.executeJavaScript(
-        'window.__hvirCapacityWheelObservation.sequence',
-      )
-      if (observedInputSequence !== expectedInputSequence)
-        throw new Error('capacity-tagged-wheel-input-sequence')
-      return { startedAtMs, ...observed, expectedInputSequence, observedInputSequence }
+        // Historical content keeps its original emission geometry. The current
+        // viewport is independently pinned to the latest actual PTY observation.
+        const observed = await observe(expected, 'top', current, async (applied) => {
+          if (!native) {
+            return applied.webViewportY === scrollOffset
+              ? { engine: 'web', viewportY: applied.webViewportY }
+              : undefined
+          }
+          if (
+            applied.viewId !== layout.viewId ||
+            applied.nativeEpoch !== layout.nativeEpoch ||
+            applied.attachment !== layout.attachment
+          )
+            throw new Error('capacity-tagged-wheel-grant-changed')
+          const completion = arm?.read()
+          if (!completion) return
+          if (
+            completion.failed ||
+            completion.refused ||
+            !completion.requestedMutation ||
+            completion.sequence !== expectedInputSequence
+          )
+            throw new Error('capacity-tagged-wheel-native-completion')
+          const owner = { id: terminal.ownerId, generation: terminal.ownerGeneration }
+          const retained = await native.inspectRetained(terminal.id, owner)
+          const renderer = await native.rendererInfo(terminal.id, owner)
+          if (
+            retained.ioAppliedMutation < completion.requestedMutation ||
+            !renderer.lastFrame ||
+            renderer.lastFrame.snapshotMutation < completion.requestedMutation
+          )
+            return
+          return {
+            engine: 'native',
+            ...completion,
+            ioAppliedMutation: retained.ioAppliedMutation,
+            frameSnapshotMutation: renderer.lastFrame.snapshotMutation,
+            viewId: applied.viewId,
+            nativeEpoch: applied.nativeEpoch,
+            attachment: applied.attachment,
+          }
+        })
+        const inputState = (await win.webContents.executeJavaScript(`(()=>{
+        const state=window.__hvirCapacityWheelObservation;
+        const engine=document.querySelector('.terminal-surface.active .terminal-engine-host');
+        return {sequence:state.sequence,...(state.trace?{viewport:{
+          events:state.events,atMatchingCapture:engine?.__hvirTerminalViewport?.viewportY,
+          atEpochMs:performance.timeOrigin+performance.now()}}:{})};
+      })()`)) as { sequence: number; viewport?: unknown }
+        const observedInputSequence = inputState.sequence
+        if (observedInputSequence !== expectedInputSequence)
+          throw new Error('capacity-tagged-wheel-input-sequence')
+        return {
+          startedAtMs,
+          ...observed,
+          expectedInputSequence,
+          observedInputSequence,
+          ...(inputState.viewport === undefined
+            ? {}
+            : { webViewportState: inputState.viewport }),
+        }
+      } finally {
+        arm?.close()
+      }
     }
     return {
       terminal,
@@ -321,12 +411,14 @@ export async function createCapacityTerminalFixture(
         try {
           await write('\u0003')
         } finally {
+          wheel?.dispose()
           source.dispose()
           await host.removeFile(producer, { ignoreMissing: true })
         }
       },
     }
   } catch (error) {
+    wheel?.dispose()
     source.dispose()
     await host.removeFile(producer, { ignoreMissing: true })
     throw error
@@ -340,6 +432,7 @@ export async function diagnoseCapacityTerminalTags(
   host: ProjectHost,
   fixture: HostPath,
   native?: NativeTerminalApplication,
+  sequenceDiagnostic = false,
 ): Promise<void> {
   const active = await createCapacityTerminalFixture(
     win,
@@ -376,6 +469,21 @@ export async function diagnoseCapacityTerminalTags(
   }
   try {
     await placement('initial', active.initialFrame)
+    if (sequenceDiagnostic) {
+      if (native) {
+        await measureAdditionalTerminalReadiness(win, supervisor, 'baseline', 1)
+        await activateCapacityTerminal(win, 0)
+      }
+      {
+        await win.webContents.executeJavaScript(
+          'window.__hvirCapacityWheelObservation.trace=true;true',
+        )
+        for (let index = 0; index < 10; index++) {
+          const value = await active.scroll(index % 2 === 0 ? 'up' : 'down')
+          samples.push({ kind: 'sequence-scroll', ...value })
+        }
+      }
+    }
     for (let sequence = 1; sequence <= 3; sequence++)
       samples.push({ kind: 'output', ...(await active.command('output', sequence)) })
     samples.push({ kind: 'echo', ...(await active.command('echo', 4)) })
@@ -392,6 +500,7 @@ export async function diagnoseCapacityTerminalTags(
       '[smoke:capacity:tagged-diagnostic] ' +
         JSON.stringify({
           diagnosticOnly: true,
+          sequenceDiagnostic,
           controlledComparisonQualified: false,
           physicalPresentationQualified: false,
           initial: active.initial,

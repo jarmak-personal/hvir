@@ -211,9 +211,16 @@ async function fixture() {
     demand: vi.fn(() => Promise.resolve(true)),
     isInputCurrent: vi.fn(() => true),
   }
-  const drawn = vi.fn<() => { screen: 0 | 1; geometrySerial: number } | undefined>(
-    () => ({ screen: 0, geometrySerial: status.geometry.serial }),
-  )
+  const drawn = vi.fn<
+    () =>
+      | { screen: 0 | 1; geometrySerial: number; nativeEpoch: string; attachment: number }
+      | undefined
+  >(() => ({
+    screen: 0,
+    geometrySerial: status.geometry.serial,
+    nativeEpoch: 'epoch',
+    attachment: 1,
+  }))
   const targets = { create: vi.fn(), dispose: vi.fn(), acknowledge: vi.fn(), drawn }
   const ptys = {
     get: vi.fn(() => managed),

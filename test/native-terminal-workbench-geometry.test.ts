@@ -105,6 +105,8 @@ function fixture() {
   const drawn = vi.fn<NativeTerminalApplication['targets']['drawn']>(() => ({
     screen: 0,
     geometrySerial: geometry.serial,
+    nativeEpoch: 'epoch',
+    attachment: 1,
   }))
   const native = {
     inspectRetained: inspect,
@@ -148,7 +150,9 @@ describe('native workbench settled geometry observation', () => {
     async (state) => {
       const f = fixture()
       f.drawn.mockReturnValue(
-        state === 'absent' ? undefined : { screen: 0, geometrySerial: 1 },
+        state === 'absent'
+          ? undefined
+          : { screen: 0, geometrySerial: 1, nativeEpoch: 'epoch', attachment: 1 },
       )
       await expect(f.read()).resolves.toBeUndefined()
     },

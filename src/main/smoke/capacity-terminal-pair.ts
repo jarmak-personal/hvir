@@ -127,7 +127,7 @@ export async function runCapacityTerminalPairedProcess(options: {
     const baselineReadiness = await measureAdditionalTerminalReadiness(
       win,
       supervisor,
-      'pairedbaseline',
+      'baseline',
       10,
     )
     await activateCapacityTerminal(win, 0)
@@ -162,7 +162,7 @@ export async function runCapacityTerminalPairedProcess(options: {
     const loadedReadiness = await measureAdditionalTerminalReadiness(
       win,
       supervisor,
-      'pairedloaded',
+      'loaded',
       10,
     )
     const readiness = compareTerminalReadiness(baselineReadiness, loadedReadiness)

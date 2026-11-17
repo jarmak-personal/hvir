@@ -276,3 +276,12 @@ manual harness/IME/clipboard/search/paste/split/resize, large-display compatibil
 resource lifetime acceptance. Report NVIDIA, Intel and AMD individually. Xvfb/Mesa software
 results cannot qualify a hardware desktop. Keep fault-stage tracing in separate workbench
 runs; `HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW=1` must be absent from paired timing runs.
+
+The v3 comparison observer completes a scroll only when the requested whole-page
+state and the tagged compositor pixels agree. For web this includes the actual
+public fractional viewport reaching its integer target. For native it includes the
+original wheel completion's exact mutation, both IO/frame fences, current view
+grant, and the expected historical row pixels. The first matching visible-frame
+timestamp is retained separately; it can precede committed scroll state. Earlier
+rounded-frame attempts are retained as failed, incomparable observer attempts.
+Readiness uses the canonical `baseline` and `loaded` input labels and bursts.

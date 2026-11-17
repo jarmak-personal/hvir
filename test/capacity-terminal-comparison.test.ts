@@ -25,7 +25,7 @@ function fixture(): CapacityTerminalPassedProcess[] {
       configurationSha: 'b'.repeat(64),
       workloadSha: 'c'.repeat(64),
       topologySha: 'd'.repeat(64),
-      observationMethod: 'BrowserWindow.capturePage:synthetic-terminal-tag-v2',
+      observationMethod: 'BrowserWindow.capturePage:synthetic-terminal-tag-v3',
       refreshHz: 60,
       rows: 24,
       columns: 80,

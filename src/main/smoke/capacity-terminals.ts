@@ -756,6 +756,44 @@ export async function measureAdditionalTerminalReadiness(
         `[smoke:performance:sample:readiness] ${label} ${index + 1}/${sampleCount} ` +
           `${durationMs.toFixed(1)}ms`,
       )
+    } catch (error) {
+      try {
+        const windowFocused = win.isFocused()
+        const state: unknown = await withTimeout(
+          win.webContents.executeJavaScript(`(() => {
+          const surface=document.querySelector('.terminal-surface[data-terminal-session="'+CSS.escape(${JSON.stringify(terminal.id)})+'"]');
+          const pane=surface?.querySelector('.native-terminal-pane'),input=pane?.querySelector('textarea'),active=document.activeElement;
+          const appearance=pane?.__hvirNativeTerminalAppearance;
+          const notice=pane?.querySelector(':scope > [role="status"]')?.textContent??'';
+          return {sessionPresent:!!surface,nativePanePresent:!!pane,documentFocused:document.hasFocus(),
+            activeElement:!active?'none':['TEXTAREA','INPUT','BUTTON','BODY'].includes(active.tagName)?active.tagName.toLowerCase():'other',
+            activeInSession:!!surface?.contains(active),activeIsInput:!!input&&active===input,
+            inputPresent:input instanceof HTMLTextAreaElement,
+            inputDisabled:input instanceof HTMLTextAreaElement?input.disabled:null,
+            inputReadOnly:input instanceof HTMLTextAreaElement?input.readOnly:null,
+            paneReadOnly:pane?.getAttribute('aria-readonly')==='true',
+            appearancePresent:!!appearance,appliedInputReady:appearance?appearance.applied===true:null,
+            surfaceUnavailable:pane?.querySelector('[id^="native-terminal-"] [role="status"]')?.textContent==='Terminal unavailable',
+            refusal:notice==='Native terminal input capacity reached; retry the gesture'?'input-capacity':notice?'other-notice':'none'};
+        })()`),
+          'capacity input failure observation timed out',
+          1000,
+        )
+        console.error(
+          'HVIR_CAPACITY_READINESS_FAILURE ' +
+            JSON.stringify({
+              schema: 1,
+              sessionId: terminal.id,
+              sample: index + 1,
+              inputLength: input.length,
+              windowFocused,
+              state,
+            }),
+        )
+      } catch {
+        /* Observation failure must preserve the original error and cleanup. */
+      }
+      throw error
     } finally {
       void detach()
       await closeTerminal(win, terminal.id)

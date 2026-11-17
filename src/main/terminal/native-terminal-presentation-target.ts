@@ -44,7 +44,12 @@ export class NativeTerminalPresentationTargets {
       view.drawnScreen === undefined
     )
       return
-    return { screen: view.drawnScreen, geometrySerial: view.grant.geometrySerial }
+    return {
+      screen: view.drawnScreen,
+      geometrySerial: view.grant.geometrySerial,
+      nativeEpoch: view.grant.nativeEpoch,
+      attachment: view.grant.attachment,
+    }
   }
   acknowledge(frame: WebFrameMain, value: unknown): void {
     if (!value || typeof value !== 'object') return

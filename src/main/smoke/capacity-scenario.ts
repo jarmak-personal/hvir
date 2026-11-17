@@ -33,12 +33,21 @@ export async function verifyCapacityScenario(
     const observation = process.env['HVIR_CAPACITY_OBSERVATION']
     if (observation !== undefined) {
       if (
-        !['diagnostic', 'tagged-diagnostic'].includes(observation) ||
+        !['diagnostic', 'tagged-diagnostic', 'sequence-diagnostic'].includes(
+          observation,
+        ) ||
         process.env['HVIR_CAPACITY_PERFORMANCE_GATE'] !== undefined
       )
         throw new Error('capacity-observation-requires-separate-diagnostic-run')
-      if (observation === 'tagged-diagnostic')
-        await diagnoseCapacityTerminalTags(win, supervisor, host, liveReloadPath, native)
+      if (observation === 'tagged-diagnostic' || observation === 'sequence-diagnostic')
+        await diagnoseCapacityTerminalTags(
+          win,
+          supervisor,
+          host,
+          liveReloadPath,
+          native,
+          observation === 'sequence-diagnostic',
+        )
       else await diagnoseCapacityFrameObservation(win, supervisor, native)
     } else {
       await runCapacityLoadSmoke(win, supervisor, host, liveReloadPath, native)
