@@ -479,14 +479,114 @@ export async function createNativeTerminalRealSshFixture(localHost: ProjectHost)
           )
           await browser.ready()
           await wait(currentDraw, 'remote-reveal-same-actor-current-draw')
-          stage = 'remote-explicit-close-control'
-          await evaluate(
-            `const session=[...document.querySelectorAll('.terminal-list-main')].find(button=>button.getAttribute('data-terminal-session')===${JSON.stringify(managed.id)});const button=session?.closest('.terminal-list-row')?.querySelector('.terminal-close-button');if(!(button instanceof HTMLButtonElement)||button.disabled)throw new Error('native-real-ssh-close-control');button.click();return true;`,
+          stage = 'remote-explicit-disconnect'
+          await bounded(catalog.disconnectHost(config.alias))
+          await wait(async () => {
+            const retained = native.sessions.get(managed.id)
+            return (
+              host.connectionState === 'disconnected' &&
+              !ptys.get(managed.id) &&
+              retained?.readonly === true &&
+              retained.handle === handle &&
+              retained.session.instanceId === managed.instanceId &&
+              (await evaluate<boolean>(
+                `${paneScript(managed.id)}return pane.getAttribute('aria-readonly')==='true';`,
+              ))
+            )
+          }, 'remote-disconnected-retained-readonly')
+          const disconnectedText = await read()
+          if (!disconnectedText.split('\n').includes('HVIR_REAL_SSH_HIDDEN'))
+            throw new Error('native-real-ssh-disconnect-lost-retained-state')
+          let deadInputRejected = false
+          try {
+            await ptys.writeConfirmed(managed.id, owner.id, 'x', owner.generation)
+          } catch {
+            deadInputRejected = true
+          }
+          if (!deadInputRejected) throw new Error('native-real-ssh-dead-input-admitted')
+          stage = 'remote-explicit-reconnect'
+          await bounded(host.connect())
+          const retainedAfterReconnect = native.sessions.get(managed.id)
+          const retainedDraw = await browser.layoutWhenReady()
+          const retainedGrant = retainedDraw
+            ? native.targets.drawn(retainedDraw.bounds.viewId, win.webContents.mainFrame)
+            : undefined
+          if (
+            host.connectionState !== 'connected' ||
+            ptys.list().some((actor) => actor.hostId === host.hostId) ||
+            retainedAfterReconnect?.readonly !== true ||
+            retainedAfterReconnect.handle !== handle ||
+            retainedAfterReconnect.session.instanceId !== managed.instanceId ||
+            !retainedGrant ||
+            retainedGrant.nativeEpoch !== originalDraw.nativeEpoch ||
+            retainedGrant.geometrySerial !== retainedDraw?.geometry.serial ||
+            (await read()) !== disconnectedText
           )
+            throw new Error('native-real-ssh-reconnect-resumed-or-replaced-terminal')
+          const closeSession = async (sessionId: string) => {
+            stage = 'remote-explicit-close-control'
+            await evaluate(
+              `const session=[...document.querySelectorAll('.terminal-list-main')].find(button=>button.getAttribute('data-terminal-session')===${JSON.stringify(sessionId)});const button=session?.closest('.terminal-list-row')?.querySelector('.terminal-close-button');if(!(button instanceof HTMLButtonElement)||button.disabled)throw new Error('native-real-ssh-close-control');button.click();return true;`,
+            )
+            await wait(
+              () => !ptys.get(sessionId) && !native.sessions.get(sessionId),
+              'remote-explicit-close',
+            )
+          }
+          await closeSession(managed.id)
+          remote = undefined
           await wait(
-            () => !ptys.get(managed.id) && !native.sessions.get(managed.id),
-            'remote-explicit-close',
+            () =>
+              evaluate<boolean>(
+                `return !!document.querySelector('.workbench:not([hidden]) .terminal-empty button');`,
+              ),
+            'remote-fresh-shell-action',
           )
+          await evaluate(
+            `const button=document.querySelector('.workbench:not([hidden]) .terminal-empty button');if(!(button instanceof HTMLButtonElement)||button.disabled)throw new Error('native-real-ssh-shell-control');button.click();return true;`,
+          )
+          await wait(() => {
+            const actors = ptys.list().filter((actor) => actor.hostId === host.hostId)
+            if (actors.length > 1) throw new Error('native-real-ssh-duplicate-fresh-pty')
+            remote = actors[0]
+            return !!remote
+          }, 'remote-explicit-fresh-actor')
+          const fresh = remote!
+          const freshSession = native.sessions.get(fresh.id)
+          if (
+            fresh.id === managed.id ||
+            fresh.instanceId === managed.instanceId ||
+            !freshSession ||
+            freshSession.handle === handle ||
+            freshSession.readonly ||
+            fresh.providerId !== plainShellProvider.manifest.id ||
+            !hostPathEquals(fresh.workspaceRoot, remoteRoot)
+          )
+            throw new Error('native-real-ssh-explicit-new-not-fresh')
+          const freshBrowser = nativeSelectionBrowser(win, native, fresh)
+          await freshBrowser.ready()
+          if (
+            new TextDecoder()
+              .decode(await native.readRetained(fresh.id, freshBrowser.owner))
+              .split('\n')
+              .includes('HVIR_REAL_SSH_HIDDEN')
+          )
+            throw new Error('native-real-ssh-explicit-new-replayed-old-output')
+          await focusSmokeWindow(win, 'window')
+          if ((await freshBrowser.focus()) !== true)
+            throw new Error('native-real-ssh-fresh-input-focus')
+          for (const keyCode of ['E', 'C', 'H', 'O', 'Space', 'Q', 'Enter'])
+            freshBrowser.key(keyCode)
+          await wait(
+            async () =>
+              new TextDecoder()
+                .decode(await native.readRetained(fresh.id, freshBrowser.owner))
+                .split('\n')
+                .includes('q'),
+            'remote-explicit-fresh-keyboard-echo',
+          )
+          await freshBrowser.ready()
+          await closeSession(fresh.id)
           if (ptys.list().length !== baseline)
             throw new Error('native-real-ssh-close-pty-count')
           remote = undefined
@@ -508,7 +608,10 @@ export async function createNativeTerminalRealSshFixture(localHost: ProjectHost)
             explicitClose: true,
             externalPhysicalHostQualified: false,
             modelHarnessQualified: false,
-            realDisconnectRecoveryQualified: false,
+            explicitDisconnectRetainedReadonly: true,
+            reconnectWithoutSilentRespawnOrReplay: true,
+            explicitNewFreshActorAndKeyboardEcho: true,
+            physicalNetworkOutageQualified: false,
             performanceQualified: false,
           }
         } catch (cause) {
