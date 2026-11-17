@@ -1,5 +1,7 @@
 import {
   NATIVE_TERMINAL_EFFECT_LIMITS,
+  nativeTerminalSemanticPayloadBytes,
+  type NativeTerminalSemanticEffects,
   type NativeTerminalProductEffect,
   type NativeTerminalSemanticSnapshot,
 } from '../../../shared/native-terminal-effects'
@@ -41,7 +43,7 @@ export class NativeTerminalPaneEffects {
     let complete = (snapshot?.effects.length ?? 0) <= 512
     if (complete) {
       for (const value of snapshot?.effects ?? []) {
-        const size = semanticPayloadBytes(
+        const size = nativeTerminalSemanticPayloadBytes(
           value,
           NATIVE_TERMINAL_EFFECT_LIMITS.payloadBytes - bytes,
         )
@@ -68,6 +70,56 @@ export class NativeTerminalPaneEffects {
     if (!complete || (bootstrap && bootstrap.overflowSerial > through))
       this.emitSemanticGap()
   }
+  acceptBatch(envelope: NativeTerminalSemanticEffects): void {
+    if (
+      !envelope ||
+      !Array.isArray(envelope.effects) ||
+      envelope.effects.length > NATIVE_TERMINAL_EFFECT_LIMITS.records
+    )
+      return
+    const effects: NativeTerminalSemanticEffects['effects'] = envelope.effects
+    const current = this.current(),
+      bootstrap = this.bootstrap
+    if (
+      current.disposed ||
+      !effects.some(
+        (value) =>
+          value &&
+          (bootstrap
+            ? value.id === bootstrap.sessionId
+            : value.id === current.sessionId &&
+              !!current.instanceId &&
+              value.instanceId === current.instanceId),
+      )
+    )
+      return
+    let bytes = 0
+    try {
+      for (const value of effects) {
+        const size = nativeTerminalSemanticPayloadBytes(
+          value,
+          NATIVE_TERMINAL_EFFECT_LIMITS.payloadBytes - bytes,
+        )
+        if (size === undefined) return
+        bytes += size
+      }
+    } catch {
+      return // Malformed envelopes have no semantic authority.
+    }
+    let failed = false,
+      firstError: unknown
+    for (const value of effects) {
+      try {
+        this.accept(value)
+      } catch (error) {
+        if (!failed) {
+          failed = true
+          firstError = error
+        }
+      }
+    }
+    if (failed) throw firstError
+  }
   accept(value: NativeTerminalProductEffect): void {
     const current = this.current()
     if (
@@ -78,7 +130,7 @@ export class NativeTerminalPaneEffects {
       Number.isSafeInteger(value.eventSerial) &&
       value.eventSerial > 0
     ) {
-      const size = semanticPayloadBytes(
+      const size = nativeTerminalSemanticPayloadBytes(
         value,
         NATIVE_TERMINAL_EFFECT_LIMITS.payloadBytes - this.bootstrap.bytes,
       )
@@ -187,25 +239,3 @@ const SEMANTIC_ACTIONS: readonly TerminalSemanticAction[] = [
   'end-input-start-output',
   'end-command',
 ]
-
-function semanticPayloadBytes(
-  value: NativeTerminalProductEffect,
-  remaining: number,
-): number | undefined {
-  if (value.effect.kind !== 'semantic' && value.effect.kind !== 'semantic-gap')
-    return undefined
-  const strings = [
-    value.id,
-    value.instanceId,
-    ...(value.effect.kind === 'semantic'
-      ? [value.effect.options, value.effect.boundaryId, value.effect.screen]
-      : []),
-  ]
-  let bytes = 0
-  for (const text of strings) {
-    if (text.length > remaining - bytes) return undefined
-    bytes += new TextEncoder().encode(text).byteLength
-    if (bytes > remaining) return undefined
-  }
-  return bytes
-}

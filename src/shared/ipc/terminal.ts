@@ -313,7 +313,7 @@ export const terminalIpc = {
     'native-terminal:query-update':
       payload<import('../native-terminal-query').NativeTerminalQueryUpdate>(),
     'native-terminal:effect':
-      payload<import('../native-terminal-effects').NativeTerminalProductEffect>(),
+      payload<import('../native-terminal-effects').NativeTerminalProductEvent>(),
     'native-terminal:presentation-grant': payload<{
       viewId: string
       grant?: NativeTerminalViewGrant

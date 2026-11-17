@@ -74,6 +74,17 @@ export interface NativeTerminalProductEffect {
         readonly controlCutoff?: number
       }
 }
+export type NativeTerminalSemanticEffect = NativeTerminalProductEffect & {
+  readonly effect: Extract<
+    NativeTerminalProductEffect['effect'],
+    { kind: 'semantic' | 'semantic-gap' }
+  >
+}
+export interface NativeTerminalSemanticEffects {
+  readonly effects: readonly NativeTerminalSemanticEffect[]
+}
+export type NativeTerminalProductEvent =
+  NativeTerminalProductEffect | NativeTerminalSemanticEffects
 export interface NativeTerminalMetadata {
   readonly instanceId: string
   readonly title?: { readonly title: string; readonly eventSerial: number }
@@ -232,4 +243,26 @@ export function nativeTerminalWorkingDirectory(
   } catch {
     return
   }
+}
+
+export function nativeTerminalSemanticPayloadBytes(
+  value: NativeTerminalProductEffect,
+  remaining: number,
+): number | undefined {
+  if (value.effect.kind !== 'semantic' && value.effect.kind !== 'semantic-gap')
+    return undefined
+  const strings = [
+    value.id,
+    value.instanceId,
+    ...(value.effect.kind === 'semantic'
+      ? [value.effect.options, value.effect.boundaryId, value.effect.screen]
+      : []),
+  ]
+  let bytes = 0
+  for (const text of strings) {
+    if (text.length > remaining - bytes) return undefined
+    bytes += new TextEncoder().encode(text).byteLength
+    if (bytes > remaining) return undefined
+  }
+  return bytes
 }

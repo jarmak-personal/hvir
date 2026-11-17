@@ -22,7 +22,7 @@ import type {
   NativeTerminalSelectionResponse,
 } from '../../../shared/native-terminal-selection'
 import { NativeTerminalPaneEffects } from './native-terminal-pane-effects'
-import type { NativeTerminalProductEffect } from '../../../shared/native-terminal-effects'
+import type { NativeTerminalProductEvent } from '../../../shared/native-terminal-effects'
 import type { TerminalEvent, TerminalLinkActivation } from './terminal-pane'
 import type {
   NativeTerminalInputOperation,
@@ -70,7 +70,7 @@ interface NativePanePort extends NativeTerminalSurfacePort {
   query?: NativeTerminalRetainedPort['invoke']
   cancelQuery?: NativeTerminalRetainedPort['cancel']
   queryUpdates?: NativeTerminalRetainedPort['updates']
-  effects?(listener: (effect: NativeTerminalProductEffect) => void): () => void
+  effects?(listener: (effect: NativeTerminalProductEvent) => void): () => void
 }
 
 /** Retains one DOM/presentation surface without a renderer parser or output mirror. */
@@ -122,7 +122,10 @@ export class NativeTerminalPane implements NativeTerminalPanePort {
         updates: port.queryUpdates,
       })
     }
-    this.stopEffects = this.port.effects?.((effect) => this.effectEvents.accept(effect))
+    this.stopEffects = this.port.effects?.((effect) => {
+      if ('effects' in effect) this.effectEvents.acceptBatch(effect)
+      else this.effectEvents.accept(effect)
+    })
     this.element.className = 'terminal-engine-host native-terminal-pane'
     this.element.style.cssText =
       'position:relative;width:100%;height:100%;overflow:hidden'

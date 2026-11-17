@@ -500,14 +500,13 @@ describe('application retained-query authority and producer plumbing', () => {
         f.host.query.mock.calls.some(([, , op]) => op.kind === 'boundary-close'),
       ).toBe(true),
     )
+    const beforeFailure = f.send.mock.calls.length
     retire.reject(new Error('actual native cleanup failure'))
     await vi.waitFor(() =>
-      expect(
-        f.send.mock.calls.some(
-          ([, event]) =>
-            (event as { effect?: { kind: string } }).effect?.kind === 'semantic-gap',
-        ),
-      ).toBe(true),
+      expect(f.send.mock.calls.slice(beforeFailure)).toContainEqual([
+        'native-terminal:effect',
+        { effects: [expect.objectContaining({ effect: { kind: 'semantic-gap' } })] },
+      ]),
     )
     f.host.query.mockImplementation(original)
     await f.prepared.output('third')
@@ -537,6 +536,39 @@ describe('application retained-query authority and producer plumbing', () => {
     await f.prepared.output('second')
     expect(f.sessions.get('session')?.unavailable).toBe(false)
     expect(f.host.feed).toHaveBeenCalledTimes(2)
+  })
+
+  it('publishes a drained semantic batch in one IPC while retaining every parser boundary', async () => {
+    const f = await fixture()
+    f.host.drainEffectsProducer.mockResolvedValueOnce({
+      ...semantic(),
+      effects: [...semantic().effects, ...semantic(6, '10').effects],
+    })
+    await f.prepared.output('first')
+    const sends = f.send.mock.calls.filter(
+      ([channel]) => channel === 'native-terminal:effect',
+    )
+    expect(sends).toHaveLength(1)
+    expect(sends[0]?.[1]).toMatchObject({
+      effects: [{ eventSerial: 5 }, { eventSerial: 6 }],
+    })
+    expect(
+      (await f.app.metadata('session', f.owner)).semanticSnapshot?.effects,
+    ).toMatchObject([{ eventSerial: 5 }, { eventSerial: 6 }])
+  })
+
+  it('retains parser semantic authority when the current renderer frame send throws', async () => {
+    const f = await fixture()
+    f.send.mockImplementation(() => {
+      throw new Error('renderer send failed')
+    })
+    f.host.drainEffectsProducer.mockResolvedValueOnce(semantic())
+    await f.prepared.output('first')
+    expect(
+      (await f.app.metadata('session', f.owner)).semanticSnapshot?.effects,
+    ).toMatchObject([{ effect: { kind: 'semantic' } }])
+    expect(f.sessions.get('session')?.unavailable).toBe(false)
+    expect(f.host.feed).toHaveBeenCalledTimes(1)
   })
 
   it('forgets Main boundary records only after confirmed physical Surface destruction', async () => {

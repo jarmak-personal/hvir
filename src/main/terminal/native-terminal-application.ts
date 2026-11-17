@@ -17,7 +17,10 @@ import type {
 import type { NativeTerminalEffectBatch } from '../../shared/native-terminal-effects'
 import type { NativeTerminalSession } from '../../shared/native-terminal'
 import { NativeTerminalEffectPolicy } from './native-terminal-effect-policy'
-import type { NativeTerminalProductEffect } from '../../shared/native-terminal-effects'
+import {
+  publishNativeTerminalEffects,
+  type NativeTerminalProductPublication,
+} from './native-terminal-product-effects'
 import {
   NativeTerminalInput,
   type NativeTerminalInputContext,
@@ -372,39 +375,15 @@ export class NativeTerminalApplication {
   }
   publishEffect(
     session: import('../../shared/native-terminal').NativeTerminalSession,
-    effect: NativeTerminalProductEffect,
+    effect: NativeTerminalProductPublication,
   ): void {
-    for (const view of this.views.values()) {
-      if (
-        view.sessionId !== session.sessionId ||
-        view.detaching ||
-        view.instanceId !== session.instanceId ||
-        view.owner.id !== session.ownerId ||
-        view.owner.generation !== session.ownerGeneration ||
-        !this.isCurrent(view.owner) ||
-        view.frame.isDestroyed()
-      )
-        continue
-      const current = this.sessions.get(session.sessionId)
-      if (
-        !current ||
-        current.retiring ||
-        current.session.instanceId !== session.instanceId ||
-        current.session.ownerId !== session.ownerId ||
-        current.session.ownerGeneration !== session.ownerGeneration ||
-        (!['title', 'semantic', 'semantic-gap'].includes(effect.effect.kind) &&
-          (current.readonly ||
-            current.inputClosed ||
-            current.unavailable ||
-            current.inputUnavailable))
-      )
-        continue
-      try {
-        view.frame.send('native-terminal:effect', effect)
-      } catch {
-        // Renderer delivery cannot invalidate already retained parser facts.
-      }
-    }
+    publishNativeTerminalEffects(
+      session,
+      effect,
+      this.views.values(),
+      () => this.sessions.get(session.sessionId),
+      (owner) => this.isCurrent(owner),
+    )
   }
   async attach(id: string, owner: RendererOwner, frame: WebFrameMain): Promise<string> {
     const record = this.requireSession(id, owner)

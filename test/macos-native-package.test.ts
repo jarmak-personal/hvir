@@ -82,6 +82,55 @@ const signedWorkflow = parse(signedWorkflowSource) as {
 
 describe('macOS native package contract', () => {
   it.each([
+    { mode: 'structural', sign: 7, verify: 9, status: 0, calls: [] },
+    { mode: 'signed', sign: 0, verify: 0, status: 0, calls: ['sign', 'verify'] },
+    { mode: 'signed', sign: 7, verify: 0, status: 7, calls: ['sign'] },
+    { mode: 'signed', sign: 0, verify: 9, status: 9, calls: ['sign', 'verify'] },
+  ])(
+    'keeps previous fixture mode $mode signing=$sign verification=$verify truthful',
+    ({ mode, sign, verify, status, calls }) => {
+      const marker = '  >"$old_root/hvir.app/Contents/Resources/hvir-previous-only.txt"\n'
+      const begin = installedSmoke.indexOf(marker) + marker.length
+      const end = installedSmoke.indexOf('\npkgbuild --analyze', begin)
+      expect(begin).toBeGreaterThan(marker.length)
+      expect(end).toBeGreaterThan(begin)
+      const result = spawnSync(
+        '/bin/bash',
+        [
+          '-eu',
+          '-c',
+          `
+        codesign() {
+          if [[ "$1" == '--force' ]]; then
+            test "$*" = '--force --deep --sign - --options runtime --entitlements build/entitlements.mac.plist /owned/previous/hvir.app'
+            printf 'sign\\n'
+            return "$SIGN_RESULT"
+          fi
+          test "$*" = '--verify --deep --strict --verbose=2 /owned/previous/hvir.app'
+          printf 'verify\\n'
+          return "$VERIFY_RESULT"
+        }
+        old_root=/owned/previous
+        package_mode=$PACKAGE_MODE
+        ${installedSmoke.slice(begin, end)}
+      `,
+        ],
+        {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PACKAGE_MODE: mode,
+            SIGN_RESULT: String(sign),
+            VERIFY_RESULT: String(verify),
+          },
+        },
+      )
+      expect(result.status).toBe(status)
+      expect(result.stderr).toBe('')
+      expect(result.stdout.trim() ? result.stdout.trim().split('\n') : []).toEqual(calls)
+    },
+  )
+  it.each([
     {
       mode: 'structural',
       verifier: '7',
@@ -303,8 +352,7 @@ describe('macOS native package contract', () => {
     if (!signed) throw new Error('Missing signed-package release job')
     expect(signed.environment).toBe('native-release-signing')
     const sourceGuard = signed.steps.find(
-      (step) =>
-        step.name === 'Require an exact protected merged release source',
+      (step) => step.name === 'Require an exact protected merged release source',
     )
     expect(sourceGuard?.env).toEqual({
       ALLOW_MERGED_SOURCE: '${{ inputs.allow_merged_source }}',
