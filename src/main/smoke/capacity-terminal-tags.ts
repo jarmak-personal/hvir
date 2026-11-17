@@ -10,7 +10,17 @@ export const CAPACITY_TERMINAL_TAG_PREFIX = [0, 1, 0, 1, 0, 1, 0, 1] as const
 export const CAPACITY_TERMINAL_TAG_COLORS = [
   [240, 16, 32],
   [16, 32, 240],
+  [16, 240, 32],
+  [240, 240, 32],
 ] as const
+export const CAPACITY_TERMINAL_TAG_BITS_PER_CELL = 2
+export const CAPACITY_TERMINAL_TAG_CELL_COUNT =
+  CAPACITY_TERMINAL_TAG_PREFIX.length +
+  Math.ceil(
+    CAPACITY_TERMINAL_TAG_FIELDS.reduce((sum, [, size]) => sum + size, 0) /
+      CAPACITY_TERMINAL_TAG_BITS_PER_CELL,
+  )
+
 export interface CapacityTerminalTag {
   readonly row: number
   readonly sequence: number
@@ -29,6 +39,15 @@ export function capacityTerminalTagBits(tag: CapacityTerminalTag): readonly numb
   return result
 }
 
+/** Compact physical cells keep the full bit identity outside ordinary controls. */
+export function capacityTerminalTagCells(tag: CapacityTerminalTag): readonly number[] {
+  const bits = capacityTerminalTagBits(tag).slice(CAPACITY_TERMINAL_TAG_PREFIX.length)
+  const cells: number[] = [...CAPACITY_TERMINAL_TAG_PREFIX]
+  for (let index = 0; index < bits.length; index += CAPACITY_TERMINAL_TAG_BITS_PER_CELL)
+    cells.push(bits[index]! | ((bits[index + 1] ?? 0) << 1))
+  return cells
+}
+
 /** Sample the middle of each known actual terminal cell in a clipped BGRA
  * bitmap. No OCR, parser readback or DOM overlay can satisfy this witness. */
 export function readCapacityTerminalTag(
@@ -38,6 +57,29 @@ export function readCapacityTerminalTag(
   cellWidth: number,
   firstCenter: number,
 ): CapacityTerminalTag | undefined {
+  return inspectCapacityTerminalTag(bitmap, width, height, cellWidth, firstCenter).tag
+}
+
+export function inspectCapacityTerminalTag(
+  bitmap: Uint8Array,
+  width: number,
+  height: number,
+  cellWidth: number,
+  firstCenter: number,
+): {
+  tag?: CapacityTerminalTag
+  rejection?: {
+    reason:
+      | 'invalid-input'
+      | 'outside-bitmap'
+      | 'transparent-cell'
+      | 'unmatched-color'
+      | 'prefix'
+      | 'geometry'
+    index?: number
+    decoded?: CapacityTerminalTag
+  }
+} {
   if (
     !Number.isSafeInteger(width) ||
     !Number.isSafeInteger(height) ||
@@ -49,33 +91,41 @@ export function readCapacityTerminalTag(
     !Number.isFinite(firstCenter) ||
     firstCenter < 0
   )
-    return
-  const bits: number[] = []
-  const count =
-    CAPACITY_TERMINAL_TAG_PREFIX.length +
-    CAPACITY_TERMINAL_TAG_FIELDS.reduce((sum, [, size]) => sum + size, 0)
+    return { rejection: { reason: 'invalid-input' } }
+  const cells: number[] = []
+  const count = CAPACITY_TERMINAL_TAG_CELL_COUNT
   for (let index = 0; index < count; index++) {
     const x = Math.floor(firstCenter + index * cellWidth)
-    if (x < 0 || x >= width) return
+    if (x < 0 || x >= width) return { rejection: { reason: 'outside-bitmap', index } }
     const offset = (Math.floor(height / 2) * width + x) * 4
-    if (bitmap[offset + 3]! < 240) return
+    if (bitmap[offset + 3]! < 240)
+      return { rejection: { reason: 'transparent-cell', index } }
     const color = CAPACITY_TERMINAL_TAG_COLORS.findIndex(
       ([red, green, blue]) =>
         Math.abs(bitmap[offset + 2]! - red) <= 12 &&
         Math.abs(bitmap[offset + 1]! - green) <= 12 &&
         Math.abs(bitmap[offset]! - blue) <= 12,
     )
-    if (color < 0) return
-    bits.push(color)
+    if (color < 0) return { rejection: { reason: 'unmatched-color', index } }
+    cells.push(color)
   }
-  if (CAPACITY_TERMINAL_TAG_PREFIX.some((value, index) => bits[index] !== value)) return
-  let offset: number = CAPACITY_TERMINAL_TAG_PREFIX.length
+  const prefixMismatch = CAPACITY_TERMINAL_TAG_PREFIX.findIndex(
+    (value, index) => cells[index] !== value,
+  )
+  if (prefixMismatch >= 0)
+    return { rejection: { reason: 'prefix', index: prefixMismatch } }
+  const bits: number[] = []
+  for (const cell of cells.slice(CAPACITY_TERMINAL_TAG_PREFIX.length)) {
+    bits.push(cell & 1, (cell >>> 1) & 1)
+  }
+  let offset = 0
   const tag = { row: 0, sequence: 0, columns: 0, rows: 0 }
   for (const [field, size] of CAPACITY_TERMINAL_TAG_FIELDS) {
     for (let bit = 0; bit < size; bit++) tag[field] += bits[offset++]! * 2 ** bit
   }
-  if (tag.columns < count || tag.rows < 2) return
-  return tag
+  if (tag.columns < count || tag.rows < 2)
+    return { rejection: { reason: 'geometry', decoded: tag } }
+  return { tag }
 }
 
 /** Source text runs only as the deterministic real-PTY capacity producer. */
@@ -94,15 +144,17 @@ const metadata=(kind,seq)=>{
 };
 const line=(seq,kind)=>{
  const g=geometry();const tag={row:++row,sequence:seq,...g};
- let bits=[...prefix];
+ let bits=[];
  for(const [field,size]of fields){
   if(!Number.isSafeInteger(tag[field])||tag[field]<0||tag[field]>=2**size)throw new Error('capacity-fixture-tag-overflow');
   for(let bit=0;bit<size;bit++)bits.push((tag[field]>>>bit)&1);
  }
- if(g.columns<bits.length+8||g.rows<2)throw new Error('capacity-fixture-geometry');
+ const cells=[...prefix];
+ for(let i=0;i<bits.length;i+=2)cells.push(bits[i]|((bits[i+1]??0)<<1));
+ if(g.columns<cells.length+8||g.rows<2)throw new Error('capacity-fixture-geometry');
  let data=row>1?'\r\n':'';
  if(seq%3===2)data+='\x1b[?2026h';
- for(const bit of bits)data+='\x1b[48;2;'+colors[bit].join(';')+'m ';
+ for(const bit of cells)data+='\x1b[48;2;'+colors[bit].join(';')+'m ';
  data+='\x1b[0m '+(seq%3===1?'\x1b[32mANSI λ 漢字\x1b[0m':'plain')+' '+row;
  if(seq%3===2)data+='\x1b[?2026l';
  metadata(kind,seq);output.write(data);

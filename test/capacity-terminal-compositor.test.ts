@@ -5,7 +5,7 @@ import {
   type CapacityTerminalLayout,
 } from '../src/main/smoke/capacity-terminal-compositor'
 import {
-  capacityTerminalTagBits,
+  capacityTerminalTagCells,
   CAPACITY_TERMINAL_TAG_COLORS,
 } from '../src/main/smoke/capacity-terminal-tags'
 
@@ -40,7 +40,7 @@ describe('pinned CapturePage physical pixels in a 1x NativeImage representation'
   ])(
     'decodes actual %s screen-scale and %s page-zoom pixels independently of the 1x label',
     async (density, zoom) => {
-      const bits = capacityTerminalTagBits(tag)
+      const bits = capacityTerminalTagCells(tag)
       let rectangle: Rectangle | undefined
       const dimensions = () => {
         if (!rectangle) throw new Error('fixture-capture-not-requested')
@@ -71,7 +71,7 @@ describe('pinned CapturePage physical pixels in a 1x NativeImage representation'
       const capturePage = vi.fn((requested: Rectangle) => {
         rectangle = requested
         expect(rectangle.width).toBe(
-          Math.ceil(368 * zoom + layout.x * zoom - Math.floor(layout.x * zoom)),
+          Math.ceil(216 * zoom + layout.x * zoom - Math.floor(layout.x * zoom)),
         )
         return Promise.resolve({ getScaleFactors: () => [1], getSize, toBitmap })
       })

@@ -7,6 +7,7 @@ import { addCapacityTerminals } from './capacity-terminals'
 import { focusSmokeWindow } from './window-focus'
 import {
   capacityTerminalTaggedProducer,
+  CAPACITY_TERMINAL_TAG_CELL_COUNT,
   type CapacityTerminalTag,
 } from './capacity-terminal-tags'
 import {
@@ -17,6 +18,7 @@ import {
   captureCapacityTerminalTag,
   readCapacityTerminalLayout,
   CapacityTerminalLayoutPending,
+  type CapacityTerminalLayout,
 } from './capacity-terminal-compositor'
 
 const tagIdentity = (tag: CapacityTerminalTag): string =>
@@ -135,7 +137,7 @@ export async function createCapacityTerminalFixture(
       expectedViewport: Pick<CapacityTerminalTag, 'columns' | 'rows'> = expected,
     ) => {
       let lastObserved: string | undefined
-      let lastLayout
+      let lastLayout: CapacityTerminalLayout | undefined
       let lastPixelProbe
       try {
         return await wait(
@@ -180,6 +182,33 @@ export async function createCapacityTerminalFixture(
           'matching-compositor:' + tagIdentity(expected),
         )
       } catch (error) {
+        let coveringControls: unknown
+        if (lastLayout) {
+          const points = {
+            x: lastLayout.x + lastLayout.paddingLeft,
+            y:
+              lastLayout.y +
+              lastLayout.paddingTop +
+              ((viewport === 'top' ? 0 : lastLayout.rows - 1) + 0.5) *
+                lastLayout.cellHeight,
+            cellWidth: lastLayout.cellWidth,
+            count: CAPACITY_TERMINAL_TAG_CELL_COUNT,
+          }
+          coveringControls = await win.webContents
+            .executeJavaScript(
+              `(()=>{
+            const p=${JSON.stringify(points)};
+            const nav=document.querySelector('.terminal-surface.active .terminal-semantic-navigation');
+            const b=nav?.getBoundingClientRect();
+            return {semanticNavigation: b?{x:b.x,y:b.y,width:b.width,height:b.height,
+              visibility:getComputedStyle(nav).visibility,display:getComputedStyle(nav).display}:null,
+              cells:Array.from({length:p.count},(_,index)=>{const x=p.x+(index+0.5)*p.cellWidth;
+                const hit=document.elementFromPoint(x,p.y);
+                return {index,x,y:p.y,insideSemanticNavigation:!!nav&&!!hit&&nav.contains(hit)};})};
+          })()`,
+            )
+            .catch(() => ({ observationUnavailable: true }))
+        }
         console.log(
           '[smoke:capacity:tagged-witness-failure] ' +
             JSON.stringify({
@@ -187,6 +216,7 @@ export async function createCapacityTerminalFixture(
               lastPixelProbe,
               lastObserved,
               lastLayout,
+              coveringControls,
               captures: captureCalls,
             }),
         )
@@ -319,11 +349,42 @@ export async function diagnoseCapacityTerminalTags(
     native,
   )
   const samples: unknown[] = []
+  const placements: unknown[] = []
+  const placement = async (label: string, value: typeof active.initialFrame) => {
+    const layout = value.layout
+    const tagRect = {
+      x: layout.x + layout.paddingLeft,
+      y: layout.y + layout.paddingTop + (layout.rows - 0.5) * layout.cellHeight,
+      width: CAPACITY_TERMINAL_TAG_CELL_COUNT * layout.cellWidth,
+      height: 2,
+    }
+    const observed = (await win.webContents.executeJavaScript(`(()=>{
+      const r=${JSON.stringify(tagRect)};
+      const nav=document.querySelector('.terminal-surface.active .terminal-semantic-navigation');
+      if(!nav)return {visible:false};const b=nav.getBoundingClientRect(),style=getComputedStyle(nav);
+      return {visible:style.visibility==='visible'&&style.display!=='none',
+        navigation:{x:b.x,y:b.y,width:b.width,height:b.height},tagRectangle:r,
+        overlap:r.x<b.right&&r.x+r.width>b.left&&r.y<b.bottom&&r.y+r.height>b.top};
+    })()`)) as { visible: boolean; overlap?: boolean }
+    placements.push({
+      label,
+      observed,
+      actualCaptureRectangle: value.captured.pixelProbe.rectangle,
+    })
+    if (!observed.visible || observed.overlap)
+      throw new Error('capacity-tagged-visible-control-placement')
+  }
   try {
+    await placement('initial', active.initialFrame)
     for (let sequence = 1; sequence <= 3; sequence++)
       samples.push({ kind: 'output', ...(await active.command('output', sequence)) })
     samples.push({ kind: 'echo', ...(await active.command('echo', 4)) })
-    samples.push({ kind: 'resize', ...(await active.resize(5)) })
+    const collapsed = await active.resize(5)
+    samples.push({ kind: 'resize', ...collapsed })
+    await placement('collapsed', collapsed)
+    const restored = await active.resize(6)
+    samples.push({ kind: 'resize', ...restored })
+    await placement('restored', restored)
     samples.push({ kind: 'scroll-up', ...(await active.scroll('up')) })
     samples.push({ kind: 'scroll-down', ...(await active.scroll('down')) })
   } finally {
@@ -336,6 +397,7 @@ export async function diagnoseCapacityTerminalTags(
           initial: active.initial,
           initialLayout: active.initialFrame.layout,
           samples,
+          placements,
           captures: active.captureCalls,
         }),
     )

@@ -1,7 +1,10 @@
 import type { BrowserWindow } from 'electron'
 import type { ManagedPty } from '../pty/pty-supervisor'
 import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
-import { readCapacityTerminalTag } from './capacity-terminal-tags'
+import {
+  inspectCapacityTerminalTag,
+  CAPACITY_TERMINAL_TAG_CELL_COUNT,
+} from './capacity-terminal-tags'
 import { nativeTerminalViewRect } from './native-terminal-browser-coordinates'
 
 export interface CapacityTerminalLayout {
@@ -122,7 +125,12 @@ export async function captureCapacityTerminalTag(
   const center = layout.y + layout.paddingTop + (viewportRow + 0.5) * layout.cellHeight
   const pageZoom = win.webContents.getZoomFactor()
   const view = nativeTerminalViewRect(
-    { x: start, y: center, width: 46 * layout.cellWidth, height: 2 },
+    {
+      x: start,
+      y: center,
+      width: CAPACITY_TERMINAL_TAG_CELL_COUNT * layout.cellWidth,
+      height: 2,
+    },
     pageZoom,
   )
   const rectangle = {
@@ -143,13 +151,23 @@ export async function captureCapacityTerminalTag(
   if (bitmap.length !== size.width * size.height * 4)
     throw new Error('capacity-compositor-bitmap-dimensions')
   const scale = size.width / rectangle.width
-  const pixelProbe = Array.from({ length: 8 }, (_, index) => {
-    const x = Math.floor(
-      (view.x - rectangle.x + (index + 0.5) * layout.cellWidth * pageZoom) * scale,
-    )
-    const offset = (Math.floor(size.height / 2) * size.width + x) * 4
-    return [...bitmap.subarray(offset, offset + 4)]
-  })
+  const pixelProbe = Array.from(
+    { length: CAPACITY_TERMINAL_TAG_CELL_COUNT },
+    (_, index) => {
+      const x = Math.floor(
+        (view.x - rectangle.x + (index + 0.5) * layout.cellWidth * pageZoom) * scale,
+      )
+      const offset = (Math.floor(size.height / 2) * size.width + x) * 4
+      return [...bitmap.subarray(offset, offset + 4)]
+    },
+  )
+  const decoded = inspectCapacityTerminalTag(
+    bitmap,
+    size.width,
+    size.height,
+    layout.cellWidth * pageZoom * scale,
+    (view.x - rectangle.x + layout.cellWidth * pageZoom * 0.5) * scale,
+  )
   return {
     requestedAtMs,
     completedAtMs,
@@ -161,13 +179,8 @@ export async function captureCapacityTerminalTag(
       rectangle,
       bitmapBytes: bitmap.length,
       colors: pixelProbe,
+      decoderRejection: decoded.rejection,
     },
-    tag: readCapacityTerminalTag(
-      bitmap,
-      size.width,
-      size.height,
-      layout.cellWidth * pageZoom * scale,
-      (view.x - rectangle.x + layout.cellWidth * pageZoom * 0.5) * scale,
-    ),
+    tag: decoded.tag,
   }
 }

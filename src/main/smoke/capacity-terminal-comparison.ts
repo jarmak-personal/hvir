@@ -30,7 +30,7 @@ export interface CapacityTerminalComparisonIdentity {
   readonly configurationSha: string
   readonly workloadSha: string
   readonly topologySha: string
-  readonly observationMethod: 'BrowserWindow.capturePage:synthetic-terminal-tag'
+  readonly observationMethod: 'BrowserWindow.capturePage:synthetic-terminal-tag-v2'
   readonly refreshHz: number
   readonly rows: number
   readonly columns: number
@@ -269,7 +269,8 @@ function validateProcess(
   const identity = process.identity
   if (
     !record(identity) ||
-    identity.observationMethod !== 'BrowserWindow.capturePage:synthetic-terminal-tag' ||
+    identity.observationMethod !==
+      'BrowserWindow.capturePage:synthetic-terminal-tag-v2' ||
     identityNumbers.some((key) => !positive(identity[key])) ||
     !Number.isSafeInteger(identity.rows) ||
     !Number.isSafeInteger(identity.columns) ||
