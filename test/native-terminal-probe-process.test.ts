@@ -92,6 +92,23 @@ afterEach(async () => {
   }
 })
 describe('native Electron probe process containment', () => {
+  it.each(['missing', 'directory'] as const)(
+    'rejects %s entry before spawning an error-dialog process',
+    async (kind) => {
+      const files = await fixture('hang')
+      if (kind === 'missing') await rm(files.entry)
+      const entry = kind === 'missing' ? files.entry : join(files.entry, '..')
+      await expect(
+        runNativeElectronProbe(files.library, {
+          binary: process.execPath,
+          entry,
+          timeoutMs: 75000,
+        }),
+      ).rejects.toThrow('regular built entry required')
+      await expect(readFile(files.pids)).rejects.toMatchObject({ code: 'ENOENT' })
+    },
+  )
+
   it.each(['hang', 'orphan'])(
     'bounds %s and kills only the owned process group',
     async (mode) => {
@@ -259,24 +276,95 @@ describe('native presenter receipt mode fidelity', () => {
     mode: 'native-pixels',
     frameCopies: 2,
     routineGpuReadbacks: null,
-    compatibilityBoundRefused: true,
-    maximumCompatibilityUploadBytes: 16 * 1024 * 1024,
+    compatibilityInvalidExtentRefused: true,
+    compatibilitySampleUploadBytes: 2050 * 2048 * 4,
+    compatibilityExtent: {
+      byteLength: 2050 * 2048 * 4,
+      stride: 2050 * 4,
+      grant: {
+        width: 2050,
+        height: 2048,
+        backingScale: 2,
+        geometrySerial: 3,
+        nativeEpoch: 'epoch',
+        attachment: 1,
+      },
+      drawn: { geometrySerial: 3, nativeEpoch: 'epoch', attachment: 1 },
+      invalidExtent: {
+        code: 'native-presentation-geometry-invalid',
+        frameCopiesBefore: 2,
+        frameCopiesAfter: 2,
+      },
+      parserProgress: true,
+      sameActorRecovered: true,
+    },
+  }
+  const recovery = {
+    stage: 'complete',
+    outcome: 'drawn',
+    error: null,
+    observation: 'presenter-compositor-colors',
+    pixels: { redTop: 200, blueBottom: 200 },
+    facts: { geometry: { width: 320, height: 192 }, failure: 0, rendererHealth: 0 },
   }
   const largeViewportDiagnostic = {
     observationOwner: 'presenter',
     uiShrinkRecoveryQualified: false,
     physicalDisplayQualified: false,
-    capBytes: 16 * 1024 * 1024,
     cases: [
       [3840, 2160],
       [5120, 2880],
-    ].map(([width, height]) => ({
+    ].map(([width, height], index) => ({
       actor: 'presenter-first',
-      applied: { width, height, backingScale: 1 },
+      instance: 'presenter-first-instance',
+      view: 'view',
+      stage: 'complete',
+      outcome: 'drawn',
+      sameActor: true,
+      applied: { width, height, backingScale: 1, serial: index + 4 },
+      grant: {
+        viewId: 'view',
+        width,
+        height,
+        backingScale: 1,
+        geometrySerial: index + 4,
+        nativeEpoch: 'epoch',
+        attachment: 1,
+      },
+      upload: {
+        grant: {
+          viewId: 'view',
+          width,
+          height,
+          backingScale: 1,
+          geometrySerial: index + 4,
+          nativeEpoch: 'epoch',
+          attachment: 1,
+        },
+        stride: width! * 4,
+        byteLength: width! * height! * 4,
+      },
+      drawn: { geometrySerial: index + 4, nativeEpoch: 'epoch', attachment: 1 },
+      canvas: { width, height },
+      pixels: { redTop: 200, blueBottom: 200 },
+      before: { frameCopies: index + 1 },
+      after: {
+        frameCopies: index + 2,
+        failure: 0,
+        rendererHealth: 0,
+        ioAppliedMutation: 8,
+        ioAppliedSequence: 8,
+      },
+      parserAfter: {
+        failure: 0,
+        rendererHealth: 0,
+        ioAppliedMutation: 8,
+        ioAppliedSequence: 9,
+      },
       parserProgress: true,
-      failure: { code: 'native-pixel-bound' },
-      shrink: { outcome: 'submitted' },
-      hideReveal: { outcome: 'submitted' },
+      initial: recovery,
+      shrink: recovery,
+      hideReveal: recovery,
     })),
   }
   it('forwards the explicit large viewport selector and requires its own receipt', async () => {
@@ -330,6 +418,37 @@ describe('native presenter receipt mode fidelity', () => {
       })),
     },
     { ...largeViewportDiagnostic, cases: [...largeViewportDiagnostic.cases].reverse() },
+    ...[
+      { failure: { code: 'native-pixel-bound' } },
+      { stage: 'large-demand' },
+      { outcome: 'submitted' },
+      { sameActor: false },
+      { upload: undefined },
+      {
+        upload: {
+          ...largeViewportDiagnostic.cases[0]!.upload,
+          byteLength: 320 * 192 * 4,
+        },
+      },
+      { drawn: { ...largeViewportDiagnostic.cases[0]!.drawn, geometrySerial: 2 } },
+      { canvas: { width: 320, height: 192 } },
+      {
+        parserAfter: {
+          failure: 0,
+          rendererHealth: 0,
+          ioAppliedMutation: 8,
+          ioAppliedSequence: 8,
+        },
+      },
+      { after: { frameCopies: 1, failure: 0, rendererHealth: 0 } },
+      { shrink: { outcome: 'submitted' } },
+      { pixels: { redTop: 200, blueBottom: 0 } },
+    ].map((change) => ({
+      ...largeViewportDiagnostic,
+      cases: largeViewportDiagnostic.cases.map((row, index) =>
+        index === 0 ? { ...row, ...change } : row,
+      ),
+    })),
   ])('refuses incomplete or relabelled large viewport evidence %j', (diagnostic) => {
     expect(
       nativePresenterReceiptMatches(
@@ -344,6 +463,30 @@ describe('native presenter receipt mode fidelity', () => {
       ),
     ).toBe(false)
   })
+  it.each([
+    { compatibilitySampleUploadBytes: 16 * 1024 * 1024 },
+    { compatibilityExtent: undefined },
+    {
+      compatibilityExtent: {
+        ...pixels.compatibilityExtent,
+        byteLength: 16 * 1024 * 1024,
+      },
+    },
+    { compatibilityExtent: { ...pixels.compatibilityExtent, sameActorRecovered: false } },
+    {
+      compatibilityExtent: {
+        ...pixels.compatibilityExtent,
+        invalidExtent: { code: 'native-pixel-bound' },
+      },
+    },
+  ])(
+    'rejects former-cap, assigned-size or incomplete compatibility evidence %j',
+    (change) => {
+      expect(
+        nativePresenterReceiptMatches({ ...pixels, ...change }, 'auto', 'linux'),
+      ).toBe(false)
+    },
+  )
   it('accepts actual Linux compatibility under auto without relabelling it GPU', () => {
     expect(nativePresenterReceiptMatches(pixels, 'auto', 'linux')).toBe(true)
     expect(nativePresenterReceiptMatches(pixels, 'auto', 'darwin')).toBe(false)
@@ -359,7 +502,7 @@ describe('native presenter receipt mode fidelity', () => {
     ).toBe(false)
     expect(
       nativePresenterReceiptMatches(
-        { ...pixels, compatibilityBoundRefused: false },
+        { ...pixels, compatibilityInvalidExtentRefused: false },
         'auto',
         'linux',
       ),

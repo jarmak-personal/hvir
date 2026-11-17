@@ -24,7 +24,7 @@ import {
   type NativeTerminalExportMode,
 } from '../../shared/native-terminal-linux'
 import {
-  NATIVE_TERMINAL_PRESENTATION,
+  nativeTerminalPackedPixelLayout,
   validNativeTerminalScale,
 } from '../../shared/native-terminal-presentation'
 import {
@@ -675,15 +675,15 @@ export class NativeTerminalHost {
         )
         assertCurrent()
         const pixels = result as { bytes?: unknown; stride?: unknown } | undefined
+        const layout = nativeTerminalPackedPixelLayout(metadata.width, metadata.height)
         if (
           !pixels ||
+          !layout ||
           !(pixels.bytes instanceof Uint8Array) ||
           pixels.bytes.buffer instanceof SharedArrayBuffer ||
-          !Number.isSafeInteger(pixels.stride) ||
           typeof pixels.stride !== 'number' ||
-          pixels.stride < metadata.width * 4 ||
-          pixels.bytes.byteLength > NATIVE_TERMINAL_PRESENTATION.maximumPixelBytes ||
-          pixels.stride * metadata.height !== pixels.bytes.byteLength
+          pixels.stride !== layout.stride ||
+          pixels.bytes.byteLength !== layout.byteLength
         )
           throw new Error('native-pixel-bound')
         return { bytes: pixels.bytes, stride: pixels.stride }

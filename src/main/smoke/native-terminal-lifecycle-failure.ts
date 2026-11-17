@@ -18,6 +18,7 @@ import {
   observeNativeInputSend,
   type observeNativeTerminalUtilities,
 } from './native-terminal-utility-observation'
+import { nativeTargetDiagnostic } from './native-terminal-import-diagnostic'
 
 /** Destructive qualification follows all seed-session input/query/pixel proofs.
  * Process metrics select only the uniquely named native utility owned by this app. */
@@ -347,13 +348,30 @@ export async function verifyNativeTerminalFailureLifetimes(
   let replacementGrants = 0
   try {
     native.targets.create = function (...args) {
-      const target = createTarget.apply(this, args)
+      const diagnostic = nativeTargetDiagnostic(
+        win,
+        resources,
+        args[0],
+        targetCount + 1,
+        () => observing,
+      )
+      const target = createTarget.call(
+        this,
+        args[0],
+        diagnostic.predicate('owner-current', args[1]),
+        diagnostic.predicate('ready', args[2]),
+      )
       const ordinal = ++targetCount
       let targetViewId: string | undefined
       return {
         ...target,
         get ready() {
-          return target.ready
+          return diagnostic.predicate('ready-getter', () => target.ready).call(this)
+        },
+        isCurrent(...args: Parameters<typeof target.isCurrent>) {
+          return diagnostic
+            .predicate('target-current', target.isCurrent)
+            .apply(this, args)
         },
         publishGrant(grant, refit) {
           let state: 'returned' | 'threw' = 'threw'
@@ -377,6 +395,7 @@ export async function verifyNativeTerminalFailureLifetimes(
           } finally {
             try {
               if (grant) targetViewId = grant.viewId
+              diagnostic.correlate(targetViewId)
               observe({
                 operation: 'grant',
                 state,
@@ -403,6 +422,7 @@ export async function verifyNativeTerminalFailureLifetimes(
           } finally {
             try {
               targetViewId = status.viewId
+              diagnostic.correlate(targetViewId)
               observe({
                 operation: 'status',
                 state,

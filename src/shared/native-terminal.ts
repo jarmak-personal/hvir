@@ -84,6 +84,7 @@ export interface NativeTerminalFrameInfo {
   readonly resource: NativeTerminalFrameResource
 }
 export interface NativeTerminalRendererInfo {
+  /** GL/EGL diagnostic strings are available; not universal presentation readiness. */
   readonly available: boolean
   readonly glVendor: string
   readonly glRenderer: string

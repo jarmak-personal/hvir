@@ -1,4 +1,4 @@
-import { NATIVE_TERMINAL_PRESENTATION } from '../shared/native-terminal-presentation'
+import { nativeTerminalPackedPixelLayout } from '../shared/native-terminal-presentation'
 
 /** Runs only on the designated native caller for explicit compatibility copies.
  * The C copy is independently owned; the leased GPU source is never mutated. */
@@ -7,16 +7,16 @@ export function normalizeNativeTerminalPixels(
   stride: number,
   origin: number,
 ): Uint8Array {
+  const layout =
+    bytes instanceof Uint8Array
+      ? nativeTerminalPackedPixelLayout(stride / 4, bytes.length / stride)
+      : undefined
   if (
     !(bytes instanceof Uint8Array) ||
     bytes.buffer instanceof SharedArrayBuffer ||
-    !Number.isInteger(stride) ||
-    stride < 4 ||
-    stride > 8192 * 4 ||
-    stride % 4 ||
-    !bytes.length ||
-    bytes.length % stride ||
-    bytes.length > NATIVE_TERMINAL_PRESENTATION.maximumPixelBytes ||
+    !layout ||
+    layout.stride !== stride ||
+    layout.byteLength !== bytes.length ||
     ![1, 2].includes(origin)
   )
     throw new Error('native-pixel-format')

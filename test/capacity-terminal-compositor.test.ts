@@ -32,15 +32,18 @@ const layout: CapacityTerminalLayout = {
 
 describe('pinned CapturePage physical pixels in a 1x NativeImage representation', () => {
   it.each([
-    [1, 1],
-    [2, 1],
-    [1.25, 1],
-    [1.3, 1],
-    [2, 1.25],
-  ])(
+    [1, 1, undefined],
+    [2, 1, undefined],
+    [1.25, 1, undefined],
+    [1.3, 1, undefined],
+    [2, 1.25, undefined],
+    [2, 1, 'large-viewport'],
+  ] as const)(
     'decodes actual %s screen-scale and %s page-zoom pixels independently of the 1x label',
-    async (density, zoom) => {
-      const bits = capacityTerminalTagCells(tag)
+    async (density, zoom, profile) => {
+      const selected = profile
+      const actualTag = selected ? { ...tag, columns: 319 } : tag
+      const bits = capacityTerminalTagCells(actualTag, selected)
       let rectangle: Rectangle | undefined
       const dimensions = () => {
         if (!rectangle) throw new Error('fixture-capture-not-requested')
@@ -71,7 +74,9 @@ describe('pinned CapturePage physical pixels in a 1x NativeImage representation'
       const capturePage = vi.fn((requested: Rectangle) => {
         rectangle = requested
         expect(rectangle.width).toBe(
-          Math.ceil(216 * zoom + layout.x * zoom - Math.floor(layout.x * zoom)),
+          Math.ceil(
+            (selected ? 280 : 216) * zoom + layout.x * zoom - Math.floor(layout.x * zoom),
+          ),
         )
         return Promise.resolve({ getScaleFactors: () => [1], getSize, toBitmap })
       })
@@ -82,8 +87,10 @@ describe('pinned CapturePage physical pixels in a 1x NativeImage representation'
         win,
         { ...layout, scale: density },
         23,
+        selected,
       )
-      expect(observed.tag).toEqual(tag)
+      expect(observed.tag).toEqual(actualTag)
+      expect(observed.pixelProbe.colors).toHaveLength(selected ? 35 : 27)
       expect(getSize).toHaveBeenCalledWith(1)
       expect(toBitmap).toHaveBeenCalledWith({ scaleFactor: 1 })
     },

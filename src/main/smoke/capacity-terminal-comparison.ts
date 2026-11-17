@@ -1,4 +1,8 @@
 import {
+  validCapacityTerminalObservation,
+  type CapacityTerminalObservation,
+} from './capacity-terminal-measurement.ts'
+import {
   CAPACITY_PERFORMANCE_BUDGETS,
   capacityPerformanceViolations,
   type CapacityPerformanceMeasurements,
@@ -48,6 +52,7 @@ export interface CapacityTerminalComparisonMeasurement {
   readonly observedGeometry: string
   readonly expectedInputSequence: number
   readonly observedInputSequence: number
+  readonly terminalObservation?: CapacityTerminalObservation
 }
 interface ScheduledProcess {
   readonly index: number
@@ -349,6 +354,13 @@ function validateProcess(
         sample.expectedInputSequence !== sample.observedInputSequence
       ) {
         fail(`${kind}:invalid-matching-consumer-witness`)
+        break
+      }
+      if (
+        kind !== 'workbench' &&
+        !validCapacityTerminalObservation(sample, process.engine, kind === 'scroll')
+      ) {
+        fail(`${kind}:invalid-retained-terminal-observation`)
         break
       }
       const witness = JSON.stringify([

@@ -9,18 +9,19 @@ import {
   compareTerminalReadiness,
 } from './capacity'
 import { median, sampleElectronProcessMetrics } from './electron-process-metrics'
+import { capacityTerminalMeasurement } from './capacity-terminal-measurement'
 import { createCapacityTerminalFixture } from './capacity-terminal-fixture'
 import { createNativeCapacityTerminals } from './capacity-native-terminals'
 import { startCapacityOutputFixtures } from './capacity-output-fixtures'
 import {
   activateCapacityTerminal,
   addCapacityTerminals,
-  measureAdditionalTerminalReadiness,
   readTerminalPresentation,
   verifyHiddenPresentationSettles,
   verifyCapacitySessionsTerminalDetail,
   verifyTerminalActivity,
 } from './capacity-terminals'
+import { measureAdditionalTerminalReadiness } from './capacity-terminal-readiness'
 import {
   CAPACITY_TERMINAL_COMPARISON_ORDER,
   type CapacityTerminalComparisonClass as Workload,
@@ -199,7 +200,9 @@ export async function runCapacityTerminalPairedProcess(options: {
     const record = async (kind: Workload, action: () => Promise<TerminalSample>) => {
       await setClass(win, kind)
       const value = await action()
-      measurements[kind].push(terminalMeasurement(value, measurements[kind].length))
+      measurements[kind].push(
+        capacityTerminalMeasurement(value, measurements[kind].length),
+      )
     }
     for (let round = 0; round < 100; round++) {
       await record('scroll', () => fixture!.scroll('up'))
@@ -356,29 +359,13 @@ export async function runCapacityTerminalPairedProcess(options: {
   }
 }
 
-function terminalMeasurement(value: TerminalSample, sequence: number): Measurement {
-  const identity = (tag: TerminalSample['tag']) =>
-    [tag.row, tag.sequence, tag.columns, tag.rows].join(':')
-  const geometry = (shape: { columns: number; rows: number }) =>
-    [shape.columns, shape.rows].join(':')
-  return {
-    sequence,
-    durationMs: value.captured.completedAtMs - value.startedAtMs,
-    expectedTag: identity(value.expectedTag),
-    observedTag: identity(value.tag),
-    expectedGeometry: geometry(value.expectedViewport),
-    observedGeometry: geometry(value.layout),
-    expectedInputSequence: value.expectedInputSequence,
-    observedInputSequence: value.observedInputSequence,
-  }
-}
-
 async function observedPresentation(
   win: BrowserWindow,
   fixture: Fixture,
   native?: NativeTerminalApplication,
 ) {
   if (!native) return { mode: 'web' as const }
+  const layout = await fixture.appliedLayout()
   const terminal = fixture.terminal
   const state = native.sessions.get(terminal.id)
   if (!state || state.unavailable || state.session.instanceId !== terminal.instanceId)
@@ -390,7 +377,7 @@ async function observedPresentation(
   const modes = (await win.webContents.executeJavaScript(
     `globalThis.__hvirCapacityPairStatus.modes`,
   )) as Array<{ viewId: string; mode: string }>
-  const viewId = (await readCapacityTerminalLayout(win, terminal, native)).viewId
+  const viewId = layout.viewId
   const observedModes = modes
     .filter((value) => value.viewId === viewId)
     .map((value) => value.mode)
@@ -401,7 +388,8 @@ async function observedPresentation(
     : observedModes.at(-1)
   if (mode !== 'native-gpu' && mode !== 'native-pixels')
     throw new Error('capacity-pair-presentation-unobserved')
-  if (!info.available || !info.lastFrame)
+  // available denotes the OpenGL/EGL diagnostic callback; Metal has no GL strings.
+  if ((process.platform === 'linux' && !info.available) || !info.lastFrame)
     throw new Error('capacity-pair-native-renderer-unobserved')
   return { mode, rendererInfo: info, observedModes } as const
 }

@@ -6,6 +6,13 @@ export const CAPACITY_TERMINAL_TAG_FIELDS = [
   ['columns', 8],
   ['rows', 8],
 ] as const
+export type CapacityTerminalTagProfile = 'large-viewport'
+const LARGE_VIEWPORT_FIELDS = [
+  ['row', 12],
+  ['sequence', 10],
+  ['columns', 16],
+  ['rows', 16],
+] as const
 export const CAPACITY_TERMINAL_TAG_PREFIX = [0, 1, 0, 1, 0, 1, 0, 1] as const
 export const CAPACITY_TERMINAL_TAG_COLORS = [
   [240, 16, 32],
@@ -28,9 +35,31 @@ export interface CapacityTerminalTag {
   readonly rows: number
 }
 
-export function capacityTerminalTagBits(tag: CapacityTerminalTag): readonly number[] {
+function fields(profile?: CapacityTerminalTagProfile) {
+  if (profile !== undefined && profile !== 'large-viewport')
+    throw new Error('capacity-terminal-tag-profile')
+  return profile === 'large-viewport'
+    ? LARGE_VIEWPORT_FIELDS
+    : CAPACITY_TERMINAL_TAG_FIELDS
+}
+export function capacityTerminalTagCellCount(
+  profile?: CapacityTerminalTagProfile,
+): number {
+  return (
+    CAPACITY_TERMINAL_TAG_PREFIX.length +
+    Math.ceil(
+      fields(profile).reduce((sum, [, size]) => sum + size, 0) /
+        CAPACITY_TERMINAL_TAG_BITS_PER_CELL,
+    )
+  )
+}
+
+export function capacityTerminalTagBits(
+  tag: CapacityTerminalTag,
+  profile?: CapacityTerminalTagProfile,
+): readonly number[] {
   const result: number[] = [...CAPACITY_TERMINAL_TAG_PREFIX]
-  for (const [field, bits] of CAPACITY_TERMINAL_TAG_FIELDS) {
+  for (const [field, bits] of fields(profile)) {
     const value = tag[field]
     if (!Number.isSafeInteger(value) || value < 0 || value >= 2 ** bits)
       throw new Error('capacity-terminal-tag-field')
@@ -40,8 +69,13 @@ export function capacityTerminalTagBits(tag: CapacityTerminalTag): readonly numb
 }
 
 /** Compact physical cells keep the full bit identity outside ordinary controls. */
-export function capacityTerminalTagCells(tag: CapacityTerminalTag): readonly number[] {
-  const bits = capacityTerminalTagBits(tag).slice(CAPACITY_TERMINAL_TAG_PREFIX.length)
+export function capacityTerminalTagCells(
+  tag: CapacityTerminalTag,
+  profile?: CapacityTerminalTagProfile,
+): readonly number[] {
+  const bits = capacityTerminalTagBits(tag, profile).slice(
+    CAPACITY_TERMINAL_TAG_PREFIX.length,
+  )
   const cells: number[] = [...CAPACITY_TERMINAL_TAG_PREFIX]
   for (let index = 0; index < bits.length; index += CAPACITY_TERMINAL_TAG_BITS_PER_CELL)
     cells.push(bits[index]! | ((bits[index + 1] ?? 0) << 1))
@@ -56,8 +90,16 @@ export function readCapacityTerminalTag(
   height: number,
   cellWidth: number,
   firstCenter: number,
+  profile?: CapacityTerminalTagProfile,
 ): CapacityTerminalTag | undefined {
-  return inspectCapacityTerminalTag(bitmap, width, height, cellWidth, firstCenter).tag
+  return inspectCapacityTerminalTag(
+    bitmap,
+    width,
+    height,
+    cellWidth,
+    firstCenter,
+    profile,
+  ).tag
 }
 
 export function inspectCapacityTerminalTag(
@@ -66,6 +108,7 @@ export function inspectCapacityTerminalTag(
   height: number,
   cellWidth: number,
   firstCenter: number,
+  profile?: CapacityTerminalTagProfile,
 ): {
   tag?: CapacityTerminalTag
   rejection?: {
@@ -93,7 +136,7 @@ export function inspectCapacityTerminalTag(
   )
     return { rejection: { reason: 'invalid-input' } }
   const cells: number[] = []
-  const count = CAPACITY_TERMINAL_TAG_CELL_COUNT
+  const count = capacityTerminalTagCellCount(profile)
   for (let index = 0; index < count; index++) {
     const x = Math.floor(firstCenter + index * cellWidth)
     if (x < 0 || x >= width) return { rejection: { reason: 'outside-bitmap', index } }
@@ -120,7 +163,7 @@ export function inspectCapacityTerminalTag(
   }
   let offset = 0
   const tag = { row: 0, sequence: 0, columns: 0, rows: 0 }
-  for (const [field, size] of CAPACITY_TERMINAL_TAG_FIELDS) {
+  for (const [field, size] of fields(profile)) {
     for (let bit = 0; bit < size; bit++) tag[field] += bits[offset++]! * 2 ** bit
   }
   if (tag.columns < count || tag.rows < 2)
@@ -129,9 +172,11 @@ export function inspectCapacityTerminalTag(
 }
 
 /** Source text runs only as the deterministic real-PTY capacity producer. */
-export function capacityTerminalTaggedProducer(): string {
+export function capacityTerminalTaggedProducer(
+  profile?: CapacityTerminalTagProfile,
+): string {
   return String.raw`
-const fields=${JSON.stringify(CAPACITY_TERMINAL_TAG_FIELDS)};
+const fields=${JSON.stringify(fields(profile))};
 const prefix=${JSON.stringify(CAPACITY_TERMINAL_TAG_PREFIX)};
 const colors=${JSON.stringify(CAPACITY_TERMINAL_TAG_COLORS)};
 const input=process.stdin,output=process.stdout;

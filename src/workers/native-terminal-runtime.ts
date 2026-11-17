@@ -36,7 +36,7 @@ import {
 } from '../shared/native-terminal-linux'
 import {
   validNativeTerminalScale,
-  NATIVE_TERMINAL_PRESENTATION,
+  nativeTerminalPackedPixelLayout,
 } from '../shared/native-terminal-presentation'
 
 interface ParentPort {
@@ -276,14 +276,22 @@ export function runNativeTerminalHost(
         const frame = frames.get(state)
         if (!frame || frame.lease.toString() !== command.lease)
           throw new Error('native-frame-lease-mismatch')
+        const layout = nativeTerminalPackedPixelLayout(frame.width, frame.height)
+        if (!layout) throw new Error('native-pixel-bound')
         const copied = requireOk(
-          await invoke(state, 'pixels', [state, command.lease, frame.origin]),
+          await invoke(state, 'pixels', [
+            state,
+            command.lease,
+            frame.origin,
+            frame.width,
+            frame.height,
+          ]),
         )
         if (
           !(copied.data instanceof Uint8Array) ||
-          copied.stride !== frame.width * 4 ||
-          copied.data.byteLength !== copied.stride * frame.height ||
-          copied.data.byteLength > NATIVE_TERMINAL_PRESENTATION.maximumPixelBytes
+          copied.data.buffer instanceof SharedArrayBuffer ||
+          copied.stride !== layout.stride ||
+          copied.data.byteLength !== layout.byteLength
         )
           throw new Error('native-pixel-bound')
         return { bytes: copied.data, stride: copied.stride }

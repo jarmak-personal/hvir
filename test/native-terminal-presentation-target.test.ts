@@ -46,6 +46,7 @@ function fixture() {
   }
   const ack = (ticket: string, sender = frame, accepted = true) =>
     owner.acknowledge(sender, { kind: 'pixels', ticket, accepted })
+  target.publishGrant(grant)
   return {
     owner,
     frame,
@@ -268,5 +269,56 @@ it('forwards a refit identity while immediately withdrawing draw and failure ack
     viewId: f.grant.viewId,
     grant: undefined,
   })
+  f.owner.dispose()
+})
+
+it('reserves the same three upload slots before any copied payload is sent', () => {
+  const f = fixture(),
+    slots = Array.from({ length: 3 }, () => f.target.reservePixels(f.grant))
+  expect(f.messages).toHaveLength(0)
+  expect(() => f.target.reservePixels(f.grant)).toThrow('bound')
+  slots[0]!.cancel()
+  slots[0]!.cancel()
+  const replacement = f.target.reservePixels(f.grant)
+  for (const slot of slots) slot.cancel()
+  replacement.cancel()
+  f.owner.dispose()
+})
+it('starts the unchanged ACK deadline at send, not while a copy owns its reservation', async () => {
+  vi.useFakeTimers()
+  const f = fixture(),
+    slot = f.target.reservePixels(f.grant)
+  await vi.advanceTimersByTimeAsync(6000)
+  const sent = slot.send(f.pixels),
+    rejected = expect(sent).rejects.toThrow('timeout')
+  await vi.advanceTimersByTimeAsync(5000)
+  await rejected
+  const next = f.target.reservePixels(f.grant)
+  next.cancel()
+  f.owner.dispose()
+})
+it('settles an unspent reservation after withdrawal or disposal without publishing stale pixels', async () => {
+  const f = fixture(),
+    slot = f.target.reservePixels(f.grant)
+  f.target.publishGrant(undefined)
+  await expect(slot.send(f.pixels)).rejects.toThrow('stale')
+  expect(f.messages).toHaveLength(0)
+  f.target.publishGrant(f.grant)
+  const closed = f.target.reservePixels(f.grant)
+  f.owner.dispose()
+  await expect(closed.send(f.pixels)).rejects.toThrow('closed')
+})
+it('rejects malformed exact-layout payloads and returns reservation credit', async () => {
+  const f = fixture()
+  for (const change of [
+    { stride: 260 },
+    { bytes: new Uint8Array(8191) },
+    { bytes: new Uint8Array(new SharedArrayBuffer(8192)) },
+  ]) {
+    const slot = f.target.reservePixels(f.grant)
+    await expect(slot.send({ ...f.pixels, ...change })).rejects.toThrow('bound')
+  }
+  const slots = Array.from({ length: 3 }, () => f.target.reservePixels(f.grant))
+  for (const slot of slots) slot.cancel()
   f.owner.dispose()
 })

@@ -221,9 +221,19 @@ export function createElectronWindowManager(
     // Electron smoke injects an observer for resources outside the production scopes.
     discardExternalResources: (ownerId: number) => void = () => undefined,
   ): BrowserWindow {
-    const win = new BrowserWindow(
-      workbenchWindowOptions(join(__dirname, '../preload/index.js')),
-    )
+    const win = new BrowserWindow({
+      ...workbenchWindowOptions(join(__dirname, '../preload/index.js')),
+      // This explicit smoke profile must exercise actual DOM-sized 4K/5K panes
+      // even on a smaller Mac display. Ordinary windows retain the OS bounds.
+      ...(typeof __HVIR_SMOKE_BUILD__ !== 'undefined' &&
+      __HVIR_SMOKE_BUILD__ &&
+      process.env['HVIR_SMOKE'] === '1' &&
+      process.platform === 'darwin' &&
+      process.env['HVIR_SMOKE_SCENARIO'] === 'capacity' &&
+      process.env['HVIR_CAPACITY_OBSERVATION'] === 'compatibility-large-viewport'
+        ? { enableLargerThanScreen: true }
+        : {}),
+    })
     const rendererUrl = process.env['ELECTRON_RENDERER_URL']
     const packagedEntry = join(__dirname, '../renderer/index.html')
     const entryUrl = rendererUrl ?? pathToFileURL(packagedEntry).href

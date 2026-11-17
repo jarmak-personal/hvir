@@ -478,6 +478,50 @@ describe('native utility owner', () => {
     })
     expect(mocks.sendFrame).not.toHaveBeenCalled()
   })
+  it('derives copy geometry from the held frame and rejects a stale lease before dispatch', async () => {
+    await create()
+    port.send(2, { kind: 'frame', state: '7', ticket: 'ticket' })
+    const held = { ...frame(), kind: 3, width: 5120, height: 2880, surface: undefined }
+    await complete({ result: 0, frame: held })
+    const calls = engine.calls.length
+    port.send(3, { kind: 'pixels', state: '7', lease: '99' })
+    await flush()
+    expect(engine.calls).toHaveLength(calls)
+    expect(port.result(3)).toMatchObject({ ok: false })
+    port.send(4, { kind: 'pixels', state: '7', lease: held.lease.toString() })
+    expect(last()).toMatchObject({
+      operation: 'pixels',
+      args: ['7', held.lease.toString(), held.origin, 5120, 2880],
+    })
+    await complete({ result: 7 })
+    expect(port.result(4)).toMatchObject({ ok: false })
+    port.send(5, { kind: 'release', state: '7', lease: held.lease.toString() })
+    await complete({ result: 0 })
+    port.send(6, { kind: 'pixels', state: '7', lease: held.lease.toString() })
+    await flush()
+    expect(port.result(6)).toMatchObject({ ok: false })
+    expect(exited).toBe(false)
+  })
+  it.each(['valid', 'short', 'stride', 'shared'] as const)(
+    'validates %s copied image against its exact held layout',
+    async (kind) => {
+      await create()
+      port.send(2, { kind: 'frame', state: '7', ticket: 'ticket' })
+      const held = { ...frame(), kind: 3, width: 2, height: 2, surface: undefined }
+      await complete({ result: 0, frame: held })
+      port.send(3, { kind: 'pixels', state: '7', lease: held.lease.toString() })
+      const data =
+        kind === 'shared'
+          ? new Uint8Array(new SharedArrayBuffer(16))
+          : new Uint8Array(kind === 'short' ? 12 : 16)
+      await complete({ result: 0, data, stride: kind === 'stride' ? 4 : 8 })
+      expect(port.result(3)).toMatchObject({ ok: kind === 'valid' })
+      if (kind === 'valid')
+        expect(port.result(3)).toMatchObject({ value: { bytes: data, stride: 8 } })
+      expect(exited).toBe(false)
+    },
+  )
+
   it('reports exact modifier/plane facts without passing process-local descriptors to main', async () => {
     await create()
     port.send(2, { kind: 'frame', state: '7', ticket: 'ticket' })

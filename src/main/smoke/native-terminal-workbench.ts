@@ -378,7 +378,7 @@ export async function verifyNativeTerminalWorkbench(
   const previousImportDiagnostic = process.env['HVIR_NATIVE_IMPORT_DIAGNOSTICS']
   const stopImportDiagnostic =
     process.env['HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW'] === '1'
-      ? observeNativeReceiverDiagnostic(win)
+      ? observeNativeReceiverDiagnostic(win, resources)
       : undefined
   let nativeFailureLifetimes
   try {

@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import type { WebFrameMain } from 'electron'
 import {
   NATIVE_TERMINAL_PRESENTATION as limits,
+  nativeTerminalPackedPixelLayout,
   validNativeTerminalScale,
   sameNativeTerminalView,
   type NativeTerminalCanvasRefit,
@@ -36,6 +37,10 @@ export class NativeTerminalPixelLocallyIneligibleError extends Error {
   }
 }
 
+export interface NativeTerminalPixelReservation {
+  send(frame: NativeTerminalPixelFrame): Promise<void>
+  cancel(): void
+}
 export interface NativeTerminalPresentationTarget {
   readonly frame: WebFrameMain
   readonly ready: boolean
@@ -46,6 +51,7 @@ export interface NativeTerminalPresentationTarget {
     refit?: NativeTerminalCanvasRefit,
   ): void
   publishStatus(status: NativeTerminalPresentationStatus): void
+  reservePixels(grant: NativeTerminalViewGrant): NativeTerminalPixelReservation
   sendPixels(frame: NativeTerminalPixelFrame): Promise<void>
 }
 interface Layout {
@@ -477,6 +483,7 @@ export class NativeTerminalPresenter {
     let source: Awaited<ReturnType<PresentationHost['takeFrame']>>
     let handedOff = false
     let ownsSource = true
+    let pixelsReservation: NativeTerminalPixelReservation | undefined
     try {
       this.assertGrant(view, grant)
       if (view.pixelMode) this.assertPixelBound(grant)
@@ -561,13 +568,21 @@ export class NativeTerminalPresenter {
       view.pixelMode = true
       view.pixelsApplied = true
       view.pixelDeadline = undefined
+      // Reserve one of the existing three uploads before allocating a copy.
+      pixelsReservation = view.target.reservePixels(grant)
       const pixels = await source.copyPixels()
       this.assertGrant(view, grant)
       source.assertCurrent()
-      if (pixels.bytes.byteLength > limits.maximumPixelBytes)
+      const layout = nativeTerminalPackedPixelLayout(grant.width, grant.height)
+      if (
+        !layout ||
+        pixels.stride !== layout.stride ||
+        pixels.bytes.byteLength !== layout.byteLength ||
+        pixels.bytes.buffer instanceof SharedArrayBuffer
+      )
         throw new Error('native-pixel-bound')
       view.lastPixels = performance.now()
-      await view.target.sendPixels({
+      await pixelsReservation.send({
         ...presentation,
         ...pixels,
         origin: 1,
@@ -625,11 +640,18 @@ export class NativeTerminalPresenter {
       if (!view.closed) throw error
       return false
     } finally {
-      if (source && ownsSource) await source.release()
+      try {
+        pixelsReservation?.cancel()
+      } finally {
+        if (source && ownsSource) await source.release()
+      }
     }
   }
   private assertPixelBound(grant: NativeTerminalViewGrant): void {
-    if (grant.width * grant.height * 4 > limits.maximumPixelBytes)
+    if (
+      !validNativeTerminalExtent(grant.width, grant.height) ||
+      !nativeTerminalPackedPixelLayout(grant.width, grant.height)
+    )
       throw new Error('native-pixel-bound')
   }
   private assertPixelDeadline(view: View): void {

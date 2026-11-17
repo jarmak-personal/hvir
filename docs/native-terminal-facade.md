@@ -28,7 +28,9 @@ and an unattached native layer, without creating an NSView or window.
 its default path borrows upstream's selected display. Selection is immutable for the
 host lifetime. Private ABI 5 configures initial auto/pixels mode and a CPU export limit
 before renderer construction: zero disables external CPU export, while ordinary GTK
-rendering retains its existing policy. The maintained constructor supplies 16 MiB.
+rendering retains its existing policy. The maintained constructor derives the CPU export
+ceiling from the existing maximum backing extent; an admitted copy uses the exact
+held frame dimensions and checked packed byte length.
 The same-Surface mode command only enqueues presentation health; Linux compatibility
 is applied only when a completed kind3 frame with current geometry arrives. Allocation
 and GL readback failure report renderer-unhealthy without failing the parser; a later
@@ -124,9 +126,11 @@ new frame acquisition. Existing immutable held frames remain releasable.
 Visibility uses the same Surface's occlusion operation. Hidden state keeps parsing
 while drawing is paused, and reveal rebuilds from that authoritative state.
 `copyFrame` explicitly copies a completed held macOS IOSurface or owned Linux RGBA
-frame on the designated caller, returning independently owned packed BGRA within a
-16 MiB bound. It keeps
-the original lease alive and increments `frame_copies` only on a successful copy.
+frame on the designated caller, returning independently owned packed BGRA sized to
+the authenticated held frame. Width/height/stride arithmetic is checked against the
+existing backing extent. The Node binding allocates one exact owned output and
+omits unused eager pixel payloads from frame metadata. It keeps the original lease
+alive and increments `frame_copies` only on a successful copy.
 The host worker owns compatibility-only RGBA normalization; ordinary GPU demand
 does not call this operation. Presentation-unavailable result 9 differs from
 temporarily absent/busy result 6, and neither authorizes parser destruction.

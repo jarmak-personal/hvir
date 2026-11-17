@@ -268,7 +268,7 @@ int main(void) {
           unpublished_id && host.states && host.states->geometry.serial == 0 &&
           pending_geometry == 1 && live_allocations == 1,
           "create-begin-publishes-owned-state-without-waiting-for-geometry");
-  REQUIRE(observed_config.pixel_export_limit == 16u * 1024u * 1024u &&
+  REQUIRE(observed_config.pixel_export_limit == HVIR_TERMINAL_PIXEL_MAX &&
           observed_config.presentation_mode == 0 && observed_config.renderer_info &&
           observed_config.write && observed_config.applied && observed_config.frame,
           "external-config-explicit-limit-initial-auto-and-renderer-info-hook");
@@ -457,6 +457,13 @@ int main(void) {
   REQUIRE(hvir_terminal_take_frame(&host, state.id, &rgba_lease) == HVIR_OK &&
           rgba_lease.origin == 2 && rgba_lease.color_space == 1 && rgba_lease.premultiplied,
           "held-owned-pixels-preserve-color-origin-alpha-metadata");
+  size_t packed_bytes = 0;
+  REQUIRE(hvir_terminal_packed_pixel_bytes(3840, 2160, &packed_bytes) && packed_bytes == 33177600u &&
+          hvir_terminal_packed_pixel_bytes(5120, 2880, &packed_bytes) && packed_bytes == 58982400u &&
+          !hvir_terminal_packed_pixel_bytes(8193, 1, &packed_bytes) &&
+          !hvir_terminal_packed_pixel_bytes(1, UINT32_MAX, &packed_bytes) &&
+          !hvir_terminal_packed_pixel_bytes(0, 1, &packed_bytes),
+          "packed-image-arithmetic-accepts-real-large-extents-and-refuses-invalid-before-allocation");
   uint8_t converted[16]; size_t written = 99; uint32_t stride = 99;
   REQUIRE(hvir_terminal_copy_frame(&host, state.id, rgba_lease.lease, converted, 15,
           &written, &stride) == HVIR_BOUND && !written && !stride && !state.frame_copies,
@@ -477,20 +484,20 @@ int main(void) {
   state.frame.width = 4096; state.frame.height = 1025;
   REQUIRE(hvir_terminal_copy_frame(&host, state.id, rgba_lease.lease, converted, 16,
           &written, &stride) == HVIR_BOUND && !written && !stride && state.frame_copies == 1,
-          "over-16mib-copy-refuses-before-accessing-source");
+          "short-large-image-output-refuses-before-accessing-source");
   state.frame.width = 2; state.frame.height = 2;
   REQUIRE(hvir_terminal_copy_frame(&host, state.id, rgba_lease.lease, converted,
           HVIR_TERMINAL_PIXEL_MAX + 1u, &written, &stride) == HVIR_BOUND && state.frame_copies == 1,
-          "output-capacity-cannot-exceed-copy-budget");
+          "output-capacity-cannot-exceed-existing-dimension-envelope");
   clear_frame(&state);
   REQUIRE(hvir_terminal_copy_frame(&host, state.id, rgba_lease.lease, converted, 16,
           &written, &stride) == HVIR_INVALID && state.frame_copies == 1,
           "released-owned-lease-cannot-copy");
   state.frame_copies = 0;
   state.geometry = prior_geometry; state.requested_geometry = prior_requested;
-  owned.width = 4096; owned.height = 1025; owned.pixel_bytes = HVIR_TERMINAL_PIXEL_MAX + 4096u;
+  owned.width = HVIR_TERMINAL_PIXEL_DIMENSION_MAX + 1u; owned.height = 1; owned.pixel_bytes = 4;
   REQUIRE(rejected(&state, &owned, fd, baseline) && !live_allocations,
-          "over-16mib-export-refuses-before-allocating-or-reading-small-source");
+          "invalid-image-extent-refuses-before-allocating-or-reading-small-source");
   state.presentation_failure = 0;
 #ifdef __APPLE__
   const int32_t width_value = 3, height_value = 2, element_value = 4;

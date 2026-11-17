@@ -47,7 +47,6 @@ export interface Frame {
   planeCount: number
   surface?: Buffer
   planes: { fd: number; stride: number; offset: number; size: bigint }[]
-  pixels?: Buffer
 }
 export interface Host {
   readonly nativeTerminalHost: unique symbol
@@ -277,7 +276,7 @@ declare const engine: {
     id: bigint,
     lease: bigint,
     capacity: number,
-  ): Result & { data?: Buffer; stride?: number }
+  ): Result & { data?: Uint8Array; stride?: number }
   inspect(host: Host, id: bigint): Result & { status?: Status }
   read(host: Host, id: bigint, capacity: number): Result & { data?: Buffer }
   drain(host: Host, id: bigint, capacity: number): Result & { data?: Buffer }

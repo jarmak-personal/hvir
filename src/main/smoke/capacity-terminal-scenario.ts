@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
-import type { BrowserWindow } from 'electron'
+import { createHash, randomUUID } from 'node:crypto'
+import { screen, type BrowserWindow } from 'electron'
 import {
   dirnameHostPath,
   joinHostPath,
@@ -180,4 +180,68 @@ export async function runCapacityTerminalComparisonScenario(
   result satisfies CapacityTerminalPassedProcess
   await host.writeFile(destination, JSON.stringify(result, null, 2) + '\n')
   return true
+}
+
+/** One separately labelled fault run through the identical paired workload owner.
+ * Its receipts cannot be submitted as an accepted comparative process. */
+export async function diagnoseCapacityNativePairedProcess(
+  win: BrowserWindow,
+  supervisor: PtySupervisor,
+  host: LocalHost,
+  liveReloadPath: HostPath,
+  native?: NativeTerminalApplication,
+): Promise<void> {
+  const output = process.env['HVIR_CAPACITY_DIAGNOSTIC_OUTPUT']
+  if (!native || !output?.startsWith('/'))
+    throw new Error('capacity-native-paired-diagnostic-contract')
+  const destination = localPath(output),
+    observationsPath = localPath(output + '.observations.json')
+  const metadata = {
+    diagnosticOnly: true,
+    comparativeQualified: false,
+    runId: randomUUID(),
+    source: {
+      commit: process.env['HVIR_SMOKE_SOURCE_COMMIT'],
+      dirty: process.env['HVIR_SMOKE_SOURCE_DIRTY'],
+    },
+    requestedLibrary: process.env['HVIR_NATIVE_TERMINAL_LIBRARY'],
+    artifactQualified: false,
+  }
+  await host.createFileExclusive(destination, { mode: 0o600 })
+  await host.createFileExclusive(observationsPath, { mode: 0o600 })
+  await host.writeFile(
+    destination,
+    JSON.stringify({ ...metadata, status: 'started' }) + '\n',
+  )
+  try {
+    const result = await runCapacityTerminalPairedProcess({
+      win,
+      supervisor,
+      host,
+      liveReloadPath,
+      native,
+      index: 1,
+      runId: metadata.runId,
+      refreshHz: screen.getDisplayMatching(win.getBounds()).displayFrequency,
+      retainObservations: (observations) =>
+        host.writeFile(
+          observationsPath,
+          JSON.stringify({ ...metadata, observations }) + '\n',
+        ),
+    })
+    await host.writeFile(
+      destination,
+      JSON.stringify({ ...metadata, status: 'completed', result }) + '\n',
+    )
+  } catch (error) {
+    try {
+      await host.writeFile(
+        destination,
+        JSON.stringify({ ...metadata, status: 'failed' }) + '\n',
+      )
+    } catch {
+      // Diagnostic persistence must not replace the original workload failure.
+    }
+    throw error
+  }
 }

@@ -66,20 +66,19 @@ export async function verifyNativeTerminalQuery(
   }
   await browser.focus()
   await browser.menu('Clear Screen and Scrollback')
-  await win.webContents.executeJavaScript(clipboardInstall(false))
+  await win.webContents.executeJavaScript(clipboardInstall(false, diagnostics))
+  const phaseTiming: { phase: string; atEpochMs: number }[] = []
+  let phaseTimingUnavailable = !diagnostics
   let phase = 'initial-query'
   const setPhase = (next: string): void => {
     phase = next
     if (!diagnostics) return
     try {
-      console.log(
-        'HVIR_NATIVE_QUERY_PHASE ' +
-          JSON.stringify({
-            phase,
-            atEpochMs: performance.timeOrigin + performance.now(),
-          }),
-      )
+      const stamp = { phase, atEpochMs: performance.timeOrigin + performance.now() }
+      if (phaseTiming.length < 11) phaseTiming.push(stamp)
+      console.log('HVIR_NATIVE_QUERY_PHASE ' + JSON.stringify(stamp))
     } catch {
+      phaseTimingUnavailable = true
       /* Diagnostic stamps never replace the qualification result. */
     }
   }
@@ -616,6 +615,8 @@ export async function verifyNativeTerminalQuery(
         'HVIR_NATIVE_QUERY_RESPONSIVENESS ' +
           JSON.stringify({
             phase: 'query',
+            phaseTiming,
+            phaseTimingUnavailable,
             ...proof,
             captureTiming: browser.captureTiming(),
           }),
@@ -627,6 +628,8 @@ export async function verifyNativeTerminalQuery(
     return {
       performance: performanceEvidence,
       actualNative: true,
+      phaseTiming,
+      phaseTimingUnavailable,
       matches: 3,
       exactCopy: copy,
       pixelFixture,

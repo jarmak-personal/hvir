@@ -179,6 +179,122 @@ export function createNativeCapacityTerminals(
       )
     }, 'one-visible-eleven-hidden')
   }
+  // Failure-only observation: never changes the final readiness predicate or its deadline.
+  const reportSessionsReadinessFailure = async (): Promise<void> => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let finished = false
+    const partial: { dom?: unknown; actors: unknown[] } = { actors: [] }
+    try {
+      const observation = await Promise.race([
+        (async () => {
+          const dom = await evaluate<{
+            views: Array<{ sessionId: string; viewId: string }>
+            [key: string]: unknown
+          }>(`
+            const limit=32, id=value=>typeof value==='string'?value.slice(0,128):'';
+            const all=[...document.querySelectorAll('.terminal-surface')];
+            const tabs=[...document.querySelectorAll('.project-tab-main')];
+            const rows=[...document.querySelectorAll('.terminal-list-row')];
+            const box=node=>{const b=node.getBoundingClientRect();return {
+              width:Math.round(b.width*100)/100,height:Math.round(b.height*100)/100};};
+            const first=tabs[0];
+            return {sessionsActive:!!document.querySelector('.sessions-destination.active'),
+              sessionsDetail:!!document.querySelector('.sessions-terminal-detail'),
+              projectTabs:tabs.length,activeProjectTabs:tabs.slice(0,limit).flatMap((node,index)=>
+                node.getAttribute('aria-current')==='page'?[index]:[]),
+              activeWorkspaceTabs:[...document.querySelectorAll('.workspace-tab')].slice(0,limit)
+                .flatMap((node,index)=>node.classList.contains('active')?[index]:[]),
+              firstProjectTab:{present:!!first,disabled:first instanceof HTMLButtonElement?first.disabled:null,
+                connected:first?.isConnected??false},
+              activeTerminalRows:rows.slice(0,limit).flatMap((node,index)=>node.classList.contains('active')?[index]:[]),
+              totalSurfaces:all.length,truncated:all.length>limit||tabs.length>limit||rows.length>limit,
+              globalCanvases:document.querySelectorAll('.native-terminal-pane canvas').length,
+              detailCanvases:document.querySelectorAll('.sessions-detail-terminal-container .native-terminal-pane canvas').length,
+              views:all.slice(0,limit).map(surface=>{
+                const engine=surface.querySelector('.native-terminal-pane');
+                const mount=engine?.querySelector('[id^="native-terminal-"]');
+                const style=getComputedStyle(surface);
+                const notice=mount?.querySelector('[role="status"]');
+                return {sessionId:id(surface.getAttribute('data-terminal-session')),
+                  viewId:id(mount?.id.slice('native-terminal-'.length)),
+                  connected:surface.isConnected,visible:style.visibility==='visible',
+                  displayed:style.display!=='none',classVisible:surface.classList.contains('visible'),
+                  surfaceBounds:box(surface),mountBounds:mount?box(mount):null,
+                  canvases:mount?.querySelectorAll('canvas').length??0,
+                  unavailableNotice:notice?.textContent==='Terminal unavailable',
+                  inputReady:engine?.__hvirNativeTerminalAppearance?.applied===true};
+              })};`)
+          if (finished) return { outcome: 'observation-timeout' as const }
+          partial.dom = dom
+          await Promise.all(
+            dom.views.slice(0, 32).map(async (view) => {
+              const terminal = supervisor.get(view.sessionId)
+              const state = native.sessions.get(view.sessionId)
+              const grant = grants.get(view.viewId)
+              const facts = {
+                sessionId: view.sessionId,
+                viewId: view.viewId,
+                managed: !!terminal,
+                native: !!state,
+                instanceId: terminal?.instanceId,
+                nativeInstanceId: state?.session.instanceId,
+                handle: state?.handle,
+                owner: terminal && owner(terminal),
+                unavailable: state?.unavailable,
+                retiring: state?.retiring,
+                grant: grant?.grant,
+                targetCurrent: grant?.current() ?? false,
+                targetFrameMatches: grant?.frame === win.webContents.mainFrame,
+                drawn: targets.drawn(view.viewId, win.webContents.mainFrame),
+                receiverDraws: draws.get(view.viewId) ?? 0,
+              }
+              const actor: typeof facts & { status: unknown } = {
+                ...facts,
+                status: terminal ? 'pending' : 'missing-managed',
+              }
+              partial.actors.push(actor)
+              if (!terminal) return
+              try {
+                const status = await native.inspectRetained(terminal.id, owner(terminal))
+                actor.status = {
+                  failure: status.failure,
+                  closing: status.closing,
+                  rendererHealth: status.rendererHealth,
+                  presentationFailure: status.presentationFailure,
+                  geometryFailureSerial: status.geometryFailureSerial,
+                  geometry: status.geometry,
+                  appliedSequence: status.appliedSequence,
+                  ioAppliedMutation: status.ioAppliedMutation,
+                }
+              } catch {
+                actor.status = 'observation-error'
+              }
+            }),
+          )
+          return { outcome: 'observed' as const }
+        })(),
+        new Promise<{ outcome: 'observation-timeout' }>((resolve) => {
+          timer = setTimeout(() => resolve({ outcome: 'observation-timeout' }), 1000)
+        }),
+      ])
+      console.log(
+        '[smoke:capacity:native-sessions-readiness] ' +
+          JSON.stringify({ ...observation, ...partial }),
+      )
+    } catch {
+      try {
+        console.log(
+          '[smoke:capacity:native-sessions-readiness] ' +
+            JSON.stringify({ outcome: 'observation-error', ...partial }),
+        )
+      } catch {
+        /* Preserve original readiness failure. */
+      }
+    } finally {
+      finished = true
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }
   return {
     snapshot,
     async columns() {
@@ -242,7 +358,12 @@ export function createNativeCapacityTerminals(
         'sessions-release',
       )
       await evaluate(`document.querySelector('.project-tab-main')?.click();`)
-      await ready()
+      try {
+        await ready()
+      } catch (error) {
+        await reportSessionsReadinessFailure()
+        throw error
+      }
       assertNativeCapacityIdentity(before, await snapshot())
       return {
         actualNative: true,

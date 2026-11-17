@@ -822,6 +822,7 @@ it('keeps retained parser feed/read and physical import ownership across late qu
     onUnavailable: () => () => undefined,
     publishGrant: vi.fn(),
     publishStatus: vi.fn(),
+    reservePixels: () => ({ send: () => Promise.resolve(), cancel: () => undefined }),
     sendPixels: () => Promise.resolve(),
   }
   const presenter = new NativeTerminalPresenter(f.host, imports)

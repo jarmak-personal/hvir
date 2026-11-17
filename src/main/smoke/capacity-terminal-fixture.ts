@@ -1,18 +1,20 @@
+import {
+  capacityTerminalMeasurement,
+  type CapacityTerminalScrollProof,
+} from './capacity-terminal-measurement'
 import type { BrowserWindow } from 'electron'
 import { dirnameHostPath, joinHostPath, type HostPath } from '../../shared/host-path'
 import type { ProjectHost } from '../project-host/project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
 import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
-import {
-  addCapacityTerminals,
-  activateCapacityTerminal,
-  measureAdditionalTerminalReadiness,
-} from './capacity-terminals'
+import { addCapacityTerminals, activateCapacityTerminal } from './capacity-terminals'
+import { measureAdditionalTerminalReadiness } from './capacity-terminal-readiness'
 import { observeCapacityNativeWheel } from './capacity-native-wheel-observation'
 import { focusSmokeWindow } from './window-focus'
 import {
   capacityTerminalTaggedProducer,
   CAPACITY_TERMINAL_TAG_CELL_COUNT,
+  capacityTerminalTagCellCount,
   type CapacityTerminalTag,
 } from './capacity-terminal-tags'
 import {
@@ -37,7 +39,10 @@ export async function createCapacityTerminalFixture(
   host: ProjectHost,
   existingFixture: HostPath,
   native?: NativeTerminalApplication,
+  options?: { readonly profile: 'large-viewport' },
 ) {
+  if (options && !native) throw new Error('capacity-content-wheel-requires-native')
+  const profile = options?.profile
   const source = observeCapacityTerminalSource()
   const wheel = native && observeCapacityNativeWheel(native)
   const producer = joinHostPath(
@@ -45,7 +50,7 @@ export async function createCapacityTerminalFixture(
     '.hvir-capacity-terminal-producer.cjs',
   )
   try {
-    await host.writeFile(producer, capacityTerminalTaggedProducer())
+    await host.writeFile(producer, capacityTerminalTaggedProducer(profile))
     await addCapacityTerminals(win, 1)
     await focusSmokeWindow(win)
     const terminal = supervisor.list()[0]
@@ -141,7 +146,9 @@ export async function createCapacityTerminalFixture(
       expected: CapacityTerminalTag,
       viewport: 'top' | 'bottom',
       expectedViewport: Pick<CapacityTerminalTag, 'columns' | 'rows'> = expected,
-      state?: (layout: CapacityTerminalLayout) => Promise<{ engine: string } | undefined>,
+      state?: (
+        layout: CapacityTerminalLayout,
+      ) => Promise<CapacityTerminalScrollProof | undefined>,
     ) => {
       let firstMatchingVisibleFrameAtMs: number | undefined
       let lastObserved: string | undefined
@@ -159,6 +166,7 @@ export async function createCapacityTerminalFixture(
               win,
               layout,
               viewport === 'top' ? 0 : layout.rows - 1,
+              profile,
             )
             lastPixelProbe = captured.pixelProbe
             if (captureCalls.length === 8192)
@@ -207,7 +215,7 @@ export async function createCapacityTerminalFixture(
               ((viewport === 'top' ? 0 : lastLayout.rows - 1) + 0.5) *
                 lastLayout.cellHeight,
             cellWidth: lastLayout.cellWidth,
-            count: CAPACITY_TERMINAL_TAG_CELL_COUNT,
+            count: capacityTerminalTagCellCount(profile),
           }
           coveringControls = await win.webContents
             .executeJavaScript(
@@ -322,13 +330,18 @@ export async function createCapacityTerminalFixture(
       })
       const startedAtMs = performance.now()
       try {
+        // The separate large-viewport profile requests content rows in CSS
+        // pixels. Its padded pane can contain an extra partial row; the fixed
+        // comparison retains its original DOM page gesture unchanged.
+        const delta = direction === 'up' ? -1 : 1
+        const deltaY = options ? delta * layout.rows * layout.cellHeight : delta
         await win.webContents.executeJavaScript(`(()=>{
         const engine=document.querySelector('.terminal-surface.active .terminal-engine-host');
         if(!(engine instanceof HTMLElement))throw new Error('capacity-tagged-scroll-control');
         const b=engine.getBoundingClientRect();
         const state=window.__hvirCapacityWheelObservation;
         const before=state.trace?engine.__hvirTerminalViewport?.viewportY:undefined;
-        engine.dispatchEvent(new WheelEvent('wheel',{deltaMode:2,deltaY:${direction === 'up' ? -1 : 1},
+        engine.dispatchEvent(new WheelEvent('wheel',{deltaMode:${options ? 0 : 2},deltaY:${deltaY},
           clientX:b.x+b.width/2,clientY:b.y+b.height/2,bubbles:true,cancelable:true}));
         if(state.trace){if(state.events.length>=32)throw new Error('capacity-scroll-trace-bound');
           state.events.push({sequence:state.sequence,before,afterDispatch:engine.__hvirTerminalViewport?.viewportY,atEpochMs:performance.timeOrigin+performance.now()});}
@@ -339,7 +352,11 @@ export async function createCapacityTerminalFixture(
         const observed = await observe(expected, 'top', current, async (applied) => {
           if (!native) {
             return applied.webViewportY === scrollOffset
-              ? { engine: 'web', viewportY: applied.webViewportY }
+              ? {
+                  engine: 'web',
+                  viewportY: applied.webViewportY,
+                  expectedViewportY: scrollOffset,
+                }
               : undefined
           }
           if (
@@ -368,12 +385,15 @@ export async function createCapacityTerminalFixture(
             return
           return {
             engine: 'native',
-            ...completion,
+            sequence: completion.sequence,
+            requestedMutation: completion.requestedMutation,
             ioAppliedMutation: retained.ioAppliedMutation,
             frameSnapshotMutation: renderer.lastFrame.snapshotMutation,
-            viewId: applied.viewId,
-            nativeEpoch: applied.nativeEpoch,
-            attachment: applied.attachment,
+            viewId: applied.viewId!,
+            nativeEpoch: applied.nativeEpoch!,
+            attachment: applied.attachment!,
+            geometrySerial: applied.geometrySerial!,
+            frameGeometrySerial: renderer.lastFrame.geometrySerial,
           }
         })
         const inputState = (await win.webContents.executeJavaScript(`(()=>{
@@ -404,6 +424,13 @@ export async function createCapacityTerminalFixture(
       initial,
       initialFrame,
       captureCalls,
+      appliedLayout: () =>
+        wait(async () => {
+          assertActor()
+          const layout = await readCapacityTerminalLayout(win, terminal, native)
+          assertActor()
+          return layout
+        }, 'fixture-applied-layout'),
       command,
       resize,
       scroll,
@@ -441,7 +468,7 @@ export async function diagnoseCapacityTerminalTags(
     fixture,
     native,
   )
-  const samples: unknown[] = []
+  const samples: Array<{ kind: string } & Awaited<ReturnType<typeof active.scroll>>> = []
   const placements: unknown[] = []
   const placement = async (label: string, value: typeof active.initialFrame) => {
     const layout = value.layout
@@ -473,6 +500,7 @@ export async function diagnoseCapacityTerminalTags(
       if (native) {
         await measureAdditionalTerminalReadiness(win, supervisor, 'baseline', 1)
         await activateCapacityTerminal(win, 0)
+        await active.appliedLayout()
       }
       {
         await win.webContents.executeJavaScript(
@@ -506,6 +534,10 @@ export async function diagnoseCapacityTerminalTags(
           initial: active.initial,
           initialLayout: active.initialFrame.layout,
           samples,
+          serializedMeasurements: samples.map((sample, sequence) => ({
+            kind: sample.kind,
+            measurement: capacityTerminalMeasurement(sample, sequence),
+          })),
           placements,
           captures: active.captureCalls,
         }),

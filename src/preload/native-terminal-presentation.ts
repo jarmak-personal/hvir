@@ -1,5 +1,6 @@
 import {
   NATIVE_TERMINAL_PRESENTATION as limits,
+  nativeTerminalPackedPixelLayout,
   sameNativeTerminalView,
   validNativeTerminalViewGrant,
   type NativeTerminalPixelFrame,
@@ -296,13 +297,21 @@ export class NativeTerminalPresentationReceiver implements NativeTerminalPresent
   pixels(value: NativeTerminalPixelFrame): boolean | 'local-ineligible' {
     let current: CurrentFrame | undefined
     try {
+      const layout =
+        value &&
+        nativeTerminalPackedPixelLayout(
+          value.nativeTerminal?.width,
+          value.nativeTerminal?.height,
+        )
       if (
         !validMetadata(value) ||
+        !layout ||
         value.premultiplied !== false ||
         !(value.bytes instanceof Uint8Array) ||
-        value.stride !== value.nativeTerminal.width * 4 ||
-        value.bytes.byteLength !== value.stride * value.nativeTerminal.height ||
-        value.bytes.byteLength > limits.maximumPixelBytes
+        (typeof SharedArrayBuffer !== 'undefined' &&
+          value.bytes.buffer instanceof SharedArrayBuffer) ||
+        value.stride !== layout.stride ||
+        value.bytes.byteLength !== layout.byteLength
       )
         return false
       if (this.locallyIneligible(value)) return 'local-ineligible'

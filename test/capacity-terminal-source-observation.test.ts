@@ -26,6 +26,46 @@ describe('capacity real-source observation', () => {
     }
   })
 
+  it('accepts full bounded PTY geometry across split metadata with its first receipt time', () => {
+    const wide = '\x1b]9999;hvir-capacity;output;12;3012;65535;65535\x07'
+    for (let split = 1; split < wide.length; split++) {
+      const observation = new CapacityTerminalSourceObservation()
+      observation.consume(42, wide.slice(0, split), 10)
+      observation.consume(42, wide.slice(split), 25)
+      expect(observation.get('output', 12)).toMatchObject({
+        columns: 65535,
+        rows: 65535,
+        receivedAtMs: 10,
+      })
+    }
+  })
+  it.each(['65536;95', '319;65536', '100000;95'])(
+    'rejects out-of-domain geometry%s without consuming its receipt key',
+    (geometry) => {
+      const observation = new CapacityTerminalSourceObservation()
+      observation.consume(
+        42,
+        '\x1b]9999;hvir-capacity;output;12;3012;' + geometry + '\x07',
+        5,
+      )
+      expect(observation.get('output', 12)).toBeUndefined()
+      observation.consume(42, metadata, 10)
+      expect(observation.get('output', 12)?.receivedAtMs).toBe(10)
+    },
+  )
+  it('retains the existing2048-receipt bound with wide metadata', () => {
+    const observation = new CapacityTerminalSourceObservation()
+    for (let sequence = 0; sequence < 2048; sequence++)
+      observation.consume(
+        42,
+        '\x1b]9999;hvir-capacity;output;' + sequence + ';3012;319;95\x07',
+        10,
+      )
+    expect(() =>
+      observation.consume(42, '\x1b]9999;hvir-capacity;output;2048;3012;319;95\x07', 10),
+    ).toThrow('capacity-source-observation-bound')
+  })
+
   it('rejects unknown/truncated metadata while finding a later complete controlled marker', () => {
     const observation = new CapacityTerminalSourceObservation()
     observation.consume(42, metadata.replace('output', 'private') + 'x'.repeat(8192), 5)

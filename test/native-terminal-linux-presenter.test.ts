@@ -119,7 +119,7 @@ describe('same-state Linux native compatibility', () => {
       'auto',
     ])
   })
-  it('rejects a known over-bound pixel geometry before acquiring or copying a frame', async () => {
+  it('uploads a held pixel frame beyond the former 16 MiB ceiling', async () => {
     const f = fixture('pixels'),
       id = await visible(f)
     await f.owner.update(id, {
@@ -128,13 +128,31 @@ describe('same-state Linux native compatibility', () => {
       backingScale: 2,
       visible: true,
     })
-    await expect(f.owner.demand(id)).rejects.toThrow('native-pixel-bound')
+    const source = supply(f, 3)
+    await expect(f.owner.demand(id)).resolves.toBe(true)
+    expect(source.copyPixels).toHaveBeenCalledOnce()
+    const uploaded = f.target.sendPixels.mock.calls[0]![0]
+    expect(uploaded.nativeTerminal.width).toBe(2050)
+    expect(uploaded.nativeTerminal.height).toBe(2048)
+    expect(uploaded.bytes.byteLength).toBe(2050 * 2048 * 4)
+    expect(source.release).toHaveBeenCalledOnce()
+  })
+  it('refuses an invalid backing extent before acquisition and keeps the existing view usable', async () => {
+    const f = fixture('pixels'),
+      id = await visible(f)
+    expect(() =>
+      f.owner.update(id, {
+        width: 4097,
+        height: 1024,
+        backingScale: 2,
+        visible: true,
+      }),
+    ).toThrow('native-presentation-geometry-invalid')
     expect(f.host.takeFrame).not.toHaveBeenCalled()
-    expect(f.target.publishStatus).toHaveBeenLastCalledWith({
-      viewId: id,
-      mode: 'unavailable',
-      reason: 'pixel-bound',
-    })
+    const source = supply(f, 3)
+    await expect(f.owner.demand(id)).resolves.toBe(true)
+    expect(source.copyPixels).toHaveBeenCalledOnce()
+    expect(source.release).toHaveBeenCalledOnce()
   })
   it('bounds an unapplied transition but keeps a quiet, already observed pixel terminal usable', async () => {
     vi.useFakeTimers()

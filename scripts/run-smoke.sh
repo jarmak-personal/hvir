@@ -17,6 +17,22 @@ if [[ -n "${HVIR_NATIVE_TERMINAL_OZONE:-}" ]]; then
   smoke_ozone_args=("--ozone-platform=$HVIR_NATIVE_TERMINAL_OZONE")
 fi
 
+# Closed CPU workbench profile; Darwin ignores the Linux-only pixels environment.
+smoke_compatibility_args=()
+if [[ "${HVIR_CAPACITY_OBSERVATION:-}" == compatibility-large-viewport ]]; then
+  if [[ "$(uname -s)" != Darwin || "$HVIR_SMOKE_SCENARIO" != capacity ]]; then
+    echo 'compatibility-large-viewport requires Darwin capacity' >&2
+    exit 1
+  fi
+  for conflict in HVIR_CAPACITY_COMPARISON_RUN_ID HVIR_CAPACITY_COMPARISON_INDEX HVIR_CAPACITY_COMPARISON_RESULT HVIR_CAPACITY_COMPARISON_REFRESH_HZ HVIR_NATIVE_IMPORT_DIAGNOSTICS HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW HVIR_NATIVE_TERMINAL_TRACE_CONFIG HVIR_NATIVE_TERMINAL_PRESENTATION HVIR_CAPACITY_PERFORMANCE_GATE; do
+    if printenv "$conflict" >/dev/null; then
+      echo 'compatibility-large-viewport rejects comparison, tracing and alternate mode selectors' >&2
+      exit 1
+    fi
+  done
+  smoke_compatibility_args=(--disable-gpu)
+fi
+
 # Diagnostic only: the ordinary macOS qualification runs without tracing first.
 smoke_trace_args=()
 if [[ -n "${HVIR_NATIVE_TERMINAL_TRACE_CONFIG:-}" ]]; then
@@ -155,6 +171,7 @@ else
     ${smoke_trace_args[@]+"${smoke_trace_args[@]}"} \
     ${smoke_sandbox_args[@]+"${smoke_sandbox_args[@]}"} \
     ${smoke_ozone_args[@]+"${smoke_ozone_args[@]}"} \
+    ${smoke_compatibility_args[@]+"${smoke_compatibility_args[@]}"} \
     --user-data-dir="$user_data_root" &
   smoke_pid=$!
   wait "$smoke_pid"

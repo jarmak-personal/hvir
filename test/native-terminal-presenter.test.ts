@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { NativeTerminalStatus } from '../src/shared/native-terminal'
+import {
+  NativeTerminalAdmissionError,
+  type NativeTerminalStatus,
+} from '../src/shared/native-terminal'
 import {
   NativeTerminalGpuImportUnavailable,
   NativeTerminalImportQuarantined,
@@ -361,23 +364,41 @@ it('waits an old pending hide before renewing and showing a replacement attachme
     [2, true],
   ])
 })
-it('refuses over-budget compatibility before issuing a native pixel copy', async () => {
+it('copies compatibility pixels from valid large backing geometry', async () => {
   const f = fixture(),
     id = await f.owner.attach('state', f.session, f.target)
   await f.owner.update(id, { width: 3000, height: 2000, backingScale: 1, visible: true })
   f.imports.acquire.mockRejectedValue(
     new NativeTerminalGpuImportUnavailable(new Error('GPU unavailable')),
   )
-  await expect(f.owner.demand(id)).rejects.toThrow('native-pixel-bound')
-  expect(f.sources[0]!.copyPixels).not.toHaveBeenCalled()
+  await expect(f.owner.demand(id)).resolves.toBe(true)
+  expect(f.sources[0]!.copyPixels).toHaveBeenCalledOnce()
   expect(f.sources[0]!.release).toHaveBeenCalledOnce()
-  expect(f.target.sendPixels).not.toHaveBeenCalled()
-  expect(f.target.publishStatus).toHaveBeenLastCalledWith({
-    viewId: id,
-    mode: 'unavailable',
-    reason: 'pixel-bound',
+  expect(f.target.sendPixels.mock.calls[0]![0].bytes.byteLength).toBe(24000000)
+  expect(f.target.sendPixels.mock.calls[0]![0].stride).toBe(12000)
+})
+
+it('reserves upload capacity before copying and retries without poisoning the view', async () => {
+  const f = fixture(),
+    id = await f.owner.attach('state', f.session, f.target)
+  await f.owner.update(id, { width: 64, height: 32, backingScale: 1, visible: true })
+  f.imports.acquire.mockRejectedValue(
+    new NativeTerminalGpuImportUnavailable(new Error('GPU unavailable')),
+  )
+  f.target.reservePixels.mockImplementationOnce(() => {
+    throw new NativeTerminalAdmissionError('native-pixel-upload-bound')
   })
   await expect(f.owner.demand(id)).resolves.toBe(false)
+  expect(f.sources[0]!.copyPixels).not.toHaveBeenCalled()
+  expect(f.sources[0]!.release).toHaveBeenCalledOnce()
+  expect(f.target.publishStatus).not.toHaveBeenCalledWith(
+    expect.objectContaining({ mode: 'unavailable' }),
+  )
+  await expect(f.owner.demand(id)).resolves.toBe(true)
+  expect(f.target.reservePixels.mock.invocationCallOrder[1]!).toBeLessThan(
+    f.sources[1]!.copyPixels.mock.invocationCallOrder[0]!,
+  )
+  expect(f.cancelPixels).toHaveBeenCalledOnce()
 })
 
 it.each([true, false])(

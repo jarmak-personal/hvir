@@ -168,7 +168,7 @@ static bool frame_ready(void *userdata, const hvir_ghostty_external_frame *nativ
     pthread_mutex_unlock(&h->events);
     return true;
   }
-  if (!native->width || !native->height || native->width > 8192 || native->height > 8192 ||
+  if (!native->width || !native->height || native->width > HVIR_TERMINAL_PIXEL_DIMENSION_MAX || native->height > HVIR_TERMINAL_PIXEL_DIMENSION_MAX ||
       h->next_lease == UINT64_MAX) {
     s->presentation_failure = 5;
     pthread_cond_broadcast(&h->changed);
@@ -217,9 +217,9 @@ static bool frame_ready(void *userdata, const hvir_ghostty_external_frame *nativ
       }
     }
   } else if (native->kind == 3) {
-    uint64_t required = (uint64_t)native->width * native->height * 4;
-    if (!native->pixels || !required || required > HVIR_TERMINAL_PIXEL_MAX ||
-        native->pixel_bytes != required)
+    size_t required = 0;
+    if (!hvir_terminal_packed_pixel_bytes(native->width, native->height, &required) ||
+        !native->pixels || native->pixel_bytes != required)
       valid = false;
     else {
       uint8_t *copy = malloc(native->pixel_bytes);
@@ -663,12 +663,12 @@ hvir_terminal_result hvir_terminal_copy_frame(hvir_terminal_host *h, hvir_termin
   if (!lease || !s->frame_taken || s->frame.lease != lease) return HVIR_INVALID;
   const hvir_terminal_frame *frame = &s->frame;
   if (frame->kind == 3) {
-    const size_t width = frame->width, height = frame->height;
-    if (!width || !height || width > HVIR_TERMINAL_PIXEL_MAX / 4 ||
-        height > HVIR_TERMINAL_PIXEL_MAX / (width * 4)) return HVIR_BOUND;
-    const size_t row = width * 4, bytes = row * height;
-    if (!frame->pixels || frame->pixel_bytes != bytes) return HVIR_PRESENTATION;
+    const size_t width = frame->width;
+    size_t bytes = 0;
+    if (!hvir_terminal_packed_pixel_bytes(frame->width, frame->height, &bytes)) return HVIR_BOUND;
+    const size_t row = width * 4;
     if (capacity < bytes || s->frame_copies == UINT64_MAX) return HVIR_BOUND;
+    if (!frame->pixels || frame->pixel_bytes != bytes) return HVIR_PRESENTATION;
     for (size_t at = 0; at < bytes; at += 4) {
       out[at] = frame->pixels[at + 2]; out[at + 1] = frame->pixels[at + 1];
       out[at + 2] = frame->pixels[at]; out[at + 3] = frame->pixels[at + 3];
@@ -681,9 +681,9 @@ hvir_terminal_result hvir_terminal_copy_frame(hvir_terminal_host *h, hvir_termin
   if (frame->kind != 1 || !frame->surface) return HVIR_PRESENTATION;
   IOSurfaceRef surface = frame->surface;
   const size_t width = frame->width, height = frame->height;
-  if (!width || !height || width > HVIR_TERMINAL_PIXEL_MAX / 4 ||
-      height > HVIR_TERMINAL_PIXEL_MAX / (width * 4)) return HVIR_BOUND;
-  const size_t packed_stride = width * 4, bytes = packed_stride * height;
+  size_t bytes = 0;
+  if (!hvir_terminal_packed_pixel_bytes(frame->width, frame->height, &bytes)) return HVIR_BOUND;
+  const size_t packed_stride = width * 4;
   if (s->frame_copies == UINT64_MAX) return HVIR_BOUND;
   if (capacity < bytes) return HVIR_BOUND;
   if (IOSurfaceGetPlaneCount(surface) || IOSurfaceGetWidth(surface) != width ||

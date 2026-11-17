@@ -24,7 +24,18 @@ typedef enum {
 #define HVIR_TERMINAL_TEXT_MAX 1048576u
 #define HVIR_TERMINAL_SELECTION_CHUNK 65536u
 #define HVIR_TERMINAL_SELECTION_VISITS 8192u
-#define HVIR_TERMINAL_PIXEL_MAX 16777216u
+/* Packed image arithmetic follows the existing backing-dimension envelope.
+ * This is not an aggregate allocation or process-memory budget. */
+#define HVIR_TERMINAL_PIXEL_DIMENSION_MAX 8192u
+#define HVIR_TERMINAL_PIXEL_MAX (HVIR_TERMINAL_PIXEL_DIMENSION_MAX * HVIR_TERMINAL_PIXEL_DIMENSION_MAX * 4u)
+static inline bool hvir_terminal_packed_pixel_bytes(uint32_t width, uint32_t height,
+                                                    size_t *bytes) {
+  if (!width || !height || width > HVIR_TERMINAL_PIXEL_DIMENSION_MAX ||
+      height > HVIR_TERMINAL_PIXEL_DIMENSION_MAX ||
+      height > SIZE_MAX / ((size_t)width * 4)) return false;
+  *bytes = (size_t)width * 4 * height;
+  return true;
+}
 #define HVIR_TERMINAL_INFO_MAX 256u
 #define HVIR_TERMINAL_INPUT_SMALL_MAX 65536u
 #define HVIR_TERMINAL_INPUT_WHEEL_MAX (20u * 1024u * 1024u)

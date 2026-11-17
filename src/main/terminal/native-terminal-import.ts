@@ -64,6 +64,71 @@ type ImportObservationEvent = {
     'send-timeout-1000ms' | 'gpu-unavailable-before-import' | 'target-stale' | 'unknown'
   grant?: NativeTerminalPresentedFrame['nativeTerminal']
   nominalRgbaBytes?: number
+  targetFrame?: NativeImportFrameFacts
+}
+export interface NativeImportFrameFacts {
+  isDestroyed: boolean | null
+  detached: boolean | null
+  processId: number | null
+  osProcessId: number | null
+  routingId: number | null
+  frameTreeNodeId: number | null
+  frameToken: string | null
+  readUnavailable: boolean
+}
+
+/** Closed scalar snapshot only. Chromium IDs and LocalFrameToken are not document authority. */
+export function nativeImportFrameFacts(frame?: WebFrameMain): NativeImportFrameFacts {
+  const facts: NativeImportFrameFacts = {
+    isDestroyed: null,
+    detached: null,
+    processId: null,
+    osProcessId: null,
+    routingId: null,
+    frameTreeNodeId: null,
+    frameToken: null,
+    readUnavailable: true,
+  }
+  if (!frame) return facts
+  try {
+    const value = frame.isDestroyed()
+    if (typeof value !== 'boolean') return facts
+    facts.isDestroyed = value
+    if (value) return facts
+  } catch {
+    return facts
+  }
+  for (const key of [
+    'processId',
+    'osProcessId',
+    'routingId',
+    'frameTreeNodeId',
+  ] as const) {
+    try {
+      const value = frame[key]
+      if (Number.isSafeInteger(value) && value >= (key === 'osProcessId' ? 1 : 0))
+        facts[key] = value
+    } catch {
+      /* An unavailable getter remains unknown. */
+    }
+  }
+  try {
+    const value = frame.detached
+    if (typeof value === 'boolean') facts.detached = value
+  } catch {
+    /* Unknown. */
+  }
+  try {
+    const token = frame.frameToken
+    if (typeof token === 'string' && /^[a-fA-F0-9-]{1,128}$/.test(token))
+      facts.frameToken = token
+  } catch {
+    /* Unknown, not a dead-frame identity. */
+  }
+  facts.readUnavailable = Object.entries(facts).some(
+    ([key, value]) => key !== 'readUnavailable' && value === null,
+  )
+  return facts
 }
 interface ImportObservationState {
   resource: number
@@ -472,6 +537,23 @@ function observeNativeImport(
           quarantined: current.quarantined,
         }
         if (!Number.isFinite(event.atMs) || !Number.isFinite(event.timeOrigin)) return
+        if (
+          [
+            'admitted',
+            'import-enter',
+            'send-enter',
+            'send-rejected',
+            'quarantined',
+          ].includes(stage)
+        ) {
+          let frame: WebFrameMain | undefined
+          try {
+            frame = target.frame
+          } catch {
+            /* Unknown, without probing policy. */
+          }
+          event.targetFrame = nativeImportFrameFacts(frame)
+        }
         const grant = target.presentation?.nativeTerminal
         if (validNativeTerminalViewGrant(grant))
           event.grant = {

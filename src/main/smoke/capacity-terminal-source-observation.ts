@@ -25,7 +25,7 @@ export class CapacityTerminalSourceObservation {
     const previousLength = this.pending.length
     this.pending = ''
     const pattern =
-      /^(initial|ready|output|echo|armed|resize|positioned);([0-9]{1,4});([0-9]{1,4});([0-9]{1,3});([0-9]{1,3})$/
+      /^(initial|ready|output|echo|armed|resize|positioned);([0-9]{1,4});([0-9]{1,4});([0-9]{1,5});([0-9]{1,5})$/
     let cursor = 0
     for (;;) {
       const start = combined.indexOf(PREFIX, cursor)
@@ -36,6 +36,9 @@ export class CapacityTerminalSourceObservation {
       const match = pattern.exec(combined.slice(start + PREFIX.length, end))
       if (!match) continue
       const sequence = Number(match[2])
+      const columns = Number(match[4]),
+        rows = Number(match[5])
+      if (columns > 65535 || rows > 65535) continue
       if (this.receipts.size >= 2048 && !this.receipts.has(match[1] + ':' + sequence))
         throw new Error('capacity-source-observation-bound')
       this.receipts.set(match[1] + ':' + sequence, {
@@ -43,8 +46,8 @@ export class CapacityTerminalSourceObservation {
         kind: match[1]!,
         sequence,
         row: Number(match[3]),
-        columns: Number(match[4]),
-        rows: Number(match[5]),
+        columns,
+        rows,
         receivedAtMs:
           hadPending && start < previousLength ? this.pendingAtMs : receivedAtMs,
       })

@@ -3,7 +3,8 @@ import type { ManagedPty } from '../pty/pty-supervisor'
 import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
 import {
   inspectCapacityTerminalTag,
-  CAPACITY_TERMINAL_TAG_CELL_COUNT,
+  capacityTerminalTagCellCount,
+  type CapacityTerminalTagProfile,
 } from './capacity-terminal-tags'
 import { nativeTerminalViewRect } from './native-terminal-browser-coordinates'
 
@@ -124,9 +125,11 @@ export async function captureCapacityTerminalTag(
   win: BrowserWindow,
   layout: CapacityTerminalLayout,
   viewportRow: number,
+  profile?: CapacityTerminalTagProfile,
 ) {
   if (!Number.isInteger(viewportRow) || viewportRow < 0 || viewportRow >= layout.rows)
     throw new Error('capacity-compositor-viewport-row')
+  const count = capacityTerminalTagCellCount(profile)
   const start = layout.x + layout.paddingLeft
   const center = layout.y + layout.paddingTop + (viewportRow + 0.5) * layout.cellHeight
   const pageZoom = win.webContents.getZoomFactor()
@@ -134,7 +137,7 @@ export async function captureCapacityTerminalTag(
     {
       x: start,
       y: center,
-      width: CAPACITY_TERMINAL_TAG_CELL_COUNT * layout.cellWidth,
+      width: count * layout.cellWidth,
       height: 2,
     },
     pageZoom,
@@ -157,22 +160,20 @@ export async function captureCapacityTerminalTag(
   if (bitmap.length !== size.width * size.height * 4)
     throw new Error('capacity-compositor-bitmap-dimensions')
   const scale = size.width / rectangle.width
-  const pixelProbe = Array.from(
-    { length: CAPACITY_TERMINAL_TAG_CELL_COUNT },
-    (_, index) => {
-      const x = Math.floor(
-        (view.x - rectangle.x + (index + 0.5) * layout.cellWidth * pageZoom) * scale,
-      )
-      const offset = (Math.floor(size.height / 2) * size.width + x) * 4
-      return [...bitmap.subarray(offset, offset + 4)]
-    },
-  )
+  const pixelProbe = Array.from({ length: count }, (_, index) => {
+    const x = Math.floor(
+      (view.x - rectangle.x + (index + 0.5) * layout.cellWidth * pageZoom) * scale,
+    )
+    const offset = (Math.floor(size.height / 2) * size.width + x) * 4
+    return [...bitmap.subarray(offset, offset + 4)]
+  })
   const decoded = inspectCapacityTerminalTag(
     bitmap,
     size.width,
     size.height,
     layout.cellWidth * pageZoom * scale,
     (view.x - rectangle.x + layout.cellWidth * pageZoom * 0.5) * scale,
+    profile,
   )
   return {
     requestedAtMs,

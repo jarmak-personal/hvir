@@ -123,14 +123,16 @@ export function nativeTerminalApplicationFixture() {
     send: frameSend,
   }
   const frame = framePort as WebFrameMain
+  const sendPixels = vi.fn(() => Promise.resolve(undefined))
   const target = {
+    reservePixels: vi.fn(() => ({ send: sendPixels, cancel: vi.fn() })),
     frame,
     ready: true,
     isCurrent: () => true,
     onUnavailable: vi.fn(() => () => undefined),
     publishGrant: vi.fn(),
     publishStatus: vi.fn(),
-    sendPixels: vi.fn(() => Promise.resolve(undefined)),
+    sendPixels,
   }
   const targets = {
     create: vi.fn(() => target),

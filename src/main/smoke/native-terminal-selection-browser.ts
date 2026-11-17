@@ -7,6 +7,7 @@ import { clipboard, type BrowserWindow, type Rectangle } from 'electron'
 import type { ManagedPty } from '../pty/pty-supervisor'
 import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
 import { NativeTerminalAdmissionError } from '../../shared/native-terminal'
+import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
 
 const digest = (text: string) => createHash('sha256').update(text).digest('hex')
 
@@ -49,12 +50,29 @@ export function paneScript(session: string, readiness = false): string {
 export function nativeSelectionReadinessScript(session: string): string {
   return `(async()=>{${paneScript(session, true)}try{await window.hvir.invoke('native-terminal:selection',{viewId,action:'state'});return true;}catch(error){if(/native-selection-(source-stale|stale|unavailable|not-drawn)/.test(String(error)))return false;throw error;}})()`
 }
-export const clipboardInstall = (isolated: boolean) => `(() => {
+export const clipboardInstall = (isolated: boolean, queryProgress = false) => `(() => {
  const clipboard=navigator.clipboard;if(!clipboard?.writeText)throw new Error('native-selection-clipboard-unavailable');
  const descriptor=Object.getOwnPropertyDescriptor(clipboard,'writeText'),write=clipboard.writeText.bind(clipboard),open=window.open;
  const probe={writes:[],opens:[],active:true,frames:0,last:performance.now(),maxGapMs:0,timeOriginMs:performance.timeOrigin,worstGap:null,firstFrameDelivery:null,visibilityTransitions:[],visibilityTransitionCount:0,timingReadFailed:false};
  const viewState=()=>{try{const visible=Object.getOwnPropertyDescriptor(Document.prototype,'visibilityState').get.call(document);return{nativeVisibility:visible==='visible'||visible==='hidden'?visible:null,focused:document.hasFocus()===true};}catch{return{nativeVisibility:null,focused:null,readFailed:true};}};
  probe.lastViewState=viewState();probe.startedMs=probe.last;
+ const progress=${queryProgress}?{intervalMs:10,unavailable:false,totalTimerCallbacks:0,worst:null,records:[],crossingCount:0,truncated:false}:undefined;
+ let timerHandle,callbackFromMs=probe.last,timerLastMs=probe.last,timerCount=0,firstTimerMs=null,lastTimerMs=null,maxSilenceMs=0;
+ const recordProgress=(from,to,entry,worst,initial)=>{
+   if(!progress)return;
+   try{
+     const crossing=to-from>${UI_RESPONSIVENESS_BUDGET.responsivenessMaxMs};
+     if(worst||crossing){
+       const callbacks=entry===undefined||callbackFromMs===undefined?null:{fromMs:callbackFromMs,toMs:entry,fromEpochMs:probe.timeOriginMs+callbackFromMs,toEpochMs:probe.timeOriginMs+entry,durationMs:entry-callbackFromMs,entryMinusFrameTimestampMs:entry-to};
+       const unavailable=progress.unavailable||!callbacks;
+       const record={origin:initial?'install-to-first-advancing-raf':'advancing-raf-to-advancing-raf',frame:{fromMs:from,toMs:to,fromEpochMs:probe.timeOriginMs+from,toEpochMs:probe.timeOriginMs+to,durationMs:to-from},callbacks,timer:{unavailable,callbacks:unavailable?null:timerCount,firstMs:unavailable?null:firstTimerMs,lastMs:unavailable?null:lastTimerMs,maxSilenceMs:unavailable?null:Math.max(maxSilenceMs,entry-Math.max(timerLastMs,callbackFromMs))}};
+       if(worst)progress.worst=record;
+       if(crossing){progress.crossingCount++;if(progress.records.length<16)progress.records.push(record);else progress.truncated=true;}
+     }
+   }catch{progress.unavailable=true;}
+   callbackFromMs=entry;timerCount=0;firstTimerMs=null;lastTimerMs=null;maxSilenceMs=0;
+ };
+ probe.callbackProgress=progress;
  const visibilityChanged=event=>{try{const now=performance.now();probe.visibilityTransitionCount++;probe.visibilityTransitions.push({atMs:now,epochMs:probe.timeOriginMs+now,trusted:event.isTrusted===true,...viewState()});if(probe.visibilityTransitions.length>16)probe.visibilityTransitions.shift();}catch{probe.timingReadFailed=true;}};
  try{document.addEventListener('visibilitychange',visibilityChanged,true);}catch{probe.timingReadFailed=true;}
  const longTasks={supported:false,unavailable:false,count:0,records:[],worst:null};let longTaskObserver;
@@ -72,13 +90,46 @@ export const clipboardInstall = (isolated: boolean) => `(() => {
  window.open=(target,frame,features)=>{probe.opens.push({target:String(target),frame,features});return null;};
  // A queued RAF frame timestamp can precede this probe's performance.now() boundary.
  // Ignore nonadvancing timestamps without rewinding the baseline or counting a measured frame.
- const tick=now=>{if(!probe.active)return;if(now<=probe.last){requestAnimationFrame(tick);return;}if(!probe.firstFrameDelivery)try{const deliveredMs=performance.now();probe.firstFrameDelivery={frameMs:now,deliveredMs,frameEpochMs:probe.timeOriginMs+now,deliveredEpochMs:probe.timeOriginMs+deliveredMs};}catch{probe.timingReadFailed=true;}const from=probe.last,worst=now-from>probe.maxGapMs;probe.frames++;probe.maxGapMs=Math.max(probe.maxGapMs,now-probe.last);probe.last=now;requestAnimationFrame(tick);try{const current=viewState();if(worst)probe.worstGap={fromMs:from,toMs:now,fromEpochMs:probe.timeOriginMs+from,toEpochMs:probe.timeOriginMs+now,fromView:probe.lastViewState,toView:current};probe.lastViewState=current;}catch{probe.timingReadFailed=true;}};requestAnimationFrame(tick);
- probe.restore=()=>{probe.active=false;try{longTaskObserver?.disconnect();}catch{longTasks.unavailable=true;}try{nativeApiObserver?.disconnect();}catch{nativeApiTiming.unavailable=true;}try{document.removeEventListener('visibilitychange',visibilityChanged,true);}catch{probe.timingReadFailed=true;}window.open=open;if(descriptor)Object.defineProperty(clipboard,'writeText',descriptor);else delete clipboard.writeText;delete window.nativeSelectionProbe;};window.nativeSelectionProbe=probe;return true;
+ const tick=now=>{if(!probe.active)return;let entry;if(progress)try{entry=performance.now();if(!Number.isFinite(entry))throw new Error('callback-clock');}catch{entry=undefined;progress.unavailable=true;}if(now<=probe.last){requestAnimationFrame(tick);return;}if(!probe.firstFrameDelivery)try{const deliveredMs=entry??performance.now();probe.firstFrameDelivery={frameMs:now,deliveredMs,frameEpochMs:probe.timeOriginMs+now,deliveredEpochMs:probe.timeOriginMs+deliveredMs};}catch{probe.timingReadFailed=true;}const from=probe.last,worst=now-from>probe.maxGapMs,initial=probe.frames===0;probe.frames++;probe.maxGapMs=Math.max(probe.maxGapMs,now-probe.last);probe.last=now;requestAnimationFrame(tick);recordProgress(from,now,entry,worst,initial);try{const current=viewState();if(worst)probe.worstGap={fromMs:from,toMs:now,fromEpochMs:probe.timeOriginMs+from,toEpochMs:probe.timeOriginMs+now,fromView:probe.lastViewState,toView:current};probe.lastViewState=current;}catch{probe.timingReadFailed=true;}};requestAnimationFrame(tick);
+ probe.restore=()=>{probe.active=false;try{if(timerHandle!==undefined)clearInterval(timerHandle);}catch{if(progress)progress.unavailable=true;}try{longTaskObserver?.disconnect();}catch{longTasks.unavailable=true;}try{nativeApiObserver?.disconnect();}catch{nativeApiTiming.unavailable=true;}try{document.removeEventListener('visibilitychange',visibilityChanged,true);}catch{probe.timingReadFailed=true;}window.open=open;if(descriptor)Object.defineProperty(clipboard,'writeText',descriptor);else delete clipboard.writeText;delete window.nativeSelectionProbe;};window.nativeSelectionProbe=probe;
+ if(progress)try{timerHandle=setInterval(()=>{
+   if(!probe.active)return;
+   try{const at=performance.now();if(!Number.isFinite(at)||at<timerLastMs)throw new Error('timer-clock');
+     progress.totalTimerCallbacks++;timerCount++;firstTimerMs??=at;lastTimerMs=at;
+     maxSilenceMs=Math.max(maxSilenceMs,at-Math.max(timerLastMs,callbackFromMs));timerLastMs=at;
+   }catch{progress.unavailable=true;}
+ },10);}catch{progress.unavailable=true;}
+ return true;
 })()`
 interface NativeViewFacts {
   nativeVisibility: 'visible' | 'hidden' | null
   focused: boolean | null
   readFailed?: boolean
+}
+interface NativeCallbackInterval {
+  origin: 'install-to-first-advancing-raf' | 'advancing-raf-to-advancing-raf'
+  frame: {
+    fromMs: number
+    toMs: number
+    fromEpochMs: number
+    toEpochMs: number
+    durationMs: number
+  }
+  callbacks: {
+    fromMs: number
+    toMs: number
+    fromEpochMs: number
+    toEpochMs: number
+    durationMs: number
+    entryMinusFrameTimestampMs: number
+  } | null
+  timer: {
+    unavailable: boolean
+    callbacks: number | null
+    firstMs: number | null
+    lastMs: number | null
+    maxSilenceMs: number | null
+  }
 }
 interface ClipboardProof {
   writes: { bytes: number; sha256: string }[]
@@ -88,6 +139,15 @@ interface ClipboardProof {
   rendererTiming: {
     timeOriginMs: number
     startedMs: number
+    callbackProgress?: {
+      intervalMs: 10
+      unavailable: boolean
+      totalTimerCallbacks: number
+      worst: NativeCallbackInterval | null
+      records: NativeCallbackInterval[]
+      crossingCount: number
+      truncated: boolean
+    }
     firstFrameDelivery: {
       frameMs: number
       deliveredMs: number
@@ -491,7 +551,7 @@ export function nativeSelectionBrowser(
     )
   const proof = () =>
     win.webContents.executeJavaScript(
-      `(()=>{const p=window.nativeSelectionProbe,raw={writes:p.writes,opens:p.opens,frames:p.frames,maxGapMs:p.maxGapMs};p.flushLongTasks();p.flushNativeApiTiming();const tasks=p.longTasks,native=p.nativeApiTiming;return{...raw,rendererTiming:{timeOriginMs:p.timeOriginMs,startedMs:p.startedMs,worstGap:p.worstGap,firstFrameDelivery:p.firstFrameDelivery,visibilityTransitions:p.visibilityTransitions.slice(),visibilityTransitionCount:p.visibilityTransitionCount,visibilityTransitionsTruncated:p.visibilityTransitionCount>p.visibilityTransitions.length,timingReadFailed:p.timingReadFailed,nativeApiTiming:{supported:native.supported,unavailable:native.unavailable,spans:native.spans.map(({name,count,worst})=>({name,count,worst}))},longTasks:{supported:tasks.supported,unavailable:tasks.unavailable,count:tasks.count,records:tasks.records.slice(),worst:tasks.worst,truncated:tasks.count>tasks.records.length}}};})()`,
+      `(()=>{const p=window.nativeSelectionProbe,raw={writes:p.writes,opens:p.opens,frames:p.frames,maxGapMs:p.maxGapMs};p.flushLongTasks();p.flushNativeApiTiming();const tasks=p.longTasks,native=p.nativeApiTiming;return{...raw,rendererTiming:{timeOriginMs:p.timeOriginMs,startedMs:p.startedMs,...(p.callbackProgress?{callbackProgress:{...p.callbackProgress,records:p.callbackProgress.records.slice()}}:{}),worstGap:p.worstGap,firstFrameDelivery:p.firstFrameDelivery,visibilityTransitions:p.visibilityTransitions.slice(),visibilityTransitionCount:p.visibilityTransitionCount,visibilityTransitionsTruncated:p.visibilityTransitionCount>p.visibilityTransitions.length,timingReadFailed:p.timingReadFailed,nativeApiTiming:{supported:native.supported,unavailable:native.unavailable,spans:native.spans.map(({name,count,worst})=>({name,count,worst}))},longTasks:{supported:tasks.supported,unavailable:tasks.unavailable,count:tasks.count,records:tasks.records.slice(),worst:tasks.worst,truncated:tasks.count>tasks.records.length}}};})()`,
     ) as Promise<ClipboardProof>
   const menu = async (label: string) => {
     const p = await point(2.5, 4.5)

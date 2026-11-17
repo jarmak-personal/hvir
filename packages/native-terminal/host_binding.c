@@ -13,6 +13,7 @@ typedef struct binding_state {
   struct binding_state *next;
   hvir_terminal_id id;
   uint64_t lease;
+  uint32_t frame_width, frame_height;
 } binding_state;
 typedef struct {
   hvir_terminal_host *native;
@@ -167,8 +168,6 @@ static napi_value frame_value(napi_env env, const hvir_terminal_frame *f) {
   if (!put(env, result, "planes", planes))
     return NULL;
   if (f->kind == 1 && !put(env, result, "surface", bytes(env, &f->surface, sizeof(f->surface))))
-    return NULL;
-  if (f->kind == 3 && !put(env, result, "pixels", bytes(env, f->pixels, f->pixel_bytes)))
     return NULL;
   return result;
 }
@@ -626,16 +625,31 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
   if (op == COPY_FRAME) {
     if (!u64(env, args[2], &serial) || !u32(env, args[3], &capacity)) return NULL;
     if (!capacity || capacity > HVIR_TERMINAL_PIXEL_MAX) return outcome(env, HVIR_BOUND);
-    uint8_t *data = malloc(capacity);
-    if (!data) return outcome(env, HVIR_NOMEM);
+    binding_state *s = *state_link(h, id);
+    if (!s || !serial || serial != s->lease) return outcome(env, HVIR_INVALID);
+    size_t required = 0;
+    if (!hvir_terminal_packed_pixel_bytes(s->frame_width, s->frame_height, &required) ||
+        capacity < required) return outcome(env, HVIR_BOUND);
+    /* Own exactly this held image. No borrowed producer storage or pooled Buffer
+     * crosses the caller-worker transfer boundary. */
+    void *data = NULL;
+    napi_value storage;
+    if (!checked(env, napi_create_arraybuffer(env, required, &data, &storage))) return NULL;
     size_t written = 0;
     uint32_t stride = 0;
     hvir_terminal_result code = hvir_terminal_copy_frame(h->native, id, serial, data,
-                                                        capacity, &written, &stride);
+                                                        required, &written, &stride);
     napi_value result = outcome(env, code);
-    if (code == HVIR_OK && (!put(env, result, "data", bytes(env, data, written)) ||
-                            !put(env, result, "stride", number(env, stride)))) result = NULL;
-    free(data);
+    if (code == HVIR_OK) {
+      if (written != required || stride != s->frame_width * 4u) {
+        napi_throw_error(env, NULL, "Invalid native terminal copied layout");
+        return NULL;
+      }
+      napi_value pixels;
+      if (!checked(env, napi_create_typedarray(env, napi_uint8_array, written, storage, 0, &pixels)) ||
+          !put(env, result, "data", pixels) || !put(env, result, "stride", number(env, stride)))
+        return NULL;
+    }
     return result;
   }
   if (op == INSPECT) {
@@ -806,10 +820,15 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
       return outcome(env, HVIR_INVALID);
     }
     s->lease = frame.lease;
+    s->frame_width = frame.width;
+    s->frame_height = frame.height;
     napi_value value = result ? frame_value(env, &frame) : NULL;
     if (!value || !put(env, result, "frame", value)) {
-      hvir_terminal_release_frame(h->native, id, frame.lease);
-      s->lease = 0;
+      hvir_terminal_result released = hvir_terminal_release_frame(h->native, id, frame.lease);
+      if (released == HVIR_OK || released == HVIR_PRESENTATION) {
+        s->lease = 0;
+        s->frame_width = s->frame_height = 0;
+      }
       return NULL;
     }
     return result;
@@ -819,8 +838,10 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
       return NULL;
     hvir_terminal_result code = hvir_terminal_release_frame(h->native, id, serial);
     binding_state *s = *state_link(h, id);
-    if (s && s->lease == serial && (code == HVIR_OK || code == HVIR_PRESENTATION))
+    if (s && s->lease == serial && (code == HVIR_OK || code == HVIR_PRESENTATION)) {
       s->lease = 0;
+      s->frame_width = s->frame_height = 0;
+    }
     return outcome(env, code);
   }
   hvir_terminal_result code = hvir_terminal_destroy(h->native, id);

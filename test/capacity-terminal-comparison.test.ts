@@ -50,10 +50,53 @@ function fixture(): CapacityTerminalPassedProcess[] {
             durationMs: engine === 'web' ? 40 : 20,
             expectedTag: `${kind}:${sequence}`,
             observedTag: `${kind}:${sequence}`,
-            expectedGeometry: '80x24:816x360@2',
-            observedGeometry: '80x24:816x360@2',
-            expectedInputSequence: sequence,
-            observedInputSequence: sequence,
+            expectedGeometry: '80:24',
+            observedGeometry: '80:24',
+            expectedInputSequence: sequence + 1,
+            observedInputSequence: sequence + 1,
+            ...(kind !== 'workbench'
+              ? {
+                  terminalObservation: {
+                    startedAtMs: 0,
+                    firstMatchingVisibleFrameAtMs: 0,
+                    stateCheckedAtMs: 0,
+                    captureRequestedAtMs: 0,
+                    captureCompletedAtMs: engine === 'web' ? 40 : 20,
+                    layout: {
+                      engine,
+                      columns: 80,
+                      rows: 24,
+                      ...(engine === 'native'
+                        ? {
+                            viewId: 'view',
+                            nativeEpoch: 'epoch',
+                            attachment: 1,
+                            geometrySerial: 1,
+                          }
+                        : {}),
+                    },
+                    ...(kind === 'scroll'
+                      ? {
+                          stateProof:
+                            engine === 'web'
+                              ? { engine: 'web', viewportY: 0, expectedViewportY: 0 }
+                              : {
+                                  engine: 'native',
+                                  sequence: sequence + 1,
+                                  requestedMutation: 1,
+                                  ioAppliedMutation: 1,
+                                  frameSnapshotMutation: 1,
+                                  viewId: 'view',
+                                  nativeEpoch: 'epoch',
+                                  attachment: 1,
+                                  geometrySerial: 1,
+                                  frameGeometrySerial: 1,
+                                },
+                        }
+                      : {}),
+                  },
+                }
+              : {}),
           }),
         ),
       ]),
@@ -95,6 +138,14 @@ function withClass(
       [kind]: process.measurements[kind].map((sample, index) => ({
         ...sample,
         durationMs: values[index % values.length]!,
+        ...(sample.terminalObservation
+          ? {
+              terminalObservation: {
+                ...sample.terminalObservation,
+                captureCompletedAtMs: values[index % values.length]!,
+              },
+            }
+          : {}),
       })),
     },
   }
@@ -126,7 +177,7 @@ describe('fixed native terminal paired comparison policy', () => {
     expect(evaluateCapacityTerminalComparison(samples).timingPassed).toBe(true)
     const process = samples[0]!
     const scroll = [...process.measurements.scroll]
-    scroll[1] = { ...scroll[1]!, expectedInputSequence: 0, observedInputSequence: 0 }
+    scroll[1] = { ...scroll[1]!, expectedInputSequence: 1, observedInputSequence: 1 }
     expect(
       evaluateCapacityTerminalComparison([
         { ...process, measurements: { ...process.measurements, scroll } },
@@ -134,6 +185,20 @@ describe('fixed native terminal paired comparison policy', () => {
       ]).blockers,
     ).toContain('process-0:scroll:reused-causal-witness')
   })
+
+  it.each(['scroll', 'output', 'echo', 'resize'] as const)(
+    'refuses process JSON missing retained %s observations',
+    (kind) => {
+      const samples = JSON.parse(
+        JSON.stringify(fixture()),
+      ) as CapacityTerminalPassedProcess[]
+      const first = samples[0]!.measurements[kind][0]!
+      delete (first as { terminalObservation?: unknown }).terminalObservation
+      expect(evaluateCapacityTerminalComparison(samples).blockers).toContain(
+        `process-0:${kind}:invalid-retained-terminal-observation`,
+      )
+    },
+  )
 
   it('requires per-class frame evidence while allowing no scheduled clicks in a terminal class', () => {
     const samples = fixture().map((process) => ({
@@ -212,6 +277,10 @@ describe('fixed native terminal paired comparison policy', () => {
         output: process.measurements.output.map((sample, index) => ({
           ...sample,
           durationMs: index < 190 ? sample.durationMs : 90,
+          terminalObservation: {
+            ...sample.terminalObservation!,
+            captureCompletedAtMs: index < 190 ? sample.durationMs : 90,
+          },
         })),
       },
     }))

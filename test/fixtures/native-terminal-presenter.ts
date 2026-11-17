@@ -146,7 +146,10 @@ export function nativeTerminalPresenterFixture(linuxMode?: 'auto' | 'pixels') {
   const imports = { acquire: vi.fn(() => Promise.resolve(imported)) }
   const unavailableCallbacks: ((grant: NativeTerminalViewGrant) => void)[] = []
   const unbindUnavailable = vi.fn()
+  const sendPixels = vi.fn((_frame: NativeTerminalPixelFrame) => Promise.resolve())
+  const cancelPixels = vi.fn()
   const target = {
+    reservePixels: vi.fn(() => ({ send: sendPixels, cancel: cancelPixels })),
     onUnavailable: vi.fn((callback: (grant: NativeTerminalViewGrant) => void) => {
       unavailableCallbacks.push(callback)
       return unbindUnavailable
@@ -156,7 +159,7 @@ export function nativeTerminalPresenterFixture(linuxMode?: 'auto' | 'pixels') {
     isCurrent: () => live.current,
     publishGrant: vi.fn(),
     publishStatus: vi.fn(),
-    sendPixels: vi.fn((_frame: NativeTerminalPixelFrame) => Promise.resolve()),
+    sendPixels,
   } satisfies NativeTerminalPresentationTarget
   const owner = new NativeTerminalPresenter(host, imports, linuxMode)
   return {
@@ -168,6 +171,7 @@ export function nativeTerminalPresenterFixture(linuxMode?: 'auto' | 'pixels') {
     sources,
     target,
     unavailableCallbacks,
+    cancelPixels,
     unbindUnavailable,
     live,
     session,

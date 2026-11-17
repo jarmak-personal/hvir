@@ -18,6 +18,7 @@ import { NativeTerminalPresentationTargets } from '../../src/main/terminal/nativ
 import { IpcAuthorityRouter } from '../../src/main/ipc/authority-router'
 import { RendererResourceScopes } from '../../src/main/renderer-resource-scopes'
 import { registerNativeTerminalPresentationIpc } from '../../src/main/ipc/features/native-terminal-presentation'
+import type { NativeTerminalViewGrant } from '../../src/shared/native-terminal-presentation'
 import {
   presenterHeartbeatWindow,
   type PresenterHeartbeatPhase,
@@ -154,7 +155,26 @@ void app
         () => !targetWindow.isDestroyed() && !contents.isDestroyed(),
         () => true,
       )
-    const firstTarget = target()
+    let pixelUpload:
+      { grant: NativeTerminalViewGrant; stride: number; byteLength: number } | undefined
+    const receiver = target()
+    const firstTarget = {
+      ...receiver,
+      reservePixels(grant: NativeTerminalViewGrant) {
+        const reservation = receiver.reservePixels(grant)
+        return {
+          cancel: reservation.cancel.bind(reservation),
+          async send(frame: Parameters<typeof reservation.send>[0]) {
+            await reservation.send(frame)
+            pixelUpload = {
+              grant: { ...frame.nativeTerminal },
+              stride: frame.stride,
+              byteLength: frame.bytes.byteLength,
+            }
+          },
+        }
+      },
+    }
     const view = await presenter.attach(firstHandle, first, firstTarget)
     phase('attach')
     const otherView = await presenter.attach(secondHandle, second, target())
@@ -347,43 +367,53 @@ void app
     if (compatibility)
       assert(pixelPresentation, 'explicit pixels selected before first frame')
     if (process.platform === 'darwin' && !compatibility) assert(!pixelPresentation)
-    let maximumCompatibilityUploadBytes = 0
-    let compatibilityBoundRefused = false
+    let compatibilitySampleUploadBytes = 0
+    let compatibilityInvalidExtentRefused = false
+    let compatibilityExtent: Record<string, unknown> | undefined
     if (pixelPresentation) {
-      phase('pixel-upload-bound')
+      phase('pixel-upload-extent')
       await contents.executeJavaScript(
         "document.getElementById('first').style.width='1024px';document.getElementById('first').style.height='1024px';true",
       )
-      await presenter.update(view, {
-        width: 1024,
+      const extentGrant = await presenter.update(view, {
+        width: 1025,
         height: 1024,
         backingScale: 2,
         visible: true,
       })
       await paint(firstHandle, first, 41)
       await draw(view)
-      maximumCompatibilityUploadBytes = 16 * 1024 * 1024
-      const beforeRefusal = (await host.inspect(firstHandle, 1, 1)).frameCopies
-      await presenter.update(view, {
-        width: 1025,
-        height: 1024,
-        backingScale: 2,
-        visible: true,
-      })
-      const boundDeadline = performance.now() + 10000
-      while (!compatibilityBoundRefused) {
-        try {
-          await presenter.demand(view)
-        } catch (error) {
-          assert.match((error as Error).message, /native-pixel-bound/)
-          compatibilityBoundRefused = true
-        }
-        if (performance.now() > boundDeadline)
-          throw new Error('presenter-bound-refusal-timeout')
-        if (!compatibilityBoundRefused)
-          await new Promise((resolve) => setTimeout(resolve, 16))
+      assert(pixelUpload)
+      compatibilitySampleUploadBytes = pixelUpload.byteLength
+      assert.equal(compatibilitySampleUploadBytes, 2050 * 2048 * 4)
+      assert.equal(pixelUpload.stride, 2050 * 4)
+      assert(compatibilitySampleUploadBytes > 16 * 1024 * 1024)
+      assert.deepEqual(pixelUpload.grant, extentGrant)
+      const extentDrawn = targets.drawn(view, contents.mainFrame)
+      assert.equal(extentDrawn?.geometrySerial, extentGrant?.geometrySerial)
+      assert.equal(extentDrawn?.attachment, extentGrant?.attachment)
+      assert.equal(extentDrawn?.nativeEpoch, extentGrant?.nativeEpoch)
+      compatibilityExtent = { ...pixelUpload, drawn: extentDrawn }
+      const beforeRefusal = await host.inspect(firstHandle, 1, 1)
+      assert.throws(
+        () =>
+          presenter.update(view, {
+            width: 4097,
+            height: 1024,
+            backingScale: 2,
+            visible: true,
+          }),
+        /native-presentation-geometry-invalid/,
+      )
+      compatibilityInvalidExtentRefused = true
+      const afterRefusal = await host.inspect(firstHandle, 1, 1)
+      assert.equal(afterRefusal.frameCopies, beforeRefusal.frameCopies)
+      assert.deepEqual(afterRefusal.geometry, beforeRefusal.geometry)
+      compatibilityExtent.invalidExtent = {
+        code: 'native-presentation-geometry-invalid',
+        frameCopiesBefore: beforeRefusal.frameCopies,
+        frameCopiesAfter: afterRefusal.frameCopies,
       }
-      assert.equal((await host.inspect(firstHandle, 1, 1)).frameCopies, beforeRefusal)
       await host.feed(
         firstHandle,
         first.instanceId,
@@ -394,6 +424,21 @@ void app
           .decode(await host.read(firstHandle, 1, 1))
           .includes('parser-after-pixel-bound'),
       )
+      compatibilityExtent.parserProgress = true
+      await contents.executeJavaScript(
+        "document.getElementById('first').style.width='320px';document.getElementById('first').style.height='192px';true",
+      )
+      await presenter.update(view, {
+        width: 320,
+        height: 192,
+        backingScale: 1,
+        visible: true,
+      })
+      await paint(firstHandle, first, 41)
+      await draw(view)
+      await captureFixture()
+      assert(firstTarget.isCurrent() && processPort.pid === utilityPid)
+      compatibilityExtent.sameActorRecovered = true
     }
     let largeViewportDiagnostic: Record<string, unknown> | undefined
     if (largeViewport) {
@@ -412,6 +457,7 @@ void app
           failure: state.failure,
           rendererHealth: state.rendererHealth,
           ioAppliedMutation: state.ioAppliedMutation,
+          ioAppliedSequence: state.ioAppliedSequence,
           nativePixelFrames: null as number | null,
         }
         Object.assign(record, snapshot)
@@ -513,27 +559,51 @@ void app
           assert.equal(applied.height, height)
           assert.equal(applied.backingScale, 1)
           assert.equal(grant?.geometrySerial, applied.serial)
+          row.grant = grant
+          row.stage = 'large-paint'
+          await paint(firstHandle, first, 41)
           row.stage = 'large-demand'
-          let failure: string | undefined
+          pixelUpload = undefined
+          let delivered = false
           const deadline = performance.now() + 3000
-          while (!failure && performance.now() < deadline) {
-            try {
-              await presenter.demand(view)
-            } catch (error) {
-              failure = code(error)
-            }
-            if (!failure) await new Promise((resolve) => setTimeout(resolve, 16))
+          while (!delivered && performance.now() < deadline) {
+            delivered = await presenter.demand(view)
+            if (!delivered) await new Promise((resolve) => setTimeout(resolve, 16))
           }
-          const refused: Record<string, unknown> = {}
-          const refusal: Record<string, unknown> = {
-            code: failure ?? 'no-refusal',
-            facts: refused,
+          assert(delivered && pixelUpload, 'large compatibility upload delivered')
+          const upload = pixelUpload as {
+            grant: NativeTerminalViewGrant
+            stride: number
+            byteLength: number
           }
-          row.failure = refusal
-          row.stage = 'refusal-facts'
-          await facts(refused)
-          row.stage = 'refusal-status'
-          refusal.statuses = await statuses()
+          row.upload = upload
+          assert.deepEqual(upload.grant, grant)
+          assert.equal(upload.stride, width * 4)
+          assert.equal(upload.byteLength, width * height * 4)
+          row.stage = 'large-compositor'
+          const pixels = await capture()
+          row.pixels = pixels
+          assert(pixels.redTop > 100 && pixels.blueBottom > 100)
+          const drawn: ReturnType<NativeTerminalPresentationTargets['drawn']> =
+            targets.drawn(view, contents.mainFrame)
+          row.drawn = drawn
+          assert.equal(drawn?.geometrySerial, applied.serial)
+          assert.equal(drawn?.attachment, grant?.attachment)
+          assert.equal(drawn?.nativeEpoch, grant?.nativeEpoch)
+          const canvas: unknown = await contents.executeJavaScript(
+            "(()=>{const c=document.querySelector('#first canvas');return {width:c.width,height:c.height}})()",
+          )
+          row.canvas = canvas
+          assert.deepEqual(canvas, { width, height })
+          const after: Record<string, unknown> = {}
+          row.after = after
+          await facts(after)
+          assert(Number(after.frameCopies) > Number(before.frameCopies))
+          assert.equal(after.failure, 0)
+          assert.equal(after.rendererHealth, 0)
+          row.outcome = 'drawn'
+          row.sameActor = firstTarget.isCurrent() && processPort.pid === utilityPid
+          assert.equal(row.sameActor, true)
           row.stage = 'parser-feed'
           const marker = `large-viewport-parser-${width}`
           await host.feed(
@@ -550,6 +620,9 @@ void app
           row.parserAfter = parserAfter
           row.stage = 'parser-facts'
           await facts(parserAfter)
+          assert.equal(parserAfter.failure, 0)
+          assert.equal(parserAfter.rendererHealth, 0)
+          assert(Number(parserAfter.ioAppliedSequence) > Number(after.ioAppliedSequence))
           row.stage = 'shrink-update'
           const shrink: Record<string, unknown> = {}
           row.shrink = shrink
@@ -559,6 +632,9 @@ void app
           row.hideReveal = hideReveal
           await recover(true, hideReveal)
           assert(parserProgress, 'same actor parser continues after large viewport')
+          assert.equal(shrink.outcome, 'drawn')
+          assert.equal(hideReveal.outcome, 'drawn')
+          assert(firstTarget.isCurrent() && processPort.pid === utilityPid)
           row.stage = 'complete'
         } catch (error) {
           row.error = code(error)
@@ -571,7 +647,6 @@ void app
         observationOwner: 'presenter',
         uiShrinkRecoveryQualified: false,
         physicalDisplayQualified: false,
-        capBytes: 16 * 1024 * 1024,
         cases,
       }
     }
@@ -769,8 +844,9 @@ void app
           contextLossNativeOccluded,
           occludedCompletedFrames,
           occludedFeeds,
-          maximumCompatibilityUploadBytes,
-          compatibilityBoundRefused,
+          compatibilitySampleUploadBytes,
+          compatibilityInvalidExtentRefused,
+          compatibilityExtent,
           ...(largeViewportDiagnostic ? { largeViewportDiagnostic } : {}),
           translucentAlphaQualified: false,
           colorMaximumDifference,

@@ -79,8 +79,10 @@ export function createNativeTerminalCanvas(
           failure('canvas-pixel-disconnected')
           throw new Error('native-pixel-canvas-lost')
         }
-        canvas.width = frame.nativeTerminal.width
-        canvas.height = frame.nativeTerminal.height
+        if (canvas.width !== frame.nativeTerminal.width)
+          canvas.width = frame.nativeTerminal.width
+        if (canvas.height !== frame.nativeTerminal.height)
+          canvas.height = frame.nativeTerminal.height
         if (
           typeof SharedArrayBuffer !== 'undefined' &&
           frame.bytes.buffer instanceof SharedArrayBuffer

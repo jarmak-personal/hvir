@@ -25,7 +25,6 @@ import {
 import {
   activateCapacityTerminal,
   addCapacityTerminals,
-  measureAdditionalTerminalReadiness,
   readTerminalPresentation,
   verifyHiddenPresentationSettles,
   verifyCapacityTerminalSearch,
@@ -33,8 +32,11 @@ import {
   verifyCapacityPaletteUpdate,
   verifyTerminalActivity,
   type TerminalActivityReport,
-  type TerminalReadinessSampleReport,
 } from './capacity-terminals'
+import {
+  measureAdditionalTerminalReadiness,
+  type TerminalReadinessSampleReport,
+} from './capacity-terminal-readiness'
 import {
   median,
   sampleElectronProcessMetrics,
