@@ -185,8 +185,15 @@ jobs:
             }
             else {
               assert(proof.frameCopies > 0);
-              assert.equal(proof.maximumCompatibilityUploadBytes, 16 * 1024 * 1024);
-              assert.equal(proof.compatibilityBoundRefused, true);
+              const extent = proof.compatibilityExtent;
+              assert(extent && extent.grant);
+              assert.equal(extent.grant.width, 2050);
+              assert.equal(extent.grant.height, 2048);
+              assert.equal(extent.stride, extent.grant.width * 4);
+              assert.equal(extent.byteLength, extent.stride * extent.grant.height);
+              assert.equal(proof.compatibilitySampleUploadBytes, extent.byteLength);
+              assert(proof.compatibilitySampleUploadBytes > 16 * 1024 * 1024);
+              assert.equal(proof.compatibilityInvalidExtentRefused, true);
             }
           }
           NODE
