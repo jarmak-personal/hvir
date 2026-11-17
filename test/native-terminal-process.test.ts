@@ -688,6 +688,47 @@ it('reserves one per-state cleanup slot while ordinary controls and feed are sat
   expect(process.available).toBe(true)
 })
 
+it.each(['retire-frame-begin', 'retire-frame-status'] as const)(
+  'admits %s through the existing global and per-state cleanup reserve',
+  async (kind) => {
+    const process = owner()
+    const controls = Array.from({ length: 31 }, (_, index) =>
+      call(process, { kind: 'inspect', state: index < 6 ? '1' : String(index - 4) }),
+    )
+    const child = await ready(process)
+    await expect(call(process, { kind: 'read', state: '1' })).rejects.toThrow('bound')
+    const feeds = Array.from({ length: 32 }, (_, index) =>
+      call(process, {
+        kind: 'feed',
+        state: String(index + 1),
+        sequence: 1,
+        bytes: Uint8Array.of(1),
+      }),
+    )
+    await flush()
+    expect(child.requests()).toHaveLength(63)
+    const command: NativeTerminalCommand =
+      kind === 'retire-frame-begin'
+        ? { kind, state: '1', lease: '9007199254740993' }
+        : { kind, state: '1', lease: '9007199254740993', request: '18446744073709551615' }
+    const pending = call(process, command)
+    await flush()
+    expect(child.requests()).toHaveLength(64)
+    expect(last(child).command).toEqual(command)
+    await expect(call(process, { kind: 'destroy', state: '1' })).rejects.toThrow('bound')
+    const value =
+      kind === 'retire-frame-begin' ? { request: '18446744073709551615' } : { status: 1 }
+    reply(child, last(child), value)
+    await expect(pending).resolves.toEqual(value)
+    for (const request of child
+      .requests()
+      .filter((request) => request.command.kind !== kind))
+      reply(child, request, { result: 0 })
+    await Promise.all([...controls, ...feeds])
+    expect(process.available).toBe(true)
+  },
+)
+
 it('keeps lifecycle progress authoritative when a diagnostic observer throws', async () => {
   const observe = vi.fn(() => {
     throw new Error('diagnostic-sink-failed')

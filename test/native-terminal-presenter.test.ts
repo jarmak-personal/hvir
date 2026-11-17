@@ -717,3 +717,114 @@ it('strongly revokes and occludes if publishing a refit hint throws before nativ
   expect(f.owner.isInputCurrent(id)).toBe(false)
   await f.owner.detach(id)
 })
+
+it('joins the old active task, retires its exact fault and draws before renewing input', async () => {
+  const f = fixture(),
+    retirement = deferred<boolean>()
+  const retire = vi.fn(() => retirement.promise)
+  const fault = new NativeTerminalImportQuarantined(new Error('send timeout'), retire)
+  const id = await f.owner.attach('state', f.session, f.target)
+  await f.owner.update(id, { width: 64, height: 32, backingScale: 1, visible: true })
+  f.imports.acquire.mockRejectedValueOnce(fault)
+  await expect(f.owner.demand(id)).rejects.toBe(fault)
+  await vi.waitFor(() => expect(retire).toHaveBeenCalledOnce())
+  expect(f.owner.isInputCurrent(id)).toBe(false)
+  retirement.resolve(true)
+  await vi.waitFor(() => expect(f.imported.send).toHaveBeenCalledOnce())
+  expect(f.owner.isInputCurrent(id)).toBe(false)
+  f.consumed.resolve()
+  await vi.waitFor(() => expect(f.owner.isInputCurrent(id)).toBe(true))
+  expect(f.target.publishStatus).toHaveBeenLastCalledWith({
+    viewId: id,
+    mode: 'native-gpu',
+  })
+  expect(f.sources.every((source) => !source.copyPixels.mock.calls.length)).toBe(true)
+})
+
+it.each(['hidden', 'detached', 'new-epoch'] as const)(
+  'does not resurrect %s presentation after retirement',
+  async (change) => {
+    const f = fixture(),
+      retirement = deferred<boolean>()
+    const fault = new NativeTerminalImportQuarantined(
+      new Error('send timeout'),
+      () => retirement.promise,
+    )
+    const id = await f.owner.attach('state', f.session, f.target)
+    await f.owner.update(id, { width: 64, height: 32, backingScale: 1, visible: true })
+    f.imports.acquire.mockRejectedValueOnce(fault)
+    await expect(f.owner.demand(id)).rejects.toBe(fault)
+    if (change === 'hidden')
+      await f.owner.update(id, { width: 64, height: 32, backingScale: 1, visible: false })
+    if (change === 'detached') await f.owner.detach(id)
+    if (change === 'new-epoch') f.live.epoch = '22222222-2222-4222-8222-222222222222'
+    const resizes = f.host.resize.mock.calls.length
+    retirement.resolve(true)
+    await new Promise<void>((resolve) => setTimeout(resolve, 25))
+    expect(f.host.resize).toHaveBeenCalledTimes(resizes)
+    expect(f.host.takeFrame).toHaveBeenCalledOnce()
+    if (change === 'hidden') {
+      await f.owner.update(id, { width: 64, height: 32, backingScale: 1, visible: true })
+      f.consumed.resolve()
+      await f.owner.demand(id)
+      expect(f.owner.isInputCurrent(id)).toBe(true)
+    }
+  },
+)
+
+it('keeps a newer quarantine blocked when an older retirement completes', async () => {
+  const f = fixture(),
+    firstSend = deferred<typeof f.imported>(),
+    secondSend = deferred<typeof f.imported>()
+  const firstRetire = deferred<boolean>(),
+    secondRetire = deferred<boolean>()
+  const firstFault = new NativeTerminalImportQuarantined(
+    new Error('old send'),
+    () => firstRetire.promise,
+  )
+  const secondFault = new NativeTerminalImportQuarantined(
+    new Error('new send'),
+    () => secondRetire.promise,
+  )
+  f.imports.acquire
+    .mockReturnValueOnce(firstSend.promise)
+    .mockReturnValueOnce(secondSend.promise)
+  const old = await f.owner.attach('state', f.session, f.target)
+  await f.owner.update(old, { width: 64, height: 32, backingScale: 1, visible: true })
+  const first = f.owner.demand(old)
+  await vi.waitFor(() => expect(f.imports.acquire).toHaveBeenCalledOnce())
+  const current = await f.owner.attach('state', f.session, f.target)
+  await f.owner.update(current, { width: 64, height: 32, backingScale: 1, visible: true })
+  const second = f.owner.demand(current)
+  await vi.waitFor(() => expect(f.imports.acquire).toHaveBeenCalledTimes(2))
+  firstSend.reject(firstFault)
+  await first
+  secondSend.reject(secondFault)
+  await expect(second).rejects.toBe(secondFault)
+  firstRetire.resolve(true)
+  await new Promise<void>((resolve) => setTimeout(resolve, 25))
+  expect(f.owner.isInputCurrent(current)).toBe(false)
+  expect(f.host.takeFrame).toHaveBeenCalledTimes(2)
+  f.consumed.resolve()
+  secondRetire.resolve(true)
+  await vi.waitFor(() => expect(f.owner.isInputCurrent(current)).toBe(true))
+  expect(f.host.takeFrame).toHaveBeenCalledTimes(3)
+})
+
+it('retains unavailable presentation on an unknown writer fence', async () => {
+  const f = fixture(),
+    retirement = deferred<boolean>()
+  const fault = new NativeTerminalImportQuarantined(
+    new Error('send timeout'),
+    () => retirement.promise,
+  )
+  const id = await f.owner.attach('state', f.session, f.target)
+  await f.owner.update(id, { width: 64, height: 32, backingScale: 1, visible: true })
+  f.imports.acquire.mockRejectedValueOnce(fault)
+  await expect(f.owner.demand(id)).rejects.toBe(fault)
+  retirement.reject(new Error('retirement unknown'))
+  await new Promise<void>((resolve) => setTimeout(resolve, 25))
+  expect(f.owner.isInputCurrent(id)).toBe(false)
+  await expect(f.owner.demand(id)).resolves.toBe(false)
+  expect(f.host.takeFrame).toHaveBeenCalledOnce()
+})

@@ -24,6 +24,7 @@ export class NativeTerminalSurface {
   private readonly element = document.createElement('div')
   private readonly message = document.createElement('div')
   private visible = false
+  private requestedVisible = false
   private disposed = false
   private pending = false
   private animation?: number
@@ -60,7 +61,8 @@ export class NativeTerminalSurface {
   }
   setPresentation(presentation: TerminalPresentation): void {
     if (this.disposed) return
-    this.visible = presentation === 'visible'
+    this.requestedVisible = presentation === 'visible'
+    this.visible = this.requestedVisible
     this.revision++
     const revision = this.revision
     if (this.visible) this.schedule()
@@ -138,14 +140,27 @@ export class NativeTerminalSurface {
     }
   }
   private status(status: NativeTerminalPresentationStatus): void {
-    if (status.viewId !== this.viewId) return
+    if (this.disposed || status.viewId !== this.viewId) return
     this.message.textContent =
       status.mode === 'native-pixels'
         ? 'Compatibility rendering'
         : status.mode === 'unavailable'
           ? 'Terminal unavailable'
           : ''
-    if (status.mode === 'unavailable') this.visible = false
+    if (status.mode === 'unavailable') {
+      this.visible = false
+      if (this.animation !== undefined) cancelAnimationFrame(this.animation)
+      this.animation = undefined
+    } else if (
+      (status.mode === 'native-gpu' || status.mode === 'native-pixels') &&
+      this.requestedVisible &&
+      !this.visible
+    ) {
+      // Old demand failure must not overwrite this newly authorized status.
+      this.revision++
+      this.visible = true
+      this.schedule()
+    }
   }
   private unavailable(): void {
     this.status({ viewId: this.viewId, mode: 'unavailable' })

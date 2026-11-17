@@ -55,8 +55,11 @@ premultiplication and format. A completed producer lease remains immutable until
 Electron's `allReferencesReleased` callback. A renderer acknowledgement or closing
 one VideoFrame is insufficient. Indeterminate import or send failures retain the immutable source, received OS
 reference, main import (if one was returned), and one of the three import credits
-for the application lifetime. Presentation becomes unavailable and its grant is
-revoked. The same parser continues accepting authoritative output, readback, and
+for the application lifetime. An exact producer writer-retirement fence may release
+only the original producer hold while the independently retained immutable receipt,
+import and credit remain quarantined (ADR-093). Pending, failed or unknown fences
+retain the source; joined actor-ended cleanup is never same-parser recovery.
+Presentation becomes unavailable and its grant is revoked. The same parser continues accepting authoritative output, readback, and
 acknowledged geometry; presentation failure does not destroy the terminal state.
 A destroyed receiver or the old high-level callback is insufficient to reclaim
 these resources: Electron 43.8.1 can create a late consumer after its send timeout
@@ -143,7 +146,11 @@ unavailable view even when no frame demand is active. Cleanup hide remains valid
 for its exact old attachment after renderer revocation; showing still requires
 current renderer authority. A late quarantine is keyed to the prepared handle
 and native epoch and also revokes a replacement that attached before the failure
-became known. A layout update cannot reactivate such a blocked producer.
+became known. A layout update alone cannot reactivate such a blocked producer.
+Only exact writer retirement plus successful original source release removes its
+matching fault reason; newer faults and other epochs are unaffected. Fresh current
+grant/draw precedes input and owner-visible frame scheduling resumption. Hidden,
+disposed and failed-receiver views retain their ordinary authority/rebind rules.
 
 A backing extent within the arithmetic guard still needs actual device, memory and
 latency qualification. Large-viewport proofs must observe exact source/current-grant

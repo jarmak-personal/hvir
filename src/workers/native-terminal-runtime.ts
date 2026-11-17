@@ -56,6 +56,8 @@ interface NativeResult extends NativeSelectionEngineResult {
   unavailable?: number
   source?: 'user' | 'terminal-response'
   requestedMutation?: bigint
+  request?: bigint
+  retirementStatus?: number
   captured?: boolean
   caret?: unknown
 }
@@ -374,6 +376,33 @@ export function runNativeTerminalHost(
         frames.delete(state)
         return value
       }
+      case 'retire-frame-begin':
+      case 'retire-frame-status': {
+        const frame = frames.get(state)
+        if (!frame || frame.lease.toString() !== command.lease)
+          throw new Error('native-frame-lease-mismatch')
+        const args = [state, command.lease]
+        if (command.kind === 'retire-frame-status') args.push(command.request)
+        const value = requireOk(await invoke(state, command.kind, args))
+        if (command.kind === 'retire-frame-begin') {
+          if (
+            typeof value.request !== 'bigint' ||
+            value.request <= 0n ||
+            value.request > 0xffffffffffffffffn
+          )
+            throw new Error('native-retirement-result-invalid')
+          return { request: value.request.toString() }
+        }
+        const status = value.retirementStatus
+        if (
+          typeof status !== 'number' ||
+          !Number.isInteger(status) ||
+          status < 1 ||
+          status > 4
+        )
+          throw new Error('native-retirement-result-invalid')
+        return { status }
+      }
       case 'destroy': {
         const value = await invoke(state, 'destroy', [state])
         if (value.result === 0) {
@@ -573,6 +602,17 @@ function validCommand(value: NativeTerminalCommand): boolean {
     case 'release':
     case 'pixels':
       return typeof value.lease === 'string' && /^[1-9][0-9]{0,19}$/.test(value.lease)
+    case 'retire-frame-begin':
+    case 'retire-frame-status':
+      return (
+        typeof value.lease === 'string' &&
+        /^[1-9][0-9]{0,19}$/.test(value.lease) &&
+        BigInt(value.lease) <= 0xffffffffffffffffn &&
+        (value.kind === 'retire-frame-begin' ||
+          (typeof value.request === 'string' &&
+            /^[1-9][0-9]{0,19}$/.test(value.request) &&
+            BigInt(value.request) <= 0xffffffffffffffffn))
+      )
     default:
       return false
   }

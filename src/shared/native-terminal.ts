@@ -186,6 +186,8 @@ export type NativeTerminalCommand =
   | { kind: 'frame'; state: string; ticket: string }
   | { kind: 'transfer'; state: string; lease: string; ticket: string }
   | { kind: 'release'; state: string; lease: string }
+  | { kind: 'retire-frame-begin'; state: string; lease: string }
+  | { kind: 'retire-frame-status'; state: string; lease: string; request: string }
 /** Count both producer and encoder payloads in the existing physical credits. */
 export function nativeTerminalCommandBytes(command: NativeTerminalCommand): number {
   if (command.kind === 'appearance')

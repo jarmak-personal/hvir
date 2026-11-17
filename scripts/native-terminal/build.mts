@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { cp, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import {
   buildInputFlags,
@@ -10,6 +10,7 @@ import {
   verifyArtifact,
   validQueryProof,
   validAppearanceProof,
+  validFrameRetirementProof,
   withAppearanceFontFixture,
   qualifyNativeFontCases,
 } from './artifacts.mts'
@@ -30,16 +31,41 @@ const [target, requestedWork, ...rest] = process.argv.slice(2)
 const selected = target && pin.targets[target]
 if (!selected || !requestedWork || rest.length % 2)
   throw new Error(
-    'Usage: native:build -- TARGET NEW_WORK [--zig PATH] [--source-archive PATH] [--packages PATH]',
+    'Usage: native:build -- TARGET NEW_WORK [--zig PATH] [--source-archive PATH] [--packages PATH] [--jobs 1|2 --local-cache EXISTING] [--retirement-probe 1]',
   )
 const options = new Map<string, string>()
 for (let n = 0; n < rest.length; n += 2) {
   const key = rest[n]!,
     value = rest[n + 1]!
-  if (!['--zig', '--source-archive', '--packages'].includes(key) || options.has(key))
+  if (
+    ![
+      '--zig',
+      '--source-archive',
+      '--packages',
+      '--jobs',
+      '--local-cache',
+      '--retirement-probe',
+    ].includes(key) ||
+    options.has(key)
+  )
     throw new Error('Invalid build option')
-  options.set(key, resolve(value))
+  options.set(
+    key,
+    ['--jobs', '--retirement-probe'].includes(key) ? value : resolve(value),
+  )
 }
+if (options.has('--jobs') && !['1', '2'].includes(options.get('--jobs')!))
+  throw new Error('native-build: jobs must be 1 or 2')
+if (
+  (options.has('--jobs') || options.has('--local-cache')) &&
+  (!options.has('--zig') || !options.has('--packages'))
+)
+  throw new Error('native-build: reused execution inputs require prepared Zig/packages')
+if (
+  options.has('--retirement-probe') &&
+  (options.get('--retirement-probe') !== '1' || selected.platform !== 'darwin')
+)
+  throw new Error('native-build: retirement proof requires Darwin and selector 1')
 if (process.platform !== selected.platform || process.arch !== selected.arch)
   throw new Error(
     'native-build: use a matching native host; cross-build is not loader evidence',
@@ -95,10 +121,22 @@ const inventory = JSON.parse(
 const packageNames = await readdir(packages)
 if (Object.keys(inventory).some((name) => !packageNames.includes(name)))
   throw new Error('native-build: incomplete dependency cache')
+const localCache = options.has('--local-cache')
+  ? await realpath(options.get('--local-cache')!)
+  : join(work, 'local-cache')
+if (
+  options.has('--local-cache') &&
+  (!(await stat(localCache)).isDirectory() ||
+    localCache === repository ||
+    localCache.startsWith(repository + '/') ||
+    localCache === work ||
+    localCache.startsWith(work + '/'))
+)
+  throw new Error('native-build: invalid reusable cache directory')
 const prefix = join(work, 'install')
 const args = [
   'build',
-  '-j2',
+  `-j${options.get('--jobs') ?? '2'}`,
   '--system',
   packages,
   // --system makes Linux prefer ambient libraries unless explicitly disabled.
@@ -111,7 +149,7 @@ const args = [
   '-fno-sys=oniguruma',
   ...(selected.platform === 'linux' ? ['-fno-sys=libxml2'] : []),
   '--cache-dir',
-  join(work, 'local-cache'),
+  localCache,
   '-Dapp-runtime=none',
   '-Demit-lib-vt=false',
   '-Demit-xcframework=false',
@@ -271,6 +309,79 @@ await writeFile(
   JSON.stringify(facadeResult, null, 2) + '\n',
 )
 console.log(facade.stdout.trim())
+if (options.has('--retirement-probe')) {
+  await run(
+    'cc',
+    [
+      '-std=c11',
+      '-Wall',
+      '-Wextra',
+      '-Werror',
+      ...nativeIncludes,
+      ...[
+        'terminal.c',
+        'terminal_input.c',
+        'terminal_appearance.c',
+        'terminal_effects.c',
+        'terminal_selection.c',
+        'terminal_query.c',
+        'linux_display.c',
+        'resource_macos.c',
+        'frame_retirement_probe.c',
+      ].map((file) => join(repository, 'packages/native-terminal', file)),
+      '-pthread',
+      ...nativeLibraries,
+      '-lbsm',
+      '-o',
+      join(output, 'frame-retirement-probe'),
+    ],
+    repository,
+  )
+  const proof = await execute(
+    join(output, 'frame-retirement-probe'),
+    [join(output, selected.library)],
+    { timeout: 180_000 },
+  ).catch(async (error: unknown) => {
+    const failed = error as { stdout?: unknown; stderr?: unknown }
+    await Promise.allSettled([
+      writeFile(
+        join(work, 'frame-retirement.stdout.jsonl'),
+        typeof failed.stdout === 'string' ? failed.stdout : '',
+      ),
+      writeFile(
+        join(work, 'frame-retirement.stderr.log'),
+        typeof failed.stderr === 'string' ? failed.stderr : '',
+      ),
+    ])
+    throw error
+  })
+  await writeFile(join(work, 'frame-retirement.stdout.jsonl'), proof.stdout)
+  await writeFile(join(work, 'frame-retirement.stderr.log'), proof.stderr)
+  const rows = proof.stdout
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as unknown)
+  const value = {
+    schema: 1,
+    summary: rows.at(-1),
+    cases: rows.filter(
+      (row) =>
+        !!row &&
+        typeof row === 'object' &&
+        'kind' in row &&
+        row.kind === 'native-frame-retirement-case',
+    ),
+  }
+  if (!validFrameRetirementProof(value))
+    throw new Error('native-retirement: incomplete proof')
+  await writeFile(
+    join(output, 'frame-retirement-proof.json'),
+    JSON.stringify(value, null, 2) + '\n',
+  )
+  await writeFile(join(work, 'frame-retirement.stdout.jsonl'), proof.stdout)
+  await writeFile(join(work, 'frame-retirement.stderr.log'), proof.stderr)
+}
+
 // Linux Fontconfig can substitute an unrelated ambient monospace font even for
 // a missing family. This probe-only fixture makes shaping assertions deterministic.
 if (selected.platform === 'linux') {
@@ -590,8 +701,10 @@ await writeFile(
             ).stdout.trim(),
           ),
         ),
+        cacheReused: options.has('--local-cache'),
+        retirementProbe: options.has('--retirement-probe'),
         options: args.map((a) =>
-          a.startsWith(work) || a === packages ? '<build-path>' : a,
+          a.startsWith(work) || a === packages || a === localCache ? '<build-path>' : a,
         ),
         loader: 'passed',
         loaderRefusals: ['missing-library', 'wrong-version', 'missing-embedding-ABI'],

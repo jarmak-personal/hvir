@@ -1,0 +1,175 @@
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1599,8 +1599,19 @@
+             config.@"font-feature".parseCLI(alloc, "-liga") catch return false;
+             config.@"font-feature".parseCLI(alloc, "-calt") catch return false;
+         }
+-        config.@"cursor-style" = switch (value.cursor_shape) { 0 => .block, 1 => .bar, 2 => .underline, 3 => .block_hollow, else => unreachable };
+-        config.@"cursor-style-blink" = switch (value.cursor_blink) { 0 => null, 1 => true, 2 => false, else => unreachable };
++        config.@"cursor-style" = switch (value.cursor_shape) {
++            0 => .block,
++            1 => .bar,
++            2 => .underline,
++            3 => .block_hollow,
++            else => unreachable,
++        };
++        config.@"cursor-style-blink" = switch (value.cursor_blink) {
++            0 => null,
++            1 => true,
++            2 => false,
++            else => unreachable,
++        };
+         const Color = configpkg.Config.Color;
+         var colors: [22]Color = undefined;
+         for (value.colors, 0..) |rgb, i| {
+@@ -1634,6 +1645,15 @@
+         const io = &surface.core_surface.io;
+         if (mode > 1 or io.backend != .external or io.backend.external.failed.load(.acquire)) return false;
+         surface.core_surface.reportPresentationHealth(if (mode == 1) .unhealthy else .healthy);
++        return true;
++    }
++
++    export fn ghostty_external_retire_frame(surface: *Surface, request: u64) bool {
++        const core = &surface.core_surface;
++        if (request == 0 or core.io.backend != .external or
++            !core.io.backend.external.frame_held.load(.acquire)) return false;
++        if (core.renderer_thread.mailbox.push(global.io(), .{ .external_frame_retire = request }, .instant) == 0) return false;
++        core.renderer_thread.wakeup.notify() catch return false;
+         return true;
+     }
+ 
+--- a/src/main_c.zig
++++ b/src/main_c.zig
+@@ -266,5 +266,5 @@
+ 
+ // Version of the pinned upstream hooks consumed by hvir's maintained C facade.
+ export fn hvir_ghostty_embed_abi() u32 {
+-    return 10;
+-}
++    return 11;
++}
+--- a/src/renderer/OpenGL.zig
++++ b/src/renderer/OpenGL.zig
+@@ -32,6 +32,13 @@
+ /// Triple-buffering gives the GPU room to pipeline renders without
+ /// having to wait on the apprt consuming previous frames.
+ pub const swap_chain_count = 3;
++
++/// Called only by the owning render thread with its GL context current.
++pub fn retireExternalWrites(self: *OpenGL) !void {
++    _ = self;
++    gl.finish();
++    try gl.errors.getError();
++}
+ 
+ const log = std.log.scoped(.opengl);
+ 
+--- a/src/renderer/Thread.zig
++++ b/src/renderer/Thread.zig
+@@ -399,6 +399,7 @@
+                 grid.set.deref(grid.old_key);
+             },
+ 
++            .external_frame_retire => |request| self.renderer.retireExternalFrame(request),
+             .external_mutation => |serial| {
+                 self.state.mutex.lockUncancelable(global.io());
+                 self.state.external_mutation = @max(self.state.external_mutation, serial);
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -114,6 +114,8 @@
+         /// This mutex must be held whenever any state used in `drawFrame` is
+         /// being modified, and also when it's being accessed in `drawFrame`.
+         draw_mutex: std.Io.Mutex = .init,
++        /// Joins the tail after the completion callback posts its frame permit.
++        completion_tail: std.Io.Mutex = .init,
+ 
+         /// The configuration we need derived from the main config.
+         config: DerivedConfig,
+@@ -334,12 +336,14 @@
+                 return result;
+             }
+ 
+-            pub fn deinit(self: *SwapChain) void {
++            pub fn deinit(self: *SwapChain, completion_tail: *std.Io.Mutex) void {
+                 // Wait for all of our inflight draws to complete
+                 // so that we can cleanly deinit our GPU state.
+                 for (0..buf_count) |_| self.frame_sema.waitUncancelable(
+                     global.io(),
+                 );
++                completion_tail.lockUncancelable(global.io());
++                defer completion_tail.unlock(global.io());
+                 for (&self.frames) |*frame| frame.deinit();
+             }
+ 
+@@ -1263,6 +1267,30 @@
+             }
+         }
+ 
++        /// Render-thread mailbox command. draw_mutex excludes all target writers;
++        /// the held export prevents subsequent draws until ordinary source release.
++        pub fn retireExternalFrame(self: *Self, request: u64) void {
++            const external = self.externalTransport() orelse return;
++            self.draw_mutex.lockUncancelable(global.io());
++            defer self.draw_mutex.unlock(global.io());
++            if (!external.frame_held.load(.acquire) or external.failed.load(.acquire) or
++                self.health.load(.seq_cst) != .healthy)
++            {
++                external.config.frame_retired(external.config.userdata, request, 3);
++                return;
++            }
++            if (@hasDecl(GraphicsAPI, "retireExternalWrites")) {
++                self.api.retireExternalWrites() catch {
++                    external.config.frame_retired(external.config.userdata, request, 3);
++                    return;
++                };
++            }
++            // Destroys every target and custom-shader writable alias after GPU
++            // completion AND callback tails; cached images never alias targets.
++            self.releaseGpuResources();
++            external.config.frame_retired(external.config.userdata, request, if (self.health.load(.seq_cst) == .healthy and !external.failed.load(.acquire)) 2 else 3);
++        }
++
+         /// Release the GPU resources we hold while the surface is not
+         /// visible. Today this is the swap chain (render targets, font
+         /// atlas texture copies, cell buffers, custom shader textures),
+@@ -1279,7 +1307,7 @@
+             if (self.swap_chain) |*sc| {
+                 // Waits for any in-flight frames to complete, then
+                 // frees all GPU resources.
+-                sc.deinit();
++                sc.deinit(&self.completion_tail);
+                 self.swap_chain = null;
+             }
+ 
+--- a/src/renderer/message.zig
++++ b/src/renderer/message.zig
+@@ -27,6 +27,8 @@
+     reset_cursor_blink,
+     /// Ordered after input IO effects and prior renderer focus/state messages.
+     external_mutation: u64,
++    /// Retire all producer writes while preserving the external frame hold.
++    external_frame_retire: u64,
+ 
+     /// Change the font grid. This can happen for any number of reasons
+     /// including a font size change, family change, etc.
+--- a/src/renderer/metal/Frame.zig
++++ b/src/renderer/metal/Frame.zig
+@@ -68,6 +68,8 @@
+     block: *const CompletionBlock.Context,
+     buffer_id: objc.c.id,
+ ) callconv(.c) void {
++    block.renderer.completion_tail.lockUncancelable(@import("../../global.zig").io());
++    defer block.renderer.completion_tail.unlock(@import("../../global.zig").io());
+     const buffer = objc.Object.fromId(buffer_id);
+ 
+     // Get our command buffer status to pass back to the generic renderer.
+--- a/src/termio/External.zig
++++ b/src/termio/External.zig
+@@ -168,6 +168,7 @@
+     input: ?*const fn (?*anyopaque, u32, [*]const u8, usize) callconv(.c) bool,
+     mutation_applied: ?*const fn (?*anyopaque, u64) callconv(.c) void,
+     feed_applied: ?*const fn (?*anyopaque, u64) callconv(.c) void,
++    frame_retired: *const fn (?*anyopaque, u64, u32) callconv(.c) void,
+ };
+ config: Config,
+ sequence: u64 = 0,

@@ -19,6 +19,7 @@ import {
   verifyArtifact,
   validQueryProof,
   validAppearanceProof,
+  validFrameRetirementProof,
   withAppearanceFontFixture,
   qualifyNativeFontCases,
   type NativeArtifact,
@@ -590,4 +591,65 @@ describe('native font case configuration authority', () => {
       }
     }
   })
+})
+
+// Recorded C/resource wire example; parser fixtures do not rerun GPU qualification.
+async function retirementProof() {
+  return JSON.parse(
+    await readFile(
+      new URL('./fixtures/native-terminal-frame-retirement-proof.json', import.meta.url),
+      'utf8',
+    ),
+  ) as {
+    schema: number
+    summary: Record<string, unknown>
+    cases: Record<string, unknown>[]
+  }
+}
+it('admits the complete real retirement wire and rejects partial/actor-ended recovery claims', async () => {
+  const proof = await retirementProof()
+  expect(validFrameRetirementProof(proof)).toBe(true)
+  expect(validFrameRetirementProof({ ...proof, cases: proof.cases.slice(1) })).toBe(false)
+  const ended = structuredClone(proof)
+  ended.cases[0]!.retirementStatus = 4
+  expect(validFrameRetirementProof(ended)).toBe(false)
+  const incomplete = structuredClone(proof)
+  incomplete.cases[0]!.freshFrames = 2
+  expect(validFrameRetirementProof(incomplete)).toBe(false)
+  const early = structuredClone(proof)
+  early.cases[0]!.pendingReleaseRefused = false
+  expect(validFrameRetirementProof(early)).toBe(false)
+})
+it('validates an opted-in artifact retirement proof without making it mandatory for ordinary artifacts', async () => {
+  const proof = await retirementProof()
+  await writeFile(join(root, 'frame-retirement-probe'), 'recorded-probe-placeholder')
+  await writeFile(join(root, 'frame-retirement-proof.json'), JSON.stringify(proof))
+  const extra = await Promise.all(
+    ['frame-retirement-probe', 'frame-retirement-proof.json'].map(async (path) => ({
+      path,
+      sha256: await digest(join(root, path)),
+      bytes: (await readFile(join(root, path))).length,
+    })),
+  )
+  await save({
+    ...manifest,
+    build: { ...manifest.build, retirementProbe: true },
+    files: [...manifest.files, ...extra],
+  })
+  await expect(verifyArtifact(root, 'macos-arm64')).resolves.toBeDefined()
+  proof.cases.pop()
+  await writeFile(join(root, 'frame-retirement-proof.json'), JSON.stringify(proof))
+  extra[1] = {
+    path: 'frame-retirement-proof.json',
+    sha256: await digest(join(root, 'frame-retirement-proof.json')),
+    bytes: (await readFile(join(root, 'frame-retirement-proof.json'))).length,
+  }
+  await save({
+    ...manifest,
+    build: { ...manifest.build, retirementProbe: true },
+    files: [...manifest.files, ...extra],
+  })
+  await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow(
+    'invalid retirement proof',
+  )
 })

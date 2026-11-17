@@ -100,6 +100,7 @@ export async function createNativeTerminalApplication(
     host,
     new NativeTerminalFrameImports(processOwner, sharedTexture),
     linux?.presentationMode,
+    (viewId) => application.resumePresentation(viewId),
   )
   const application: NativeTerminalApplication = new NativeTerminalApplication(
     sessions,
@@ -516,6 +517,20 @@ export class NativeTerminalApplication {
         status.geometry.rows,
         owner.generation,
       )
+  }
+  /** Main-owned recovery reuses current layout/geometry and PTY acknowledgement. */
+  async resumePresentation(viewId: string): Promise<boolean> {
+    const view = this.views.get(viewId)
+    if (
+      !view ||
+      !view.visible ||
+      !view.layout?.visible ||
+      view.detaching ||
+      !this.isCurrent(view.owner)
+    )
+      return false
+    await this.update(viewId, view.owner, view.layout)
+    return this.views.get(viewId) === view && view.visible && !!view.layout?.visible
   }
   async demand(viewId: string, owner: RendererOwner): Promise<boolean> {
     this.requireView(viewId, owner)

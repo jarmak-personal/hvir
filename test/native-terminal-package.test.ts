@@ -50,7 +50,7 @@ beforeEach(async () => {
     source,
     target: 'linux-x64',
     pinSha256: 'b'.repeat(64),
-    embedAbi: 10,
+    embedAbi: 11,
     applicationVersion: '1.4.1-dev',
     vtVersion: '1.0.1',
     build: {
@@ -72,7 +72,7 @@ beforeEach(async () => {
       source,
       target: 'linux-x64',
       pinSha256: sdk.pinSha256,
-      embedAbi: 10,
+      embedAbi: 11,
       manifestSha256: digest(JSON.stringify(sdk)),
     },
     outputs: ['engine', 'resource'].map((name) => ({
@@ -120,7 +120,7 @@ describe('trusted installed native code', () => {
       join(root, 'ghostty-internal.so'),
     )
     expect(await inspectNativeTerminalPackage(root, bindings, 'linux-x64')).toMatchObject(
-      { source, embedAbi: 10, signed: false },
+      { source, embedAbi: 11, signed: false },
     )
   })
   it.each(['ghostty-internal.so', 'engine', 'resource'])(
@@ -145,7 +145,7 @@ describe('trusted installed native code', () => {
     )
   })
   it.each([
-    ['embedAbi', 9],
+    ['embedAbi', 10],
     ['target', 'linux-arm64'],
     ['applicationVersion', 'wrong'],
   ])('rejects wrong %s', async (key, value) => {

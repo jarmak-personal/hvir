@@ -334,6 +334,13 @@ declare const engine: {
   ): Result & { data?: Buffer }
   takeFrame(host: Host, id: bigint): Result & { frame?: Frame }
   releaseFrame(host: Host, id: bigint, lease: bigint): Result
+  retireFrameBegin(host: Host, id: bigint, lease: bigint): Result & { request?: bigint }
+  retireFrameStatus(
+    host: Host,
+    id: bigint,
+    lease: bigint,
+    request: bigint,
+  ): Result & { status?: number }
   destroy(host: Host, id: bigint): Result
   close(host: Host): Result
 }

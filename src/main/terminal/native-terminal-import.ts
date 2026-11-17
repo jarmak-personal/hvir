@@ -151,7 +151,10 @@ export class NativeTerminalGpuImportUnavailable extends Error {
 }
 /** GPU ownership has no usable physical release proof for this app lifetime. */
 export class NativeTerminalImportQuarantined extends Error {
-  constructor(cause: unknown) {
+  constructor(
+    cause: unknown,
+    readonly retireProducer?: () => Promise<boolean>,
+  ) {
     super(
       `native-import-quarantined: ${cause instanceof Error ? cause.message : 'unknown ownership'}`,
       { cause },
@@ -180,6 +183,7 @@ export class NativeTerminalFrameImports {
     source: NativeTerminalAcquiredFrame
     receipt?: Receipt
     imported?: ReturnType<SharedTexture['importSharedTexture']>
+    retiring?: Promise<boolean>
   }>()
 
   constructor(
@@ -254,6 +258,38 @@ export class NativeTerminalFrameImports {
           throw error
         }
       }
+    }
+    const quarantine = (
+      cause: unknown,
+      ownedReceipt: Receipt | undefined,
+      imported?: ReturnType<SharedTexture['importSharedTexture']>,
+    ): NativeTerminalImportQuarantined => {
+      const entry: {
+        source: NativeTerminalAcquiredFrame
+        receipt?: Receipt
+        imported?: ReturnType<SharedTexture['importSharedTexture']>
+        retiring?: Promise<boolean>
+      } = { source, receipt: ownedReceipt, imported }
+      this.quarantined.add(entry)
+      trace?.('quarantined', cause)
+      // Only this owner can release the validated receipt. Quarantine suppresses
+      // all such paths; the strong entry remains pinned even after source release.
+      const retire =
+        ownedReceipt && !receiptReleased && source.retireProducer
+          ? (): Promise<boolean> => {
+              entry.retiring ??= (async () => {
+                if (
+                  !this.quarantined.has(entry) ||
+                  receiptReleased ||
+                  !source.retireProducer
+                )
+                  return false
+                return (await source.retireProducer()) === 'retired'
+              })()
+              return entry.retiring
+            }
+          : undefined
+      return new NativeTerminalImportQuarantined(cause, retire)
     }
     try {
       assertCurrent(source, target)
@@ -458,9 +494,7 @@ export class NativeTerminalFrameImports {
             // recording its sync token. Neither target death nor an old callback
             // proves that late GPU work gone. Keep all owners and bounded credit
             // for this app lifetime; the parser itself remains live.
-            this.quarantined.add({ source, receipt: ownedReceipt, imported })
-            trace?.('quarantined', error)
-            const unavailable = new NativeTerminalImportQuarantined(error)
+            const unavailable = quarantine(error, ownedReceipt, imported)
             rejectReleased(unavailable)
             throw unavailable
           }
@@ -478,11 +512,9 @@ export class NativeTerminalFrameImports {
       }
     } catch (error) {
       if (indeterminateImport) {
-        this.quarantined.add({ source, receipt })
-        trace?.('quarantined', error)
-        // Keep the immutable renderer lease, not a parser retirement. PTY feed
-        // and readback stay live while this presentation remains unavailable.
-        throw new NativeTerminalImportQuarantined(error)
+        // The receipt/import/credit remain quarantined. Only a positive writer
+        // retirement may release the producer hold; consumer completion is unknown.
+        throw quarantine(error, receipt)
       }
       try {
         releaseReceipt()

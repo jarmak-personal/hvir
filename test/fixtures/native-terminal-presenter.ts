@@ -161,7 +161,20 @@ export function nativeTerminalPresenterFixture(linuxMode?: 'auto' | 'pixels') {
     publishStatus: vi.fn(),
     sendPixels,
   } satisfies NativeTerminalPresentationTarget
-  const owner = new NativeTerminalPresenter(host, imports, linuxMode)
+  const owner: NativeTerminalPresenter = new NativeTerminalPresenter(
+    host,
+    imports,
+    linuxMode,
+    async (viewId) => {
+      await owner.update(viewId, {
+        width: width / backingScale,
+        height: height / backingScale,
+        backingScale,
+        visible: true,
+      })
+      return true
+    },
+  )
   return {
     owner,
     host,

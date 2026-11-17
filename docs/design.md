@@ -891,8 +891,9 @@ and [compatibility inventory](native-terminal-compatibility.md).
 
 ### [ADR-087 — Preserve terminal state through indeterminate presentation failures](adr/ADR-087-indeterminate-native-presentation-quarantine.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) | partial | Native presentation failure recovery and resource lifetime after indeterminate texture import or delivery.
+> Superseded by: [ADR-093](adr/ADR-093-native-producer-retirement-and-consumer-quarantine.md) | partial | Conditional producer-lease release after a proved writer-retirement fence while consumer resources remain quarantined.
 
 Keep authoritative terminal state alive when texture import or delivery cannot prove
 physical completion. Retain bounded immutable resources through application shutdown;
@@ -942,6 +943,15 @@ pane capabilities without a renderer transcript or complete result mirror.
 
 Existing settings feed bounded native configuration with applied serials, palette-preserving
 lifetimes and measured typography geometry before PTY notification.
+
+### [ADR-093 — Retire producer writes independently of quarantined consumers](adr/ADR-093-native-producer-retirement-and-consumer-quarantine.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-087](adr/ADR-087-indeterminate-native-presentation-quarantine.md) | partial | Conditional producer-lease release after a proved writer-retirement fence while consumer resources remain quarantined.
+
+An exact completed writer-retirement fence may release the producer's held lease while
+independently owned immutable consumer resources and import credits remain quarantined.
+Only a fresh authorized frame can restore visible presentation and input availability.
 
 ## 5. Architecture
 

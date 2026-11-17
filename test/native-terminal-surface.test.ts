@@ -329,6 +329,98 @@ describe('retained native terminal surface adapter', () => {
     expect(frames.size).toBe(0)
   })
 
+  it.each(['native-gpu', 'native-pixels'] as const)(
+    'resumes requested visible demand on %s while preserving cached geometry',
+    async (mode) => {
+      const f = fixture()
+      f.surface.setPresentation('visible')
+      await frame()
+      expect(frames.size).toBe(1)
+      f.status({ viewId, mode: 'unavailable' })
+      expect(frames.size).toBe(0)
+      await frame()
+      expect(f.port.demand).toHaveBeenCalledTimes(1)
+      f.status({ viewId, mode })
+      expect(frames.size).toBe(1)
+      await frame()
+      expect(f.port.demand).toHaveBeenCalledTimes(2)
+      expect(f.port.update).toHaveBeenCalledTimes(1)
+      expect(f.api.mount).toHaveBeenCalledTimes(1)
+      expect(f.message.textContent).toBe(
+        mode === 'native-pixels' ? 'Compatibility rendering' : '',
+      )
+    },
+  )
+
+  it('keeps unavailable and foreign success statuses from restarting scheduling', async () => {
+    const f = fixture()
+    f.surface.setPresentation('visible')
+    await frame()
+    f.status({ viewId, mode: 'unavailable' })
+    f.status({ viewId, mode: 'unavailable' })
+    f.status({ viewId: 'other-view', mode: 'native-gpu' })
+    await frame()
+    expect(frames.size).toBe(0)
+    expect(f.port.demand).toHaveBeenCalledTimes(1)
+    expect(f.message.textContent).toBe('Terminal unavailable')
+  })
+
+  it('does not resume a hidden or reparented surface until its owner requests visibility', async () => {
+    const f = fixture()
+    f.surface.setPresentation('visible')
+    await frame()
+    f.status({ viewId, mode: 'unavailable' })
+    f.surface.reparent(f.detail)
+    f.status({ viewId, mode: 'native-gpu' })
+    await frame()
+    expect(frames.size).toBe(0)
+    expect(f.port.demand).toHaveBeenCalledTimes(1)
+    f.surface.setPresentation('visible')
+    await frame()
+    expect(f.port.demand).toHaveBeenCalledTimes(2)
+    expect(f.port.update).toHaveBeenLastCalledWith(viewId, {
+      width: 640,
+      height: 400,
+      backingScale: 1,
+      visible: true,
+    })
+    expect(f.detail.firstElementChild).toBe(f.element)
+  })
+
+  it('ignores late status callbacks after disposal', async () => {
+    const f = fixture()
+    f.surface.setPresentation('visible')
+    await frame()
+    f.status({ viewId, mode: 'unavailable' })
+    f.surface.dispose()
+    f.status({ viewId, mode: 'native-gpu' })
+    f.status({ viewId, mode: 'native-pixels' })
+    await frame()
+    expect(f.port.demand).toHaveBeenCalledTimes(1)
+    expect(frames.size).toBe(0)
+    expect(f.message.textContent).toBe('Terminal unavailable')
+    expect(f.api.unmount).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores an old pending demand rejection after a success status resumes the requested surface', async () => {
+    const f = fixture()
+    const old = deferred<void>()
+    f.port.demand.mockReturnValueOnce(old.promise)
+    f.surface.setPresentation('visible')
+    await frame()
+    f.status({ viewId, mode: 'unavailable' })
+    f.status({ viewId, mode: 'native-gpu' })
+    await frame()
+    expect(f.port.demand).toHaveBeenCalledTimes(1)
+    old.reject(new Error('old unavailable demand'))
+    await flush()
+    expect(f.message.textContent).toBe('')
+    await frame()
+    expect(f.port.demand).toHaveBeenCalledTimes(2)
+    expect(f.port.update).toHaveBeenCalledTimes(1)
+    expect(frames.size).toBe(1)
+  })
+
   it('disposes idempotently and ignores a late geometry result after unmount', async () => {
     const f = fixture()
     const pending = deferred<unknown>()

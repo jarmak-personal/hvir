@@ -130,6 +130,8 @@ export class NativeTerminalProcess implements NativeTerminalProcessPort {
       command,
       signal,
       command.kind === 'release' ||
+        command.kind === 'retire-frame-begin' ||
+        command.kind === 'retire-frame-status' ||
         command.kind === 'destroy' ||
         (command.kind === 'selection' &&
           (command.operation.kind === 'close' || command.operation.kind === 'finish')) ||

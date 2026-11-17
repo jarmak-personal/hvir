@@ -8,6 +8,9 @@ import {
   inputNativeTerminalProducer,
   selectionNativeTerminalProducer,
   queryNativeTerminalProducer,
+  retireNativeTerminalProducerFrame,
+  validNativeTerminalProducerFrame,
+  validNativeTerminalProducerRendererInfo,
 } from './native-terminal-producer'
 import type { NativeTerminalLinkQuery } from '../../shared/native-terminal-link'
 import type { NativeTerminalQueryOperation } from '../../shared/native-terminal-query-operations'
@@ -35,7 +38,6 @@ import {
   type NativeTerminalSession,
   type NativeTerminalStatus,
   type NativeTerminalFrameInfo,
-  type NativeTerminalFrameResource,
   type NativeTerminalRendererInfo,
 } from '../../shared/native-terminal'
 
@@ -72,6 +74,8 @@ interface Binding {
   frameHeld: boolean
   closing: boolean
   nativeDestroyed: boolean
+  surfaceEnded?: boolean
+  retirementRelease?: () => Promise<void>
   lastFrame?: NativeTerminalFrameInfo
   retiring?: Promise<void>
   finishing?: Promise<void>
@@ -85,6 +89,8 @@ export interface NativeTerminalAcquiredFrame {
   transfer(ticket: string): Promise<void>
   assertCurrent(): void
   release(): Promise<void>
+  /** Exact producer-writer fence and original release; never consumer completion. */
+  retireProducer?(): Promise<'retired' | 'actor-ended'>
 }
 /** Main-only authority. Renderer payloads never supply the binding's PTY identity. */
 export class NativeTerminalHost {
@@ -418,7 +424,8 @@ export class NativeTerminalHost {
       binding.abort.signal,
     )
     this.requireProducer(handle, instanceId)
-    if (!validRendererInfo(value)) throw new Error('native-renderer-info-invalid')
+    if (!validNativeTerminalProducerRendererInfo(value))
+      throw new Error('native-renderer-info-invalid')
     const status = await this.inspectProducer(handle, instanceId)
     return {
       ...value,
@@ -606,7 +613,8 @@ export class NativeTerminalHost {
         throw new Error('native-frame-state-unavailable')
       }
       metadata = value as NativeTerminalFrameMetadata
-      if (!validFrame(metadata)) throw new Error('native-frame-invalid')
+      if (!validNativeTerminalProducerFrame(metadata))
+        throw new Error('native-frame-invalid')
       const { lease: _lease, ...frameInfo } = metadata
       binding.lastFrame = structuredClone(frameInfo)
     } catch (error) {
@@ -630,6 +638,7 @@ export class NativeTerminalHost {
     }
     let released = false
     let releasing: Promise<void> | undefined
+    let retiring: Promise<'retired' | 'actor-ended'> | undefined
     const release = (): Promise<void> => {
       if (releasing) return releasing
       releasing = (async () => {
@@ -639,6 +648,7 @@ export class NativeTerminalHost {
           () => false,
         )
         released = true
+        if (binding.retirementRelease === release) binding.retirementRelease = undefined
         binding.frameHeld = false
         if (binding.closing) await this.finishRetirement(handle, binding)
       })()
@@ -667,6 +677,57 @@ export class NativeTerminalHost {
       metadata,
       assertCurrent,
       release,
+      retireProducer: () => {
+        retiring ??= (async () => {
+          const current = (): void => {
+            if (
+              this.disposed ||
+              this.bindings.get(handle) !== binding ||
+              released ||
+              releasing ||
+              !binding.frameHeld ||
+              !this.process.available ||
+              binding.epoch !== this.process.epoch
+            )
+              throw new Error('native-frame-retirement-stale')
+          }
+          if (this.process.hasExited?.(binding.epoch)) {
+            await release()
+            return 'actor-ended'
+          }
+          current()
+          binding.retirementRelease = release
+          if (binding.surfaceEnded) {
+            await release()
+            return 'actor-ended'
+          }
+          let outcome: 'retired' | 'actor-ended'
+          try {
+            outcome = await retireNativeTerminalProducerFrame({
+              port: this.process,
+              state: binding.state,
+              lease: metadata.lease,
+              current,
+            })
+          } catch (error) {
+            if (!binding.surfaceEnded) throw error
+            await release()
+            return 'actor-ended'
+          }
+          await release()
+          if (
+            outcome === 'actor-ended' ||
+            binding.nativeDestroyed ||
+            this.process.hasExited?.(binding.epoch)
+          )
+            return 'actor-ended'
+          // Cleanup may settle after a physical process exit. That is not recovery.
+          if (this.requireProducer(handle, binding.session.instanceId) !== binding)
+            throw new Error('native-frame-retirement-stale')
+          return 'retired'
+        })()
+        return retiring
+      },
       copyPixels: async () => {
         assertCurrent()
         const result = await this.process.request(
@@ -735,8 +796,12 @@ export class NativeTerminalHost {
       binding.epoch,
       () => binding.frameHeld,
     ).then((result) => {
+      // C BUSY here follows joined surface_free; physical exit is also cleanup
+      // evidence. Neither is a same-parser writer-retirement success.
+      binding.surfaceEnded = true
       binding.nativeDestroyed = result === 'complete'
     })
+    void binding.retiring.then(() => binding.retirementRelease?.()).catch(() => undefined)
     return binding.retiring
   }
   private finishRetirement(handle: string, binding: Binding): Promise<void> {
@@ -907,94 +972,4 @@ export class NativeTerminalHost {
       throw new Error('native-host-lost')
     return binding
   }
-}
-function validFrame(value: NativeTerminalFrameMetadata): boolean {
-  return (
-    !!value &&
-    /^[1-9][0-9]{0,19}$/.test(value.lease) &&
-    [1, 2, 3].includes(value.kind) &&
-    [0, 1].includes(value.screen) &&
-    Number.isSafeInteger(value.geometrySerial) &&
-    value.geometrySerial > 0 &&
-    Number.isSafeInteger(value.streamSequence) &&
-    value.streamSequence >= 0 &&
-    Number.isSafeInteger(value.snapshotMutation) &&
-    value.snapshotMutation >= 0 &&
-    [1, 2].includes(value.colorSpace) &&
-    [1, 2].includes(value.origin) &&
-    typeof value.premultiplied === 'boolean' &&
-    validFrameResource(value.resource, value.kind) &&
-    Number.isInteger(value.width) &&
-    value.width > 0 &&
-    value.width <= 8192 &&
-    Number.isInteger(value.height) &&
-    value.height > 0 &&
-    value.height <= 8192
-  )
-}
-
-function validFrameResource(value: NativeTerminalFrameResource, kind: number): boolean {
-  return (
-    !!value &&
-    Number.isInteger(value.fourcc) &&
-    value.fourcc >= 0 &&
-    value.fourcc <= 0xffffffff &&
-    typeof value.modifier === 'string' &&
-    /^(0|[1-9][0-9]{0,19})$/.test(value.modifier) &&
-    BigInt(value.modifier) <= 0xffffffffffffffffn &&
-    Array.isArray(value.planes) &&
-    (kind === 2
-      ? value.planes.length >= 1 && value.planes.length <= 4
-      : value.planes.length === 0) &&
-    value.planes.every(
-      (plane: NativeTerminalFrameResource['planes'][number]) =>
-        !!plane &&
-        Number.isInteger(plane.stride) &&
-        plane.stride > 0 &&
-        plane.stride <= 0xffffffff &&
-        Number.isInteger(plane.offset) &&
-        plane.offset >= 0 &&
-        plane.offset <= 0xffffffff &&
-        Number.isSafeInteger(plane.size) &&
-        plane.size > 0 &&
-        plane.offset + plane.stride <= plane.size,
-    )
-  )
-}
-interface RawRendererInfo {
-  available: boolean
-  glVendor: string
-  glRenderer: string
-  glVersion: string
-  eglVendor: string
-  eglVersion: string
-  renderNode: string
-  pixelFrames: number
-  dmaBufFrames: number
-}
-function validRendererInfo(value: unknown): value is RawRendererInfo {
-  if (!value || typeof value !== 'object') return false
-  const info = value as RawRendererInfo
-  return (
-    typeof info.available === 'boolean' &&
-    [
-      info.glVendor,
-      info.glRenderer,
-      info.glVersion,
-      info.eglVendor,
-      info.eglVersion,
-      info.renderNode,
-    ].every(
-      (text) =>
-        typeof text === 'string' &&
-        text.length <= 255 &&
-        !Array.from(text).some(
-          (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
-        ),
-    ) &&
-    (info.renderNode === '' || /^\/dev\/dri\/renderD[0-9]+$/.test(info.renderNode)) &&
-    [info.pixelFrames, info.dmaBufFrames].every(
-      (count) => Number.isSafeInteger(count) && count >= 0,
-    )
-  )
 }

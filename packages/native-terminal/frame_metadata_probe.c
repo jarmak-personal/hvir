@@ -222,11 +222,135 @@ static ghostty_surface_t reject_native_create(ghostty_app_t app, void *display,
   return NULL;
 }
 
+static unsigned retirement_calls, retirement_releases;
+static uint32_t retirement_mode;
+static uint32_t retirement_join_status;
+static bool retirement_held, joined_guard_observed;
+static bool request_retirement(ghostty_surface_t surface, uint64_t request) {
+  terminal_state *state = (terminal_state *)surface;
+  retirement_calls++;
+  if (retirement_mode == 1) return false;
+  if (retirement_mode == 2) frame_retired(state, request, HVIR_FRAME_RETIRE_RETIRED);
+  return true;
+}
+static bool release_retirement(ghostty_surface_t surface) {
+  (void)surface;
+  retirement_releases++;
+  retirement_held = false;
+  return true;
+}
+static void join_retirement(ghostty_surface_t surface) {
+  terminal_state *state = (terminal_state *)surface;
+  uint32_t status = 0;
+  frame_retired(state, state->retirement_request, HVIR_FRAME_RETIRE_RETIRED);
+  joined_guard_observed = state->closing && !state->surface_ended &&
+    hvir_terminal_retire_frame_status(state->host, state->id, state->frame.lease,
+      state->retirement_request, &status) == HVIR_OK && status == retirement_join_status &&
+    hvir_terminal_release_frame(state->host, state->id, state->frame.lease) == HVIR_BUSY &&
+    state->frame_taken && retirement_held;
+}
+static void hold_retirement(terminal_state *state, uint64_t lease) {
+  state->frame = (hvir_terminal_frame){.kind=1,.lease=lease,.stream_sequence=17,
+    .snapshot_mutation=3,.geometry_serial=2,.width=640,.height=480};
+  state->frame_available = state->frame_taken = retirement_held = true;
+}
+static bool retirement_guards(void) {
+  hvir_terminal_host host = {.caller=pthread_self(), .external_frame_retire=request_retirement,
+    .external_frame_release=release_retirement, .surface_free=join_retirement};
+  terminal_state state = {.host=&host,.id=1};
+  state.surface = (ghostty_surface_t)&state; host.states = &state;
+  if (pthread_mutex_init(&host.events, NULL)) return false;
+  if (pthread_cond_init(&host.changed, NULL)) { pthread_mutex_destroy(&host.events); return false; }
+  bool ok = false; uint64_t request=0, duplicate=0; uint32_t status=0;
+  unsigned calls=0;
+  retirement_calls=retirement_releases=retirement_mode=0;
+#define RETIRE_REQUIRE(value, name) do { if (!verify((value), (name))) goto finish; } while (0)
+  hold_retirement(&state, 1);
+  RETIRE_REQUIRE(hvir_terminal_retire_frame_begin(&host,1,2,&request)==HVIR_INVALID && !request &&
+    !retirement_calls && !state.retirement_requested, "foreign-lease-cannot-start-retirement");
+  RETIRE_REQUIRE(hvir_terminal_retire_frame_begin(&host,1,1,&request)==HVIR_OK && request &&
+    hvir_terminal_retire_frame_status(&host,1,1,request,&status)==HVIR_OK &&
+    status==HVIR_FRAME_RETIRE_PENDING && retirement_calls==1,
+    "begin-is-pending-record-not-positive-fence");
+  RETIRE_REQUIRE(hvir_terminal_retire_frame_begin(&host,1,1,&duplicate)==HVIR_OK &&
+    duplicate==request && retirement_calls==1, "duplicate-begin-never-reenqueues");
+  RETIRE_REQUIRE(hvir_terminal_release_frame(&host,1,1)==HVIR_BUSY && !state.last_released &&
+    state.frame_taken && state.frame_available && state.frame.lease==1 && retirement_held &&
+    !retirement_releases, "pending-release-keeps-source-and-external-held-ownership");
+  frame_retired(&state,request+1,HVIR_FRAME_RETIRE_RETIRED);
+  frame_retired(&state,request,HVIR_FRAME_RETIRE_ACTOR_ENDED);
+  RETIRE_REQUIRE(hvir_terminal_retire_frame_status(&host,1,1,request+1,&status)==HVIR_INVALID &&
+    hvir_terminal_release_frame(&host,1,1)==HVIR_BUSY,
+    "wrong-token-and-invalid-callback-status-cannot-authorize-release");
+  state.retirement_status=0;
+  RETIRE_REQUIRE(hvir_terminal_release_frame(&host,1,1)==HVIR_BUSY && retirement_held,
+    "unknown-retirement-status-keeps-release-guard");
+  state.retirement_status=HVIR_FRAME_RETIRE_PENDING;
+  state.closing=true;
+  frame_retired(&state,request,HVIR_FRAME_RETIRE_RETIRED);
+  RETIRE_REQUIRE(hvir_terminal_retire_frame_status(&host,1,1,request,&status)==HVIR_OK &&
+    status==HVIR_FRAME_RETIRE_PENDING && hvir_terminal_release_frame(&host,1,1)==HVIR_BUSY &&
+    state.frame_taken && retirement_held && !state.surface_ended,
+    "closing-or-queued-stop-alone-never-authorizes-cleanup");
+  state.closing=false;
+  frame_retired(&state,request,HVIR_FRAME_RETIRE_FAILED);
+  frame_retired(&state,request,HVIR_FRAME_RETIRE_RETIRED);
+  RETIRE_REQUIRE(hvir_terminal_retire_frame_status(&host,1,1,request,&status)==HVIR_OK &&
+    status==HVIR_FRAME_RETIRE_FAILED && hvir_terminal_release_frame(&host,1,1)==HVIR_BUSY &&
+    state.frame_taken && !state.last_released && retirement_held,
+    "failed-fence-is-sticky-against-late-positive");
+  /* End this synthetic actor so the failed source is cleaned up, not recovered. */
+  retirement_join_status=HVIR_FRAME_RETIRE_FAILED; joined_guard_observed=false;
+  RETIRE_REQUIRE(hvir_terminal_destroy(&host,1)==HVIR_BUSY && joined_guard_observed &&
+    !state.surface && state.surface_ended &&
+    hvir_terminal_retire_frame_status(&host,1,1,request,&status)==HVIR_OK &&
+    status==HVIR_FRAME_RETIRE_ACTOR_ENDED && hvir_terminal_release_frame(&host,1,1)==HVIR_OK &&
+    !state.frame_taken && !retirement_releases,
+    "only-joined-actor-ended-allows-cleanup-not-same-parser-retirement");
+  state.closing=state.surface_ended=false; state.surface=(ghostty_surface_t)&state;
+  hold_retirement(&state,2); retirement_mode=2;
+  RETIRE_REQUIRE(hvir_terminal_retire_frame_begin(&host,1,2,&duplicate)==HVIR_OK && duplicate>request &&
+    hvir_terminal_retire_frame_status(&host,1,2,duplicate,&status)==HVIR_OK &&
+    status==HVIR_FRAME_RETIRE_RETIRED && hvir_terminal_release_frame(&host,1,2)==HVIR_OK &&
+    retirement_releases==1 && !retirement_held && state.last_released==2,
+    "synchronous-exact-positive-allows-one-ordinary-release-rearm");
+  hold_retirement(&state,3);
+  frame_retired(&state,duplicate,HVIR_FRAME_RETIRE_RETIRED);
+  RETIRE_REQUIRE(hvir_terminal_release_frame(&host,1,2)==HVIR_OK && state.frame_taken &&
+    state.frame.lease==3 && retirement_held && retirement_releases==1,
+    "old-release-and-late-callback-never-clear-fresh-frame");
+  RETIRE_REQUIRE(hvir_terminal_release_frame(&host,1,3)==HVIR_OK && retirement_releases==2 &&
+    !retirement_held, "no-begin-lease-keeps-original-release-behavior");
+  hold_retirement(&state,4); retirement_mode=1;
+  RETIRE_REQUIRE(hvir_terminal_retire_frame_begin(&host,1,4,&request)==HVIR_OK && request>duplicate &&
+    hvir_terminal_retire_frame_status(&host,1,4,request,&status)==HVIR_OK &&
+    status==HVIR_FRAME_RETIRE_FAILED, "enqueue-refusal-keeps-valid-token-and-sticky-failed-status");
+  calls=retirement_calls;
+  RETIRE_REQUIRE(hvir_terminal_retire_frame_begin(&host,1,4,&duplicate)==HVIR_OK &&
+    duplicate==request && retirement_calls==calls, "failed-begin-duplicate-never-reenqueues");
+  frame_retired(&state,request,HVIR_FRAME_RETIRE_RETIRED);
+  RETIRE_REQUIRE(hvir_terminal_release_frame(&host,1,4)==HVIR_BUSY && state.frame_taken &&
+    state.last_released==3 && retirement_held, "enqueue-failure-cannot-be-resurrected-or-released");
+  clear_frame(&state); hold_retirement(&state,5); host.next_retirement_request=UINT64_MAX;
+  calls=retirement_calls;
+  RETIRE_REQUIRE(hvir_terminal_retire_frame_begin(&host,1,5,&request)==HVIR_BOUND && !request &&
+    retirement_calls==calls && hvir_terminal_retire_frame_begin(&host,1,5,&duplicate)==HVIR_BOUND &&
+    !duplicate && hvir_terminal_release_frame(&host,1,5)==HVIR_BUSY && state.frame_taken &&
+    state.last_released==3 && retirement_held, "host-token-overflow-retains-sticky-failed-release-guard");
+  ok=true;
+finish:
+  clear_frame(&state);
+  pthread_cond_destroy(&host.changed); pthread_mutex_destroy(&host.events);
+  return ok;
+#undef RETIRE_REQUIRE
+}
+
 int main(void) {
 #ifdef __APPLE__
   IOSurfaceRef copy_surface = NULL;
 #endif
   if (!input_faults()) return 1;
+  if (!retirement_guards()) return 1;
   int result = 1, pipes[2] = {-1, -1};
   FILE *source = NULL;
   hvir_terminal_host host = {0};
@@ -270,7 +394,8 @@ int main(void) {
           "create-begin-publishes-owned-state-without-waiting-for-geometry");
   REQUIRE(observed_config.pixel_export_limit == HVIR_TERMINAL_PIXEL_MAX &&
           observed_config.presentation_mode == 0 && observed_config.renderer_info &&
-          observed_config.write && observed_config.applied && observed_config.frame,
+          observed_config.write && observed_config.applied && observed_config.frame &&
+          observed_config.frame_retired,
           "external-config-explicit-limit-initial-auto-and-renderer-info-hook");
   hvir_terminal_status pending_status;
   hvir_terminal_frame initializing_frame;

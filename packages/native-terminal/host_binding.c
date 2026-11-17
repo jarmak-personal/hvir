@@ -40,7 +40,8 @@ typedef enum {
   PRESENTATION_MODE,
   RENDERER_INFO,
   INPUT,
-  LINK, SELECTION, EXTRACT_BEGIN, EXTRACT_NEXT, EXTRACT_FINISH, EXTRACT_CLOSE, LINK_CURRENT, LINK_ROW_BEGIN, APPEARANCE
+  LINK, SELECTION, EXTRACT_BEGIN, EXTRACT_NEXT, EXTRACT_FINISH, EXTRACT_CLOSE, LINK_CURRENT, LINK_ROW_BEGIN, APPEARANCE,
+  RETIRE_FRAME_BEGIN, RETIRE_FRAME_STATUS
 } operation;
 static binding_host *host(napi_env env, napi_value value) {
   bool matches = false;
@@ -481,7 +482,7 @@ static napi_value appearance_operation(napi_env env, binding_host *host, uint64_
 }
 
 static napi_value invoke(napi_env env, napi_callback_info info) {
-  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4, 3, 2, 3, 3, 4, 4, 3, 3, 3, 3, 3, 4};
+  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4, 3, 2, 3, 3, 4, 4, 3, 3, 3, 3, 3, 4, 3, 4};
   size_t argc = 8;
   napi_value args[8];
   void *data;
@@ -503,6 +504,21 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
   uint32_t width = 0, height = 0, capacity = 0;
   if (op != CREATE && op != CLOSE && !u64(env, args[1], &id))
     return NULL;
+  if (op == RETIRE_FRAME_BEGIN || op == RETIRE_FRAME_STATUS) {
+    if (!u64(env, args[2], &serial)) return NULL;
+    uint64_t request = 0;
+    uint32_t status = 0;
+    if (op == RETIRE_FRAME_STATUS && !u64(env, args[3], &request)) return NULL;
+    const hvir_terminal_result code = op == RETIRE_FRAME_BEGIN
+      ? hvir_terminal_retire_frame_begin(h->native, id, serial, &request)
+      : hvir_terminal_retire_frame_status(h->native, id, serial, request, &status);
+    napi_value value = outcome(env, code);
+    if (!value) return NULL;
+    if (code == HVIR_OK && !put(env, value,
+        op == RETIRE_FRAME_BEGIN ? "request" : "status",
+        op == RETIRE_FRAME_BEGIN ? big(env, request) : number(env, status))) return NULL;
+    return value;
+  }
   if (op == INPUT) {
     bool read_only = false;
     if (argc >= 4) {
@@ -857,7 +873,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
 static napi_value initialize(napi_env env, napi_value exports) {
   static const char *names[] = {"open",         "createBegin", "feed", "resize", "inspect",
                                 "read",         "drain",       "key",  "event",  "takeFrame",
-                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame", "presentationMode", "rendererInfo", "input", "link", "selection", "extractBegin", "extractNext", "extractFinish", "extractClose", "linkCurrent", "linkRowBegin", "appearance"};
+                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame", "presentationMode", "rendererInfo", "input", "link", "selection", "extractBegin", "extractNext", "extractFinish", "extractClose", "linkCurrent", "linkRowBegin", "appearance", "retireFrameBegin", "retireFrameStatus"};
   for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
     napi_value function;
     if (!checked(env, napi_create_function(env, names[i], NAPI_AUTO_LENGTH, invoke,

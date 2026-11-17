@@ -11,6 +11,7 @@ import { NativeTerminalAdmissionError } from '../../shared/native-terminal'
 import { hostPathEquals } from '../../shared/host-path'
 import {
   qualifyNativeReplacement,
+  NATIVE_REPLACEMENT_ERRORS as knownErrors,
   type NativeReplacementExpected,
   type NativeReplacementSnapshot,
 } from './native-terminal-replacement-outcome'
@@ -18,6 +19,7 @@ import {
   observeNativeInputSend,
   type observeNativeTerminalUtilities,
 } from './native-terminal-utility-observation'
+import { verifyNativeTerminalQuarantineRecovery } from './native-terminal-quarantine-recovery'
 import { nativeTargetDiagnostic } from './native-terminal-import-diagnostic'
 
 /** Destructive qualification follows all seed-session input/query/pixel proofs.
@@ -154,69 +156,6 @@ export async function verifyNativeTerminalFailureLifetimes(
   // Public method references are invoked solely through .apply with the caller's this.
   const update = Reflect.get<typeof native, 'update'>(native, 'update')
   const demand = Reflect.get<typeof native, 'demand'>(native, 'demand')
-  const knownErrors = [
-    'native-view-foreign',
-    'native-session-foreign',
-    'native-view-stale',
-    'native-view-hidden',
-    'native-state-foreign',
-    'native-state-closed',
-    'native-attachment-stale',
-    'native-session-revoked',
-    'native-producer-revoked',
-    'native-host-lost',
-    'native-host-closed',
-    'native-command-bound',
-    'native-admission-bound',
-    'native-request-bound',
-    'native-request-timeout',
-    'native-operation-failed',
-    'cancelled',
-    'native-presentation-target-stale',
-    'native-presentation-view-stale',
-    'native-presentation-frame-stale',
-    'native-presentation-grant-stale',
-    'native-presentation-geometry-invalid',
-    'native-presentation-serial-bound',
-    'native-presentation-unavailable',
-    'native-presentation-closed',
-    'native-refit-revocation-failed',
-    'native-geometry-stale',
-    'native-geometry-failed',
-    'native-geometry-superseded',
-    'native-geometry-timeout',
-    'native-scale-unacknowledged',
-    'native-extent-invalid',
-    'native-status-invalid',
-    'native-visibility-invalid',
-    'native-mode-invalid',
-    'native-frame-bound',
-    'native-frame-stale',
-    'native-frame-invalid',
-    'native-frame-state-unavailable',
-    'native-pixel-bound',
-    'native-pixel-receiver-rejected',
-    'native-pixel-upload-bound',
-    'native-pixel-upload-timeout',
-    'native-pixel-upload-failed',
-    'native-import-target-stale',
-    'native-import-bound',
-    'native-import-released',
-    'native-import-presentation-invalid',
-    'native-gpu-import-unavailable',
-    'native-resource-kind',
-    'native-resource-ticket',
-    'native-resource-metadata',
-    'native-resource-format',
-    'native-resource-plane',
-    'native-input-unavailable',
-    'native-input-apply-timeout',
-    'native-input-capacity-invalid',
-    'native-view-unfocused',
-    'native-focus-stale',
-    'native-readonly-input-emitted',
-    'pty-native-output-closed',
-  ] as const
   type Observation = {
     operation: 'grant' | 'status' | 'update' | 'demand'
     state: 'started' | 'fulfilled' | 'rejected' | 'returned' | 'threw'
@@ -481,100 +420,98 @@ export async function verifyNativeTerminalFailureLifetimes(
       observed?: NativeReplacementSnapshot
       outcome?: 'drawn' | 'quarantined'
     } = {}
+    const readReplacement = async (): Promise<boolean> => {
+      const current = resources.currentOwner(initialOwner.id)
+      if (current.generation <= initialOwner.generation || !resources.isCurrent(current))
+        return false
+      const frame = win.webContents.mainFrame
+      const dom = await evaluate<NonNullable<NativeReplacementSnapshot['dom']>>(
+        `const panes=[...document.querySelectorAll('.native-terminal-pane')];const canvases=document.querySelectorAll('.native-terminal-pane canvas');const dialog=document.querySelector('.terminal-recovery-dialog');const restore=dialog&&[...dialog.querySelectorAll('button')].find(node=>node.textContent?.trim()==='Restore selected');return {hasCanvas:canvases.length>0,canvasCount:Math.min(canvases.length,8),panes:panes.slice(0,8).map(pane=>{const surface=pane.querySelector('[id^="native-terminal-"]');const input=pane.querySelector('textarea');return {viewId:surface?.id.slice(0,100)??null,sessionId:pane.closest('[data-terminal-session]')?.getAttribute('data-terminal-session')?.slice(0,100)??null,connected:pane.isConnected,canvasPresent:!!surface?.querySelector('canvas'),paneUnavailable:pane.textContent?.includes('Native terminal unavailable')??false,surfaceUnavailable:surface?.querySelector('[role="status"]')?.textContent==='Terminal unavailable',inputDisabled:input instanceof HTMLTextAreaElement?input.disabled:null};}),dialogPresent:!!dialog,restorePresent:restore instanceof HTMLButtonElement,restoreDisabled:restore instanceof HTMLButtonElement?restore.disabled:null};`,
+      )
+      if (!resources.isCurrent(current) || frame !== win.webContents.mainFrame)
+        return false
+      const pane = dom.panes?.find(
+        (pane) =>
+          pane.sessionId === managed.id && pane.viewId?.startsWith('native-terminal-'),
+      )
+      const viewId = pane?.viewId?.slice('native-terminal-'.length)
+      const drawn = viewId && native.targets.drawn(viewId, frame)
+      const retained = ptys.get(managed.id)
+      const state = native.sessions.get(managed.id)
+      const replacementObservation: NativeReplacementSnapshot = {
+        recoveryDecision,
+        owner: { ...current },
+        retained: retained && {
+          id: retained.id,
+          instanceId: retained.instanceId,
+          pid: retained.pid,
+          providerId: retained.providerId,
+          profileId: retained.profileId ?? null,
+          workspaceRoot: { ...retained.workspaceRoot },
+          ownerId: retained.ownerId,
+          ownerGeneration: retained.ownerGeneration,
+        },
+        native: state && {
+          handle: state.handle,
+          instanceId: state.session.instanceId,
+          ownerId: state.session.ownerId,
+          ownerGeneration: state.session.ownerGeneration,
+          workspaceRoot: { ...state.session.workspaceRoot },
+          retiring: state.retiring,
+          unavailable: state.unavailable,
+          inputUnavailable: state.inputUnavailable,
+          inputClosed: state.inputClosed,
+          readonly: state.readonly,
+        },
+        presentation: {
+          viewId: viewId ?? null,
+          issuedGrant:
+            granted && granted.viewId === viewId && grantedScope
+              ? {
+                  viewId: granted.viewId,
+                  target: grantedScope.target,
+                  frameCurrent: grantedScope.frame === frame,
+                  attachment: granted.attachment,
+                  nativeEpoch: granted.nativeEpoch,
+                  geometrySerial: granted.geometrySerial,
+                }
+              : undefined,
+          drawn: drawn
+            ? { screen: drawn.screen, geometrySerial: drawn.geometrySerial }
+            : null,
+          observations: {
+            startedBeforeReload,
+            total: observationTotal,
+            demandSummary: { ...demandSummary, scope: 'all-observed' },
+            truncated,
+            readFailed: observationReadFailed,
+            currentView: observations.filter(
+              (event) =>
+                event.viewId === viewId &&
+                event.frameCurrent !== false &&
+                (event.ownerId === undefined ||
+                  (event.ownerId === current.id &&
+                    event.ownerGeneration === current.generation)),
+            ),
+            mainSendIsNotReceiverDelivery: true,
+            unboundRetained: observations.filter((event) => event.viewId === undefined)
+              .length,
+            otherViewRetained: observations.filter(
+              (event) => event.viewId !== undefined && event.viewId !== viewId,
+            ).length,
+          },
+        },
+        dom,
+      }
+      replacementResult.observed = replacementObservation
+      replacementResult.outcome = qualifyNativeReplacement(
+        replacementExpected,
+        replacementObservation,
+      )
+      return replacementResult.outcome !== undefined
+    }
     try {
-      await wait(async () => {
-        const current = resources.currentOwner(initialOwner.id)
-        if (
-          current.generation <= initialOwner.generation ||
-          !resources.isCurrent(current)
-        )
-          return false
-        const frame = win.webContents.mainFrame
-        const dom = await evaluate<NonNullable<NativeReplacementSnapshot['dom']>>(
-          `const panes=[...document.querySelectorAll('.native-terminal-pane')];const canvases=document.querySelectorAll('.native-terminal-pane canvas');const dialog=document.querySelector('.terminal-recovery-dialog');const restore=dialog&&[...dialog.querySelectorAll('button')].find(node=>node.textContent?.trim()==='Restore selected');return {hasCanvas:canvases.length>0,canvasCount:Math.min(canvases.length,8),panes:panes.slice(0,8).map(pane=>{const surface=pane.querySelector('[id^="native-terminal-"]');const input=pane.querySelector('textarea');return {viewId:surface?.id.slice(0,100)??null,sessionId:pane.closest('[data-terminal-session]')?.getAttribute('data-terminal-session')?.slice(0,100)??null,connected:pane.isConnected,canvasPresent:!!surface?.querySelector('canvas'),paneUnavailable:pane.textContent?.includes('Native terminal unavailable')??false,surfaceUnavailable:surface?.querySelector('[role="status"]')?.textContent==='Terminal unavailable',inputDisabled:input instanceof HTMLTextAreaElement?input.disabled:null};}),dialogPresent:!!dialog,restorePresent:restore instanceof HTMLButtonElement,restoreDisabled:restore instanceof HTMLButtonElement?restore.disabled:null};`,
-        )
-        if (!resources.isCurrent(current) || frame !== win.webContents.mainFrame)
-          return false
-        const pane = dom.panes?.find(
-          (pane) =>
-            pane.sessionId === managed.id && pane.viewId?.startsWith('native-terminal-'),
-        )
-        const viewId = pane?.viewId?.slice('native-terminal-'.length)
-        const drawn = viewId && native.targets.drawn(viewId, frame)
-        const retained = ptys.get(managed.id)
-        const state = native.sessions.get(managed.id)
-        const replacementObservation: NativeReplacementSnapshot = {
-          recoveryDecision,
-          owner: { ...current },
-          retained: retained && {
-            id: retained.id,
-            instanceId: retained.instanceId,
-            pid: retained.pid,
-            providerId: retained.providerId,
-            profileId: retained.profileId ?? null,
-            workspaceRoot: { ...retained.workspaceRoot },
-            ownerId: retained.ownerId,
-            ownerGeneration: retained.ownerGeneration,
-          },
-          native: state && {
-            handle: state.handle,
-            instanceId: state.session.instanceId,
-            ownerId: state.session.ownerId,
-            ownerGeneration: state.session.ownerGeneration,
-            workspaceRoot: { ...state.session.workspaceRoot },
-            retiring: state.retiring,
-            unavailable: state.unavailable,
-            inputUnavailable: state.inputUnavailable,
-            inputClosed: state.inputClosed,
-            readonly: state.readonly,
-          },
-          presentation: {
-            viewId: viewId ?? null,
-            issuedGrant:
-              granted && granted.viewId === viewId && grantedScope
-                ? {
-                    viewId: granted.viewId,
-                    target: grantedScope.target,
-                    frameCurrent: grantedScope.frame === frame,
-                    attachment: granted.attachment,
-                    nativeEpoch: granted.nativeEpoch,
-                    geometrySerial: granted.geometrySerial,
-                  }
-                : undefined,
-            drawn: drawn
-              ? { screen: drawn.screen, geometrySerial: drawn.geometrySerial }
-              : null,
-            observations: {
-              startedBeforeReload,
-              total: observationTotal,
-              demandSummary: { ...demandSummary, scope: 'all-observed' },
-              truncated,
-              readFailed: observationReadFailed,
-              currentView: observations.filter(
-                (event) =>
-                  event.viewId === viewId &&
-                  event.frameCurrent !== false &&
-                  (event.ownerId === undefined ||
-                    (event.ownerId === current.id &&
-                      event.ownerGeneration === current.generation)),
-              ),
-              mainSendIsNotReceiverDelivery: true,
-              unboundRetained: observations.filter((event) => event.viewId === undefined)
-                .length,
-              otherViewRetained: observations.filter(
-                (event) => event.viewId !== undefined && event.viewId !== viewId,
-              ).length,
-            },
-          },
-          dom,
-        }
-        replacementResult.observed = replacementObservation
-        replacementResult.outcome = qualifyNativeReplacement(
-          replacementExpected,
-          replacementObservation,
-        )
-        return replacementResult.outcome !== undefined
-      }, 'replacement-document')
+      await wait(readReplacement, 'replacement-document')
     } catch (error) {
       console.error(
         'HVIR_NATIVE_REPLACEMENT_FAILURE',
@@ -582,8 +519,8 @@ export async function verifyNativeTerminalFailureLifetimes(
       )
       throw error
     }
-    const { observed: replacementObserved, outcome: replacementOutcome } =
-      replacementResult
+    let { observed: replacementObserved, outcome: replacementOutcome } = replacementResult
+    const initialReplacement = { ...replacementResult }
     if (!replacementObserved || !replacementOutcome)
       throw new Error('native-lifecycle-replacement-unqualified')
     const owner = resources.currentOwner(initialOwner.id)
@@ -629,9 +566,26 @@ export async function verifyNativeTerminalFailureLifetimes(
         'HVIR_QUARANTINE_PARSER',
         'quarantine-parser-progress',
       )
+      try {
+        await wait(
+          async () => (await readReplacement()) && replacementResult.outcome === 'drawn',
+          'replacement-producer-recovery',
+        )
+        replacementObserved = replacementResult.observed!
+        replacementOutcome = 'drawn'
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          error.message !==
+            'native-lifecycle-failure-timeout:replacement-producer-recovery'
+        )
+          throw error
+      }
+    }
+    if (replacementOutcome === 'quarantined') {
       let inputRevoked = false
       try {
-        await native.key(newView, owner, { key: 0, modifiers: 0, action: 1, text: 'x' })
+        await native.key(newView, owner, { key: 0, modifiers: 0, action: 1, text: '' })
       } catch (error) {
         if (error instanceof Error && error.message === 'native-presentation-unavailable')
           inputRevoked = true
@@ -707,6 +661,7 @@ export async function verifyNativeTerminalFailureLifetimes(
       outcome: replacementOutcome,
       expected: replacementExpected,
       observed: replacementObserved,
+      initial: initialReplacement,
       parserProgress: replacementOutcome === 'quarantined' ? true : null,
       presentationRevoked: replacementOutcome === 'quarantined' ? true : null,
       inputRevoked: replacementOutcome === 'quarantined' ? true : null,
@@ -717,6 +672,37 @@ export async function verifyNativeTerminalFailureLifetimes(
     }
     if (!granted || granted.viewId !== newView)
       throw new Error('native-lifecycle-replacement-grant')
+    await wait(
+      () =>
+        ['native-gpu', 'native-pixels'].includes(
+          observations.findLast(
+            (event) =>
+              event.operation === 'status' &&
+              event.viewId === newView &&
+              event.state === 'returned',
+          )?.mode ?? '',
+        ),
+      'automatic-recovery-presentation-mode',
+    )
+    const automaticQuarantineRecovery = await verifyNativeTerminalQuarantineRecovery({
+      win,
+      ptys,
+      native,
+      resources,
+      managed,
+      owner,
+      viewId: newView,
+      handle,
+      grant: currentGrant,
+      eligible:
+        observations.findLast(
+          (event) =>
+            event.operation === 'status' &&
+            event.viewId === newView &&
+            event.state === 'returned',
+        )?.mode === 'native-gpu',
+      wait,
+    })
     const beforeRejectedRefit = granted
     const extent = await evaluate<{
       width: number
@@ -921,6 +907,7 @@ export async function verifyNativeTerminalFailureLifetimes(
     return {
       additionalLaunches: replacementOutcome === 'quarantined' ? 4 : 3,
       replacement,
+      automaticQuarantineRecovery,
       explicitRestart: true,
       readonlyInstanceRetired: true,
       splitClosed: true,

@@ -12,7 +12,10 @@ import {
   type NativeTerminalAcquiredFrame,
   type NativeTerminalAuthority,
 } from '../../src/main/terminal/native-terminal-host'
-import { NativeTerminalFrameImports } from '../../src/main/terminal/native-terminal-import'
+import {
+  NativeTerminalFrameImports,
+  NativeTerminalImportQuarantined,
+} from '../../src/main/terminal/native-terminal-import'
 import { NativeTerminalProcess } from '../../src/main/terminal/native-terminal-process'
 import { UI_RESPONSIVENESS_BUDGET as budgets } from '../../src/shared/ui-responsiveness-budget'
 
@@ -385,6 +388,14 @@ void app
     shutdown.dispose()
     await assert.rejects(pending)
     let timeoutQuarantine: string = 'not-applicable-owned-pixels'
+    let producerRetirementRecovery:
+      | {
+          freshFrames: number
+          retainedConsumerChecks: number
+          frameCopies: number
+          sameNativeEpoch: true
+        }
+      | undefined
     processPort = nativeProcess(library)
     host = new NativeTerminalHost(processPort, authority)
     const d = await host.prepare(first, 640, 384)
@@ -454,13 +465,15 @@ void app
         isCurrent: () => !target.isDestroyed(),
       })
       phase('quarantine')
+      await armHold(target, true)
       const beforeLateFrame = received.length
       const blocking = new Promise<void>((resolve) =>
         ipcMain.once('native-probe-block-started', () => resolve()),
       )
       contents.send('native-probe-block')
       await blocking
-      await assert.rejects(held.send())
+      const quarantined: unknown = await held.send().catch((error: unknown) => error)
+      assert(quarantined instanceof NativeTerminalImportQuarantined)
       await host.setVisible(
         d,
         first.ownerId,
@@ -501,6 +514,57 @@ void app
         1000,
         600,
       )
+      assert.equal(quarantineReleaseCalls, 0, 'unknown fence keeps original source')
+      const nativeEpochBeforeRetirement = processPort.epoch
+      const heldHash = received.at(-1)!.hash
+      assert(quarantined.retireProducer)
+      assert.equal(await quarantined.retireProducer(), true)
+      assert.equal(processPort.epoch, nativeEpochBeforeRetirement)
+      await host.setVisible(d, first.ownerId, rendererGeneration, renewedAttachment, true)
+      let retainedConsumerChecks = 0
+      for (let index = 0; index < 6; index++) {
+        if (index)
+          await host.feed(
+            d,
+            first.instanceId,
+            Buffer.from(`fresh-after-retirement-${index}\r\n`),
+          )
+        const source = await completedFrame(
+          host,
+          d,
+          renewed,
+          renewedAttachment,
+          3 + index,
+        )
+        const fresh = await importer.acquire(source, {
+          frame: contents.mainFrame,
+          ready: true,
+          isCurrent: () => !target.isDestroyed(),
+        })
+        const before = received.length
+        await fresh.send()
+        fresh.release()
+        await fresh.released
+        await until(() => received.length > before)
+        assert.notEqual(received.at(-1)!.hash, heldHash)
+        const checked = new Promise<{ hash: number }>((resolve) =>
+          ipcMain.once('native-probe-held-valid', (_event, value: { hash: number }) =>
+            resolve(value),
+          ),
+        )
+        contents.send('native-probe-check-held')
+        assert.equal((await checked).hash, heldHash, 'old consumer remains immutable')
+        retainedConsumerChecks++
+        assert.equal(releasedReceipts, beforeQuarantineReleased + index + 1)
+      }
+      const recoveredRenderer = await host.rendererInfo(d, first.instanceId)
+      assert.equal(recoveredRenderer.frameCopies, 0)
+      producerRetirementRecovery = {
+        freshFrames: 6,
+        retainedConsumerChecks,
+        frameCopies: recoveredRenderer.frameCopies,
+        sameNativeEpoch: true,
+      }
       target.destroy()
       phase('quarantine-target-destroyed')
       let frameDestroyed: boolean
@@ -522,14 +586,14 @@ void app
       assert.equal(
         quarantineReleaseCalls,
         0,
-        'unknown GPU fence retains immutable source',
+        'late consumer never ran ordinary importer source release',
       )
       assert.equal(
         releasedReceipts,
-        beforeQuarantineReleased,
-        'quarantined receipt remains owned',
+        beforeQuarantineReleased + 6,
+        'only fresh receipts released; quarantined receipt remains owned',
       )
-      timeoutQuarantine = 'passed-app-lifetime-held-late-consumer-parser-retained'
+      timeoutQuarantine = 'passed-producer-retired-with-late-consumer-quarantined'
     }
     phase('final-idle')
     await host.end(d, first.instanceId)
@@ -604,6 +668,7 @@ void app
       releasedReceipts,
       consumerDeathHeld,
       timeoutQuarantine,
+      producerRetirementRecovery,
       appLifetimeQuarantines: kind === 1 || kind === 2 ? 1 : 0,
       quarantineReclaimedBeforeExit: false,
       utilityPid,
@@ -654,11 +719,11 @@ async function until(predicate: () => boolean): Promise<void> {
   }
 }
 
-async function armHold(target: BrowserWindow): Promise<void> {
+async function armHold(target: BrowserWindow, once = false): Promise<void> {
   const armed = new Promise<void>((resolve) =>
     ipcMain.once('native-probe-held-armed', () => resolve()),
   )
-  target.webContents.send('native-probe-hold')
+  target.webContents.send('native-probe-hold', once ? { once: true } : undefined)
   await armed
 }
 async function completedFrame(

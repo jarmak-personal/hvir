@@ -198,6 +198,22 @@ Strict reload failures return failure and revoke an uncertain native state, pres
 the PTY's independent authority. External streams retain direct-only image media and
 zero image storage across reload. No retention policy is changed by appearance.
 
+## Producer writer retirement
+
+Private ABI 11 appends the renderer writer-retirement callback and
+`ghostty_external_retire_frame`. The C facade exposes exact held-lease
+`hvir_terminal_retire_frame_begin` and nonmutating `hvir_terminal_retire_frame_status`.
+Begin returns a host-monotonic request, not completion. Status is pending1,
+retired2, failed3, or joined actor-ended4. Only the exact positive writer fence
+permits ordinary release/rearm; pending, failed or unknown requests remain guarded.
+Actor-ended is cleanup authority after joined surface teardown, not recovery.
+The independent authenticated main receipt, uncertain consumer imports and their
+credits remain quarantined throughout. See ADR-093 for the scoped lifetime rule.
+
+The optional Darwin build selector `--retirement-probe 1` records real IOSurface
+transport, retained-A immutability, callback-tail exclusion and fresh-target reuse.
+It is not a mandatory headless-build or Linux hardware prerequisite.
+
 ## Build and native proof
 
 The [native build command](native-terminal-build.md) reproduces the ordered upstream

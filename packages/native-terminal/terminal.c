@@ -135,6 +135,19 @@ static void renderer_health(void *userdata, uint32_t health) {
   pthread_cond_broadcast(&s->host->changed);
   pthread_mutex_unlock(&s->host->events);
 }
+static void frame_retired(void *userdata, uint64_t request, uint32_t status) {
+  terminal_state *s = userdata;
+  hvir_terminal_host *h = s->host;
+  pthread_mutex_lock(&h->events);
+  if (!s->closing && request && s->retirement_requested &&
+      request == s->retirement_request && s->retirement_status == HVIR_FRAME_RETIRE_PENDING &&
+      s->frame_taken && s->frame.lease == s->retirement_lease &&
+      (status == HVIR_FRAME_RETIRE_RETIRED || status == HVIR_FRAME_RETIRE_FAILED)) {
+    s->retirement_status = status;
+    pthread_cond_broadcast(&h->changed);
+  }
+  pthread_mutex_unlock(&h->events);
+}
 static void clear_frame(terminal_state *s) {
 #ifdef __APPLE__
   if (s->frame.kind == 1 && s->frame.surface)
@@ -149,6 +162,9 @@ static void clear_frame(terminal_state *s) {
   memset(&s->frame, 0, sizeof(s->frame));
   s->frame_available = false;
   s->frame_taken = false;
+  s->retirement_requested = false;
+  s->retirement_lease = s->retirement_request = 0;
+  s->retirement_status = 0;
 }
 static bool frame_ready(void *userdata, const hvir_ghostty_external_frame *native) {
   terminal_state *s = userdata;
@@ -320,6 +336,7 @@ hvir_terminal_result hvir_terminal_open(const char *path, void *display, hvir_te
   LOAD(surface_free, "ghostty_surface_free");
   LOAD(external_new, "ghostty_external_surface_new");
   LOAD(external_frame_release, "ghostty_external_frame_release");
+  LOAD(external_frame_retire, "ghostty_external_retire_frame");
   LOAD(external_presentation_mode, "ghostty_external_set_presentation_mode");
   LOAD(external_feed, "ghostty_external_feed");
   LOAD(external_resize, "ghostty_external_resize");
@@ -441,6 +458,7 @@ hvir_terminal_result hvir_terminal_create_begin(hvir_terminal_host *h, uint32_t 
                                             .effect = hvir_internal_effect,
                                             .health = renderer_health,
                                             .frame = frame_ready,
+                                            .frame_retired = frame_retired,
                                             .pixel_export_limit = HVIR_TERMINAL_PIXEL_MAX,
                                             .presentation_mode = h->initial_presentation_mode,
                                             .renderer_info = renderer_info,
@@ -731,6 +749,72 @@ hvir_terminal_result hvir_terminal_renderer_info_get(hvir_terminal_host *h, hvir
   pthread_mutex_unlock(&h->events);
   return HVIR_OK;
 }
+hvir_terminal_result hvir_terminal_retire_frame_begin(hvir_terminal_host *h, hvir_terminal_id id,
+                                                      uint64_t lease, uint64_t *out_request) {
+  if (!out_request) return HVIR_INVALID;
+  *out_request = 0;
+  terminal_state *s;
+  hvir_terminal_result r = hvir_internal_state(h, id, &s, true);
+  if (r) return r;
+  pthread_mutex_lock(&h->events);
+  if (!lease || !s->frame_taken || lease != s->frame.lease ||
+      (s->frame.kind != 1 && s->frame.kind != 2)) {
+    pthread_mutex_unlock(&h->events);
+    return HVIR_INVALID;
+  }
+  if (s->retirement_requested) {
+    if (s->retirement_lease != lease) {
+      pthread_mutex_unlock(&h->events);
+      return HVIR_INVALID;
+    }
+    *out_request = s->retirement_request;
+    pthread_mutex_unlock(&h->events);
+    return *out_request ? HVIR_OK : HVIR_BOUND;
+  }
+  if (s->closing || !s->surface) {
+    pthread_mutex_unlock(&h->events);
+    return HVIR_CLOSED;
+  }
+  /* The taken frame pins the exact immutable lease/provenance until release.
+   * Install the guard before unlocking: the SDK may complete synchronously. */
+  s->retirement_requested = true;
+  s->retirement_lease = lease;
+  s->retirement_status = HVIR_FRAME_RETIRE_FAILED;
+  if (h->next_retirement_request == UINT64_MAX) {
+    pthread_mutex_unlock(&h->events);
+    return HVIR_BOUND;
+  }
+  *out_request = s->retirement_request = ++h->next_retirement_request;
+  s->retirement_status = HVIR_FRAME_RETIRE_PENDING;
+  pthread_mutex_unlock(&h->events);
+  if (!h->external_frame_retire(s->surface, *out_request)) {
+    pthread_mutex_lock(&h->events);
+    /* An enqueue refusal is sticky even if a malformed SDK called back first. */
+    s->retirement_status = HVIR_FRAME_RETIRE_FAILED;
+    pthread_cond_broadcast(&h->changed);
+    pthread_mutex_unlock(&h->events);
+  }
+  return HVIR_OK;
+}
+hvir_terminal_result hvir_terminal_retire_frame_status(hvir_terminal_host *h, hvir_terminal_id id,
+                                                       uint64_t lease, uint64_t request,
+                                                       uint32_t *out_status) {
+  if (!out_status) return HVIR_INVALID;
+  *out_status = 0;
+  terminal_state *s;
+  hvir_terminal_result r = hvir_internal_state(h, id, &s, true);
+  if (r) return r;
+  pthread_mutex_lock(&h->events);
+  if (!request || !s->retirement_requested || request != s->retirement_request ||
+      !s->frame_taken || !lease || lease != s->frame.lease || lease != s->retirement_lease) {
+    pthread_mutex_unlock(&h->events);
+    return HVIR_INVALID;
+  }
+  *out_status = s->surface_ended && !s->surface
+    ? HVIR_FRAME_RETIRE_ACTOR_ENDED : s->retirement_status;
+  pthread_mutex_unlock(&h->events);
+  return HVIR_OK;
+}
 hvir_terminal_result hvir_terminal_release_frame(hvir_terminal_host *h, hvir_terminal_id id,
                                                  uint64_t lease) {
   terminal_state *s;
@@ -745,6 +829,13 @@ hvir_terminal_result hvir_terminal_release_frame(hvir_terminal_host *h, hvir_ter
   if (!lease || !s->frame_taken || lease != s->frame.lease) {
     pthread_mutex_unlock(&h->events);
     return HVIR_INVALID;
+  }
+  if (s->retirement_requested &&
+      (s->retirement_lease != lease ||
+       (s->retirement_status != HVIR_FRAME_RETIRE_RETIRED &&
+        !(s->surface_ended && !s->surface)))) {
+    pthread_mutex_unlock(&h->events);
+    return HVIR_BUSY;
   }
   s->last_released = lease;
   clear_frame(s);
@@ -768,7 +859,10 @@ hvir_terminal_result hvir_terminal_destroy(hvir_terminal_host *h, hvir_terminal_
    * engine, not vice versa. A later release never dereferences this freed Surface. */
   if (s->surface) {
     h->surface_free(s->surface);
+    pthread_mutex_lock(&h->events);
     s->surface = NULL;
+    s->surface_ended = true;
+    pthread_mutex_unlock(&h->events);
   }
   if (held)
     return HVIR_BUSY;

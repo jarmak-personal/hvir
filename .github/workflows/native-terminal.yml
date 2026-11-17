@@ -213,8 +213,9 @@ jobs:
           if (proof.gpuImport === 'passed') {
             assert.equal(proof.appLifetimeQuarantines, 1);
             assert.equal(proof.quarantineReclaimedBeforeExit, false);
-            assert.equal(proof.timeoutQuarantine, 'passed-app-lifetime-held-late-consumer-parser-retained');
-            assert.equal(proof.releasedReceipts, 3);
+            assert.equal(proof.timeoutQuarantine, 'passed-producer-retired-with-late-consumer-quarantined');
+            assert.deepEqual(proof.producerRetirementRecovery, {freshFrames: 6, retainedConsumerChecks: 6, frameCopies: 0, sameNativeEpoch: true});
+            assert.equal(proof.releasedReceipts, 9);
           }
           assert(Array.isArray(proof.frames));
           for (const frame of proof.frames) {

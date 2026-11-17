@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   nativeTerminalHostFixture,
   nativeTerminalStatus,
@@ -165,4 +165,151 @@ describe('native PTY producer operations', () => {
       }),
     ).rejects.toThrow('native-key-invalid')
   })
+})
+
+afterEach(() => vi.useRealTimers())
+
+it('retires the exact physical source after its old attachment detached, using original release once', async () => {
+  const f = nativeTerminalHostFixture(),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  const frame = (await f.host.takeFrame(handle, 1, 1, attachment))!
+  const original = f.request.getMockImplementation()!
+  f.request.mockImplementation((command, signal) => {
+    if (command.kind === 'retire-frame-begin')
+      return Promise.resolve({ request: '18446744073709551615' })
+    if (command.kind === 'retire-frame-status') return Promise.resolve({ status: 2 })
+    return original(command, signal)
+  })
+  f.host.detach(handle, 1, 1, attachment)
+  expect(() => frame.assertCurrent()).toThrow('attachment-stale')
+  const work = frame.retireProducer!()
+  expect(frame.retireProducer!()).toBe(work)
+  await expect(work).resolves.toBe('retired')
+  expect(f.request.mock.calls.filter(([command]) => command.kind === 'release')).toEqual([
+    [{ kind: 'release', state: '1', lease: frame.metadata.lease }],
+  ])
+  expect(
+    f.request.mock.calls.find(([command]) => command.kind === 'retire-frame-status')?.[0],
+  ).toEqual({
+    kind: 'retire-frame-status',
+    state: '1',
+    lease: frame.metadata.lease,
+    request: '18446744073709551615',
+  })
+})
+
+it.each([0, 3, 5])(
+  'retains the held source on unconfirmed retirement status %s',
+  async (status) => {
+    const f = nativeTerminalHostFixture(),
+      session = f.session()
+    const handle = await f.host.prepare(session, 32, 32)
+    const attachment = f.host.attach(handle, session)
+    const frame = (await f.host.takeFrame(handle, 1, 1, attachment))!
+    const original = f.request.getMockImplementation()!
+    f.request.mockImplementation((command, signal) => {
+      if (command.kind === 'retire-frame-begin') return Promise.resolve({ request: '7' })
+      if (command.kind === 'retire-frame-status') return Promise.resolve({ status })
+      return original(command, signal)
+    })
+    await expect(frame.retireProducer!()).rejects.toThrow('retirement-unconfirmed')
+    expect(f.request.mock.calls.some(([command]) => command.kind === 'release')).toBe(
+      false,
+    )
+    await expect(f.host.takeFrame(handle, 1, 1, attachment)).rejects.toThrow(
+      'frame-bound',
+    )
+  },
+)
+
+it.each(['actor-ended', 'process-exit'] as const)(
+  'never labels %s cleanup as recovered',
+  async (ending) => {
+    let exited = false
+    const f = nativeTerminalHostFixture(() => exited),
+      session = f.session()
+    const handle = await f.host.prepare(session, 32, 32)
+    const attachment = f.host.attach(handle, session)
+    const frame = (await f.host.takeFrame(handle, 1, 1, attachment))!
+    const original = f.request.getMockImplementation()!
+    f.request.mockImplementation((command, signal) => {
+      if (command.kind === 'retire-frame-begin') return Promise.resolve({ request: '8' })
+      if (command.kind === 'retire-frame-status')
+        return Promise.resolve({ status: ending === 'actor-ended' ? 4 : 2 })
+      if (command.kind === 'release' && ending === 'process-exit') {
+        exited = true
+        f.live.available = false
+        return Promise.resolve({ result: 0 })
+      }
+      return original(command, signal)
+    })
+    await expect(frame.retireProducer!()).resolves.toBe('actor-ended')
+  },
+)
+
+it('polls only the exact pending request while yielding and never releases on pending', async () => {
+  vi.useFakeTimers()
+  const f = nativeTerminalHostFixture(),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  const frame = (await f.host.takeFrame(handle, 1, 1, attachment))!
+  const original = f.request.getMockImplementation()!
+  let ready = false
+  f.request.mockImplementation((command, signal) => {
+    if (command.kind === 'retire-frame-begin') return Promise.resolve({ request: '9' })
+    if (command.kind === 'retire-frame-status')
+      return Promise.resolve({ status: ready ? 2 : 1 })
+    return original(command, signal)
+  })
+  const work = frame.retireProducer!()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(f.request.mock.calls.some(([command]) => command.kind === 'release')).toBe(false)
+  ready = true
+  await vi.advanceTimersByTimeAsync(16)
+  await expect(work).resolves.toBe('retired')
+})
+
+it('cleans a retirement-requested source after close already joined, without beginning a new fence', async () => {
+  const f = nativeTerminalHostFixture(),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  const frame = (await f.host.takeFrame(handle, 1, 1, attachment))!
+  await f.host.end(handle, session.instanceId)
+  expect(f.process.idle).not.toHaveBeenCalled()
+  await expect(frame.retireProducer!()).resolves.toBe('actor-ended')
+  expect(
+    f.request.mock.calls.some(([command]) => command.kind === 'retire-frame-begin'),
+  ).toBe(false)
+  expect(
+    f.request.mock.calls.filter(([command]) => command.kind === 'release'),
+  ).toHaveLength(1)
+  expect(f.process.idle).toHaveBeenCalledOnce()
+})
+
+it('cleans only after joined close while preserving a cached unknown retirement rejection', async () => {
+  const f = nativeTerminalHostFixture(),
+    session = f.session()
+  const handle = await f.host.prepare(session, 32, 32)
+  const attachment = f.host.attach(handle, session)
+  const frame = (await f.host.takeFrame(handle, 1, 1, attachment))!
+  const original = f.request.getMockImplementation()!
+  f.request.mockImplementation((command, signal) => {
+    if (command.kind === 'retire-frame-begin') return Promise.resolve({ request: '11' })
+    if (command.kind === 'retire-frame-status') return Promise.resolve({ status: 3 })
+    return original(command, signal)
+  })
+  const rejected = frame.retireProducer!()
+  await expect(rejected).rejects.toThrow('unconfirmed')
+  expect(f.request.mock.calls.some(([command]) => command.kind === 'release')).toBe(false)
+  await f.host.end(handle, session.instanceId)
+  await vi.waitFor(() => expect(f.process.idle).toHaveBeenCalledOnce())
+  expect(frame.retireProducer!()).toBe(rejected)
+  await expect(rejected).rejects.toThrow('unconfirmed')
+  const commands = f.request.mock.calls.map(([command]) => command.kind)
+  expect(commands.indexOf('release')).toBeGreaterThan(commands.indexOf('destroy'))
+  expect(commands.filter((kind) => kind === 'release')).toHaveLength(1)
 })

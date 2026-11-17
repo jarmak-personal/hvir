@@ -262,6 +262,23 @@ parentPort.on(
             BigInt(String(args[1])),
           )
           break
+        case 'retire-frame-begin':
+          value = engine.retireFrameBegin(
+            host,
+            BigInt(String(args[0])),
+            BigInt(String(args[1])),
+          )
+          break
+        case 'retire-frame-status': {
+          const retired = engine.retireFrameStatus(
+            host,
+            BigInt(String(args[0])),
+            BigInt(String(args[1])),
+            BigInt(String(args[2])),
+          )
+          value = { result: retired.result, retirementStatus: retired.status }
+          break
+        }
         case 'destroy':
           value = engine.destroy(host, BigInt(String(args[0])))
           break

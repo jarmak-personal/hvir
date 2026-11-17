@@ -259,8 +259,22 @@ hvir_terminal_result hvir_terminal_take_frame(hvir_terminal_host *, hvir_termina
 hvir_terminal_result hvir_terminal_copy_frame(hvir_terminal_host *, hvir_terminal_id,
                                               uint64_t lease, uint8_t *out, size_t capacity,
                                               size_t *written, uint32_t *stride);
+typedef enum {
+  HVIR_FRAME_RETIRE_PENDING = 1,
+  HVIR_FRAME_RETIRE_RETIRED = 2,
+  HVIR_FRAME_RETIRE_FAILED = 3,
+  HVIR_FRAME_RETIRE_ACTOR_ENDED = 4
+} hvir_terminal_frame_retirement_status;
+/* OK records a request, not a GPU fence. Only RETIRED proves same-actor
+ * retirement; ACTOR_ENDED permits cleanup after joined Surface destruction. */
+hvir_terminal_result hvir_terminal_retire_frame_begin(hvir_terminal_host *, hvir_terminal_id,
+                                                      uint64_t lease, uint64_t *out_request);
+hvir_terminal_result hvir_terminal_retire_frame_status(hvir_terminal_host *, hvir_terminal_id,
+                                                       uint64_t lease, uint64_t request,
+                                                       uint32_t *out_status);
 /* PRESENTATION means the resource was released but rearming drawing failed.
- * Parser state remains usable; duplicate release remains harmless. */
+ * Parser state remains usable; duplicate release remains harmless. A requested
+ * retirement remains BUSY until exact RETIRED or joined ACTOR_ENDED cleanup. */
 hvir_terminal_result hvir_terminal_release_frame(hvir_terminal_host *, hvir_terminal_id,
                                                  uint64_t lease);
 /* Destroy revokes admission immediately. BUSY retains state until its outstanding

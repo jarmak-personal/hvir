@@ -1,4 +1,8 @@
-import type { NativeTerminalCommand } from '../../shared/native-terminal'
+import type {
+  NativeTerminalCommand,
+  NativeTerminalFrameInfo,
+  NativeTerminalFrameResource,
+} from '../../shared/native-terminal'
 import {
   NativeTerminalCaretPending,
   validNativeTerminalInput,
@@ -169,4 +173,146 @@ export async function readNativeTerminalProducerLink(
     snapshotMutation: query.expectedMutation,
     geometrySerial: query.expectedGeometrySerial,
   }
+}
+
+/** Only an exact held physical lease participates; attachment changes are unrelated.
+ * Polling is fault-triggered and finite. Each RPC yields the designated worker. */
+export async function retireNativeTerminalProducerFrame({
+  port,
+  state,
+  lease,
+  current,
+}: {
+  port: ProducerPort
+  state: string
+  lease: string
+  current(this: void): void
+}): Promise<'retired' | 'actor-ended'> {
+  const deadline = Date.now() + limits.requestMs
+  const signal = AbortSignal.timeout(limits.requestMs)
+  current()
+  const begun = await port.request({ kind: 'retire-frame-begin', state, lease }, signal)
+  current()
+  if (
+    !begun ||
+    typeof begun !== 'object' ||
+    !('request' in begun) ||
+    typeof begun.request !== 'string' ||
+    !/^[1-9][0-9]{0,19}$/.test(begun.request) ||
+    BigInt(begun.request) > 0xffffffffffffffffn
+  )
+    throw new Error('native-frame-retirement-request-invalid')
+  const request = begun.request
+  for (;;) {
+    signal.throwIfAborted()
+    current()
+    const value = await port.request(
+      { kind: 'retire-frame-status', state, lease, request },
+      signal,
+    )
+    current()
+    if (!value || typeof value !== 'object' || !('status' in value))
+      throw new Error('native-frame-retirement-status-invalid')
+    if (value.status === 2) return 'retired'
+    if (value.status === 4) return 'actor-ended'
+    if (value.status !== 1) throw new Error('native-frame-retirement-unconfirmed')
+    if (Date.now() >= deadline) throw new Error('native-frame-retirement-timeout')
+    await new Promise<void>((resolve) => setTimeout(resolve, 16))
+  }
+}
+
+export function validNativeTerminalProducerFrame(
+  value: NativeTerminalFrameInfo & { readonly lease: string },
+): boolean {
+  return (
+    !!value &&
+    /^[1-9][0-9]{0,19}$/.test(value.lease) &&
+    [1, 2, 3].includes(value.kind) &&
+    [0, 1].includes(value.screen) &&
+    Number.isSafeInteger(value.geometrySerial) &&
+    value.geometrySerial > 0 &&
+    Number.isSafeInteger(value.streamSequence) &&
+    value.streamSequence >= 0 &&
+    Number.isSafeInteger(value.snapshotMutation) &&
+    value.snapshotMutation >= 0 &&
+    [1, 2].includes(value.colorSpace) &&
+    [1, 2].includes(value.origin) &&
+    typeof value.premultiplied === 'boolean' &&
+    validFrameResource(value.resource, value.kind) &&
+    Number.isInteger(value.width) &&
+    value.width > 0 &&
+    value.width <= 8192 &&
+    Number.isInteger(value.height) &&
+    value.height > 0 &&
+    value.height <= 8192
+  )
+}
+
+function validFrameResource(value: NativeTerminalFrameResource, kind: number): boolean {
+  return (
+    !!value &&
+    Number.isInteger(value.fourcc) &&
+    value.fourcc >= 0 &&
+    value.fourcc <= 0xffffffff &&
+    typeof value.modifier === 'string' &&
+    /^(0|[1-9][0-9]{0,19})$/.test(value.modifier) &&
+    BigInt(value.modifier) <= 0xffffffffffffffffn &&
+    Array.isArray(value.planes) &&
+    (kind === 2
+      ? value.planes.length >= 1 && value.planes.length <= 4
+      : value.planes.length === 0) &&
+    value.planes.every(
+      (plane: NativeTerminalFrameResource['planes'][number]) =>
+        !!plane &&
+        Number.isInteger(plane.stride) &&
+        plane.stride > 0 &&
+        plane.stride <= 0xffffffff &&
+        Number.isInteger(plane.offset) &&
+        plane.offset >= 0 &&
+        plane.offset <= 0xffffffff &&
+        Number.isSafeInteger(plane.size) &&
+        plane.size > 0 &&
+        plane.offset + plane.stride <= plane.size,
+    )
+  )
+}
+
+interface RawRendererInfo {
+  available: boolean
+  glVendor: string
+  glRenderer: string
+  glVersion: string
+  eglVendor: string
+  eglVersion: string
+  renderNode: string
+  pixelFrames: number
+  dmaBufFrames: number
+}
+export function validNativeTerminalProducerRendererInfo(
+  value: unknown,
+): value is RawRendererInfo {
+  if (!value || typeof value !== 'object') return false
+  const info = value as RawRendererInfo
+  return (
+    typeof info.available === 'boolean' &&
+    [
+      info.glVendor,
+      info.glRenderer,
+      info.glVersion,
+      info.eglVendor,
+      info.eglVersion,
+      info.renderNode,
+    ].every(
+      (text) =>
+        typeof text === 'string' &&
+        text.length <= 255 &&
+        !Array.from(text).some(
+          (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+        ),
+    ) &&
+    (info.renderNode === '' || /^\/dev\/dri\/renderD[0-9]+$/.test(info.renderNode)) &&
+    [info.pixelFrames, info.dmaBufFrames].every(
+      (count) => Number.isSafeInteger(count) && count >= 0,
+    )
+  )
 }

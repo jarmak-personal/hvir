@@ -184,7 +184,11 @@ renderer destruction preserve each ownership obligation without overwriting in-u
 [ADR-087](adr/ADR-087-indeterminate-native-presentation-quarantine.md) distinguishes
 successful-transfer completion from uncertain import/delivery: the latter revokes
 presentation while retaining its immutable source, OS reference, returned import,
-and credit through application shutdown. Do not claim physical reclamation from
+and credit through application shutdown. [ADR-093](adr/ADR-093-native-producer-retirement-and-consumer-quarantine.md)
+permits only the producer hold to end after an exact completed writer-retirement fence
+and original source release; the independently retained immutable consumer resource and
+credit stay quarantined. Fresh presentation must retain the same live parser and pass
+current view/geometry authority. Do not claim physical reclamation from
 receiver destruction or an incomplete late-consumer callback. The parser remains
 available for authoritative feed, read, and geometry; only explicit terminal close
 may retire it independently.

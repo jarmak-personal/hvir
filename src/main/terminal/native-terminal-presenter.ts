@@ -76,6 +76,7 @@ interface View {
   pixelsApplied: boolean
   pixelDeadline?: number
   failed: boolean
+  producerFault?: NativeTerminalImportQuarantined
   lastPixels: number
   appearance?: NativeTerminalAppearance
   appearanceApplied?: NativeTerminalAppearance
@@ -111,15 +112,19 @@ export class NativeTerminalPresenter {
   private readonly preparing = new Set<string>()
   private readonly detaching = new Map<string, Promise<void>>()
   // Each blocked handle still owns one of the shared importer's three credits.
-  private readonly blockedHandles = new Map<string, Set<string>>()
+  private readonly blockedHandles = new Map<
+    string,
+    Map<string, Set<NativeTerminalImportQuarantined>>
+  >()
   constructor(
     private readonly host: PresentationHost,
     private readonly imports: Pick<NativeTerminalFrameImports, 'acquire'>,
     private readonly linuxMode?: NativeTerminalExportMode,
+    private readonly resumeView?: (viewId: string) => Promise<boolean>,
   ) {}
   isInputCurrent(viewId: string): boolean {
     const view = this.views.get(viewId)
-    return !!view?.grant && this.currentGrant(view, view.grant)
+    return !!view?.grant && !view.producerFault && this.currentGrant(view, view.grant)
   }
   /** Producer failure revokes presentation without inventing a second parser. */
   async suspend(viewId: string): Promise<void> {
@@ -544,7 +549,10 @@ export class NativeTerminalPresenter {
           }
           imported.release()
           await imported.released
-          if (this.currentGrant(view, grant)) this.status(view, 'native-gpu')
+          if (this.currentGrant(view, grant) && !this.isBlocked(view)) {
+            view.producerFault = undefined
+            this.status(view, 'native-gpu')
+          }
           return true
         } catch (error) {
           if (!(error instanceof NativeTerminalGpuImportUnavailable) || handedOff)
@@ -588,8 +596,10 @@ export class NativeTerminalPresenter {
         origin: 1,
         premultiplied: false,
       })
-      if (this.currentGrant(view, grant))
+      if (this.currentGrant(view, grant) && !this.isBlocked(view)) {
+        view.producerFault = undefined
         this.status(view, 'native-pixels', 'import-unavailable')
+      }
       return true
     } catch (error) {
       if (error instanceof NativeTerminalPixelLocallyIneligibleError) return false
@@ -610,17 +620,31 @@ export class NativeTerminalPresenter {
         return false
       if (error instanceof NativeTerminalImportQuarantined) {
         let epochs = this.blockedHandles.get(view.handle)
-        if (!epochs) this.blockedHandles.set(view.handle, (epochs = new Set()))
-        epochs.add(view.epoch)
+        if (!epochs)
+          this.blockedHandles.set(
+            view.handle,
+            (epochs = new Map<string, Set<NativeTerminalImportQuarantined>>()),
+          )
+        let faults = epochs.get(view.epoch)
+        if (!faults)
+          epochs.set(view.epoch, (faults = new Set<NativeTerminalImportQuarantined>()))
+        faults.add(error)
         // The failure can settle after this view detached. Block every CURRENT
         // view of that exact retained state/generation before further demand.
         const affected = [...this.views.values()].filter(
           (current) => current.handle === view.handle && current.epoch === view.epoch,
         )
         await Promise.all(
-          affected.map((current) => this.unavailable(current, 'import-unavailable')),
+          affected.map((current) =>
+            this.unavailable(current, 'import-unavailable', error),
+          ),
+        )
+        // This continuation must not be awaited by the active task it joins.
+        void this.recoverProducer(view.handle, view.epoch, error, view.active).catch(
+          () => undefined,
         )
       } else if (this.currentGrant(view, grant)) {
+        view.producerFault = undefined
         view.failed = true
         view.grant = undefined
         try {
@@ -674,7 +698,57 @@ export class NativeTerminalPresenter {
     view.pixelDeadline = Date.now() + NATIVE_TERMINAL_LIMITS.requestMs
   }
   private isBlocked(view: Pick<View, 'handle' | 'epoch'>): boolean {
-    return this.blockedHandles.get(view.handle)?.has(view.epoch) ?? false
+    return !!this.blockedHandles.get(view.handle)?.get(view.epoch)?.size
+  }
+  private async recoverProducer(
+    handle: string,
+    epoch: string,
+    fault: NativeTerminalImportQuarantined,
+    active: Promise<boolean> | undefined,
+  ): Promise<void> {
+    await active?.catch(() => undefined)
+    const resumeView = this.resumeView
+    if (!resumeView || !fault.retireProducer || !(await fault.retireProducer())) return
+    const epochs = this.blockedHandles.get(handle)
+    const faults = epochs?.get(epoch)
+    if (!faults?.delete(fault) || faults.size) return
+    epochs!.delete(epoch)
+    if (!epochs!.size) this.blockedHandles.delete(handle)
+    for (const view of [...this.views.values()]) {
+      if (view.handle !== handle || view.epoch !== epoch || !view.producerFault) continue
+      const reason = view.producerFault
+      const current = (): boolean => {
+        try {
+          this.assertCurrent(view)
+          return (
+            view.visible &&
+            !!view.layout?.visible &&
+            view.producerFault === reason &&
+            !this.isBlocked(view)
+          )
+        } catch {
+          return false
+        }
+      }
+      if (!current()) continue
+      try {
+        await view.active?.catch(() => undefined)
+        if (!current()) continue
+        if (!(await resumeView(view.id))) continue
+        if (!current()) continue
+        const deadline = Date.now() + NATIVE_TERMINAL_LIMITS.requestMs
+        while (current()) {
+          const drawn = await this.demand(view.id)
+          if (!current()) break
+          if (drawn) break
+          if (Date.now() >= deadline)
+            throw new Error('native-presentation-recovery-timeout')
+          await new Promise<void>((resolve) => setTimeout(resolve, 16))
+        }
+      } catch {
+        if (current()) await this.unavailable(view, 'import-unavailable')
+      }
+    }
   }
   private receiverUnavailable(view: View, grant: NativeTerminalViewGrant): void {
     // Target has already latched isCurrent=false. The issued grant, not renewed
@@ -691,7 +765,9 @@ export class NativeTerminalPresenter {
   private async unavailable(
     view: View,
     reason: NativeTerminalPresentationStatus['reason'],
+    producerFault?: NativeTerminalImportQuarantined,
   ): Promise<void> {
+    view.producerFault = producerFault
     view.failed = true
     view.grant = undefined
     try {
