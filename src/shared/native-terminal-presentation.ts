@@ -76,8 +76,6 @@ export const NATIVE_TERMINAL_PRESENTATION = {
   statusChannel: 'native-terminal:presentation-status',
   acknowledgementChannel: 'native-terminal:presentation-ack',
   maximumViews: 32,
-  // Arithmetic ceiling of the supported extent, not an independent frame budget.
-  maximumPixelBytes: 8192 * 8192 * 4,
   compatibilityIntervalMs: 67,
 } as const
 

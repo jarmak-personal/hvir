@@ -41,7 +41,10 @@ import type { NativeTerminalGeometry } from '../../shared/native-terminal'
 import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
 import { nativeWorkbenchPerformanceMode } from './native-terminal-performance'
 import { nativeWorkbenchGeometryReadiness } from './native-terminal-workbench-geometry'
-import { observeNativeReceiverDiagnostic } from './native-terminal-import-diagnostic'
+import {
+  createObservedNativeFrameImports,
+  observeNativeReceiverDiagnostic,
+} from './native-terminal-import-diagnostic'
 
 /** Format the qualification receipt; the runner keeps stdout separate from diagnostics. */
 export function nativeWorkbenchReceiptLine(
@@ -76,6 +79,7 @@ export async function createNativeWorkbench(
           supervisor,
           (owner) => rendererResources.isCurrent(owner),
           systemClipboard,
+          createObservedNativeFrameImports,
         )
       : undefined
   if (nativeTerminals)

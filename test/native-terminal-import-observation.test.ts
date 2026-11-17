@@ -5,7 +5,7 @@ import type {
 } from 'electron'
 import type { Receipt } from '../packages/native-terminal/resource'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { NativeTerminalFrameImports } from '../src/main/terminal/native-terminal-import'
+import { createObservedNativeFrameImports } from '../src/main/smoke/native-terminal-import-diagnostic'
 
 const TIMEOUT =
   'transfer shared texture timed out after 1000ms, ensure you have registered receiver at renderer process.'
@@ -84,7 +84,7 @@ function fixture() {
     ready: true,
     presentation: { nativeTerminal: grant, screen: 0 as const, origin: 1, colorSpace: 1 },
   }
-  const owner = new NativeTerminalFrameImports(edge, textures)
+  const owner = createObservedNativeFrameImports(edge, textures)
   return { callbacks, source, edge, mainRelease, textures, target, owner }
 }
 interface ObservationEvent {
@@ -120,7 +120,77 @@ afterEach(() => {
 })
 
 describe('native import diagnostic ownership evidence', () => {
-  it('counts a callback during import once, separately from internal pending-release replay', async () => {
+  it('associates an earlier settled receive with its source and passes the actual imported object to Electron', async () => {
+    const log = vi.mocked(console.log)
+    const f = fixture()
+    const value = await f.owner.acquire(f.source, f.target)
+    await value.send()
+    const sent = f.textures.sendSharedTexture.mock.calls[0]![0] as {
+      importedSharedTexture: SharedTextureImported
+    }
+    expect(sent.importedSharedTexture).toBe(
+      f.textures.importSharedTexture.mock.results[0]!.value,
+    )
+    const stages = records(log).map((event) => event.stage)
+    expect(stages.indexOf('receive-resolved')).toBeLessThan(
+      stages.indexOf('transfer-enter'),
+    )
+    f.callbacks[0]!.allReferencesReleased!()
+    await value.released
+    expect(records(log).map((event) => event.stage)).toContain('receipt-release-return')
+    expect(records(log).every((event) => event.resource === 1)).toBe(true)
+  })
+
+  it('can enable the selected diagnostic window after construction without changing the ordinary metadata', async () => {
+    vi.stubEnv('HVIR_NATIVE_IMPORT_DIAGNOSTICS', undefined)
+    const log = vi.mocked(console.log)
+    const f = fixture()
+    const ordinary = await f.owner.acquire(f.source, f.target)
+    await ordinary.send()
+    expect(f.textures.sendSharedTexture.mock.calls[0]![1]).toEqual(f.target.presentation)
+    expect(log).not.toHaveBeenCalled()
+    f.callbacks[0]!.allReferencesReleased!()
+    await ordinary.released
+    vi.stubEnv('HVIR_NATIVE_IMPORT_DIAGNOSTICS', '1')
+    const observed = await f.owner.acquire(f.source, f.target)
+    await observed.send()
+    expect(records(log).map((event) => event.stage)).toContain('send-resolved')
+    f.callbacks[1]!.allReferencesReleased!()
+    await observed.released
+  })
+
+  it('omits invalid grant strings and contains an unavailable diagnostic clock', async () => {
+    const log = vi.mocked(console.log)
+    const f = fixture()
+    await expect(
+      f.owner.acquire(f.source, {
+        ...f.target,
+        presentation: {
+          ...f.target.presentation,
+          nativeTerminal: { ...grant, viewId: 'private-invalid-grant' },
+        },
+      }),
+    ).rejects.toBeDefined()
+    expect(JSON.stringify(log.mock.calls)).not.toContain('private-invalid-grant')
+    expect(records(log).every((event) => !('grant' in event))).toBe(true)
+    log.mockClear()
+    vi.spyOn(performance, 'now').mockImplementation(() => {
+      throw new Error('private-clock')
+    })
+    const g = fixture()
+    const value = await g.owner.acquire(g.source, g.target)
+    await value.send()
+    g.callbacks[0]!.allReferencesReleased!()
+    await value.released
+    expect(
+      records<ObservationEvent & { atMs: number | null }>(log).every(
+        (event) => event.atMs === null,
+      ),
+    ).toBe(true)
+    expect(g.source.release).toHaveBeenCalledOnce()
+  })
+
+  it('records actual callback entries during import and later without inventing physical state', async () => {
     const log = vi.mocked(console.log)
     const f = fixture()
     f.textures.importSharedTexture.mockImplementationOnce((options) => {
@@ -135,7 +205,10 @@ describe('native import diagnostic ownership evidence', () => {
     ).toHaveLength(1)
     expect(f.source.release).toHaveBeenCalledOnce()
     f.callbacks[0]!.allReferencesReleased!()
-    expect(records(log).at(-1)?.stage).toBe('references-released-duplicate')
+    expect(records(log).at(-1)?.stage).toBe('references-released')
+    expect(
+      records(log).filter((event) => event.stage === 'references-released'),
+    ).toHaveLength(2)
     expect(f.source.release).toHaveBeenCalledOnce()
   })
 
@@ -156,14 +229,11 @@ describe('native import diagnostic ownership evidence', () => {
     await entered.promise
     expect(records(log).at(-1)).toMatchObject({
       stage: 'producer-release-enter',
-      outstanding: 1,
     })
     release.resolve()
     await value.released
-    expect(records(log).at(-1)).toMatchObject({
-      stage: 'credit-returned',
-      outstanding: 0,
-    })
+    expect(records(log).map((event) => event.stage)).toContain('producer-release-return')
+    expect(records(log).map((event) => event.stage)).not.toContain('credit-returned')
     expect(f.source.release).toHaveBeenCalledOnce()
     expect(f.edge.release).toHaveBeenCalledOnce()
   })
@@ -179,9 +249,7 @@ describe('native import diagnostic ownership evidence', () => {
       error: 'send-timeout-1000ms',
     })
     expect(records(log).at(-1)).toMatchObject({
-      stage: 'references-released-late',
-      outstanding: 1,
-      quarantined: 1,
+      stage: 'references-released',
     })
     expect(f.source.release).not.toHaveBeenCalled()
     expect(f.edge.release).not.toHaveBeenCalled()
@@ -192,7 +260,10 @@ describe('native import diagnostic ownership evidence', () => {
       truncated: false,
       clock: 'main performance.now',
     })
-    expect(tail.events.at(-1)).toMatchObject({ stage: 'references-released-late' })
+    expect(tail.events.at(-1)).toMatchObject({ stage: 'references-released' })
+    expect(JSON.stringify(log.mock.calls)).not.toMatch(
+      /outstanding|quarantined|credit-returned|references-released-late/,
+    )
   })
 
   it('distinguishes unknown import ownership from producer release failure without raw error text', async () => {
@@ -215,8 +286,6 @@ describe('native import diagnostic ownership evidence', () => {
     await rejected
     expect(records(log).at(-1)).toMatchObject({
       stage: 'producer-release-rejected',
-      outstanding: 1,
-      quarantined: 0,
       error: 'unknown',
     })
     expect(JSON.stringify(log.mock.calls)).not.toMatch(/private-(import|release|lease)/)
@@ -253,7 +322,7 @@ describe('native import diagnostic ownership evidence', () => {
   it('keeps a bounded ordered tail after normal logs saturate and never changes ownership when logging fails', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const f = fixture()
-    for (let index = 0; index < 150; index++) {
+    for (let index = 0; index < 200; index++) {
       const value = await f.owner.acquire({ ...f.source }, f.target)
       await value.send()
       f.callbacks[index]!.allReferencesReleased!()
@@ -266,7 +335,7 @@ describe('native import diagnostic ownership evidence', () => {
     const tail = records<ObservationTail>(log, 'HVIR_NATIVE_IMPORT_TAIL ').at(-1)!
     expect(tail).toMatchObject({ truncated: true })
     expect(tail.events).toHaveLength(2048)
-    expect(tail.events.at(-1)).toMatchObject({ resource: 151, stage: 'quarantined' })
+    expect(tail.events.at(-1)).toMatchObject({ resource: 201, stage: 'send-rejected' })
     expect(
       tail.events.every((x, i) => {
         const previous = tail.events[i - 1]

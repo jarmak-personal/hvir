@@ -18,125 +18,6 @@ interface ResourceReceipts {
   receive(ticket: string): Promise<Receipt>
   release(receipt: Receipt): void
 }
-type ImportObservationStage =
-  | 'admitted'
-  | 'admission-refused'
-  | 'transfer-receive-settled'
-  | 'receive-resolved'
-  | 'receive-rejected'
-  | 'transfer-resolved'
-  | 'transfer-rejected'
-  | 'import-enter'
-  | 'import-return'
-  | 'import-rejected'
-  | 'send-enter'
-  | 'send-resolved'
-  | 'send-rejected'
-  | 'main-release-enter'
-  | 'main-release-return'
-  | 'main-release-rejected'
-  | 'references-released'
-  | 'references-released-late'
-  | 'references-released-duplicate'
-  | 'receipt-release-enter'
-  | 'receipt-release-return'
-  | 'receipt-release-rejected'
-  | 'producer-release-enter'
-  | 'producer-release-return'
-  | 'producer-release-rejected'
-  | 'credit-returned'
-  | 'cleanup-credit-retained'
-  | 'quarantined'
-type ImportObservation = ((stage: ImportObservationStage, error?: unknown) => void) & {
-  readonly resource: number
-}
-type ImportObservationEvent = {
-  schema: 1
-  clock: 'main performance.now'
-  timeOrigin: number
-  event: number
-  resource: number
-  stage: ImportObservationStage
-  atMs: number
-  outstanding: number
-  quarantined: number
-  error?:
-    'send-timeout-1000ms' | 'gpu-unavailable-before-import' | 'target-stale' | 'unknown'
-  grant?: NativeTerminalPresentedFrame['nativeTerminal']
-  nominalRgbaBytes?: number
-  targetFrame?: NativeImportFrameFacts
-}
-export interface NativeImportFrameFacts {
-  isDestroyed: boolean | null
-  detached: boolean | null
-  processId: number | null
-  osProcessId: number | null
-  routingId: number | null
-  frameTreeNodeId: number | null
-  frameToken: string | null
-  readUnavailable: boolean
-}
-
-/** Closed scalar snapshot only. Chromium IDs and LocalFrameToken are not document authority. */
-export function nativeImportFrameFacts(frame?: WebFrameMain): NativeImportFrameFacts {
-  const facts: NativeImportFrameFacts = {
-    isDestroyed: null,
-    detached: null,
-    processId: null,
-    osProcessId: null,
-    routingId: null,
-    frameTreeNodeId: null,
-    frameToken: null,
-    readUnavailable: true,
-  }
-  if (!frame) return facts
-  try {
-    const value = frame.isDestroyed()
-    if (typeof value !== 'boolean') return facts
-    facts.isDestroyed = value
-    if (value) return facts
-  } catch {
-    return facts
-  }
-  for (const key of [
-    'processId',
-    'osProcessId',
-    'routingId',
-    'frameTreeNodeId',
-  ] as const) {
-    try {
-      const value = frame[key]
-      if (Number.isSafeInteger(value) && value >= (key === 'osProcessId' ? 1 : 0))
-        facts[key] = value
-    } catch {
-      /* An unavailable getter remains unknown. */
-    }
-  }
-  try {
-    const value = frame.detached
-    if (typeof value === 'boolean') facts.detached = value
-  } catch {
-    /* Unknown. */
-  }
-  try {
-    const token = frame.frameToken
-    if (typeof token === 'string' && /^[a-fA-F0-9-]{1,128}$/.test(token))
-      facts.frameToken = token
-  } catch {
-    /* Unknown, not a dead-frame identity. */
-  }
-  facts.readUnavailable = Object.entries(facts).some(
-    ([key, value]) => key !== 'readUnavailable' && value === null,
-  )
-  return facts
-}
-interface ImportObservationState {
-  resource: number
-  event: number
-  printed: number
-  snapshots: number
-  ring: ImportObservationEvent[]
-}
 export interface ImportTarget {
   readonly presentation?: NativeTerminalPresentedFrame
   readonly frame: WebFrameMain
@@ -175,7 +56,6 @@ export interface ImportedNativeFrame {
 export class NativeTerminalFrameImports {
   private serial: Promise<void> = Promise.resolve()
   private outstanding = 0
-  private observation?: ImportObservationState
   // An import that throws after entering Electron may conceal GPU ownership.
   // No public release handle exists: keep source/resource and credit until this
   // app process exits. Never infer GPU completion from target-frame destruction.
@@ -199,43 +79,11 @@ export class NativeTerminalFrameImports {
     target: ImportTarget,
     options?: { readonly allowPixelFallback: true },
   ): Promise<ImportedNativeFrame> {
-    let trace: ImportObservation | undefined
-    if (
-      typeof __HVIR_SMOKE_BUILD__ !== 'undefined' &&
-      __HVIR_SMOKE_BUILD__ &&
-      process.env['HVIR_NATIVE_IMPORT_DIAGNOSTICS'] === '1'
-    ) {
-      const state = (this.observation ??= {
-        resource: 0,
-        event: 0,
-        printed: 0,
-        snapshots: 0,
-        ring: [],
-      })
-      trace = observeNativeImport(state, source, target, () => ({
-        outstanding: this.outstanding,
-        quarantined: this.quarantined.size,
-      }))
-    }
-    const releaseSource = trace
-      ? async (): Promise<void> => {
-          trace?.('producer-release-enter')
-          try {
-            await source.release()
-            trace?.('producer-release-return')
-          } catch (error) {
-            trace?.('producer-release-rejected', error)
-            throw error
-          }
-        }
-      : (): Promise<void> => source.release()
     if (this.outstanding >= 3) {
-      trace?.('admission-refused')
-      await releaseSource()
+      await source.release()
       throw new Error('native-import-bound')
     }
     this.outstanding++
-    trace?.('admitted')
     const previous = this.serial
     let next!: () => void
     this.serial = new Promise<void>((resolve) => {
@@ -248,15 +96,8 @@ export class NativeTerminalFrameImports {
     let receiptReleased = false
     const releaseReceipt = (): void => {
       if (receipt && !receiptReleased) {
-        trace?.('receipt-release-enter')
-        try {
-          this.edge.release(receipt)
-          receiptReleased = true
-          trace?.('receipt-release-return')
-        } catch (error) {
-          trace?.('receipt-release-rejected', error)
-          throw error
-        }
+        this.edge.release(receipt)
+        receiptReleased = true
       }
     }
     const quarantine = (
@@ -271,7 +112,6 @@ export class NativeTerminalFrameImports {
         retiring?: Promise<boolean>
       } = { source, receipt: ownedReceipt, imported }
       this.quarantined.add(entry)
-      trace?.('quarantined', cause)
       // Only this owner can release the validated receipt. Quarantine suppresses
       // all such paths; the strong entry remains pinned even after source release.
       const retire =
@@ -314,36 +154,12 @@ export class NativeTerminalFrameImports {
       const ticket = randomUUID()
       // Settle both sides even if one fails: an accepted receive may still own a
       // resource and must finish before this shared endpoint can accept another.
-      const received = this.edge.receive(ticket).then(
-        (value) => {
-          receipt = value
-          trace?.('receive-resolved')
-        },
-        (error: unknown) => {
-          trace?.('receive-rejected', error)
-          throw error
-        },
-      )
+      const received = this.edge.receive(ticket).then((value) => {
+        receipt = value
+      })
       const transfer = Promise.resolve().then(() => source.transfer(ticket))
-      const results = await Promise.allSettled([
-        received,
-        trace
-          ? transfer.then(
-              () => {
-                trace?.('transfer-resolved')
-              },
-              (error: unknown) => {
-                trace?.('transfer-rejected', error)
-                throw error
-              },
-            )
-          : transfer,
-      ])
+      const results = await Promise.allSettled([received, transfer])
       const failed = results.find((result) => result.status === 'rejected')
-      trace?.(
-        'transfer-receive-settled',
-        failed?.status === 'rejected' ? failed.reason : undefined,
-      )
       if (failed?.status === 'rejected') throw failed.reason
       assertCurrent(source, target)
       if (!receipt || receipt.ticket !== ticket) throw new Error('native-resource-ticket')
@@ -386,15 +202,13 @@ export class NativeTerminalFrameImports {
           releaseError = error
         }
         void Promise.resolve()
-          .then(() => releaseSource())
+          .then(() => source.release())
           .then(
             () => {
               if (releaseError) {
-                trace?.('cleanup-credit-retained', releaseError)
                 rejectReleased(releaseError)
               } else {
                 this.outstanding--
-                trace?.('credit-returned')
                 resolveReleased()
               }
             },
@@ -407,29 +221,13 @@ export class NativeTerminalFrameImports {
       }
       let imported: ReturnType<SharedTexture['importSharedTexture']>
       try {
-        trace?.('import-enter')
         imported = this.textures.importSharedTexture({
           textureInfo,
-          // Observe the external callback, not finish's internal replay after
-          // a synchronous callback arrives before import returns its handle.
-          allReferencesReleased: trace
-            ? () => {
-                trace?.(
-                  state === 'quarantine'
-                    ? 'references-released-late'
-                    : physical
-                      ? 'references-released-duplicate'
-                      : 'references-released',
-                )
-                finish()
-              }
-            : finish,
+          allReferencesReleased: finish,
         })
         importDecision = 'imported'
-        trace?.('import-return')
         if (releasePending) finish()
       } catch (error) {
-        trace?.('import-rejected', error)
         importDecision = 'discarded'
         // Pinned Electron rejects here before CreateSharedImage: no GPU work
         // has received this source. A general import throw is not this proof.
@@ -444,14 +242,7 @@ export class NativeTerminalFrameImports {
       const releaseMain = (): void => {
         if (mainReleased) return
         mainReleased = true
-        trace?.('main-release-enter')
-        try {
-          imported.release()
-          trace?.('main-release-return')
-        } catch (error) {
-          trace?.('main-release-rejected', error)
-          throw error
-        }
+        imported.release()
       }
       let sendPromise: Promise<void> | undefined
       const send = (): Promise<void> => {
@@ -465,30 +256,14 @@ export class NativeTerminalFrameImports {
             throw error
           }
           state = 'sending'
-          trace?.('send-enter')
           try {
-            const ordinaryMetadata = presentation ?? { ...source.metadata, ticket }
-            let metadata: typeof ordinaryMetadata & {
-              readonly hvirImportObservation?: number
-            } = ordinaryMetadata
-            if (
-              typeof __HVIR_SMOKE_BUILD__ !== 'undefined' &&
-              __HVIR_SMOKE_BUILD__ &&
-              trace
-            )
-              metadata = {
-                ...metadata,
-                hvirImportObservation: trace.resource,
-              }
             await this.textures.sendSharedTexture(
               { frame: target.frame, importedSharedTexture: imported },
-              metadata,
+              presentation ?? { ...source.metadata, ticket },
             )
             state = 'sent'
-            trace?.('send-resolved')
             releaseMain()
           } catch (error) {
-            trace?.('send-rejected', error)
             state = 'quarantine'
             // Electron's timeout can precede late consumer acquisition without
             // recording its sync token. Neither target death nor an old callback
@@ -519,136 +294,28 @@ export class NativeTerminalFrameImports {
       try {
         releaseReceipt()
       } catch (cleanupError) {
-        await releaseSource()
+        await source.release()
         throw cleanupError
       }
       if (error instanceof NativeTerminalGpuImportUnavailable) {
         try {
           assertCurrent(source, target)
         } catch (staleError) {
-          await releaseSource()
+          await source.release()
           throw staleError
         }
         // No send occurred; the caller now retains the same immutable source lease.
         throw error
       }
-      await releaseSource()
+      await source.release()
       throw error
     } finally {
       if (!transferred && !indeterminateImport) {
         this.outstanding--
-        trace?.('credit-returned')
       }
       next()
     }
   }
-}
-
-/** Explicit diagnostic only; this module-local factory is referenced solely
- * inside the smoke compile guard and is removable from ordinary builds. */
-function observeNativeImport(
-  state: ImportObservationState,
-  source: NativeTerminalAcquiredFrame,
-  target: ImportTarget,
-  accounting: () => { outstanding: number; quarantined: number },
-): ImportObservation {
-  const resource = ++state.resource
-  return Object.assign(
-    (stage: ImportObservationStage, error?: unknown) => {
-      try {
-        const current = accounting()
-        const event: ImportObservationEvent = {
-          schema: 1,
-          clock: 'main performance.now',
-          timeOrigin: performance.timeOrigin,
-          event: state.event++,
-          resource,
-          stage,
-          atMs: performance.now(),
-          outstanding: current.outstanding,
-          quarantined: current.quarantined,
-        }
-        if (!Number.isFinite(event.atMs) || !Number.isFinite(event.timeOrigin)) return
-        if (
-          [
-            'admitted',
-            'import-enter',
-            'send-enter',
-            'send-rejected',
-            'quarantined',
-          ].includes(stage)
-        ) {
-          let frame: WebFrameMain | undefined
-          try {
-            frame = target.frame
-          } catch {
-            /* Unknown, without probing policy. */
-          }
-          event.targetFrame = nativeImportFrameFacts(frame)
-        }
-        const grant = target.presentation?.nativeTerminal
-        if (validNativeTerminalViewGrant(grant))
-          event.grant = {
-            viewId: grant.viewId,
-            attachment: grant.attachment,
-            nativeEpoch: grant.nativeEpoch,
-            geometrySerial: grant.geometrySerial,
-            width: grant.width,
-            height: grant.height,
-            backingScale: grant.backingScale,
-          }
-        const { width, height } = source.metadata
-        if ([width, height].every((n) => Number.isInteger(n) && n > 0 && n <= 8192))
-          event.nominalRgbaBytes = width * height * 4
-        if (error !== undefined) {
-          const message = error instanceof Error ? error.message : undefined
-          event.error =
-            stage === 'send-rejected' &&
-            message ===
-              'transfer shared texture timed out after 1000ms, ensure you have registered receiver at renderer process.'
-              ? 'send-timeout-1000ms'
-              : stage === 'import-rejected' &&
-                  message === 'Failed to import shared texture: GPU is not available'
-                ? 'gpu-unavailable-before-import'
-                : message === 'native-import-target-stale'
-                  ? 'target-stale'
-                  : 'unknown'
-        }
-        state.ring[event.event % 2048] = event
-        if (state.printed < 2048) {
-          state.printed++
-          console.log('HVIR_NATIVE_IMPORT_STAGE ' + JSON.stringify(event))
-        }
-        if (
-          state.snapshots < 16 &&
-          [
-            'quarantined',
-            'producer-release-rejected',
-            'receipt-release-rejected',
-            'references-released-late',
-            'admission-refused',
-            'cleanup-credit-retained',
-          ].includes(stage)
-        ) {
-          state.snapshots++
-          console.log(
-            'HVIR_NATIVE_IMPORT_TAIL ' +
-              JSON.stringify({
-                schema: 1,
-                snapshot: state.snapshots,
-                clock: 'main performance.now',
-                timeOrigin: performance.timeOrigin,
-                truncated: state.event > 2048,
-                events: state.ring.slice().sort((a, b) => a.event - b.event),
-              }),
-          )
-        }
-      } catch {
-        /* Diagnostic failure cannot change ownership or cleanup. */
-      }
-    },
-    { resource },
-  )
 }
 
 function destroyed(frame: WebFrameMain): boolean {

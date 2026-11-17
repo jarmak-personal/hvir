@@ -3,10 +3,10 @@ import type { BrowserWindow, WebFrameMain } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   nativeReceiverDiagnosticLine,
+  nativeImportFrameFacts,
   nativeTargetDiagnostic,
   observeNativeReceiverDiagnostic,
 } from '../src/main/smoke/native-terminal-import-diagnostic'
-import { nativeImportFrameFacts } from '../src/main/terminal/native-terminal-import'
 import { RendererResourceScopes } from '../src/main/renderer-resource-scopes'
 
 const prefix = 'HVIR_NATIVE_RECEIVER_STAGE '

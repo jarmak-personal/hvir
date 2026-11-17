@@ -1,7 +1,400 @@
-import type { BrowserWindow, WebFrameMain } from 'electron'
+import type { BrowserWindow, SharedTextureImported, WebFrameMain } from 'electron'
 import type { RendererResourceScopes, RendererOwner } from '../renderer-resource-scopes'
-import { nativeImportFrameFacts } from '../terminal/native-terminal-import'
+import { NativeTerminalFrameImports } from '../terminal/native-terminal-import'
 import { validNativeTerminalViewGrant } from '../../shared/native-terminal-presentation'
+
+export interface NativeImportFrameFacts {
+  isDestroyed: boolean | null
+  detached: boolean | null
+  processId: number | null
+  osProcessId: number | null
+  routingId: number | null
+  frameTreeNodeId: number | null
+  frameToken: string | null
+  readUnavailable: boolean
+}
+
+/** Closed scalar snapshot; Chromium IDs and LocalFrameToken are not document authority. */
+export function nativeImportFrameFacts(frame?: WebFrameMain): NativeImportFrameFacts {
+  const facts: NativeImportFrameFacts = {
+    isDestroyed: null,
+    detached: null,
+    processId: null,
+    osProcessId: null,
+    routingId: null,
+    frameTreeNodeId: null,
+    frameToken: null,
+    readUnavailable: true,
+  }
+  if (!frame) return facts
+  try {
+    const value = frame.isDestroyed()
+    if (typeof value !== 'boolean') return facts
+    facts.isDestroyed = value
+    if (value) return facts
+  } catch {
+    return facts
+  }
+  for (const key of [
+    'processId',
+    'osProcessId',
+    'routingId',
+    'frameTreeNodeId',
+  ] as const) {
+    try {
+      const value = frame[key]
+      if (Number.isSafeInteger(value) && value >= (key === 'osProcessId' ? 1 : 0))
+        facts[key] = value
+    } catch {
+      /* Unknown. */
+    }
+  }
+  try {
+    const value = frame.detached
+    if (typeof value === 'boolean') facts.detached = value
+  } catch {
+    /* Unknown. */
+  }
+  try {
+    const token = frame.frameToken
+    if (typeof token === 'string' && /^[a-fA-F0-9-]{1,128}$/.test(token))
+      facts.frameToken = token
+  } catch {
+    /* Unknown. */
+  }
+  facts.readUnavailable = Object.entries(facts).some(
+    ([key, value]) => key !== 'readUnavailable' && value === null,
+  )
+  return facts
+}
+
+type ImportStage =
+  | 'acquire-enter'
+  | 'receive-enter'
+  | 'receive-resolved'
+  | 'receive-rejected'
+  | 'transfer-enter'
+  | 'transfer-resolved'
+  | 'transfer-rejected'
+  | 'import-enter'
+  | 'import-return'
+  | 'import-rejected'
+  | 'send-enter'
+  | 'send-resolved'
+  | 'send-rejected'
+  | 'main-release-enter'
+  | 'main-release-return'
+  | 'main-release-rejected'
+  | 'references-released'
+  | 'receipt-release-enter'
+  | 'receipt-release-return'
+  | 'receipt-release-rejected'
+  | 'producer-release-enter'
+  | 'producer-release-return'
+  | 'producer-release-rejected'
+type ImportFact = { stage: ImportStage; atMs: number | null; error?: string }
+type ImportTrace = { resource: number; emit(fact: ImportFact): void }
+type PendingReceive = { trace?: ImportTrace; facts: ImportFact[]; receipt?: object }
+
+/** Smoke decoration at the injected resource/texture/source edges. No inferred
+ * importer state, credit accounting or physical callback classification. */
+export function createObservedNativeFrameImports(
+  ...[edge, textures]: ConstructorParameters<typeof NativeTerminalFrameImports>
+): Pick<NativeTerminalFrameImports, 'acquire'> {
+  let resource = 0,
+    event = 0,
+    printed = 0,
+    snapshots = 0
+  const ring: object[] = []
+  const pending = new Map<string, PendingReceive>()
+  const receipts = new WeakMap<object, ImportTrace>()
+  const imports = new WeakMap<
+    SharedTextureImported,
+    { trace: ImportTrace; original: SharedTextureImported }
+  >()
+  let handshake: ImportTrace | undefined
+  const enabled = () =>
+    typeof __HVIR_SMOKE_BUILD__ !== 'undefined' &&
+    __HVIR_SMOKE_BUILD__ &&
+    process.env['HVIR_NATIVE_IMPORT_DIAGNOSTICS'] === '1'
+  const fact = (stage: ImportStage, error?: unknown): ImportFact => {
+    let atMs: number | null = null
+    try {
+      atMs = performance.now()
+    } catch {
+      /* Unavailable, never invented zero. */
+    }
+    return {
+      stage,
+      atMs,
+      ...(stage.endsWith('-rejected') ? { error: importErrorCategory(error) } : {}),
+    }
+  }
+  const observe = <T>(
+    value: Promise<T>,
+    trace: ImportTrace,
+    resolved: ImportStage,
+    rejected: ImportStage,
+  ): Promise<T> => {
+    void value.then(
+      () => trace.emit(fact(resolved)),
+      (error: unknown) => trace.emit(fact(rejected, error)),
+    )
+    return value
+  }
+  const core = new NativeTerminalFrameImports(
+    {
+      receive(ticket) {
+        // Receive starts each serialized handshake before its source.transfer call.
+        handshake = undefined
+        if (!enabled()) return edge.receive.call(edge, ticket)
+        const entry: PendingReceive = { facts: [fact('receive-enter')] }
+        if (pending.size < 2048) pending.set(ticket, entry)
+        const emit = (value: ImportFact) => {
+          if (entry.trace) entry.trace.emit(value)
+          else if (entry.facts.length < 3) entry.facts.push(value)
+        }
+        try {
+          const result = edge.receive.call(edge, ticket)
+          void result.then(
+            (receipt) => {
+              entry.receipt = receipt
+              if (entry.trace) receipts.set(receipt, entry.trace)
+              emit(fact('receive-resolved'))
+            },
+            (error: unknown) => emit(fact('receive-rejected', error)),
+          )
+          return result
+        } catch (error) {
+          emit(fact('receive-rejected', error))
+          pending.delete(ticket)
+          throw error
+        }
+      },
+      release(receipt) {
+        const trace = receipts.get(receipt)
+        if (!trace) return edge.release.call(edge, receipt)
+        trace.emit(fact('receipt-release-enter'))
+        try {
+          const result = edge.release.call(edge, receipt)
+          trace.emit(fact('receipt-release-return'))
+          return result
+        } catch (error) {
+          trace.emit(fact('receipt-release-rejected', error))
+          throw error
+        }
+      },
+    },
+    {
+      importSharedTexture(options) {
+        const trace = handshake
+        if (!trace) return textures.importSharedTexture.call(textures, options)
+        trace.emit(fact('import-enter'))
+        const callback = options.allReferencesReleased
+        try {
+          const original = textures.importSharedTexture.call(textures, {
+            ...options,
+            allReferencesReleased: function (this: unknown, ...args: []) {
+              trace.emit(fact('references-released'))
+              return callback?.apply(this, args)
+            },
+          })
+          const wrapped: SharedTextureImported = {
+            getVideoFrame: () => original.getVideoFrame.call(original),
+            get subtle() {
+              return original.subtle
+            },
+            get textureId() {
+              return original.textureId
+            },
+            release() {
+              trace.emit(fact('main-release-enter'))
+              try {
+                const result = original.release.call(original)
+                trace.emit(fact('main-release-return'))
+                return result
+              } catch (error) {
+                trace.emit(fact('main-release-rejected', error))
+                throw error
+              }
+            },
+          }
+          imports.set(wrapped, { trace, original })
+          trace.emit(fact('import-return'))
+          return wrapped
+        } catch (error) {
+          trace.emit(fact('import-rejected', error))
+          throw error
+        }
+      },
+      sendSharedTexture(options, ...metadata: unknown[]) {
+        const imported = imports.get(options.importedSharedTexture)
+        if (!imported)
+          return textures.sendSharedTexture.call(textures, options, ...metadata)
+        const { trace, original } = imported
+        trace.emit(fact('send-enter'))
+        try {
+          const value = metadata[0]
+          let decorated = value
+          try {
+            if (value && typeof value === 'object')
+              decorated = { ...value, hvirImportObservation: trace.resource }
+          } catch {
+            /* Metadata observation failure leaves the original argument intact. */
+          }
+          return observe(
+            textures.sendSharedTexture.call(
+              textures,
+              { ...options, importedSharedTexture: original },
+              decorated,
+              ...metadata.slice(1),
+            ),
+            trace,
+            'send-resolved',
+            'send-rejected',
+          )
+        } catch (error) {
+          trace.emit(fact('send-rejected', error))
+          throw error
+        }
+      },
+    },
+  )
+  return {
+    acquire(source, target, options) {
+      if (!enabled()) return core.acquire(source, target, options)
+      const ordinal = ++resource
+      let hadError = false
+      const trace: ImportTrace = {
+        resource: ordinal,
+        emit(value) {
+          try {
+            hadError ||= value.stage.endsWith('-rejected')
+            const presentation = target.presentation?.nativeTerminal
+            const grant = validNativeTerminalViewGrant(presentation)
+              ? {
+                  viewId: presentation.viewId,
+                  nativeEpoch: presentation.nativeEpoch,
+                  attachment: presentation.attachment,
+                  geometrySerial: presentation.geometrySerial,
+                  width: presentation.width,
+                  height: presentation.height,
+                  backingScale: presentation.backingScale,
+                }
+              : undefined
+            const record = {
+              schema: 1,
+              clock: 'main performance.now',
+              timeOrigin: performance.timeOrigin,
+              event: ++event,
+              resource: ordinal,
+              ...value,
+              grant,
+              nominalRgbaBytes: source.metadata.width * source.metadata.height * 4,
+              ...(value.stage === 'import-enter' || value.stage === 'send-enter'
+                ? { targetFrame: nativeImportFrameFacts(target.frame) }
+                : {}),
+            }
+            ring.push(record)
+            if (ring.length > 2048) ring.shift()
+            if (printed < 2048) {
+              printed++
+              console.log('HVIR_NATIVE_IMPORT_STAGE ' + JSON.stringify(record))
+            }
+            if (
+              snapshots < 16 &&
+              (value.stage.endsWith('-rejected') ||
+                (hadError && value.stage === 'references-released'))
+            ) {
+              snapshots++
+              console.log(
+                'HVIR_NATIVE_IMPORT_TAIL ' +
+                  JSON.stringify({
+                    schema: 1,
+                    clock: 'main performance.now',
+                    truncated: event > 2048,
+                    events: ring.slice(),
+                  }),
+              )
+            }
+          } catch {
+            /* Diagnostic failure never replaces the original boundary result. */
+          }
+        },
+      }
+      trace.emit(fact('acquire-enter'))
+      return core.acquire(
+        {
+          get metadata() {
+            return source.metadata
+          },
+          assertCurrent: () => source.assertCurrent.call(source),
+          copyPixels: () => source.copyPixels.call(source),
+          ...(source.retireProducer
+            ? { retireProducer: () => source.retireProducer!.call(source) }
+            : {}),
+          transfer(ticket) {
+            handshake = trace
+            const entry = pending.get(ticket)
+            pending.delete(ticket)
+            if (entry) {
+              entry.trace = trace
+              if (entry.receipt) receipts.set(entry.receipt, trace)
+              for (const value of entry.facts) trace.emit(value)
+              entry.facts.length = 0
+            }
+            trace.emit(fact('transfer-enter'))
+            try {
+              return observe(
+                source.transfer.call(source, ticket),
+                trace,
+                'transfer-resolved',
+                'transfer-rejected',
+              )
+            } catch (error) {
+              trace.emit(fact('transfer-rejected', error))
+              throw error
+            }
+          },
+          release() {
+            trace.emit(fact('producer-release-enter'))
+            try {
+              return observe(
+                source.release.call(source),
+                trace,
+                'producer-release-return',
+                'producer-release-rejected',
+              )
+            } catch (error) {
+              trace.emit(fact('producer-release-rejected', error))
+              throw error
+            }
+          },
+        },
+        target,
+        options,
+      )
+    },
+  }
+}
+
+function importErrorCategory(error: unknown): string {
+  try {
+    if (error instanceof Error) {
+      if (
+        error.message ===
+        'transfer shared texture timed out after 1000ms, ensure you have registered receiver at renderer process.'
+      )
+        return 'send-timeout-1000ms'
+      if (error.message === 'Failed to import shared texture: GPU is not available')
+        return 'gpu-unavailable-before-import'
+      if (error.message === 'native-import-target-stale') return 'target-stale'
+    }
+  } catch {
+    /* Unknown. */
+  }
+  return 'unknown'
+}
 
 const PREFIX = 'HVIR_NATIVE_RECEIVER_STAGE '
 const STAGES = new Set([

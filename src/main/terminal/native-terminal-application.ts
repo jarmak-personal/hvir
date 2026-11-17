@@ -70,6 +70,10 @@ export async function createNativeTerminalApplication(
   ptys: PtySupervisor,
   isCurrent: (owner: RendererOwner) => boolean,
   systemClipboard: { writeText(text: string): void } = clipboard,
+  createImports = (
+    ...args: ConstructorParameters<typeof NativeTerminalFrameImports>
+  ): Pick<NativeTerminalFrameImports, 'acquire'> =>
+    new NativeTerminalFrameImports(...args),
 ): Promise<NativeTerminalApplication | undefined> {
   const library = await nativeTerminalLibraryForStartup(app.isPackaged)
   if (!library) return
@@ -98,7 +102,7 @@ export async function createNativeTerminalApplication(
   const targets = new NativeTerminalPresentationTargets()
   const presenter = new NativeTerminalPresenter(
     host,
-    new NativeTerminalFrameImports(processOwner, sharedTexture),
+    createImports(processOwner, sharedTexture),
     linux?.presentationMode,
     (viewId) => application.resumePresentation(viewId),
   )
