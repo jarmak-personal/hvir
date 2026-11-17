@@ -16,6 +16,7 @@ import {
   type NativeCapacityActivityReport,
 } from './capacity-native-terminals'
 import { startCapacityOutputFixtures } from './capacity-output-fixtures'
+import { observeCapacityNativeEffects } from './capacity-native-effects-observation'
 import { verifyCapacityLivePresentationUpdate } from './capacity-live-presentation'
 import {
   CAPACITY_REFLOW_HEIGHT,
@@ -245,7 +246,14 @@ export async function runCapacityLoadSmoke(
 ) {
   const nativeCapacity = native && createNativeCapacityTerminals(win, supervisor, native)
   try {
-    return await runCapacityLoad(win, supervisor, host, churnPath, nativeCapacity)
+    return await runCapacityLoad(
+      win,
+      supervisor,
+      host,
+      churnPath,
+      nativeCapacity,
+      native?.effects,
+    )
   } finally {
     nativeCapacity?.dispose()
   }
@@ -257,6 +265,7 @@ async function runCapacityLoad(
   host: LocalHost,
   churnPath: HostPath,
   native?: ReturnType<typeof createNativeCapacityTerminals>,
+  effects?: NativeTerminalApplication['effects'],
 ) {
   const performanceMode = parseCapacityPerformanceMode(
     process.env[CAPACITY_PERFORMANCE_GATE_ENV],
@@ -338,7 +347,17 @@ async function runCapacityLoad(
       : await verifyCapacityTerminalSearch(win, supervisor, true)
     console.log(`[smoke:capacity:reflow-history] ${JSON.stringify(retained)}`)
   }
-  const outputFixtures = startCapacityOutputFixtures(supervisor)
+  const effectObservation =
+    process.env['HVIR_CAPACITY_OBSERVATION'] === 'native-effects-diagnostic' && effects
+      ? observeCapacityNativeEffects(effects)
+      : undefined
+  let outputFixtures: ReturnType<typeof startCapacityOutputFixtures>
+  try {
+    outputFixtures = startCapacityOutputFixtures(supervisor)
+  } catch (error) {
+    effectObservation?.stop()
+    throw error
+  }
   let churning = true
   const watchChurn = (async (): Promise<void> => {
     let generation = 0
@@ -352,12 +371,24 @@ async function runCapacityLoad(
   let loadFailure: unknown
   let loadFailed = false
   try {
-    const loadedReadiness = await measureAdditionalTerminalReadiness(
-      win,
-      supervisor,
-      'loaded',
-      TERMINAL_READINESS_SAMPLE_COUNT,
-    )
+    let loadedReadiness: TerminalReadinessSampleReport
+    try {
+      loadedReadiness = await measureAdditionalTerminalReadiness(
+        win,
+        supervisor,
+        'loaded',
+        TERMINAL_READINESS_SAMPLE_COUNT,
+      )
+    } finally {
+      if (effectObservation) {
+        const observed = effectObservation.stop()
+        try {
+          console.log('HVIR_CAPACITY_NATIVE_EFFECTS ' + JSON.stringify(observed))
+        } catch {
+          /* Diagnostics must preserve readiness failure and cleanup. */
+        }
+      }
+    }
     const terminalReadiness = compareTerminalReadiness(baselineReadiness, loadedReadiness)
     console.log(
       `[smoke:performance:sample:terminal-readiness] ${JSON.stringify(terminalReadiness)}`,

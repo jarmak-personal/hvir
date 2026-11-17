@@ -56,10 +56,15 @@ export async function verifyCapacityScenario(
           'tagged-diagnostic',
           'sequence-diagnostic',
           'native-paired-diagnostic',
+          'native-effects-diagnostic',
         ].includes(observation) ||
         process.env['HVIR_CAPACITY_PERFORMANCE_GATE'] !== undefined
       )
         throw new Error('capacity-observation-requires-separate-diagnostic-run')
+    }
+    if (observation === 'native-effects-diagnostic' && !native?.effects)
+      throw new Error('capacity-native-effects-diagnostic-requires-native')
+    if (observation !== undefined && observation !== 'native-effects-diagnostic') {
       if (observation === 'native-paired-diagnostic')
         await diagnoseCapacityNativePairedProcess(
           win,
