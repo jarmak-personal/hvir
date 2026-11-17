@@ -17,6 +17,7 @@ import {
   sameNativeTerminalView,
   validNativeTerminalViewGrant,
   type NativeTerminalViewGrant,
+  type NativeTerminalPresentationStatus,
 } from '../../shared/native-terminal-presentation'
 
 interface NativeCapacityView {
@@ -36,6 +37,15 @@ export interface NativeCapacitySample extends NativeCapacityView {
   /** Accepted receiver submission, not compositor observation or physical paint. */
   readonly receiverDraws: number
   readonly currentDrawnGrant: boolean
+  readonly compatibility?: {
+    mode: NativeTerminalPresentationStatus['mode'] | 'unobserved'
+    currentGeometry: boolean
+    geometrySerial: number
+    width: number
+    height: number
+    backingScale: number
+    frameCopies: number
+  }
 }
 export interface NativeCapacityActivityReport {
   readonly engine: 'native'
@@ -57,6 +67,9 @@ export function createNativeCapacityTerminals(
   supervisor: PtySupervisor,
   native: NativeTerminalApplication,
 ) {
+  const compatibility =
+    process.env['HVIR_CAPACITY_OBSERVATION'] === 'compatibility-canonical'
+  let pixelsVerified = false
   const targets = native.targets
   let observing = true
   const create = targets.create
@@ -67,6 +80,10 @@ export function createNativeCapacityTerminals(
       grant: NativeTerminalViewGrant
       frame: Parameters<typeof targets.acknowledge>[0]
       current(): boolean
+      presentation?: {
+        mode: NativeTerminalPresentationStatus['mode']
+        grant: NativeTerminalViewGrant
+      }
     }
   >()
   const observedCreate: typeof create = (...args) => {
@@ -84,6 +101,16 @@ export function createNativeCapacityTerminals(
           current: target.isCurrent,
         })
       } else if (viewId) grants.delete(viewId)
+    }
+    if (compatibility) {
+      const publishStatus = target.publishStatus
+      target.publishStatus = (status) => {
+        publishStatus.call(target, status)
+        if (!observing || status.viewId !== viewId) return
+        const current = grants.get(status.viewId)
+        if (current && current.frame === target.frame)
+          current.presentation = { mode: status.mode, grant: current.grant }
+      }
     }
     return target
   }
@@ -153,6 +180,23 @@ export function createNativeCapacityTerminals(
           throw new Error('capacity-native-instance-mismatch')
         const status = await native.inspectRetained(terminal.id, owner(terminal))
         assertNativeCapacityStatus(status)
+        const drawn = targets.drawn(view.viewId, win.webContents.mainFrame)
+        const issued = grants.get(view.viewId)
+        const presentation = issued?.presentation
+        const currentDrawn =
+          compatibility &&
+          !!drawn &&
+          !!issued &&
+          issued.frame === win.webContents.mainFrame &&
+          drawn.nativeEpoch === issued.grant.nativeEpoch &&
+          drawn.attachment === issued.grant.attachment &&
+          drawn.geometrySerial === issued.grant.geometrySerial
+        const currentGeometry =
+          currentDrawn &&
+          drawn.geometrySerial === status.geometry.serial &&
+          issued.grant.width === status.geometry.width &&
+          issued.grant.height === status.geometry.height &&
+          issued.grant.backingScale === status.geometry.backingScale
         return {
           ...view,
           instanceId: terminal.instanceId,
@@ -160,24 +204,74 @@ export function createNativeCapacityTerminals(
           appliedSequence: status.appliedSequence,
           appearanceSerial: status.appliedAppearanceSerial,
           receiverDraws: draws.get(view.viewId) ?? 0,
-          currentDrawnGrant: !!targets.drawn(view.viewId, win.webContents.mainFrame),
+          currentDrawnGrant: !!drawn,
+          ...(compatibility
+            ? {
+                compatibility: {
+                  mode:
+                    currentDrawn &&
+                    presentation &&
+                    sameNativeTerminalView(issued.grant, presentation.grant)
+                      ? presentation.mode
+                      : ('unobserved' as const),
+                  currentGeometry,
+                  geometrySerial: status.geometry.serial,
+                  width: status.geometry.width,
+                  height: status.geometry.height,
+                  backingScale: status.geometry.backingScale,
+                  frameCopies: status.frameCopies,
+                },
+              }
+            : {}),
         }
       }),
     )
   }
+  const provePixels = (samples: readonly NativeCapacitySample[], phase?: string) => {
+    if (!compatibility) return
+    const visible = samples.filter((item) => item.visible)
+    const proof = visible[0]?.compatibility
+    if (
+      visible.length !== 1 ||
+      proof?.mode !== 'native-pixels' ||
+      !proof.currentGeometry ||
+      proof.frameCopies < 1 ||
+      !visible[0]!.currentDrawnGrant
+    )
+      throw new Error('capacity-compatibility-current-pixels-required')
+    if (phase)
+      console.log(
+        'HVIR_CAPACITY_COMPATIBILITY_PRESENTATION ' +
+          JSON.stringify({
+            phase,
+            ...proof,
+            currentDrawnGrant: true,
+            electronDisableGpu: true,
+            physicalPresentationQualified: false,
+          }),
+      )
+  }
   const ready = async () => {
+    let samples: readonly NativeCapacitySample[] = []
     await wait(async () => {
-      const samples = await snapshot()
+      samples = await snapshot()
       return (
         samples.length === 12 &&
         samples.filter((item) => item.visible).length === 1 &&
         samples.every((item) =>
           item.visible
-            ? item.canvases === 1 && item.currentDrawnGrant
+            ? item.canvases === 1 &&
+              item.currentDrawnGrant &&
+              (!compatibility ||
+                (item.compatibility?.mode === 'native-pixels' &&
+                  item.compatibility.currentGeometry &&
+                  item.compatibility.frameCopies > 0))
             : item.canvases === 0 && !item.currentDrawnGrant,
         )
       )
     }, 'one-visible-eleven-hidden')
+    provePixels(samples, pixelsVerified ? undefined : 'initial-ready')
+    pixelsVerified = true
   }
   // Failure-only observation: never changes the final readiness predicate or its deadline.
   const reportSessionsReadinessFailure = async (): Promise<void> => {
@@ -480,7 +574,14 @@ export function createNativeCapacityTerminals(
         visiblePixelAndHiddenReveal: proof,
       }
     },
-    activity: verifyNativeCapacityActivity,
+    activity(
+      before: readonly NativeCapacitySample[],
+      after: readonly NativeCapacitySample[],
+      fixtureIds: readonly string[],
+    ) {
+      provePixels(after, 'post-load')
+      return verifyNativeCapacityActivity(before, after, fixtureIds)
+    },
     async retainedHistory(unicodeWrapped: boolean) {
       await activateCapacityTerminal(win, 0)
       const terminal = supervisor.list()[0]

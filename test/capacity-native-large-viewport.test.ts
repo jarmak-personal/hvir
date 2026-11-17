@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 vi.mock('electron', () => ({ app: {}, screen: {}, clipboard: {}, utilityProcess: {} }))
 import {
   capacityLargeViewportSelected,
   capacityLargeViewportWindowSize,
 } from '../src/main/smoke/capacity-native-large-viewport'
+import { capacityCompatibilityCanonicalSelected } from '../src/main/smoke/capacity-scenario'
 
 const selected = {
   HVIR_CAPACITY_OBSERVATION: 'compatibility-large-viewport',
@@ -90,5 +93,116 @@ describe('closed large compatibility profile', () => {
         dpr,
       ),
     ).toThrow('geometry')
+  })
+})
+
+describe('real smoke shell compatibility launch selection', () => {
+  const script = readFileSync(new URL('../scripts/run-smoke.sh', import.meta.url), 'utf8')
+  const block = script.slice(
+    script.indexOf('smoke_compatibility_args=()'),
+    script.indexOf('# Diagnostic only:'),
+  )
+  const invoke = (extra: Record<string, string | undefined>) =>
+    spawnSync(
+      '/bin/bash',
+      [
+        '-c',
+        'set -euo pipefail\nuname(){ printf "%s\\n" "$MOCK_PLATFORM"; }\n' +
+          block +
+          '\nprintf "%s\\n" "${smoke_compatibility_args[*]}"',
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          PATH: process.env['PATH'],
+          MOCK_PLATFORM: 'Darwin',
+          HVIR_SMOKE_SCENARIO: 'capacity',
+          ...extra,
+        },
+      },
+    )
+  it.each([undefined, 'controlled'])(
+    'launches the canonical workload software compositor with gate %s',
+    (gate) => {
+      const result = invoke({
+        HVIR_CAPACITY_OBSERVATION: 'compatibility-canonical',
+        ...(gate === undefined ? {} : { HVIR_CAPACITY_PERFORMANCE_GATE: gate }),
+      })
+      expect(result.status).toBe(0)
+      expect(result.stdout.trim()).toBe('--disable-gpu')
+    },
+  )
+  it.each([
+    { MOCK_PLATFORM: 'Linux' },
+    { HVIR_SMOKE_SCENARIO: 'native-terminal-workbench' },
+    { HVIR_CAPACITY_COMPARISON_RUN_ID: '' },
+    { HVIR_NATIVE_IMPORT_DIAGNOSTICS: '' },
+    { HVIR_NATIVE_TERMINAL_TRACE_CONFIG: '' },
+    { HVIR_NATIVE_TERMINAL_PRESENTATION: 'pixels' },
+    { HVIR_CAPACITY_DIAGNOSTIC_OUTPUT: '/tmp/diagnostic.json' },
+    { HVIR_CAPACITY_PERFORMANCE_GATE: 'custom' },
+    { HVIR_CAPACITY_PERFORMANCE_GATE: '' },
+  ])('rejects conflicting invocation %j before launching Electron', (extra) => {
+    expect(
+      invoke({ HVIR_CAPACITY_OBSERVATION: 'compatibility-canonical', ...extra }).status,
+    ).toBe(1)
+  })
+  it('retains ordinary launch and the distinct large-viewport output contract', () => {
+    expect(invoke({}).stdout.trim()).toBe('')
+    expect(
+      invoke({
+        HVIR_CAPACITY_OBSERVATION: 'compatibility-large-viewport',
+        HVIR_CAPACITY_DIAGNOSTIC_OUTPUT: '/tmp/large.json',
+      }).stdout.trim(),
+    ).toBe('--disable-gpu')
+    expect(
+      invoke({
+        HVIR_CAPACITY_OBSERVATION: 'compatibility-large-viewport',
+        HVIR_CAPACITY_PERFORMANCE_GATE: 'controlled',
+      }).status,
+    ).toBe(1)
+  })
+})
+
+describe('canonical compatibility application admission', () => {
+  const environment = {
+    HVIR_CAPACITY_OBSERVATION: 'compatibility-canonical',
+    HVIR_SMOKE_SCENARIO: 'capacity',
+  }
+  it.each([undefined, 'controlled'])(
+    'admits only the unchanged canonical gate %s',
+    (gate) => {
+      expect(
+        capacityCompatibilityCanonicalSelected(
+          {
+            ...environment,
+            ...(gate === undefined ? {} : { HVIR_CAPACITY_PERFORMANCE_GATE: gate }),
+          },
+          'darwin',
+          ['--disable-gpu'],
+        ),
+      ).toBe(true)
+    },
+  )
+  it.each(['', 'custom', 'evidence'])(
+    'rejects an explicitly invalid gate %j even outside the shell owner',
+    (gate) => {
+      expect(() =>
+        capacityCompatibilityCanonicalSelected(
+          { ...environment, HVIR_CAPACITY_PERFORMANCE_GATE: gate },
+          'darwin',
+          ['--disable-gpu'],
+        ),
+      ).toThrow('invocation')
+    },
+  )
+  it('leaves ordinary routes untouched and requires the actual software launch', () => {
+    expect(capacityCompatibilityCanonicalSelected({}, 'darwin', [])).toBe(false)
+    expect(() =>
+      capacityCompatibilityCanonicalSelected(environment, 'darwin', []),
+    ).toThrow('invocation')
+    expect(() =>
+      capacityCompatibilityCanonicalSelected(environment, 'linux', ['--disable-gpu']),
+    ).toThrow('invocation')
   })
 })

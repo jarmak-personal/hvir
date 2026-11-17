@@ -17,19 +17,28 @@ if [[ -n "${HVIR_NATIVE_TERMINAL_OZONE:-}" ]]; then
   smoke_ozone_args=("--ozone-platform=$HVIR_NATIVE_TERMINAL_OZONE")
 fi
 
-# Closed CPU workbench profile; Darwin ignores the Linux-only pixels environment.
+# Closed CPU workbench profiles; Darwin ignores the Linux-only pixels environment.
 smoke_compatibility_args=()
-if [[ "${HVIR_CAPACITY_OBSERVATION:-}" == compatibility-large-viewport ]]; then
+if [[ "${HVIR_CAPACITY_OBSERVATION:-}" == compatibility-large-viewport || "${HVIR_CAPACITY_OBSERVATION:-}" == compatibility-canonical ]]; then
   if [[ "$(uname -s)" != Darwin || "$HVIR_SMOKE_SCENARIO" != capacity ]]; then
-    echo 'compatibility-large-viewport requires Darwin capacity' >&2
+    echo 'compatibility presentation requires Darwin capacity' >&2
     exit 1
   fi
-  for conflict in HVIR_CAPACITY_COMPARISON_RUN_ID HVIR_CAPACITY_COMPARISON_INDEX HVIR_CAPACITY_COMPARISON_RESULT HVIR_CAPACITY_COMPARISON_REFRESH_HZ HVIR_NATIVE_IMPORT_DIAGNOSTICS HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW HVIR_NATIVE_TERMINAL_TRACE_CONFIG HVIR_NATIVE_TERMINAL_PRESENTATION HVIR_CAPACITY_PERFORMANCE_GATE; do
+  for conflict in HVIR_CAPACITY_COMPARISON_RUN_ID HVIR_CAPACITY_COMPARISON_INDEX HVIR_CAPACITY_COMPARISON_RESULT HVIR_CAPACITY_COMPARISON_REFRESH_HZ HVIR_NATIVE_IMPORT_DIAGNOSTICS HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW HVIR_NATIVE_TERMINAL_TRACE_CONFIG HVIR_NATIVE_TERMINAL_PRESENTATION HVIR_CAPACITY_DIAGNOSTIC_OUTPUT; do
+    if [[ "$conflict" == HVIR_CAPACITY_DIAGNOSTIC_OUTPUT && "$HVIR_CAPACITY_OBSERVATION" == compatibility-large-viewport ]]; then continue; fi
     if printenv "$conflict" >/dev/null; then
-      echo 'compatibility-large-viewport rejects comparison, tracing and alternate mode selectors' >&2
+      echo 'compatibility presentation rejects comparison, tracing and alternate mode selectors' >&2
       exit 1
     fi
   done
+  if [[ "$HVIR_CAPACITY_OBSERVATION" == compatibility-large-viewport ]] && printenv HVIR_CAPACITY_PERFORMANCE_GATE >/dev/null; then
+    echo 'compatibility-large-viewport rejects performance gate selectors' >&2
+    exit 1
+  fi
+  if [[ "$HVIR_CAPACITY_OBSERVATION" == compatibility-canonical ]] && printenv HVIR_CAPACITY_PERFORMANCE_GATE >/dev/null && [[ "$HVIR_CAPACITY_PERFORMANCE_GATE" != controlled ]]; then
+    echo 'compatibility-canonical requires controlled or ordinary evidence mode' >&2
+    exit 1
+  fi
   smoke_compatibility_args=(--disable-gpu)
 fi
 

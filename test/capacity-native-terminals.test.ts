@@ -265,4 +265,86 @@ describe('native capacity observation at parser and actual receiver ownership', 
     expect(Reflect.get(targets, 'create')).toBe(originalCreate)
     expect(Reflect.get(targets, 'acknowledge')).toBe(originalAck)
   })
+  it('joins pixel status to its exact issued and drawn geometry without inheriting an old grant mode', async () => {
+    vi.stubEnv('HVIR_CAPACITY_OBSERVATION', 'compatibility-canonical')
+    const views = samples(),
+      targets = new NativeTerminalPresentationTargets()
+    const frame = {
+      send: vi.fn(),
+      isDestroyed: () => false,
+    } as unknown as BrowserWindow['webContents']['mainFrame']
+    const win = {
+      webContents: { mainFrame: frame, executeJavaScript: () => Promise.resolve(views) },
+    } as unknown as BrowserWindow
+    let current = { ...status(), frameCopies: 7 }
+    const terminals = views.map((item) => ({
+      id: item.sessionId,
+      instanceId: item.instanceId,
+      ownerId: 1,
+      ownerGeneration: 1,
+    }))
+    const supervisor = {
+      get: (id: string) => terminals.find((item) => item.id === id),
+    } as unknown as PtySupervisor
+    const native = {
+      targets,
+      sessions: {
+        get: (id: string) => {
+          const item = views.find((item) => item.sessionId === id)
+          return item && { handle: item.handle, session: { instanceId: item.instanceId } }
+        },
+      },
+      inspectRetained: () => Promise.resolve(current),
+    } as unknown as NativeTerminalApplication
+    const adapter = createNativeCapacityTerminals(win, supervisor, native)
+    try {
+      const target = targets.create(
+        frame,
+        () => true,
+        () => true,
+      )
+      const grant = {
+        viewId: views[0]!.viewId,
+        attachment: 1,
+        nativeEpoch: randomUUID(),
+        geometrySerial: 1,
+        width: 800,
+        height: 480,
+        backingScale: 1,
+      }
+      target.publishGrant(grant)
+      targets.acknowledge(frame, { kind: 'drawn', screen: 0, grant })
+      target.publishStatus({ viewId: grant.viewId, mode: 'native-gpu' })
+      expect((await adapter.snapshot())[0]!.compatibility).toMatchObject({
+        mode: 'native-gpu',
+        currentGeometry: true,
+        frameCopies: 7,
+      })
+      target.publishStatus({
+        viewId: grant.viewId,
+        mode: 'native-pixels',
+        reason: 'import-unavailable',
+      })
+      expect((await adapter.snapshot())[0]!.compatibility).toMatchObject({
+        mode: 'native-pixels',
+        currentGeometry: true,
+        width: 800,
+        height: 480,
+      })
+      const next = { ...grant, geometrySerial: 2 }
+      target.publishGrant(next)
+      current = { ...current, geometry: { ...current.geometry, serial: 2 } }
+      targets.acknowledge(frame, { kind: 'drawn', screen: 0, grant: next })
+      expect((await adapter.snapshot())[0]!.compatibility?.mode).toBe('unobserved')
+      target.publishStatus({ viewId: next.viewId, mode: 'native-pixels' })
+      expect((await adapter.snapshot())[0]!.compatibility?.mode).toBe('native-pixels')
+      current = { ...current, geometry: { ...current.geometry, width: 801 } }
+      expect((await adapter.snapshot())[0]!.compatibility?.currentGeometry).toBe(false)
+      target.publishGrant(undefined)
+      expect((await adapter.snapshot())[0]!.compatibility?.mode).toBe('unobserved')
+    } finally {
+      adapter.dispose()
+      vi.unstubAllEnvs()
+    }
+  })
 })
