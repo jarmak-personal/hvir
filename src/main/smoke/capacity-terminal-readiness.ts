@@ -14,11 +14,17 @@ interface TerminalReadinessPhaseSample {
   shellFoundAtMs?: number
   shellClickAtMs?: number
   domPidObservedAtMs?: number
+  domPidLastUnsuccessfulPollAtMs?: number
+  domPidSuccessfulPollAtMs?: number
   uiObservation?: 'matched' | 'missing' | 'ambiguous'
   launchObservation?: CapacityReadinessLaunchObservation
   addReturnedAtMs?: number
   supervisedAtMs?: number
   awaitingInputAtMs?: number
+  focusInvocationStartedAtMs?: number
+  rendererFocusEnteredAtMs?: number
+  rendererAfterDomFocusAtMs?: number
+  focusTargetPresent?: boolean
   focusCompletedAtMs?: number
   inputDispatchStartedAtMs?: number
   inputDispatchCompletedAtMs?: number
@@ -26,7 +32,13 @@ interface TerminalReadinessPhaseSample {
   completedAtMs?: number
 }
 
-type SpawnOwner = Pick<PtySupervisor, 'spawn'>
+type ReadinessTerminal = Pick<
+  ManagedPty,
+  'id' | 'instanceId' | 'ownerId' | 'ownerGeneration' | 'startedAt'
+>
+type SpawnOwner = Pick<PtySupervisor, 'spawn' | 'observe'> & {
+  list(): readonly ReadinessTerminal[]
+}
 type SpawnRequest = Parameters<SpawnOwner['spawn']>[0]
 type Preparation = NonNullable<SpawnRequest['prepareTerminal']>
 type Reservation = Parameters<Preparation>[0]
@@ -37,6 +49,8 @@ export interface CapacityReadinessLaunchObservation {
   readonly preparationEnteredAtMs?: number
   readonly preparation?: 'entered' | 'not-entered'
   readonly launchedAtMs?: number
+  readonly registrationObservedAtMs?: number
+  readonly registrationObservationFailed: boolean
 }
 
 /** One bounded smoke launch observation. Original promises are never chained. */
@@ -47,13 +61,31 @@ export function observeCapacityReadinessSpawn(supervisor: SpawnOwner) {
     request: SpawnRequest
     spawnEnteredAtMs: number
     preparationEnteredAtMs?: number
+    registrationObservedAtMs?: number
     reservation?: Pick<
       Reservation,
       'sessionId' | 'instanceId' | 'ownerId' | 'ownerGeneration'
     >
   }> = []
   let disposed = false,
-    truncated = false
+    truncated = false,
+    registrationObservationFailed = false
+  const matches = (
+    { request, reservation }: (typeof rows)[number],
+    terminal: ReadinessTerminal,
+  ) => {
+    const identity = reservation ?? {
+      sessionId: request.sessionId,
+      ownerId: request.ownerId,
+      ownerGeneration: request.ownerGeneration ?? 0,
+    }
+    return (
+      identity.sessionId === terminal.id &&
+      identity.ownerId === terminal.ownerId &&
+      identity.ownerGeneration === terminal.ownerGeneration &&
+      (!reservation || reservation.instanceId === terminal.instanceId)
+    )
+  }
   const wrapped: SpawnOwner['spawn'] = function (this: SpawnOwner, request) {
     const row =
       !disposed && rows.length < 10
@@ -84,47 +116,54 @@ export function observeCapacityReadinessSpawn(supervisor: SpawnOwner) {
       : request
     return original.call(this, observed)
   }
-  Object.defineProperty(
-    supervisor,
-    'spawn',
-    descriptor && 'value' in descriptor
-      ? { ...descriptor, value: wrapped }
-      : {
-          configurable: true,
-          writable: true,
-          enumerable: descriptor?.enumerable ?? false,
-          value: wrapped,
-        },
-  )
-  return {
-    read(
-      terminal: Pick<
-        ManagedPty,
-        'id' | 'instanceId' | 'ownerId' | 'ownerGeneration' | 'startedAt'
-      >,
-    ): CapacityReadinessLaunchObservation {
-      const matching = rows.filter(({ request, reservation }) => {
-        const identity = reservation ?? {
-          sessionId: request.sessionId,
-          ownerId: request.ownerId,
-          ownerGeneration: request.ownerGeneration ?? 0,
-        }
-        return (
-          identity.sessionId === terminal.id &&
-          identity.ownerId === terminal.ownerId &&
-          identity.ownerGeneration === terminal.ownerGeneration &&
-          (!reservation || reservation.instanceId === terminal.instanceId)
+  const stopRegistration = supervisor.observe(() => {
+    if (disposed || !rows.length) return
+    try {
+      const observedAtMs = Date.now()
+      const terminals = supervisor.list()
+      for (const row of rows) {
+        if (row.registrationObservedAtMs !== undefined) continue
+        const found = terminals.filter(
+          (terminal) =>
+            matches(row, terminal) && terminal.startedAt >= row.spawnEnteredAtMs,
         )
-      })
+        if (found.length === 1) row.registrationObservedAtMs = observedAtMs
+      }
+    } catch {
+      registrationObservationFailed = true
+    }
+  })
+  try {
+    Object.defineProperty(
+      supervisor,
+      'spawn',
+      descriptor && 'value' in descriptor
+        ? { ...descriptor, value: wrapped }
+        : {
+            configurable: true,
+            writable: true,
+            enumerable: descriptor?.enumerable ?? false,
+            value: wrapped,
+          },
+    )
+  } catch (error) {
+    void stopRegistration()
+    throw error
+  }
+  return {
+    read(terminal: ReadinessTerminal): CapacityReadinessLaunchObservation {
+      const matching = rows.filter((row) => matches(row, terminal))
       const row = matching.length === 1 ? matching[0] : undefined
       return {
         join: !matching.length ? 'missing' : row ? 'matched' : 'ambiguous',
         truncated,
+        registrationObservationFailed,
         launchedAtMs: terminal.startedAt,
         ...(row
           ? {
               spawnEnteredAtMs: row.spawnEnteredAtMs,
               preparationEnteredAtMs: row.preparationEnteredAtMs,
+              registrationObservedAtMs: row.registrationObservedAtMs,
               preparation: row.reservation
                 ? ('entered' as const)
                 : ('not-entered' as const),
@@ -136,6 +175,7 @@ export function observeCapacityReadinessSpawn(supervisor: SpawnOwner) {
       if (disposed) return
       disposed = true
       rows.length = 0
+      void stopRegistration()
       if (Object.getOwnPropertyDescriptor(supervisor, 'spawn')?.value !== wrapped) return
       if (descriptor) Object.defineProperty(supervisor, 'spawn', descriptor)
       else delete (supervisor as Partial<SpawnOwner>).spawn
@@ -171,7 +211,11 @@ export async function measureAdditionalTerminalReadiness(
     const phases: TerminalReadinessPhaseSample = {
       sample: index + 1,
       uiObservation: 'missing',
-      launchObservation: { join: 'missing', truncated: false },
+      launchObservation: {
+        join: 'missing',
+        truncated: false,
+        registrationObservationFailed: false,
+      },
     }
     if (phaseSamples.length < 10) phaseSamples.push(phases)
     const launchObservation = observeCapacityReadinessSpawn(supervisor)
@@ -243,8 +287,10 @@ export async function measureAdditionalTerminalReadiness(
           () => output.includes(awaitingInputMarker),
           `${label} terminal ${index + 1} did not become input-ready: ${JSON.stringify(output)}`,
         )
-        await win.webContents.executeJavaScript(`
+        phases.focusInvocationStartedAtMs = Date.now()
+        const focusObservation = (await win.webContents.executeJavaScript(`
         (() => {
+          const rendererFocusEnteredAtMs = Date.now();
           const sessionId = ${JSON.stringify(terminal.id)};
           const surface = document.querySelector(
             '.terminal-surface[data-terminal-session="' + CSS.escape(sessionId) + '"]'
@@ -252,8 +298,13 @@ export async function measureAdditionalTerminalReadiness(
           const input = surface?.querySelector('.native-terminal-pane textarea')
             ?? surface?.querySelector('.terminal-engine-host');
           input?.focus();
+          return {rendererFocusEnteredAtMs,rendererAfterDomFocusAtMs:Date.now(),focusTargetPresent:!!input};
         })()
-      `)
+      `)) as {
+          rendererFocusEnteredAtMs: number
+          rendererAfterDomFocusAtMs: number
+          focusTargetPresent: boolean
+        }
         inputStartedAt = Date.now()
         phases.focusCompletedAtMs = inputStartedAt
         phases.inputDispatchStartedAtMs = inputStartedAt
@@ -264,6 +315,7 @@ export async function measureAdditionalTerminalReadiness(
         win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
         win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
         phases.inputDispatchCompletedAtMs = Date.now()
+        Object.assign(phases, focusObservation)
         await waitFor(
           () => output.includes(marker),
           `${label} terminal ${index + 1} input was not echoed: ${JSON.stringify(output)}`,

@@ -123,6 +123,8 @@ export interface CapacityTerminalAddPhases {
   readonly shellFoundAtMs: number
   readonly shellClickAtMs: number
   readonly domPidObservedAtMs: number
+  readonly domPidLastUnsuccessfulPollAtMs?: number
+  readonly domPidSuccessfulPollAtMs: number
 }
 export async function addCapacityTerminals(
   win: BrowserWindow,
@@ -164,14 +166,18 @@ export async function addCapacityTerminals(
               .find((node) => node.querySelector('strong')?.textContent?.trim() === 'Shell'),
             'shell menu item unavailable at ' + expected
           );
-          const phase={shellFoundAtMs:Date.now(),shellClickAtMs:Date.now(),domPidObservedAtMs:undefined};
+          const phase={shellFoundAtMs:Date.now(),shellClickAtMs:Date.now(),domPidObservedAtMs:undefined,
+            domPidLastUnsuccessfulPollAtMs:undefined,domPidSuccessfulPollAtMs:undefined};
           phases.push(phase);
           shell.click();
           await waitFor(() => {
             const active = document.querySelector('.terminal-surface.active');
-            return document.querySelectorAll('.terminal-list-row').length === expected &&
+            const settled = document.querySelectorAll('.terminal-list-row').length === expected &&
               document.querySelectorAll('.terminal-surface').length === expected &&
               (active?.getAttribute('data-terminal-status') || '').startsWith('pid ');
+            if(settled)phase.domPidSuccessfulPollAtMs=Date.now();
+            else phase.domPidLastUnsuccessfulPollAtMs=Date.now();
+            return settled;
           }, 'terminal did not settle at ' + expected);
           phase.domPidObservedAtMs=Date.now();
         }

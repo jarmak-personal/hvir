@@ -14,6 +14,7 @@ import {
   paneScript,
 } from './native-terminal-selection-browser'
 import { NATIVE_READONLY_SELECTION } from './native-terminal-selection-fixture'
+import { reportNativeQueryFailure } from './native-terminal-query-failure'
 import {
   terminalSearchEvictionProducer,
   terminalSearchStreamProducer,
@@ -653,35 +654,20 @@ export async function verifyNativeTerminalQuery(
   } catch (cause) {
     if (diagnostics) {
       const owner = { id: managed.ownerId, generation: managed.ownerGeneration }
-      const [producer, renderer, ui] = await Promise.all([
-        native.inspectRetained(managed.id, owner).catch(() => undefined),
-        native.rendererInfo(managed.id, owner).catch(() => undefined),
-        evaluate<{ status: string; unavailable: boolean }>(
-          `return {status:panel.querySelector('.terminal-search-status')?.textContent?.trim()??'',unavailable:!!panel.querySelector('.terminal-search-unavailable')};`,
-        ).catch(() => undefined),
-      ])
-      console.error('HVIR_NATIVE_QUERY_FAILURE_FACTS', {
-        phase,
-        ui,
-        geometry: producer?.geometry,
-        ioAppliedSequence: producer?.ioAppliedSequence,
-        ioAppliedMutation: producer?.ioAppliedMutation,
-        producerFailure: producer?.failure,
-        rendererHealth: producer?.rendererHealth,
-        presentationFailure: producer?.presentationFailure,
-        nativeLastFrame: renderer?.lastFrame && {
-          screen: renderer.lastFrame.screen,
-          streamSequence: renderer.lastFrame.streamSequence,
-          snapshotMutation: renderer.lastFrame.snapshotMutation,
-          geometrySerial: renderer.lastFrame.geometrySerial,
-          kind: renderer.lastFrame.kind,
-          width: renderer.lastFrame.width,
-          height: renderer.lastFrame.height,
-          colorSpace: renderer.lastFrame.colorSpace,
-          origin: renderer.lastFrame.origin,
-          premultiplied: renderer.lastFrame.premultiplied,
+      await reportNativeQueryFailure(
+        {
+          producer: () => native.inspectRetained(managed.id, owner),
+          renderer: () => native.rendererInfo(managed.id, owner),
+          ui: () =>
+            evaluate<{ status: string; unavailable: boolean }>(
+              `return {status:panel.querySelector('.terminal-search-status')?.textContent?.trim()??'',unavailable:!!panel.querySelector('.terminal-search-unavailable')};`,
+            ),
+          proof: browser.proof,
+          captureTiming: browser.captureTiming,
+          output: (line) => console.error(line),
         },
-      })
+        { phase, phaseTiming, phaseTimingUnavailable },
+      )
     }
     throw new Error('native-query-phase ' + phase, { cause })
   } finally {

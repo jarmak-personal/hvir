@@ -244,6 +244,7 @@ export async function verifyExtensionContributions(
   await new Promise((resolve) => setTimeout(resolve, 2200))
   if (observation()!.observedAt !== frozen)
     throw new Error('No-demand updater continued publishing')
+  await focusSmokeWindow(win, 'window')
   await controls.click('Restore terminal rail')
   try {
     await controls.wait(
@@ -258,7 +259,6 @@ export async function verifyExtensionContributions(
   if (guests.snapshot(renderer).filter((view) => view.role === 'updater').length !== 1)
     throw new Error('Restore duplicated updater')
 
-  console.log('[smoke] shared visible updater pause/renew OK')
   await controls.click('Reference workspace')
   await controls.wait(
     () => guests.snapshot(renderer).some((view) => view.context?.surface === 'left'),
