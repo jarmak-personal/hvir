@@ -27,7 +27,6 @@ import {
   type CapacityTerminalComparisonClass as Workload,
   type CapacityTerminalComparisonMeasurement as Measurement,
 } from './capacity-terminal-comparison'
-import { readCapacityTerminalLayout } from './capacity-terminal-compositor'
 
 const kinds: readonly Workload[] = ['scroll', 'output', 'echo', 'resize', 'workbench']
 import {
@@ -168,7 +167,7 @@ export async function runCapacityTerminalPairedProcess(options: {
     )
     const readiness = compareTerminalReadiness(baselineReadiness, loadedReadiness)
     await activateCapacityTerminal(win, 0)
-    const layout = await readCapacityTerminalLayout(win, fixture.terminal, native)
+    const layout = await fixture.appliedLayout()
     await win.webContents.executeJavaScript(`(async()=>{
       const file=[...document.querySelectorAll('.file-row')].find(n=>n.title===${JSON.stringify(liveReloadPath.path)});
       if(!(file instanceof HTMLElement))throw new Error('capacity-pair-viewer-fixture');file.click();
