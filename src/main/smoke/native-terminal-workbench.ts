@@ -1,5 +1,6 @@
 import { verifyNativeTerminalAppearance } from './native-terminal-appearance'
 import { createNativeTerminalSshLifecycleFixture } from '../../../test/fixtures/native-terminal-ssh-lifecycle'
+import { createNativeTerminalRealSshFixture } from './native-terminal-real-ssh'
 import { createRemoteProjectFileSmokeHost } from './project-file-operations'
 import { verifyNativeTerminalLifetimes } from './native-terminal-lifecycle'
 import { verifyNativeTerminalFailureLifetimes } from './native-terminal-lifecycle-failure'
@@ -66,6 +67,12 @@ export async function createNativeWorkbench(
   supervisor: PtySupervisor,
   cleanup: SmokeCleanup,
 ) {
+  const realSshSelection = process.env['HVIR_NATIVE_TERMINAL_REAL_SSH']
+  if (
+    realSshSelection !== undefined &&
+    (realSshSelection !== '1' || mode !== 'native-terminal-workbench')
+  )
+    throw new Error('Native real SSH requires its explicit native workbench selector')
   const utilities =
     mode === 'native-terminal-workbench' ? observeNativeTerminalUtilities() : undefined
   if (utilities) cleanup.defer('native utility observation', () => utilities.dispose())
@@ -86,7 +93,9 @@ export async function createNativeWorkbench(
     cleanup.defer('native development terminals', () => nativeTerminals.dispose())
   const nativeSsh =
     mode === 'native-terminal-workbench'
-      ? await createNativeTerminalSshLifecycleFixture(localHost, projectRoot)
+      ? realSshSelection === '1'
+        ? await createNativeTerminalRealSshFixture(localHost)
+        : await createNativeTerminalSshLifecycleFixture(localHost, projectRoot)
       : undefined
   if (nativeSsh) cleanup.defer('native SSH lifecycle fixture', () => nativeSsh.dispose())
   const smokeRemoteRoot =
