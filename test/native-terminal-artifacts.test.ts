@@ -18,6 +18,7 @@ import {
   pinPath,
   verifyArtifact,
   validQueryProof,
+  validQueryHighlightProof,
   validAppearanceProof,
   validFrameRetirementProof,
   withAppearanceFontFixture,
@@ -81,6 +82,17 @@ function fontCaseProofFixture() {
   }
 }
 
+const queryHighlightProof = {
+  kind: 'native-query-highlight',
+  passed: true,
+  checks: 30,
+  frameAcquisitions: 3,
+  highlightPixelsDiffer: true,
+  abaRestoresBaseline: true,
+  cleanupChecked: true,
+  hardwareGpuQualified: false,
+}
+
 let root: string
 let manifest: NativeArtifact
 beforeEach(async () => {
@@ -102,6 +114,7 @@ beforeEach(async () => {
     'selection-proof.json',
     'query-probe',
     'query-proof.json',
+    'query-highlight-proof.json',
     'appearance-probe',
     'appearance-proof.json',
     'frame-metadata-probe',
@@ -109,17 +122,19 @@ beforeEach(async () => {
   ]) {
     await writeFile(
       join(root, name),
-      name === 'appearance-proof.json'
-        ? JSON.stringify({
-            kind: 'native-appearance',
-            passed: true,
-            checks: 100,
-            ligaturePixelsDiffer: true,
-            cursorPolicyCases: 3,
-            applicationCursorOverrides: 2,
-            hardwareQualified: false,
-          })
-        : `artifact ${name}`,
+      name === 'query-highlight-proof.json'
+        ? JSON.stringify(queryHighlightProof)
+        : name === 'appearance-proof.json'
+          ? JSON.stringify({
+              kind: 'native-appearance',
+              passed: true,
+              checks: 100,
+              ligaturePixelsDiffer: true,
+              cursorPolicyCases: 3,
+              applicationCursorOverrides: 2,
+              hardwareQualified: false,
+            })
+          : `artifact ${name}`,
     )
     files.push({
       path: name,
@@ -152,6 +167,33 @@ describe('native artifact admission before loader execution', () => {
     expect((await verifyArtifact(root, 'macos-arm64')).source).toBe(manifest.source)
   })
   it.each([
+    'not-json',
+    JSON.stringify({ ...queryHighlightProof, abaRestoresBaseline: false }),
+  ])(
+    'rejects a malformed or incomplete highlight receipt with matching manifest bytes',
+    async (contents) => {
+      const path = 'query-highlight-proof.json'
+      await writeFile(join(root, path), contents)
+      await save({
+        ...manifest,
+        files: await Promise.all(
+          manifest.files.map(async (file) =>
+            file.path === path
+              ? {
+                  ...file,
+                  sha256: await digest(join(root, path)),
+                  bytes: Buffer.byteLength(contents),
+                }
+              : file,
+          ),
+        ),
+      })
+      await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow(
+        'invalid query highlight proof',
+      )
+    },
+  )
+  it.each([
     'target',
     'applicationVersion',
     'vtVersion',
@@ -173,6 +215,7 @@ describe('native artifact admission before loader execution', () => {
     'selection-proof.json',
     'query-probe',
     'query-proof.json',
+    'query-highlight-proof.json',
     'appearance-probe',
     'appearance-proof.json',
     'frame-metadata-probe',
@@ -444,6 +487,31 @@ describe('real query probe numerical receipt admission', () => {
     const missing: Record<string, unknown> = { ...proof }
     delete missing[field]
     expect(validQueryProof(missing)).toBe(false)
+  })
+})
+
+describe('native query highlight readback proof admission', () => {
+  it('admits actual readback separately from hardware qualification', () => {
+    expect(validQueryHighlightProof(queryHighlightProof)).toBe(true)
+  })
+  it.each([
+    ['kind', 'native-query'],
+    ['passed', false],
+    ['checks', 19],
+    ['checks', NaN],
+    ['frameAcquisitions', 2],
+    ['frameAcquisitions', 3.5],
+    ['highlightPixelsDiffer', false],
+    ['abaRestoresBaseline', false],
+    ['cleanupChecked', false],
+    ['hardwareGpuQualified', true],
+  ] as const)('rejects absent or invalid %s evidence', (field, value) => {
+    expect(validQueryHighlightProof({ ...queryHighlightProof, [field]: value })).toBe(
+      false,
+    )
+    const missing: Record<string, unknown> = { ...queryHighlightProof }
+    delete missing[field]
+    expect(validQueryHighlightProof(missing)).toBe(false)
   })
 })
 

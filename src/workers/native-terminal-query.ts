@@ -239,7 +239,7 @@ function state(value: EngineResult) {
 function match(input: unknown) {
   if (!input || typeof input !== 'object') throw new Error('native-query-match-invalid')
   const value = input as Record<string, unknown>
-  if (!value || value.screen !== 0) throw new Error('native-query-match-invalid')
+  const sourceScreen = screen(value.screen)
   const row = count(value.row),
     endRow = count(value.endRow)
   const column = count(value.column),
@@ -249,7 +249,7 @@ function match(input: unknown) {
   return {
     occurrence: token(value.occurrence),
     index: count(value.index),
-    screen: 0 as const,
+    screen: sourceScreen,
     row,
     column,
     endRow,

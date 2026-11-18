@@ -931,7 +931,8 @@ clipboard/navigation owners.
 
 ### [ADR-091 — Native retained query authority](adr/ADR-091-native-retained-query-authority.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-094](adr/ADR-094-current-buffer-native-search.md) | partial | Search source selection and query lifetime across normal/alternate screen transitions.
 
 Native retained queries own bounded search, occurrence identity and exact reads;
 parser-origin semantic boundaries retain current-body meaning through asynchronous
@@ -952,6 +953,15 @@ lifetimes and measured typography geometry before PTY notification.
 An exact completed writer-retirement fence may release the producer's held lease while
 independently owned immutable consumer resources and import credits remain quarantined.
 Only a fresh authorized frame can restore visible presentation and input availability.
+
+### [ADR-094 — Search the current native terminal buffer](adr/ADR-094-current-buffer-native-search.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-091](adr/ADR-091-native-retained-query-authority.md) | partial | Search source selection and query lifetime across normal/alternate screen transitions.
+
+Native search uses retained normal history or current alternate-screen contents according
+to the displayed buffer. Parser-owned activation epochs revoke old queries, reads and
+highlights across screen transitions; the existing controller restarts current search intent.
 
 ## 5. Architecture
 

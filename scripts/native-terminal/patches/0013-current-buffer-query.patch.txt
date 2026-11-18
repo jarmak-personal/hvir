@@ -1,0 +1,368 @@
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -1148,7 +1148,7 @@
+         }
+         owned.highlight_serial = self.external_highlight_serial;
+         if (!owned.reveal and first == self.external_highlight_query and second == self.external_highlight_occurrence and
+-            self.external_highlight_layout != t.screens.get(.primary).?.pages.text_layout_serial)
++            self.external_highlight_layout != t.screens.get(owned.screen_key).?.pages.text_layout_serial)
+         {
+             owned.prepareHighlight(self.external_query.needle.?.len + 1) catch {
+                 owned.deinit(t);
+@@ -1227,7 +1227,7 @@
+     var code = externalReadCode(failure);
+     out.stale = failure == .stale;
+     if (code == 0 and copy.resolution_kind == 1) {
+-        if (self.external_query.match(copy.resolution_query, copy.resolution_match.occurrence)) |current| {
++        if (self.external_query.match(&self.io.terminal, copy.resolution_query, copy.resolution_match.occurrence)) |current| {
+             copy.resolution_match.index = current.index;
+         } else {
+             code = 6;
+@@ -1246,11 +1246,11 @@
+         const t = &self.io.terminal;
+         var changed = false;
+         if (code == 0) if (copy.highlight_arena) |arena| {
+-            if (self.renderer_thread.mailbox.push(global.io(), .{ .search_selected_match = .{ .arena = arena, .match = copy.highlight } }, .instant) > 0) {
++            if (self.renderer_thread.mailbox.push(global.io(), .{ .search_selected_match = .{ .arena = arena, .match = copy.highlight, .query_screen_epoch = copy.query_screen_epoch } }, .instant) > 0) {
+                 copy.highlight_arena = null;
+                 self.external_highlight_query = copy.resolution_query;
+                 self.external_highlight_occurrence = copy.resolution_match.occurrence;
+-                self.external_highlight_layout = t.screens.get(.primary).?.pages.text_layout_serial;
++                self.external_highlight_layout = t.screens.get(copy.screen_key).?.pages.text_layout_serial;
+                 self.external_highlight_serial += 1;
+                 changed = true;
+             } else {
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1778,7 +1778,7 @@
+         if (core.io.backend != .external or capacity == 0 or capacity > 128) return 1;
+         core.renderer_state.mutex.lockUncancelable(global.io());
+         defer core.renderer_state.mutex.unlock(global.io());
+-        return core.external_query.page(query, revision, offset, matches[0..capacity], out);
++        return core.external_query.page(&core.io.terminal, query, revision, offset, matches[0..capacity], out);
+     }
+     export fn ghostty_external_query_close(surface: *Surface, query: u64) u32 {
+         const core = &surface.core_surface;
+--- a/src/main_c.zig
++++ b/src/main_c.zig
+@@ -266,5 +266,5 @@
+ 
+ // Version of the pinned upstream hooks consumed by hvir's maintained C facade.
+ export fn hvir_ghostty_embed_abi() u32 {
+-    return 11;
+-}
++    return 12;
++}
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -1478,6 +1478,7 @@
+                 external_geometry: u64,
+                 external_mutation: u64,
+                 external_screen: u32,
++                external_screen_epoch: u64,
+             };
+ 
+             // Update all our data as tightly as possible within the mutex.
+@@ -1637,6 +1638,7 @@
+                     .external_geometry = state.external_geometry,
+                     .external_mutation = state.external_mutation,
+                     .external_screen = if (state.terminal.screens.active_key == .alternate) 1 else 0,
++                    .external_screen_epoch = state.terminal.screens.active_epoch,
+                 };
+             };
+ 
+@@ -1655,6 +1657,16 @@
+                 state.mouse.mods,
+             ) catch |err| {
+                 log.warn("error searching for regex links err={}", .{err});
++            };
++
++            // Compare against the same locked terminal snapshot as the grid.
++            // Existing built-in search and semantic highlights carry no epoch.
++            if (self.search_selected_match) |*match| if (match.query_screen_epoch) |epoch| {
++                if (epoch != critical.external_screen_epoch) {
++                    match.arena.deinit();
++                    self.search_selected_match = null;
++                    self.search_matches_dirty = true;
++                }
+             };
+ 
+             // Clear our highlight state and update.
+--- a/src/renderer/message.zig
++++ b/src/renderer/message.zig
+@@ -83,6 +83,8 @@
+     };
+ 
+     pub const SearchMatch = struct {
++        /// External current-buffer queries cannot regain a highlight after ABA.
++        query_screen_epoch: ?u64 = null,
+         arena: ArenaAllocator,
+         match: terminal.highlight.Flattened,
+     };
+--- a/src/terminal/ScreenSet.zig
++++ b/src/terminal/ScreenSet.zig
+@@ -34,6 +34,10 @@
+ /// screen storage is removed or replaced so external handles can distinguish a
+ /// newly initialized screen from stale references into destroyed storage.
+ generations: std.EnumMap(Key, usize),
++
++/// Active-buffer query authority, distinct from storage generations. Saturation
++/// permanently refuses new current-buffer queries rather than permitting ABA.
++active_epoch: u64 = 1,
+ 
+ pub fn init(
+     io: std.Io,
+@@ -104,6 +108,7 @@
+ /// Switch the active screen to the given key. Requires that the
+ /// screen is initialized.
+ pub fn switchTo(self: *ScreenSet, key: Key) void {
++    if (self.active_key != key) self.active_epoch +|= 1;
+     self.active_key = key;
+     self.active = self.all.get(key).?;
+ }
+@@ -152,3 +157,20 @@
+     try testing.expectEqual(alternate_generation +% 1, set.generation(.alternate));
+     try testing.expectEqual(@as(usize, 0), set.generation(.primary));
+ }
++
++
++test "ScreenSet active epoch tracks transitions without wrapping" {
++    const alloc = testing.allocator;
++    var set: ScreenSet = try .init(testing.io, alloc, .default);
++    defer set.deinit(alloc);
++    _ = try set.getInit(testing.io, alloc, .alternate, .default);
++    set.switchTo(.primary);
++    try testing.expectEqual(@as(u64, 1), set.active_epoch);
++    set.switchTo(.alternate);
++    set.switchTo(.primary);
++    try testing.expectEqual(@as(u64, 3), set.active_epoch);
++    try testing.expectEqual(@as(usize, 0), set.generation(.primary));
++    set.active_epoch = std.math.maxInt(u64);
++    set.switchTo(.alternate);
++    try testing.expectEqual(std.math.maxInt(u64), set.active_epoch);
++}
+--- a/src/terminal/SelectionRead.zig
++++ b/src/terminal/SelectionRead.zig
+@@ -24,6 +24,8 @@
+ start_boundary: bool = false,
+ end_boundary: bool = false,
+ independent_screen: bool = false,
++/// Only current-buffer search reads revoke on active-screen transitions.
++query_screen_epoch: ?u64 = null,
+ precise_mode: bool = false,
+ capture_serial: u64 = std.math.maxInt(u64),
+ capture_row: u16 = 0,
+@@ -62,9 +64,9 @@
+ pub fn create(alloc: Allocator, t: *Terminal, sel: Selection, id: u64, geometry: u64, row_mode: bool, point: ?PageList.Pin) !*Self {
+     return createOnScreen(alloc, t, sel, id, geometry, row_mode, point, t.screens.active_key, false);
+ }
+-/// Query and semantic ranges authenticate their own retained primary/screen
+-/// source. Their lifetime does not depend on the currently displayed ALT screen
+-/// or on the user's independently mutable selection.
++/// Precise ranges authenticate their own retained screen source independently
++/// of user selection. Search additionally installs current-buffer epoch authority;
++/// semantic reads retain their independent-screen lifetime.
+ pub fn createRange(alloc: Allocator, t: *Terminal, sel: Selection, id: u64, geometry: u64, key: ScreenSet.Key) !*Self {
+     return createOnScreen(alloc, t, sel, id, geometry, true, null, key, true);
+ }
+@@ -133,6 +135,10 @@
+         self.tracker.failure = self.reported_failure;
+         return false;
+     }
++    if (self.query_screen_epoch) |epoch| if (epoch != t.screens.active_epoch) {
++        self.tracker.fail(.stale);
++        return false;
++    };
+     if (self.resolution_kind != 0 and t.screens.generation(self.screen_key) == self.screen_generation) {
+         if (t.screens.get(self.screen_key)) |screen| if (screen.pages.text_layout_serial != self.position_layout and
+             (self.tracker.failure == .none or self.tracker.failure == .stale))
+--- a/src/terminal/search/ExternalQuery.zig
++++ b/src/terminal/search/ExternalQuery.zig
+@@ -4,9 +4,13 @@
+ const std = @import("std");
+ const Terminal = @import("../Terminal.zig");
+ const Scan = @import("QueryScan.zig");
++const ScreenSet = @import("../ScreenSet.zig");
+ const Occurrences = @import("QueryOccurrences.zig");
+ const External = @import("../../termio/External.zig");
+ const Source = struct {
++    screen: ScreenSet.Key = .primary,
++    screen_epoch: u64 = 0,
++    screen_generation: usize = 0,
+     identity: ?*@import("../TextIdentity.zig") = null,
+     serial: u64 = 0,
+     epoch: u64 = 0,
+@@ -36,8 +40,15 @@
+     return error.IdentityUnavailable;
+ }
+ fn readSource(t: *Terminal) Source {
+-    const pages = &t.screens.get(.primary).?.pages;
+-    return .{ .identity = pages.text_identity, .serial = if (pages.text_identity) |identity| identity.serial else 0, .epoch = pages.page_serial_epoch, .layout = pages.text_layout_serial, .cols = t.cols, .rows = t.rows };
++    const pages = &t.screens.active.pages;
++    return .{ .screen = t.screens.active_key, .screen_epoch = t.screens.active_epoch, .screen_generation = t.screens.generation(t.screens.active_key), .identity = pages.text_identity, .serial = if (pages.text_identity) |identity| identity.serial else 0, .epoch = pages.page_serial_epoch, .layout = pages.text_layout_serial, .cols = t.cols, .rows = t.rows };
++}
++/// A transition revokes this query even if the parser switches back before
++/// the next query operation. Text writes still use the existing reconciliation.
++fn isCurrentSource(self: *const Self, t: *const Terminal) bool {
++    return self.scan != null and self.source.screen_epoch != std.math.maxInt(u64) and
++        self.source.screen == t.screens.active_key and self.source.screen_epoch == t.screens.active_epoch and
++        self.source.screen_generation == t.screens.generation(self.source.screen);
+ }
+ pub fn deinit(self: *Self, t: *Terminal) void {
+     if (self.scan) |scan| scan.deinit(t);
+@@ -54,6 +65,7 @@
+ pub fn begin(self: *Self, alloc: std.mem.Allocator, t: *Terminal, needle: []const u8, sensitive: bool, out: *u64) u32 {
+     out.* = 0;
+     if (needle.len == 0 or needle.len > 65536 or !std.unicode.utf8ValidateSlice(needle)) return 1;
++    if (t.screens.active_epoch == std.math.maxInt(u64)) return 5;
+     const id = allocateId() catch return 5;
+     const owned = alloc.dupe(u8, needle) catch return 7;
+     const registry = alloc.create(Occurrences) catch {
+@@ -104,7 +116,7 @@
+ }
+ pub fn step(self: *Self, t: *Terminal, id: u64, budget: usize, out: *External.QueryStatus) u32 {
+     out.* = .{ .query = id };
+-    const published = (if (id == self.id) self.scan else null) orelse {
++    const published = (if (id == self.id and self.isCurrentSource(t)) self.scan else null) orelse {
+         out.stale = true;
+         return 6;
+     };
+@@ -162,9 +174,9 @@
+     self.status(out, work, result.visited, done);
+     return 0;
+ }
+-pub fn page(self: *Self, id: u64, revision: u64, offset: usize, records: []External.QueryMatch, out: *External.QueryPage) u32 {
++pub fn page(self: *Self, t: *Terminal, id: u64, revision: u64, offset: usize, records: []External.QueryMatch, out: *External.QueryPage) u32 {
+     out.* = .{};
+-    const current = (if (id == self.id) self.scan else null) orelse {
++    const current = (if (id == self.id and self.isCurrentSource(t)) self.scan else null) orelse {
+         out.stale = true;
+         return 6;
+     };
+@@ -178,21 +190,21 @@
+     const count = @min(records.len, current.results.len() - offset);
+     for (records[0..count], 0..) |*record, i| {
+         const value = current.results.at(offset + i).?;
+-        record.* = .{ .occurrence = value.occurrence, .index = offset + i, .screen = 0, .row = value.start.observed_row, .column = value.start.column, .end_row = value.end.observed_row + @as(u32, if (value.end.boundary) 1 else 0), .end_column = if (value.end.boundary) 0 else value.end.column + 1 };
++        record.* = .{ .occurrence = value.occurrence, .index = offset + i, .screen = if (current.screen_key == .alternate) 1 else 0, .row = value.start.observed_row, .column = value.start.column, .end_row = value.end.observed_row + @as(u32, if (value.end.boundary) 1 else 0), .end_column = if (value.end.boundary) 0 else value.end.column + 1 };
+     }
+     out.length = count;
+     return 0;
+ }
+ pub const Located = struct { value: @import("QueryResults.zig").Match, index: usize };
+-pub fn match(self: *Self, query: u64, occurrence: u64) ?Located {
+-    if (query != self.id or self.scan == null or occurrence == 0) return null;
++pub fn match(self: *Self, t: *Terminal, query: u64, occurrence: u64) ?Located {
++    if (query != self.id or !self.isCurrentSource(t) or occurrence == 0) return null;
+     var work: usize = 0;
+     const record = self.registry.?.get(occurrence, &work) orelse return null;
+     const index = if (record.seen == self.published_pass) record.index else if (record.previous_seen == self.published_pass) record.previous_index else return null;
+     return .{ .value = record.value, .index = index };
+ }
+-fn endpoint(t: *Terminal, point: @import("BoundedWindow.zig").Point) !@import("../PageList.zig").Pin {
+-    const pages = &t.screens.get(.primary).?.pages;
++fn endpoint(t: *Terminal, key: ScreenSet.Key, point: @import("BoundedWindow.zig").Point) !@import("../PageList.zig").Pin {
++    const pages = &t.screens.get(key).?.pages;
+     const identity = pages.text_identity orelse return error.Stale;
+     const row = identity.get(point.row) orelse return error.Stale;
+     const node: *@import("../PageList.zig").List.Node = @ptrCast(@alignCast(row.location.node));
+@@ -200,19 +212,20 @@
+     return .{ .node = node, .y = row.location.row, .x = @intCast(point.column) };
+ }
+ pub fn acquireMatch(self: *Self, alloc: std.mem.Allocator, t: *Terminal, query: u64, occurrence: u64, cursor: u64, geometry: u64, resolve: bool, reveal: bool) !*@import("../SelectionRead.zig") {
+-    const located = self.match(query, occurrence) orelse return error.Stale;
++    const located = self.match(t, query, occurrence) orelse return error.Stale;
+     const value = located.value;
+-    const start = try endpoint(t, value.start);
+-    const end = try endpoint(t, value.end);
+-    const read = try @import("../SelectionRead.zig").createRange(alloc, t, @import("../Selection.zig").init(start, end, false), cursor, geometry, .primary);
++    const start = try endpoint(t, self.source.screen, value.start);
++    const end = try endpoint(t, self.source.screen, value.end);
++    const read = try @import("../SelectionRead.zig").createRange(alloc, t, @import("../Selection.zig").init(start, end, false), cursor, geometry, self.source.screen);
+     errdefer read.deinit(t);
++    read.query_screen_epoch = self.source.screen_epoch;
+     read.identity_cutoff = value.cutoff;
+-    read.identityOwner = t.screens.get(.primary).?.pages.text_identity.?;
++    read.identityOwner = t.screens.get(self.source.screen).?.pages.text_identity.?;
+     if (resolve) {
+-        try read.configureResolution(t, 1, reveal and t.screens.active_key == .primary, false);
++        try read.configureResolution(t, 1, reveal and t.screens.active_key == self.source.screen, false);
+         if (read.reveal) try read.prepareHighlight(self.scan.?.needle.len + 1);
+         read.resolution_query = query;
+-        read.resolution_match = .{ .occurrence = occurrence, .index = located.index };
++        read.resolution_match = .{ .occurrence = occurrence, .index = located.index, .screen = if (self.source.screen == .alternate) 1 else 0 };
+     }
+     return read;
+ }
+--- a/src/terminal/search/QueryScan.zig
++++ b/src/terminal/search/QueryScan.zig
+@@ -1,4 +1,4 @@
+-//! Bounded forward scan of a finite primary-screen extent. Formatting and
++//! Bounded forward scan of a finite current-buffer extent. Formatting and
+ //! matching use the same native primitives as selection and native search.
+ const Self = @This();
+ const std = @import("std");
+@@ -20,6 +20,8 @@
+ pending_pins: [4]*PageList.Pin,
+ pending_present: [4]bool = @splat(false),
+ formatter: Formatter.PlainCursor,
++screen_key: @import("../ScreenSet.zig").Key,
++screen_epoch: u64,
+ generation: usize,
+ cutoff: u64,
+ next_occurrence: u64 = 1,
+@@ -46,7 +48,8 @@
+     return createWithOptions(alloc, t, needle, sensitive, .{});
+ }
+ pub fn createWithOptions(alloc: std.mem.Allocator, t: *Terminal, needle: []const u8, sensitive: bool, options: Options) !*Self {
+-    const screen = t.screens.get(.primary).?;
++    if (t.screens.active_epoch == std.math.maxInt(u64)) return error.IdentityUnavailable;
++    const screen = t.screens.active;
+     const pages = &screen.pages;
+     const self = try alloc.create(Self);
+     errdefer alloc.destroy(self);
+@@ -68,12 +71,12 @@
+         count += 1;
+     }
+     const identity = try pages.enableTextIdentity();
+-    self.* = .{ .alloc = alloc, .needle = owned, .owns_needle = !options.borrow_needle, .sensitive = sensitive, .window = window, .results = .{ .alloc = alloc }, .start = start, .end = end, .next = next, .pending_pins = pins, .generation = t.screens.generation(.primary), .cutoff = identity.serial, .options = options, .formatter = .{ .start = start, .end = end, .next = next, .rectangle = false } };
++    self.* = .{ .alloc = alloc, .needle = owned, .owns_needle = !options.borrow_needle, .sensitive = sensitive, .window = window, .results = .{ .alloc = alloc }, .start = start, .end = end, .next = next, .pending_pins = pins, .screen_key = t.screens.active_key, .screen_epoch = t.screens.active_epoch, .generation = t.screens.generation(t.screens.active_key), .cutoff = identity.serial, .options = options, .formatter = .{ .start = start, .end = end, .next = next, .rectangle = false } };
+     return self;
+ }
+ pub fn deinit(self: *Self, t: *Terminal) void {
+-    if (t.screens.generation(.primary) == self.generation) {
+-        const pages = &t.screens.get(.primary).?.pages;
++    if (t.screens.generation(self.screen_key) == self.generation) {
++        const pages = &t.screens.get(self.screen_key).?.pages;
+         pages.untrackPin(self.start);
+         pages.untrackPin(self.end);
+         pages.untrackPin(self.next);
+@@ -108,7 +111,7 @@
+ }
+ fn reconcile(self: *Self, t: *Terminal, match: Window.Match, budget: usize, work: *usize) !?Results.Match {
+     const prior = self.options.prior orelse return try self.fresh(match);
+-    const identity = t.screens.get(.primary).?.pages.text_identity.?;
++    const identity = t.screens.get(self.screen_key).?.pages.text_identity.?;
+     while (self.prior_index < prior.results.len()) {
+         if (budget - work.* < 66) return null;
+         const old = prior.results.at(self.prior_index).?.*;
+@@ -139,8 +142,9 @@
+ pub fn step(self: *Self, t: *Terminal, budget: usize) !Step {
+     var result: Step = .{};
+     defer self.last_step = result;
++    if (t.screens.active_epoch != self.screen_epoch or t.screens.active_key != self.screen_key) return error.Stale;
+     if (self.done) return .{ .done = true };
+-    if (t.screens.generation(.primary) != self.generation) return error.Stale;
++    if (t.screens.generation(self.screen_key) != self.generation) return error.Stale;
+     // Eviction can remove a captured prefix or even the unread finite extent.
+     // It does not close the query or invalidate unaffected retained occurrence
+     // IDs. Complete this pass; the changed source snapshot schedules its next
+@@ -149,7 +153,7 @@
+         self.done = true;
+         return .{ .work = 1, .done = true };
+     }
+-    const pages = &t.screens.get(.primary).?.pages;
++    const pages = &t.screens.get(self.screen_key).?.pages;
+     while (result.work < budget) {
+         if (!self.window.prepared()) {
+             result.work += self.window.prepare(self.needle, self.sensitive, budget - result.work);

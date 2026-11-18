@@ -644,11 +644,12 @@ export class NativeTerminalDomInput {
     this.clearText()
   }
   private readonly focusin = (): void => {
-    if (!this.enabled || this.readOnly || this.focused) return
+    if (!this.enabled || this.readOnly) return
     if (document.activeElement !== this.textarea) {
       this.focus()
       return
     }
+    if (this.focused) return
     this.focused = true
     this.enqueue({ kind: 'focus', focused: true })
     this.caret()

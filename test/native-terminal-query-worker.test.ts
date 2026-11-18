@@ -139,78 +139,116 @@ describe('native query physical step boundary', () => {
     )
   })
 
-  it('bounds ordered result pages independently of the total result count', async () => {
-    const operation = {
-      kind: 'query-page' as const,
-      query: '71',
-      revision: '2',
-      offset: 12000,
-      capacity: 1,
-    }
-    const match = {
-      occurrence: 9n,
-      index: 12000,
-      screen: 0,
-      row: 1000,
-      column: 2,
-      endRow: 1001,
-      endColumn: 4,
-    }
-    const invoke = vi
-      .fn()
-      .mockResolvedValue({ result: 0, revision: 2n, count: 100000, results: [match] })
-    await expect(
-      runNativeQueryStep(operation, invoke, () => false),
-    ).resolves.toMatchObject({
-      count: 100000,
-      results: [{ occurrence: '9', index: 12000 }],
-    })
-    invoke.mockResolvedValue({
-      result: 0,
-      revision: 2n,
-      count: 100000,
-      results: [match, match],
-    })
-    await expect(runNativeQueryStep(operation, invoke, () => false)).rejects.toThrow(
-      'page-invalid',
-    )
-    invoke.mockResolvedValue({
-      result: 0,
-      revision: 2n,
-      count: 100000,
-      results: [{ ...match, index: 12001 }],
-    })
-    await expect(runNativeQueryStep(operation, invoke, () => false)).rejects.toThrow(
-      'order-invalid',
-    )
-  })
+  it.each([0, 1] as const)(
+    'bounds ordered result pages for screen %s independently of the total result count',
+    async (screen) => {
+      const operation = {
+        kind: 'query-page' as const,
+        query: '71',
+        revision: '2',
+        offset: 12000,
+        capacity: 1,
+      }
+      const match = {
+        occurrence: 9n,
+        index: 12000,
+        screen,
+        row: 1000,
+        column: 2,
+        endRow: 1001,
+        endColumn: 4,
+      }
+      const invoke = vi
+        .fn()
+        .mockResolvedValue({ result: 0, revision: 2n, count: 100000, results: [match] })
+      await expect(
+        runNativeQueryStep(operation, invoke, () => false),
+      ).resolves.toMatchObject({
+        count: 100000,
+        results: [{ occurrence: '9', index: 12000, screen }],
+      })
+      invoke.mockResolvedValue({
+        result: 0,
+        revision: 2n,
+        count: 100000,
+        results: [match, match],
+      })
+      await expect(runNativeQueryStep(operation, invoke, () => false)).rejects.toThrow(
+        'page-invalid',
+      )
+      invoke.mockResolvedValue({
+        result: 0,
+        revision: 2n,
+        count: 100000,
+        results: [{ ...match, index: 12001 }],
+      })
+      await expect(runNativeQueryStep(operation, invoke, () => false)).rejects.toThrow(
+        'order-invalid',
+      )
+    },
+  )
 
-  it('distinguishes a valid primary occurrence from alternate-screen reveal refusal', async () => {
-    const invoke = vi.fn().mockResolvedValue({
-      ...state,
-      screen: 1,
-      resolved: true,
-      revealed: false,
-      match: {
+  it.each([0, 1] as const)(
+    'preserves screen %s on a resolved occurrence',
+    async (screen) => {
+      const invoke = vi.fn().mockResolvedValue({
+        ...state,
+        screen,
+        resolved: true,
+        revealed: true,
+        match: {
+          occurrence: 9n,
+          index: 2,
+          screen,
+          row: 4,
+          column: 0,
+          endRow: 4,
+          endColumn: 4,
+        },
+      })
+      await expect(
+        runNativeQueryStep({ kind: 'finish', cursor: '82' }, invoke, () => false),
+      ).resolves.toMatchObject({
+        resolved: true,
+        revealed: true,
+        match: { occurrence: '9', index: 2, screen },
+      })
+      invoke.mockResolvedValue({ ...state, resolved: true, revealed: false })
+      await expect(
+        runNativeQueryStep({ kind: 'finish', cursor: '82' }, invoke, () => false),
+      ).rejects.toThrow('resolution-invalid')
+    },
+  )
+
+  it.each([2, -1, 1.5, '1', undefined])(
+    'rejects malformed occurrence screen %s in pages and resolutions',
+    async (screen) => {
+      const match = {
         occurrence: 9n,
         index: 2,
-        screen: 0,
+        screen,
         row: 4,
         column: 0,
         endRow: 4,
         endColumn: 4,
-      },
-    })
-    await expect(
-      runNativeQueryStep({ kind: 'finish', cursor: '82' }, invoke, () => false),
-    ).resolves.toMatchObject({
-      resolved: true,
-      revealed: false,
-      match: { occurrence: '9', index: 2, screen: 0 },
-    })
-    invoke.mockResolvedValue({ ...state, resolved: true, revealed: false })
-    await expect(
-      runNativeQueryStep({ kind: 'finish', cursor: '82' }, invoke, () => false),
-    ).rejects.toThrow('resolution-invalid')
-  })
+      }
+      const invoke = vi.fn().mockResolvedValue({
+        result: 0,
+        revision: 2n,
+        count: 3,
+        results: [match],
+      })
+      await expect(
+        runNativeQueryStep(
+          { kind: 'query-page', query: '71', revision: '2', offset: 2, capacity: 1 },
+          invoke,
+          () => false,
+        ),
+      ).rejects.toThrow()
+      invoke.mockResolvedValue({ ...state, resolved: true, revealed: true, match })
+      await expect(
+        runNativeQueryStep({ kind: 'finish', cursor: '82' }, invoke, () => false),
+      ).rejects.toThrow()
+    },
+  )
 })

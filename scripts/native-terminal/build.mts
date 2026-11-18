@@ -9,6 +9,7 @@ import {
   repository,
   verifyArtifact,
   validQueryProof,
+  validQueryHighlightProof,
   validAppearanceProof,
   validFrameRetirementProof,
   withAppearanceFontFixture,
@@ -431,6 +432,7 @@ for (const capability of ['input', 'effects', 'selection', 'query', 'appearance'
         'terminal_query.c',
         'linux_display.c',
         `${capability}_probe.c`,
+        ...(capability === 'query' ? ['query_highlight_probe.c'] : []),
       ].map((file) => join(repository, 'packages/native-terminal', file)),
       '-pthread',
       ...nativeLibraries,
@@ -495,6 +497,21 @@ for (const capability of ['input', 'effects', 'selection', 'query', 'appearance'
   await writeFile(join(output, `${capability}-proof.json`), proof.stdout)
   console.log(proof.stdout.trim())
 }
+const highlight = await withAppearanceFontFixture(output, selected.platform, (env) =>
+  execute(
+    join(output, 'query-probe'),
+    [join(output, selected.library), '--highlight-transitions'],
+    {
+      timeout: 30_000,
+      maxBuffer: 4096,
+      env,
+    },
+  ),
+)
+if (!validQueryHighlightProof(JSON.parse(highlight.stdout)))
+  throw new Error('native-query-highlight: incomplete proof')
+await writeFile(join(output, 'query-highlight-proof.json'), highlight.stdout)
+console.log(highlight.stdout.trim())
 if (selected.platform === 'linux') {
   const fontCases = await qualifyNativeFontCases((font, env) =>
     execute(

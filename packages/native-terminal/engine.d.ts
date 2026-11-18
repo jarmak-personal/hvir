@@ -94,7 +94,7 @@ export interface ExtractionChunk extends Result {
 export interface QueryMatch {
   occurrence: bigint
   index: number
-  screen: 0
+  screen: 0 | 1
   row: number
   column: number
   endRow: number

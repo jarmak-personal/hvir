@@ -1,6 +1,7 @@
 # ADR-091: Native retained query authority
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-094](ADR-094-current-buffer-native-search.md) | partial | Search source selection and query lifetime across normal/alternate screen transitions.
 
 ## Context
 

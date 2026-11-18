@@ -259,6 +259,27 @@ export function validFrameRetirementProof(value: unknown): boolean {
   })
 }
 
+/** Actual frame readback for a committed highlight crossing an ABA screen switch.
+ * This diagnostic is separate from the query oracle's zero-frame proof. */
+export function validQueryHighlightProof(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const proof = value as Record<string, unknown>
+  return (
+    proof.kind === 'native-query-highlight' &&
+    proof.passed === true &&
+    typeof proof.checks === 'number' &&
+    Number.isSafeInteger(proof.checks) &&
+    proof.checks >= 20 &&
+    typeof proof.frameAcquisitions === 'number' &&
+    Number.isSafeInteger(proof.frameAcquisitions) &&
+    proof.frameAcquisitions >= 3 &&
+    proof.highlightPixelsDiffer === true &&
+    proof.abaRestoresBaseline === true &&
+    proof.cleanupChecked === true &&
+    proof.hardwareGpuQualified === false
+  )
+}
+
 /** Closed numerical proof from the maintained real-Surface query executable. */
 export function validQueryProof(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
@@ -419,6 +440,7 @@ export async function verifyArtifact(
       'selection-proof.json',
       'query-probe',
       'query-proof.json',
+      'query-highlight-proof.json',
       'appearance-probe',
       'appearance-proof.json',
       'frame-metadata-probe',
@@ -495,6 +517,16 @@ export async function verifyArtifact(
     if (!validFontCaseProof(cases))
       throw new Error('native-artifact: invalid font cases proof')
   }
+  let highlight: unknown
+  try {
+    highlight = JSON.parse(
+      await readFile(join(root, 'query-highlight-proof.json'), 'utf8'),
+    )
+  } catch {
+    throw new Error('native-artifact: invalid query highlight proof')
+  }
+  if (!validQueryHighlightProof(highlight))
+    throw new Error('native-artifact: invalid query highlight proof')
   let appearance: unknown
   try {
     appearance = JSON.parse(await readFile(join(root, 'appearance-proof.json'), 'utf8'))

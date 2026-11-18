@@ -4,6 +4,7 @@ import {
   repository,
   verifyArtifact,
   validAppearanceProof,
+  validQueryHighlightProof,
   withAppearanceFontFixture,
   qualifyNativeFontCases,
 } from './artifacts.mts'
@@ -94,6 +95,20 @@ if (
 )
   throw new Error('native-selection: incomplete check')
 console.log(selection.stdout.trim())
+const highlight = await withAppearanceFontFixture(directory, selected.platform, (env) =>
+  execute(
+    join(directory, 'query-probe'),
+    [join(directory, selected.library), '--highlight-transitions'],
+    {
+      timeout: 30_000,
+      maxBuffer: 4096,
+      env,
+    },
+  ),
+)
+if (!validQueryHighlightProof(JSON.parse(highlight.stdout)))
+  throw new Error('native-query-highlight: incomplete check')
+console.log(highlight.stdout.trim())
 // The appearance oracle reads actual native pixels as well as parser replies.
 const appearance = await withAppearanceFontFixture(directory, selected.platform, (env) =>
   execute(join(directory, 'appearance-probe'), [join(directory, selected.library)], {

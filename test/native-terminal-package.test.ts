@@ -50,7 +50,7 @@ beforeEach(async () => {
     source,
     target: 'linux-x64',
     pinSha256: 'b'.repeat(64),
-    embedAbi: 11,
+    embedAbi: 12,
     applicationVersion: '1.4.1-dev',
     vtVersion: '1.0.1',
     build: {
@@ -72,7 +72,7 @@ beforeEach(async () => {
       source,
       target: 'linux-x64',
       pinSha256: sdk.pinSha256,
-      embedAbi: 11,
+      embedAbi: 12,
       manifestSha256: digest(JSON.stringify(sdk)),
     },
     outputs: ['engine', 'resource'].map((name) => ({
@@ -120,7 +120,16 @@ describe('trusted installed native code', () => {
       join(root, 'ghostty-internal.so'),
     )
     expect(await inspectNativeTerminalPackage(root, bindings, 'linux-x64')).toMatchObject(
-      { source, embedAbi: 11, signed: false },
+      { source, embedAbi: 12, signed: false },
+    )
+  })
+  it('rejects an ABI 11 runtime manifest before any native loading', async () => {
+    const path = join(root, 'runtime.json')
+    const runtime = JSON.parse(await readFile(path, 'utf8')) as { embedAbi: number }
+    expect(runtime.embedAbi).toBe(12)
+    await json(path, { ...runtime, embedAbi: 11 })
+    await expect(verifyPackagedNativeTerminal(resources, 'linux', 'x64')).rejects.toThrow(
+      'native-package-identity',
     )
   })
   it.each(['ghostty-internal.so', 'engine', 'resource'])(
