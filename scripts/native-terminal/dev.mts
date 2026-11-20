@@ -10,11 +10,26 @@ export function developmentLaunchArguments(
   platform: string = process.platform,
 ): string[] {
   const forwarded = [...args]
-  const ozone = environment.HVIR_NATIVE_TERMINAL_OZONE ?? environment.XDG_SESSION_TYPE
+  const index = forwarded.findIndex(
+    (arg) => arg === '--ozone-platform' || arg.startsWith('--ozone-platform='),
+  )
+  const explicit =
+    index < 0
+      ? undefined
+      : forwarded[index] === '--ozone-platform'
+        ? forwarded[index + 1]
+        : forwarded[index]!.split('=')[1]
+  const ozone =
+    explicit ?? environment.HVIR_NATIVE_TERMINAL_OZONE ?? environment.XDG_SESSION_TYPE
   if (platform === 'linux' && ['wayland', 'x11'].includes(ozone ?? '')) {
+    if (
+      explicit &&
+      environment.HVIR_NATIVE_TERMINAL_OZONE &&
+      explicit !== environment.HVIR_NATIVE_TERMINAL_OZONE
+    )
+      throw new Error('Conflicting native and Electron Ozone backend selections.')
     if (!forwarded.includes('--')) forwarded.push('--')
-    if (!forwarded.some((arg) => arg.startsWith('--ozone-platform=')))
-      forwarded.push(`--ozone-platform=${ozone}`)
+    if (index < 0) forwarded.push(`--ozone-platform=${ozone}`)
     environment.HVIR_NATIVE_TERMINAL_OZONE = ozone
   }
   return ['dev', ...forwarded]

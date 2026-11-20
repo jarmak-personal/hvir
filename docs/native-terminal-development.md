@@ -85,7 +85,8 @@ The native build and binding owners download their pinned, hash-checked public i
 They compile locally and retain their original source, patch, ABI, toolchain and
 development provenance. Outputs and the readiness receipt live under the ignored
 `packages/native-terminal/build/` directory. Successful setup removes its temporary
-compiler/source trees; failed attempts remain available for diagnosis. Nothing is
+compiler/source trees and superseded attempts; failed attempts remain diagnostic until
+the next successful rebuild. Nothing is
 extracted manually into the checkout or `node_modules`.
 
 The preflight checks native input bytes, the installed Electron version, SDK integrity,
@@ -98,7 +99,7 @@ npm run native:prepare
 ```
 
 An interrupted setup may leave `packages/native-terminal/build/development/prepare.lock`.
-Only remove that directory after confirming no earlier setup/compiler is still running,
+It contains an owner PID for inspection. Only remove that directory after confirming no earlier setup/compiler is still running,
 then rerun preparation. Concurrent installs in the same checkout are not supported.
 
 `npm run dev:legacy` explicitly launches the web engine for diagnosis. Existing smoke,
@@ -132,9 +133,9 @@ set -o pipefail
 npm run native:qualify -- --refresh-hz 144 2>&1 | tee "$HOME/hvir-native-qualification.log"
 ```
 
-This reuses the prepared native library and runs the existing seam/ADR, lint, typecheck,
-unit-test, smoke, native-workbench smoke, controlled capacity, and eight-process paired
-comparison owners. It needs no account credentials. The runner prints a unique results
+This reuses the prepared native library and runs the existing baseline smoke, native
+workbench smoke, separately labeled baseline/native controlled capacity, and eight-process
+paired comparison owners. Static source verification remains on the contributor machine/CI. It needs no account credentials. The runner prints a unique results
 directory outside the checkout; preserve it and the log, including failed results.
 Keep the desktop otherwise idle and use a consistent monitor configuration for timings.
 

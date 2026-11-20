@@ -22,13 +22,13 @@ async function main(): Promise<void> {
     throw new Error('Qualification results must be outside the source checkout.')
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
-    HVIR_NATIVE_TERMINAL_LIBRARY: runtime.library,
   }
   if (
     !environment.HVIR_NATIVE_TERMINAL_OZONE &&
     ['x11', 'wayland'].includes(environment.XDG_SESSION_TYPE ?? '')
   )
     environment.HVIR_NATIVE_TERMINAL_OZONE = environment.XDG_SESSION_TYPE
+  delete environment.HVIR_NATIVE_TERMINAL_LIBRARY
   const npm = process.env.npm_execpath
   if (!npm) throw new Error('Run this command through npm run native:qualify.')
   await writeFile(
@@ -39,19 +39,17 @@ async function main(): Promise<void> {
   console.log(
     'Close the dev app first; keep the desktop otherwise idle. Governance remains a separate authenticated CI/contributor check.',
   )
-  const scripts = [
-    'check-seams',
-    'check-adrs',
-    'lint',
-    'typecheck',
-    'test',
-    'smoke',
-    'smoke:native-terminal',
-    'performance:capacity',
+  const steps = [
+    { name: 'baseline smoke', script: 'smoke', native: false },
+    { name: 'native workbench smoke', script: 'smoke:native-terminal', native: true },
+    { name: 'baseline absolute capacity', script: 'performance:capacity', native: false },
+    { name: 'native absolute capacity', script: 'performance:capacity', native: true },
   ]
-  for (const script of scripts) {
-    console.log(`Qualification: ${script}`)
-    await runDevelopmentProcess([npm, 'run', script], repository, environment)
+  for (const step of steps) {
+    console.log(`Qualification: ${step.name}`)
+    const selected = { ...environment }
+    if (step.native) selected.HVIR_NATIVE_TERMINAL_LIBRARY = runtime.library
+    await runDevelopmentProcess([npm, 'run', step.script], repository, selected)
   }
   // Capacity built the smoke app once; comparison owns its unmodified paired protocol.
   await runDevelopmentProcess(

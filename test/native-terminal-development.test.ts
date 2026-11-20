@@ -130,6 +130,12 @@ describe('prepared native development runtime', () => {
       'Run npm ci',
     )
   })
+  it('does not rebuild native code for changes to development-only launchers', async () => {
+    await file('scripts/native-terminal/dev.mts', 'changed launcher')
+    expect((await readDevelopmentRuntime(root, target, verify)).receipt.inputSha256).toBe(
+      receipt.inputSha256,
+    )
+  })
   it('ignores disposable build output when identifying source inputs', async () => {
     await file('packages/native-terminal/build/unrelated-output', 'output')
     expect((await readDevelopmentRuntime(root, target, verify)).receipt.inputSha256).toBe(
@@ -233,6 +239,20 @@ describe('native development desktop launch', () => {
     expect(
       developmentLaunchArguments(['--', '--ozone-platform=x11'], env, 'linux'),
     ).toEqual(['dev', '--', '--ozone-platform=x11'])
+  })
+  it('honors an explicit Electron backend ahead of desktop-session defaults', () => {
+    const env: NodeJS.ProcessEnv = { XDG_SESSION_TYPE: 'wayland' }
+    expect(
+      developmentLaunchArguments(['--', '--ozone-platform=x11'], env, 'linux'),
+    ).toEqual(['dev', '--', '--ozone-platform=x11'])
+    expect(env.HVIR_NATIVE_TERMINAL_OZONE).toBe('x11')
+    expect(() =>
+      developmentLaunchArguments(
+        ['--', '--ozone-platform=x11'],
+        { HVIR_NATIVE_TERMINAL_OZONE: 'wayland' },
+        'linux',
+      ),
+    ).toThrow('Conflicting')
   })
   it('does not invent a backend for macOS or unknown Linux sessions', () => {
     expect(developmentLaunchArguments([], {}, 'linux')).toEqual(['dev'])

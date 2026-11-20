@@ -33,12 +33,24 @@ export async function runDevelopmentProcess(
     }
     const sigint = () => interrupt('SIGINT')
     const sigterm = () => interrupt('SIGTERM')
+    const exit = () => {
+      if (!child.pid) return
+      try {
+        process.kill(-child.pid, 'SIGTERM')
+      } catch {
+        /* Already settled. */
+      }
+    }
     process.on('SIGINT', sigint)
     process.on('SIGTERM', sigterm)
+    process.on('SIGHUP', sigterm)
+    process.on('exit', exit)
     const cleanup = () => {
       if (escalation) clearTimeout(escalation)
       process.off('SIGINT', sigint)
       process.off('SIGTERM', sigterm)
+      process.off('SIGHUP', sigterm)
+      process.off('exit', exit)
     }
     child.once('error', (error) => {
       cleanup()

@@ -24,12 +24,25 @@ export async function developmentInputIdentity(
   root: string,
   target: string,
 ): Promise<string> {
-  const hash = createHash('sha256').update(`native-development-v1:${target}\n`)
+  const hash = createHash('sha256').update(`native-development-v2:${target}\n`)
   async function visit(directory: string): Promise<void> {
     const entries = await readdir(join(root, directory), { withFileTypes: true })
-    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const entry of entries.sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+    )) {
       const path = `${directory}/${entry.name}`
-      if (path === 'packages/native-terminal/build') continue
+      if (
+        path === 'packages/native-terminal/build' ||
+        [
+          'dev.mts',
+          'development-runtime.mts',
+          'development-process.mts',
+          'prepare-development.mts',
+          'qualify-development.mts',
+          'upgrade.mts',
+        ].some((name) => path === `scripts/native-terminal/${name}`)
+      )
+        continue
       if (entry.isDirectory()) await visit(path)
       else if (entry.isFile()) hash.update(`${path}\0${await digest(join(root, path))}\n`)
       else throw new Error(`native-development: unsupported source entry ${path}`)
