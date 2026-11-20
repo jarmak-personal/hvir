@@ -3,11 +3,15 @@
 The native dependency owner builds the **full pinned Ghostty source**, including its renderer.
 The stable libghostty-vt archive alone cannot produce this artifact. The application source is
 `108cacb17ed8990840cd14abfce43d8ed8503ca1` (`1.4.1-dev`); its VT release is `1.0.1`.
-The private embedding-hook ABI is `11`. These are independent identities.
+The private embedding-hook ABI is `12`. These are independent identities.
 
 This tooling produces libraries, maintained C bridge inputs, a separate-process loader probe,
 and provenance. It creates no terminal, PTY, provider, renderer attachment or application host.
 [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) owns those later boundaries.
+
+For ordinary branch testing, use the [development setup](native-terminal-development.md):
+`npm ci` prepares the dependency and `npm run dev` selects it. The commands below
+remain the explicit dependency-owner build/inspection interface.
 
 ## Build and inspect
 

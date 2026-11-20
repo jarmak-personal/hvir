@@ -27,11 +27,11 @@
   ],
   "main": "./out/main/index.js",
   "scripts": {
-    "postinstall": "npm run install:runtime",
+    "postinstall": "npm run install:runtime && npm run native:prepare -- --install",
     "install:runtime": "node scripts/node-pty/apply.mjs && install-electron --no && node-gyp rebuild --directory node_modules/@hvir/rename-noreplace && node-gyp rebuild --directory node_modules/@hvir/extension-storage && electron-rebuild -f -o node-pty",
     "prebuild": "node scripts/check-terminal-runtime.mts",
     "predev": "node scripts/check-terminal-runtime.mts",
-    "dev": "electron-vite dev",
+    "dev": "node scripts/native-terminal/dev.mts",
     "build": "npm run typecheck && electron-vite build",
     "build:smoke": "electron-vite build --mode smoke",
     "build:dir": "npm run build && electron-builder --dir",
@@ -96,7 +96,10 @@
     "native:presenter-probe": "node scripts/native-terminal/run-electron-probe.mts --presenter",
     "native:build": "node scripts/native-terminal/build.mts",
     "native:check": "node scripts/native-terminal/check.mts",
-    "native:upgrade": "node scripts/native-terminal/upgrade.mts"
+    "native:upgrade": "node scripts/native-terminal/upgrade.mts",
+    "native:prepare": "node scripts/native-terminal/prepare-development.mts",
+    "dev:legacy": "node scripts/check-terminal-runtime.mts && node scripts/native-terminal/dev.mts --legacy",
+    "native:qualify": "node scripts/native-terminal/qualify-development.mts"
   },
   "dependencies": {
     "@codemirror/merge": "^6.12.3",

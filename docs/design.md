@@ -963,6 +963,13 @@ Native search uses retained normal history or current alternate-screen contents 
 to the displayed buffer. Parser-owned activation epochs revoke old queries, reads and
 highlights across screen transitions; the existing controller restarts current search intent.
 
+### [ADR-095 — Native terminal development setup](adr/ADR-095-native-terminal-development-setup.md)
+
+> Lifecycle: Active
+
+Contributor installation prepares pinned native dependencies; the development launcher validates
+and selects them without changing packaged cutover or runtime ownership.
+
 ## 5. Architecture
 
 ### Process model
