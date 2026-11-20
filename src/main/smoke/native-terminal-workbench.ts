@@ -1,5 +1,6 @@
 import { verifyNativeTerminalAppearance } from './native-terminal-appearance'
 import { createNativeTerminalSshLifecycleFixture } from '../../../test/fixtures/native-terminal-ssh-lifecycle'
+import { createNativeTerminalRealSshFixture } from './native-terminal-real-ssh'
 import { createRemoteProjectFileSmokeHost } from './project-file-operations'
 import { verifyNativeTerminalLifetimes } from './native-terminal-lifecycle'
 import { verifyNativeTerminalFailureLifetimes } from './native-terminal-lifecycle-failure'
@@ -41,6 +42,10 @@ import type { NativeTerminalGeometry } from '../../shared/native-terminal'
 import { UI_RESPONSIVENESS_BUDGET } from '../../shared/ui-responsiveness-budget'
 import { nativeWorkbenchPerformanceMode } from './native-terminal-performance'
 import { nativeWorkbenchGeometryReadiness } from './native-terminal-workbench-geometry'
+import {
+  createObservedNativeFrameImports,
+  observeNativeReceiverDiagnostic,
+} from './native-terminal-import-diagnostic'
 
 /** Format the qualification receipt; the runner keeps stdout separate from diagnostics. */
 export function nativeWorkbenchReceiptLine(
@@ -62,6 +67,12 @@ export async function createNativeWorkbench(
   supervisor: PtySupervisor,
   cleanup: SmokeCleanup,
 ) {
+  const realSshSelection = process.env['HVIR_NATIVE_TERMINAL_REAL_SSH']
+  if (
+    realSshSelection !== undefined &&
+    (realSshSelection !== '1' || mode !== 'native-terminal-workbench')
+  )
+    throw new Error('Native real SSH requires its explicit native workbench selector')
   const utilities =
     mode === 'native-terminal-workbench' ? observeNativeTerminalUtilities() : undefined
   if (utilities) cleanup.defer('native utility observation', () => utilities.dispose())
@@ -70,18 +81,21 @@ export async function createNativeWorkbench(
       ? new NativeEffectsClipboardObservation()
       : undefined
   const nativeTerminals =
-    mode === 'native-terminal-workbench'
+    mode === 'native-terminal-workbench' || mode === 'capacity'
       ? await createNativeTerminalApplication(
           supervisor,
           (owner) => rendererResources.isCurrent(owner),
           systemClipboard,
+          createObservedNativeFrameImports,
         )
       : undefined
   if (nativeTerminals)
     cleanup.defer('native development terminals', () => nativeTerminals.dispose())
   const nativeSsh =
     mode === 'native-terminal-workbench'
-      ? await createNativeTerminalSshLifecycleFixture(localHost, projectRoot)
+      ? realSshSelection === '1'
+        ? await createNativeTerminalRealSshFixture(localHost)
+        : await createNativeTerminalSshLifecycleFixture(localHost, projectRoot)
       : undefined
   if (nativeSsh) cleanup.defer('native SSH lifecycle fixture', () => nativeSsh.dispose())
   const smokeRemoteRoot =
@@ -374,14 +388,31 @@ export async function verifyNativeTerminalWorkbench(
   const nativeSshLifetimes = await qualifySsh(native, managed)
   console.log('HVIR_NATIVE_SSH_LIFECYCLE_OK ' + JSON.stringify(nativeSshLifetimes))
   if (!utilities) throw new Error('native-lifecycle-utility-observation-missing')
-  const nativeFailureLifetimes = await verifyNativeTerminalFailureLifetimes(
-    win,
-    ptys,
-    native,
-    resources,
-    utilities,
-    managed,
-  )
+  const previousImportDiagnostic = process.env['HVIR_NATIVE_IMPORT_DIAGNOSTICS']
+  const stopImportDiagnostic =
+    process.env['HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW'] === '1'
+      ? observeNativeReceiverDiagnostic(win, resources)
+      : undefined
+  let nativeFailureLifetimes
+  try {
+    // Select only the real replacement/failure window, keeping the earlier
+    // query/capture workload out of this bounded diagnostic population.
+    if (process.env['HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW'] === '1')
+      process.env['HVIR_NATIVE_IMPORT_DIAGNOSTICS'] = '1'
+    nativeFailureLifetimes = await verifyNativeTerminalFailureLifetimes(
+      win,
+      ptys,
+      native,
+      resources,
+      utilities,
+      managed,
+    )
+  } finally {
+    stopImportDiagnostic?.()
+    if (previousImportDiagnostic === undefined)
+      delete process.env['HVIR_NATIVE_IMPORT_DIAGNOSTICS']
+    else process.env['HVIR_NATIVE_IMPORT_DIAGNOSTICS'] = previousImportDiagnostic
+  }
   console.log(
     nativeWorkbenchReceiptLine({
       platform: process.platform,

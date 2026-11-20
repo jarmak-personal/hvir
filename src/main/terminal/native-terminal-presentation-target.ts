@@ -1,8 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import type { WebFrameMain } from 'electron'
-import { NativeTerminalPixelLocallyIneligibleError } from './native-terminal-presenter'
+import { NativeTerminalAdmissionError } from '../../shared/native-terminal'
+import {
+  NativeTerminalPixelLocallyIneligibleError,
+  type NativeTerminalPixelReservation,
+} from './native-terminal-presenter'
 import {
   NATIVE_TERMINAL_PRESENTATION as channels,
+  nativeTerminalPackedPixelLayout,
   sameNativeTerminalView,
   validNativeTerminalViewGrant,
   type NativeTerminalCanvasRefit,
@@ -44,7 +49,12 @@ export class NativeTerminalPresentationTargets {
       view.drawnScreen === undefined
     )
       return
-    return { screen: view.drawnScreen, geometrySerial: view.grant.geometrySerial }
+    return {
+      screen: view.drawnScreen,
+      geometrySerial: view.grant.geometrySerial,
+      nativeEpoch: view.grant.nativeEpoch,
+      attachment: view.grant.attachment,
+    }
   }
   acknowledge(frame: WebFrameMain, value: unknown): void {
     if (!value || typeof value !== 'object') return
@@ -152,32 +162,100 @@ export class NativeTerminalPresentationTargets {
           frame.send(channels.statusChannel, status)
         else send(channels.statusChannel, status)
       },
-      sendPixels: (pixels: NativeTerminalPixelFrame): Promise<void> => {
-        if (
-          this.pending.size >= 3 ||
-          pixels.bytes.byteLength > channels.maximumPixelBytes
+      reservePixels: (grant: NativeTerminalViewGrant) =>
+        this.reservePixels(frame, grant, current, send),
+      sendPixels: async (pixels: NativeTerminalPixelFrame): Promise<void> => {
+        const reservation = this.reservePixels(
+          frame,
+          pixels.nativeTerminal,
+          current,
+          send,
         )
-          return Promise.reject(new Error('native-pixel-upload-bound'))
-        if (!current())
-          return Promise.reject(new Error('native-presentation-target-stale'))
-        const ticket = randomUUID()
-        return new Promise((resolve, reject) => {
-          const timeout = setTimeout(
+        try {
+          await reservation.send(pixels)
+        } finally {
+          reservation.cancel()
+        }
+      },
+    }
+  }
+  private reservePixels(
+    frame: WebFrameMain,
+    grant: NativeTerminalViewGrant,
+    current: () => boolean,
+    send: (channel: string, value: unknown) => void,
+  ): NativeTerminalPixelReservation {
+    if (this.pending.size >= 3)
+      throw new NativeTerminalAdmissionError('native-pixel-upload-bound')
+    const issued = this.granted.get(grant.viewId)
+    if (
+      !current() ||
+      !issued ||
+      issued.frame !== frame ||
+      !sameNativeTerminalView(issued.grant, grant)
+    )
+      throw new Error('native-presentation-target-stale')
+    const layout = nativeTerminalPackedPixelLayout(grant.width, grant.height)
+    if (!validNativeTerminalViewGrant(grant) || !layout)
+      throw new Error('native-pixel-upload-bound')
+    const ticket = randomUUID(),
+      captured = Object.freeze({ ...grant })
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    let closed = false,
+      sent = false,
+      resolveSent: (() => void) | undefined,
+      rejectSent: ((error: Error) => void) | undefined
+    let closedError: Error | undefined
+    const finish = (error?: Error): void => {
+      if (!this.pending.delete(ticket)) return
+      closed = true
+      closedError = error
+      if (timeout) clearTimeout(timeout)
+      if (error) rejectSent?.(error)
+      else resolveSent?.()
+    }
+    this.pending.set(ticket, { frame, grant: captured, finish, current })
+    return {
+      cancel: () => finish(new Error('native-pixel-upload-cancelled')),
+      send: (pixels) => {
+        if (closed)
+          return Promise.reject(
+            closedError ?? new Error('native-pixel-reservation-closed'),
+          )
+        if (sent)
+          return Promise.reject(new Error('native-pixel-reservation-already-sent'))
+        const latest = this.granted.get(grant.viewId)
+        if (
+          !current() ||
+          !latest ||
+          latest.frame !== frame ||
+          !pixels ||
+          !validNativeTerminalViewGrant(pixels.nativeTerminal) ||
+          !sameNativeTerminalView(pixels.nativeTerminal, captured) ||
+          !sameNativeTerminalView(latest.grant, captured)
+        ) {
+          const error = new Error('native-presentation-target-stale')
+          finish(error)
+          return Promise.reject(error)
+        }
+        if (
+          !(pixels.bytes instanceof Uint8Array) ||
+          pixels.bytes.buffer instanceof SharedArrayBuffer ||
+          pixels.stride !== layout.stride ||
+          pixels.bytes.byteLength !== layout.byteLength
+        ) {
+          const error = new Error('native-pixel-upload-bound')
+          finish(error)
+          return Promise.reject(error)
+        }
+        sent = true
+        return new Promise<void>((resolve, reject) => {
+          resolveSent = resolve
+          rejectSent = reject
+          timeout = setTimeout(
             () => finish(new Error('native-pixel-upload-timeout')),
             5000,
           )
-          const finish = (error?: Error): void => {
-            if (!this.pending.delete(ticket)) return
-            clearTimeout(timeout)
-            if (error) reject(error)
-            else resolve()
-          }
-          this.pending.set(ticket, {
-            frame,
-            grant: Object.freeze({ ...pixels.nativeTerminal }),
-            finish,
-            current,
-          })
           try {
             send(channels.pixelsChannel, { ticket, frame: pixels })
           } catch {

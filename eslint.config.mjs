@@ -700,6 +700,7 @@ export default tseslint.config(
   {
     files: [
       'scripts/run-smoke-scenarios.mts',
+      'scripts/run-capacity-terminal-comparison.mts',
       'scripts/smoke-run-lock.mts',
       'scripts/architecture-hotspots.mts',
       'scripts/architecture-policy.mts',
@@ -727,6 +728,10 @@ export default tseslint.config(
       'scripts/native-terminal/electron-probe.mts',
       'scripts/native-terminal/presenter-probe.mts',
       'scripts/native-terminal/source.mts',
+      'scripts/native-terminal/development-runtime.mts',
+      'scripts/native-terminal/development-process.mts',
+      'scripts/native-terminal/prepare-development.mts',
+      'scripts/native-terminal/qualify-development.mts',
       'scripts/native-terminal/upgrade.mts',
       'scripts/assemble-agent-clients.mts',
       'scripts/probe-agent-client.mts',

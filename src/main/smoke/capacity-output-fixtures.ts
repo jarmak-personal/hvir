@@ -30,6 +30,7 @@ export interface CapacityOutputFixtures {
 /** Start the real-PTY output load and retain ownership of its bounded shutdown lifecycle. */
 export function startCapacityOutputFixtures(
   supervisor: CapacityOutputFixtureSupervisor,
+  options?: { readonly taggedTerminalId: string },
 ): CapacityOutputFixtures {
   const terminals = supervisor.list()
   if (terminals.length !== CAPACITY_TERMINAL_COUNT) {
@@ -38,12 +39,16 @@ export function startCapacityOutputFixtures(
     )
   }
 
+  if (options && terminals[0]?.id !== options.taggedTerminalId)
+    throw new Error('capacity tagged producer must occupy first terminal')
+
   const semanticFixture =
     `i=0; while [ "$i" -lt 300 ]; do ` +
     `printf '\\033]133;A\\007p\\r\\n\\033]133;B\\007c\\r\\n` +
     `\\033]133;C\\007o\\r\\n\\033]133;D;0\\007'; ` +
     `i=$((i+1)); done\n`
   for (const terminal of terminals) {
+    if (terminal.id === options?.taggedTerminalId) continue
     supervisor.write(
       terminal.id,
       terminal.ownerId,
@@ -62,15 +67,18 @@ export function startCapacityOutputFixtures(
         `printf '\\033[?2026h\\033[33msync-%04d\\033[0m\\r\\nline-a\\r\\nline-b' "$i"; i=$((i+1)); sleep 0.2`,
     ),
   ]
-  const producers = terminals.map((terminal, index) => ({
-    terminal,
-    marker: `${STOP_MARKER_PREFIX}${String(index).padStart(2, '0')}__`,
-  }))
-  producers.forEach(({ terminal, marker }, index) => {
+  const producers = terminals
+    .map((terminal, index) => ({
+      terminal,
+      marker: `${STOP_MARKER_PREFIX}${String(index).padStart(2, '0')}__`,
+      cycle: cycles[index]!,
+    }))
+    .filter(({ terminal }) => terminal.id !== options?.taggedTerminalId)
+  producers.forEach(({ terminal, marker, cycle }) => {
     const script =
       `hvir_capacity_running=1; ` +
       `trap 'hvir_capacity_running=0' INT; ` +
-      `i=0; while [ "$hvir_capacity_running" -eq 1 ]; do ${cycles[index]!}; done; ` +
+      `i=0; while [ "$hvir_capacity_running" -eq 1 ]; do ${cycle}; done; ` +
       `trap - INT; printf '\\r\\n${marker}\\r\\n'`
     supervisor.write(
       terminal.id,

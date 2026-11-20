@@ -9,6 +9,7 @@ import type { Receipt } from '../packages/native-terminal/resource'
 import {
   NativeTerminalFrameImports,
   NativeTerminalGpuImportUnavailable,
+  NativeTerminalImportQuarantined,
 } from '../src/main/terminal/native-terminal-import'
 
 function deferred<T>() {
@@ -560,4 +561,63 @@ it('rejects a well-formed resource whose format differs from its immutable produ
   ).rejects.toThrow('native-resource-metadata')
   expect(f.textures.importSharedTexture).not.toHaveBeenCalled()
   expect(native.release).toHaveBeenCalledOnce()
+})
+
+it('retires only the validated producer while receipt/import/credit stay quarantined after late callbacks', async () => {
+  const f = fixture(),
+    native = source()
+  const retireProducer = vi.fn(async () => {
+    await native.release()
+    return 'retired' as const
+  })
+  f.textures.sendSharedTexture.mockRejectedValue(new Error('indeterminate send'))
+  const value = await f.owner.acquire({ ...native, retireProducer }, f.target)
+  const failure: unknown = await value.send().catch((error: unknown) => error)
+  if (!(failure instanceof NativeTerminalImportQuarantined))
+    throw new Error('expected quarantine')
+  expect(retireProducer).not.toHaveBeenCalled()
+  await expect(failure.retireProducer!()).resolves.toBe(true)
+  await expect(failure.retireProducer!()).resolves.toBe(true)
+  expect(retireProducer).toHaveBeenCalledOnce()
+  expect(native.release).toHaveBeenCalledOnce()
+  f.options[0]!.allReferencesReleased!()
+  value.release()
+  await expect(value.released).rejects.toBe(failure)
+  expect(f.edge.release).not.toHaveBeenCalled()
+  expect(f.imported[0]!.release).not.toHaveBeenCalled()
+  expect(native.release).toHaveBeenCalledOnce()
+})
+
+it('keeps all three quarantined credits even after exact producer retirements', async () => {
+  const f = fixture()
+  f.textures.sendSharedTexture.mockRejectedValue(new Error('indeterminate send'))
+  for (let index = 0; index < 3; index++) {
+    const native = source()
+    const value = await f.owner.acquire(
+      {
+        ...native,
+        retireProducer: async () => {
+          await native.release()
+          return 'retired'
+        },
+      },
+      f.target,
+    )
+    const failure: unknown = await value.send().catch((error: unknown) => error)
+    if (!(failure instanceof NativeTerminalImportQuarantined))
+      throw new Error('expected quarantine')
+    await expect(failure.retireProducer!()).resolves.toBe(true)
+  }
+  await expect(f.owner.acquire(source(), f.target)).rejects.toThrow('native-import-bound')
+  expect(f.textures.importSharedTexture).toHaveBeenCalledTimes(3)
+  expect(f.edge.release).not.toHaveBeenCalled()
+})
+
+it('never offers producer recovery for a wrong unvalidated receipt', async () => {
+  const f = fixture({ width: 17 }),
+    native = source()
+  const retireProducer = vi.fn(() => Promise.resolve('retired' as const))
+  await expect(f.owner.acquire({ ...native, retireProducer }, f.target)).rejects.toThrow()
+  expect(retireProducer).not.toHaveBeenCalled()
+  expect(f.textures.importSharedTexture).not.toHaveBeenCalled()
 })

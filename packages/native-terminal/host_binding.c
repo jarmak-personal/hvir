@@ -13,6 +13,7 @@ typedef struct binding_state {
   struct binding_state *next;
   hvir_terminal_id id;
   uint64_t lease;
+  uint32_t frame_width, frame_height;
 } binding_state;
 typedef struct {
   hvir_terminal_host *native;
@@ -39,7 +40,8 @@ typedef enum {
   PRESENTATION_MODE,
   RENDERER_INFO,
   INPUT,
-  LINK, SELECTION, EXTRACT_BEGIN, EXTRACT_NEXT, EXTRACT_FINISH, EXTRACT_CLOSE, LINK_CURRENT, LINK_ROW_BEGIN, APPEARANCE
+  LINK, SELECTION, EXTRACT_BEGIN, EXTRACT_NEXT, EXTRACT_FINISH, EXTRACT_CLOSE, LINK_CURRENT, LINK_ROW_BEGIN, APPEARANCE,
+  RETIRE_FRAME_BEGIN, RETIRE_FRAME_STATUS
 } operation;
 static binding_host *host(napi_env env, napi_value value) {
   bool matches = false;
@@ -167,8 +169,6 @@ static napi_value frame_value(napi_env env, const hvir_terminal_frame *f) {
   if (!put(env, result, "planes", planes))
     return NULL;
   if (f->kind == 1 && !put(env, result, "surface", bytes(env, &f->surface, sizeof(f->surface))))
-    return NULL;
-  if (f->kind == 3 && !put(env, result, "pixels", bytes(env, f->pixels, f->pixel_bytes)))
     return NULL;
   return result;
 }
@@ -482,7 +482,7 @@ static napi_value appearance_operation(napi_env env, binding_host *host, uint64_
 }
 
 static napi_value invoke(napi_env env, napi_callback_info info) {
-  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4, 3, 2, 3, 3, 4, 4, 3, 3, 3, 3, 3, 4};
+  static const size_t counts[] = {1, 3, 4, 5, 2, 3, 3, 7, 2, 2, 3, 2, 1, 3, 4, 3, 2, 3, 3, 4, 4, 3, 3, 3, 3, 3, 4, 3, 4};
   size_t argc = 8;
   napi_value args[8];
   void *data;
@@ -504,6 +504,21 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
   uint32_t width = 0, height = 0, capacity = 0;
   if (op != CREATE && op != CLOSE && !u64(env, args[1], &id))
     return NULL;
+  if (op == RETIRE_FRAME_BEGIN || op == RETIRE_FRAME_STATUS) {
+    if (!u64(env, args[2], &serial)) return NULL;
+    uint64_t request = 0;
+    uint32_t status = 0;
+    if (op == RETIRE_FRAME_STATUS && !u64(env, args[3], &request)) return NULL;
+    const hvir_terminal_result code = op == RETIRE_FRAME_BEGIN
+      ? hvir_terminal_retire_frame_begin(h->native, id, serial, &request)
+      : hvir_terminal_retire_frame_status(h->native, id, serial, request, &status);
+    napi_value value = outcome(env, code);
+    if (!value) return NULL;
+    if (code == HVIR_OK && !put(env, value,
+        op == RETIRE_FRAME_BEGIN ? "request" : "status",
+        op == RETIRE_FRAME_BEGIN ? big(env, request) : number(env, status))) return NULL;
+    return value;
+  }
   if (op == INPUT) {
     bool read_only = false;
     if (argc >= 4) {
@@ -626,16 +641,31 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
   if (op == COPY_FRAME) {
     if (!u64(env, args[2], &serial) || !u32(env, args[3], &capacity)) return NULL;
     if (!capacity || capacity > HVIR_TERMINAL_PIXEL_MAX) return outcome(env, HVIR_BOUND);
-    uint8_t *data = malloc(capacity);
-    if (!data) return outcome(env, HVIR_NOMEM);
+    binding_state *s = *state_link(h, id);
+    if (!s || !serial || serial != s->lease) return outcome(env, HVIR_INVALID);
+    size_t required = 0;
+    if (!hvir_terminal_packed_pixel_bytes(s->frame_width, s->frame_height, &required) ||
+        capacity < required) return outcome(env, HVIR_BOUND);
+    /* Own exactly this held image. No borrowed producer storage or pooled Buffer
+     * crosses the caller-worker transfer boundary. */
+    void *data = NULL;
+    napi_value storage;
+    if (!checked(env, napi_create_arraybuffer(env, required, &data, &storage))) return NULL;
     size_t written = 0;
     uint32_t stride = 0;
     hvir_terminal_result code = hvir_terminal_copy_frame(h->native, id, serial, data,
-                                                        capacity, &written, &stride);
+                                                        required, &written, &stride);
     napi_value result = outcome(env, code);
-    if (code == HVIR_OK && (!put(env, result, "data", bytes(env, data, written)) ||
-                            !put(env, result, "stride", number(env, stride)))) result = NULL;
-    free(data);
+    if (code == HVIR_OK) {
+      if (written != required || stride != s->frame_width * 4u) {
+        napi_throw_error(env, NULL, "Invalid native terminal copied layout");
+        return NULL;
+      }
+      napi_value pixels;
+      if (!checked(env, napi_create_typedarray(env, napi_uint8_array, written, storage, 0, &pixels)) ||
+          !put(env, result, "data", pixels) || !put(env, result, "stride", number(env, stride)))
+        return NULL;
+    }
     return result;
   }
   if (op == INSPECT) {
@@ -806,10 +836,15 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
       return outcome(env, HVIR_INVALID);
     }
     s->lease = frame.lease;
+    s->frame_width = frame.width;
+    s->frame_height = frame.height;
     napi_value value = result ? frame_value(env, &frame) : NULL;
     if (!value || !put(env, result, "frame", value)) {
-      hvir_terminal_release_frame(h->native, id, frame.lease);
-      s->lease = 0;
+      hvir_terminal_result released = hvir_terminal_release_frame(h->native, id, frame.lease);
+      if (released == HVIR_OK || released == HVIR_PRESENTATION) {
+        s->lease = 0;
+        s->frame_width = s->frame_height = 0;
+      }
       return NULL;
     }
     return result;
@@ -819,8 +854,10 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
       return NULL;
     hvir_terminal_result code = hvir_terminal_release_frame(h->native, id, serial);
     binding_state *s = *state_link(h, id);
-    if (s && s->lease == serial && (code == HVIR_OK || code == HVIR_PRESENTATION))
+    if (s && s->lease == serial && (code == HVIR_OK || code == HVIR_PRESENTATION)) {
       s->lease = 0;
+      s->frame_width = s->frame_height = 0;
+    }
     return outcome(env, code);
   }
   hvir_terminal_result code = hvir_terminal_destroy(h->native, id);
@@ -836,7 +873,7 @@ static napi_value invoke(napi_env env, napi_callback_info info) {
 static napi_value initialize(napi_env env, napi_value exports) {
   static const char *names[] = {"open",         "createBegin", "feed", "resize", "inspect",
                                 "read",         "drain",       "key",  "event",  "takeFrame",
-                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame", "presentationMode", "rendererInfo", "input", "link", "selection", "extractBegin", "extractNext", "extractFinish", "extractClose", "linkCurrent", "linkRowBegin", "appearance"};
+                                "releaseFrame", "destroy",     "close", "visibility", "copyFrame", "presentationMode", "rendererInfo", "input", "link", "selection", "extractBegin", "extractNext", "extractFinish", "extractClose", "linkCurrent", "linkRowBegin", "appearance", "retireFrameBegin", "retireFrameStatus"};
   for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
     napi_value function;
     if (!checked(env, napi_create_function(env, names[i], NAPI_AUTO_LENGTH, invoke,

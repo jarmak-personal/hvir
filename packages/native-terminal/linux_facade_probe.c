@@ -84,47 +84,64 @@ static void *run(void *argument) {
   REQUIRE(hvir_terminal_release_frame(host, id, held.lease) == HVIR_OK, "release-for-pixels"); held.lease = 0;
   REQUIRE(frame(host, id, 3, 1, &held), "mode-request-is-not-ack-until-kind3");
   REQUIRE(hvir_terminal_resize(host, id, 2, 2050, 2048) == HVIR_OK && geometry(host, id, 2),
-          "oversize-applied-while-old-lease-held");
-  REQUIRE(hvir_terminal_release_frame(host, id, held.lease) == HVIR_OK, "release-before-bound-observation"); held.lease = 0;
-  const uint64_t deadline = now() + 10000;
+          "large-geometry-applied-while-old-lease-held");
+  REQUIRE(hvir_terminal_release_frame(host, id, held.lease) == HVIR_OK, "release-before-large-frame"); held.lease = 0;
+  REQUIRE(frame(host, id, 3, 2, &held) && held.width == 2050 && held.height == 2048,
+          "actual-large-owned-pixels");
+  const size_t large_bytes = (size_t)held.width * held.height * 4;
+  REQUIRE(large_bytes > 16u * 1024u * 1024u && large_bytes <= HVIR_TERMINAL_PIXEL_MAX,
+          "large-copy-exceeds-former-ceiling");
+  free(copy); copy = malloc(large_bytes);
+  REQUIRE(copy, "exact-large-copy-storage");
   hvir_terminal_status status = {0};
-  do { REQUIRE(hvir_terminal_inspect(host, id, &status) == HVIR_OK, "inspect-native-bound");
-    if (status.renderer_health == 1) break;
-    yield();
-  } while (now() < deadline);
-  REQUIRE(status.renderer_health == 1 && !status.failure, "preallocation-bound-is-visible-not-parser-failure");
-  const uint64_t bound_deadline = now() + 10000;
-  hvir_terminal_result bounded_frame;
-  do {
-    bounded_frame = hvir_terminal_take_frame(host, id, &held);
-    if (bounded_frame != HVIR_BUSY) break;
-    yield();
-  } while (now() < bound_deadline);
-  REQUIRE(bounded_frame == HVIR_PRESENTATION, "bound-is-not-endless-busy");
+  REQUIRE(hvir_terminal_copy_frame(host, id, held.lease, copy, large_bytes,
+          &written, &stride) == HVIR_OK && written == large_bytes &&
+          stride == held.width * 4, "large-held-frame-copy");
+  REQUIRE(held.pixels && copy[0] == held.pixels[2] && copy[2] == held.pixels[0] &&
+          copy[1] == held.pixels[1] && copy[3] == held.pixels[3], "large-source-colors");
+  REQUIRE(hvir_terminal_inspect(host, id, &status) == HVIR_OK && !status.failure &&
+          !status.renderer_health, "large-renderer-healthy");
+  const uint64_t copies_before_refusal = status.frame_copies;
+  REQUIRE(hvir_terminal_resize(host, id, 3, HVIR_TERMINAL_PIXEL_DIMENSION_MAX + 1, 2048)
+          == HVIR_BOUND, "existing-extent-refused-before-allocation");
+  REQUIRE(hvir_terminal_inspect(host, id, &status) == HVIR_OK &&
+          status.geometry.serial == 2 && status.geometry.width == 2050 &&
+          status.geometry.height == 2048 && status.frame_copies == copies_before_refusal &&
+          !status.renderer_health && !status.failure, "invalid-extent-preserves-large-state");
   const char marker[] = "\r\nparser-survives-bound";
   REQUIRE(hvir_terminal_feed(host, id, 2, (const uint8_t *)marker, sizeof(marker) - 1) == HVIR_OK,
           "parser-live-after-native-bound");
+  const uint64_t parser_deadline = now() + 10000;
+  do {
+    REQUIRE(hvir_terminal_inspect(host, id, &status) == HVIR_OK && !status.failure,
+            "inspect-parser-progress-after-refusal");
+    if (status.io_applied_sequence >= 2) break;
+    yield();
+  } while (now() < parser_deadline);
+  REQUIRE(status.io_applied_sequence >= 2, "actual-parser-progress-after-refusal");
   uint8_t retained[4096]; size_t retained_size = 0;
   REQUIRE(hvir_terminal_read(host, id, retained, sizeof(retained) - 1, &retained_size) == HVIR_OK,
           "parser-read-after-native-bound");
   retained[retained_size] = 0;
   REQUIRE(strstr((char *)retained, "parser-survives-bound") != NULL, "same-parser-retains-bound-tail");
-  REQUIRE(hvir_terminal_resize(host, id, 3, 640, 384) == HVIR_OK && geometry(host, id, 3), "recovery-geometry");
-  REQUIRE(frame(host, id, 3, 3, &held), "actual-successful-pixels-recovers-health");
+  REQUIRE(hvir_terminal_release_frame(host, id, held.lease) == HVIR_OK, "release-large-before-shrink"); held.lease = 0;
+  REQUIRE(hvir_terminal_resize(host, id, 3, 640, 384) == HVIR_OK && geometry(host, id, 3), "small-geometry-after-large");
+  REQUIRE(frame(host, id, 3, 3, &held), "actual-small-frame-after-large");
   const uint64_t health_deadline = now() + 10000;
   do {
     REQUIRE(hvir_terminal_inspect(host, id, &status) == HVIR_OK && !status.failure,
-            "inspect-native-recovery");
+            "inspect-small-renderer");
     if (status.renderer_health == 0) break;
     yield();
   } while (now() < health_deadline);
-  REQUIRE(status.renderer_health == 0, "recovered-renderer-not-mode-flag");
+  REQUIRE(status.renderer_health == 0, "small-renderer-healthy");
   REQUIRE(hvir_terminal_release_frame(host, id, held.lease) == HVIR_OK, "release-final"); held.lease = 0;
   REQUIRE(hvir_terminal_destroy(host, id) == HVIR_OK, "state-close"); id = 0;
   REQUIRE(hvir_terminal_close(host) == HVIR_OK, "host-close"); host = NULL;
   printf("{\"linuxFacade\":\"passed\",\"checks\":%u,\"initialPixels\":true,\"autoFrameKind\":%u,"
-         "\"sameParserModeTransition\":true,\"nativePreallocationBound\":true,\"nativeHealthRecovery\":true,"
-         "\"hardwareGpuQualified\":false}\n", checks, auto_kind);
+         "\"sameParserModeTransition\":true,\"largeOwnedCopyBytes\":%zu,\"invalidExtentRefused\":true,"
+         "\"sameParserAfterRefusal\":true,\"smallFrameAfterLarge\":true,\"rendererHealthy\":true,"
+         "\"hardwareGpuQualified\":false}\n", checks, auto_kind, large_bytes);
   passed = 1;
 cleanup:
   free(copy);

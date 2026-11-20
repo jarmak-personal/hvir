@@ -19,6 +19,114 @@ const qualification = Object.values(workflow.jobs)
   .find((step) => step.name === 'Qualify the ordinary native workbench runtime')?.run
 if (!qualification) throw new Error('Native workbench qualification step missing')
 
+describe('native presenter CI receipt consumer', () => {
+  const step = Object.values(workflow.jobs)
+    .flatMap((job) => job.steps ?? [])
+    .find(
+      (candidate) =>
+        candidate.name === 'Prove production canvas and explicit pixel compatibility',
+    )
+  const program = step?.run?.match(/<<'NODE'\n([\s\S]*?)\nNODE/)?.[1]
+  if (!program) throw new Error('Native presenter workflow reader missing')
+  function validate(
+    platform: 'Linux' | 'macOS',
+    fault?: 'legacy' | 'sample' | 'stride' | 'refusal',
+  ) {
+    const directory = mkdtempSync(join(tmpdir(), 'hvir-native-presenter-reader-'))
+    try {
+      for (const mode of ['gpu', 'pixels']) {
+        const actualMode =
+          mode === 'gpu' && platform === 'macOS' ? 'native-gpu' : 'native-pixels'
+        const proof: Record<string, unknown> = {
+          nativePresenter: 'passed',
+          requestedPresentation: mode === 'pixels' ? 'pixels' : 'auto',
+          mode: actualMode,
+          receiverSandboxed: true,
+          receiverContextIsolated: true,
+          finalUtilityExit: true,
+          hardwareGpuQualified: false,
+          controlledCapacityQualified: false,
+          orientationQualified: true,
+          colorMaximumDifference: 0,
+          mainMaxGapMs: 1,
+          responsivenessMaximumInclusiveMs: 500,
+          responsiveness: {
+            main: { samples: 2, p99Ms: 1, maxMs: 1 },
+            renderer: { samples: 2, p99Ms: 1, maxMs: 1 },
+          },
+          stack: {
+            actualOzoneBackend: 'unknown',
+            devices: [],
+            successfulExplicitSelection: { backend: 'x11' },
+          },
+          nativeRenderer: { available: true },
+          producerCompletion: 'gl-finish-before-export',
+          contextLossReported: true,
+          contextLossNativeOccluded: true,
+          occludedCompletedFrames: 0,
+          occludedFeeds: 10,
+          routineGpuReadbacks: 0,
+          nativePixelFrames: 0,
+          frameCopies: 2,
+          compatibilitySampleUploadBytes: 2050 * 2048 * 4,
+          compatibilityInvalidExtentRefused: true,
+          compatibilityExtent: {
+            grant: { width: 2050, height: 2048 },
+            stride: 8200,
+            byteLength: 2050 * 2048 * 4,
+          },
+        }
+        if (mode === 'pixels') {
+          if (fault === 'legacy') {
+            delete proof.compatibilitySampleUploadBytes
+            delete proof.compatibilityInvalidExtentRefused
+            delete proof.compatibilityExtent
+            proof.maximumCompatibilityUploadBytes = 16 * 1024 * 1024
+            proof.compatibilityBoundRefused = true
+          } else if (fault === 'sample')
+            proof.compatibilitySampleUploadBytes = 16 * 1024 * 1024
+          else if (fault === 'stride')
+            proof.compatibilityExtent = {
+              grant: { width: 2050, height: 2048 },
+              stride: 8192,
+              byteLength: 2050 * 2048 * 4,
+            }
+          else if (fault === 'refusal') proof.compatibilityInvalidExtentRefused = false
+        }
+        writeFileSync(
+          join(directory, `presenter-${mode}.jsonl`),
+          JSON.stringify(proof) + '\n',
+        )
+      }
+      return spawnSync(process.execPath, ['-', directory], {
+        input: program,
+        encoding: 'utf8',
+        env: { ...process.env, RUNNER_OS: platform },
+      })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }
+  it.each(['Linux', 'macOS'] as const)(
+    'accepts the measured larger pixel sample on %s',
+    (platform) => {
+      const result = validate(platform)
+      expect(result.error).toBeUndefined()
+      expect(result.stderr).toBe('')
+      expect(result.status).toBe(0)
+    },
+  )
+  it.each(['legacy', 'sample', 'stride', 'refusal'] as const)(
+    'rejects an obsolete or inconsistent %s receipt',
+    (fault) => {
+      const result = validate('macOS', fault)
+      expect(result.error).toBeUndefined()
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain('AssertionError')
+    },
+  )
+})
+
 interface TimingFixture {
   mode: 'evidence' | 'controlled'
   crossing?:

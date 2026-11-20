@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createNativeTerminalCanvas } from '../src/preload/native-terminal-canvas'
-import type { NativeTerminalPresentedFrame } from '../src/shared/native-terminal-presentation'
+import type {
+  NativeTerminalPixelFrame,
+  NativeTerminalPresentedFrame,
+} from '../src/shared/native-terminal-presentation'
 
 const metadata: NativeTerminalPresentedFrame = {
   nativeTerminal: {
@@ -88,6 +91,90 @@ afterEach(() => {
 })
 
 describe('native canvas submission ownership', () => {
+  it('updates software pixels without resetting unchanged backing dimensions', () => {
+    document.body.innerHTML = '<div id="native-canvas"></div>'
+    let currentImage: ImageData | undefined
+    const context = {
+      putImageData: vi.fn((image: ImageData) => {
+        currentImage = image
+      }),
+    }
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((kind) =>
+      kind === '2d' ? (context as unknown as CanvasRenderingContext2D) : null,
+    )
+    vi.stubGlobal(
+      'ImageData',
+      class {
+        readonly colorSpace: PredefinedColorSpace
+        constructor(
+          readonly data: Uint8ClampedArray,
+          readonly width: number,
+          readonly height: number,
+          settings: ImageDataSettings,
+        ) {
+          this.colorSpace = settings.colorSpace ?? 'srgb'
+        }
+      },
+    )
+    const port = createNativeTerminalCanvas('native-canvas', vi.fn())
+    if (!port) throw new Error('Software canvas unavailable')
+    const canvas = document.querySelector('canvas')!
+    const width = vi.spyOn(canvas, 'width', 'set'),
+      height = vi.spyOn(canvas, 'height', 'set')
+    const frames = [
+      [64, 32, 1, 17],
+      [64, 32, 2, 39],
+      [128, 32, 1, 61],
+      [128, 64, 2, 83],
+    ].map(([w, h, colorSpace, color]) => {
+      const storage = new Uint8Array(w! * h! * 4 + 8)
+      const bytes = storage.subarray(4, storage.length - 4)
+      bytes.fill(color!)
+      return {
+        frame: {
+          ...metadata,
+          colorSpace: colorSpace!,
+          nativeTerminal: { ...metadata.nativeTerminal, width: w!, height: h! },
+          bytes,
+          stride: w! * 4,
+          premultiplied: false,
+        } satisfies NativeTerminalPixelFrame,
+        storage,
+        original: storage.slice(),
+      }
+    })
+    for (const [index, { frame, storage, original }] of frames.entries()) {
+      port.pixels(frame)
+      expect([canvas.width, canvas.height]).toEqual([
+        frame.nativeTerminal.width,
+        frame.nativeTerminal.height,
+      ])
+      expect(currentImage).toMatchObject({
+        width: canvas.width,
+        height: canvas.height,
+        colorSpace: frame.colorSpace === 2 ? 'display-p3' : 'srgb',
+      })
+      expect(currentImage?.data).toEqual(new Uint8ClampedArray(frame.bytes))
+      expect(currentImage?.data.buffer).toBe(frame.bytes.buffer)
+      expect(currentImage?.data.byteOffset).toBe(frame.bytes.byteOffset)
+      expect(storage).toEqual(original)
+      expect(width).toHaveBeenCalledTimes(index < 2 ? 1 : 2)
+      expect(height).toHaveBeenCalledTimes(index < 3 ? 1 : 2)
+      expect(context.putImageData).toHaveBeenLastCalledWith(currentImage, 0, 0)
+    }
+    const failed = new Error('software upload failure')
+    context.putImageData.mockImplementationOnce(() => {
+      throw failed
+    })
+    expect(() => port.pixels(frames[3]!.frame)).toThrow(failed)
+    expect(width).toHaveBeenCalledTimes(2)
+    expect(height).toHaveBeenCalledTimes(2)
+    port.dispose()
+    expect(canvas.isConnected).toBe(false)
+    expect(() => port.pixels(frames[3]!.frame)).toThrow('native-pixel-canvas-lost')
+    expect(context.putImageData).toHaveBeenCalledTimes(5)
+  })
+
   it('submits GPU and pixel frames without querying GPU status or program locations', () => {
     const { gl, port } = fixture()
     expect(gl.getUniformLocation.mock.calls.map(([, name]) => name)).toEqual([

@@ -8,7 +8,7 @@
 #include <string.h>
 #include <time.h>
 
-/* Real ABI9 facade, one designated worker and the authoritative native Surface.
+/* Real pinned facade, one designated worker and the authoritative native Surface.
  * A second Surface is used only for foreign-token negatives, never as a mirror.
  * Deadlines and finite producers below contain fixed fixtures, not product caps. */
 typedef struct {
@@ -151,9 +151,11 @@ static bool settled(probe *p, hvir_terminal_query_status *out) {
 static bool at(probe *p, const hvir_terminal_query_status *status, size_t index,
     hvir_terminal_query_match *match) {
   hvir_terminal_query_page_result page = {0};
+  hvir_terminal_selection_context ctx;
+  if (!context(p, &ctx)) return false;
   NEED(hvir_terminal_query_page(p->host, p->id, p->query, status->revision, index, match, 1, &page) == HVIR_OK &&
     !page.stale && page.revision == status->revision && page.count == status->count && page.length == 1 &&
-    match->index == index && match->occurrence && match->screen == 0, "indexed-query-owned-occurrence");
+    match->index == index && match->occurrence && match->screen == ctx.screen, "indexed-query-owned-occurrence");
   return true;
 }
 static bool next(probe *p, uint8_t *data, size_t capacity, hvir_terminal_selection_result *out) {
@@ -341,21 +343,78 @@ static bool wrapping_and_alt(probe *p) {
   if (!query_golden(p, wide[0], true, wide, 1, NULL, NULL) ||
       !query_golden(p, "wrapnext", false, NULL, 0, NULL, NULL) ||
       !query_golden(p, newline[0], false, newline, 1, NULL, NULL) || !destroy(p) || !create(p)) return false;
-  if (!feed(p, "normal target\r\nsecond target\x1b[?1049halternate TARGET")) return false;
-  hvir_terminal_selection_context ctx;
-  if (!context(p, &ctx)) return false;
-  NEED(ctx.screen == 1, "actual-alt-screen-before-any-frame-acquisition");
-  const char *primary[] = {"target", "target"};
-  if (!query_golden(p, "target", false, primary, 2, NULL, NULL) ||
-      !query_golden(p, "alternate", false, NULL, 0, NULL, NULL) || !begin_query(p, "target", true)) return false;
+  const char *primary[] = {"target", "target"}, *alternate[] = {"TARGET"}, *word[] = {"alternate"};
+  if (!feed(p, "normal target\r\nsecond target") ||
+      !query_golden(p, "target", false, primary, 2, NULL, NULL) ||
+      !feed(p, "\x1b[?1049h\x1b[Halternate TARGET") ||
+      !query_golden(p, "target", false, alternate, 1, NULL, NULL) ||
+      !query_golden(p, "alternate", true, word, 1, NULL, NULL) ||
+      !query_golden(p, "normal", false, NULL, 0, NULL, NULL) || !begin_query(p, "TARGET", true)) return false;
   hvir_terminal_query_status status;
   hvir_terminal_query_match match;
-  if (!settled(p, &status) || !at(p, &status, 1, &match) || !resolve_match(p, match.occurrence, true, false)) return false;
-  if (!feed(p, "\x1b[?1049l") || !context(p, &ctx)) return false;
-  NEED(ctx.screen == 0, "actual-primary-return-before-any-frame-acquisition");
-  if (!resolve_match(p, match.occurrence, false, false) || !read_match(p, match.occurrence, "target")) return false;
+  if (!settled(p, &status) || !at(p, &status, 0, &match) ||
+      !resolve_match(p, match.occurrence, true, true) || !read_match(p, match.occurrence, "TARGET") ||
+      !feed(p, "\x1b[2;1Hunrelated") || !read_match(p, match.occurrence, "TARGET") ||
+      !feed(p, "\x1b[1;11HTARGET") || !stale_match(p, match.occurrence) ||
+      !settled(p, &status) || !at(p, &status, 0, &match) || !read_match(p, match.occurrence, "TARGET") ||
+      !feed(p, "\x1b[?1049l") || !stale_match(p, match.occurrence) ||
+      !query_golden(p, "target", true, primary, 2, NULL, NULL)) return false;
   p->cases++;
   return healthy_key(p) && destroy(p);
+}
+/* One feed returns to the same key and storage generation: epoch must revoke. */
+static bool screen_transition_lifetimes(probe *p) {
+  for (unsigned screen = 0; screen < 2; screen++) {
+    if (!create(p) || !feed(p, "target") || (screen && !feed(p, "\x1b[?47h\x1b[Htarget"))) return false;
+    const char *roundtrip = screen ? "\x1b[?47l\x1b[?47h" : "\x1b[?47h\x1b[?47l";
+    for (unsigned stage = 0; stage < 4; stage++) {
+      hvir_terminal_query_status status = {0};
+      hvir_terminal_query_match match = {0};
+      hvir_terminal_selection_context ctx;
+      hvir_terminal_selection_result out = {0};
+      if (!begin_query(p, "target", true) || !settled(p, &status) || !at(p, &status, 0, &match)) return false;
+      NEED(status.count == 1 && match.screen == screen, "current-buffer-single-occurrence");
+      const uint64_t occurrence = match.occurrence;
+      if (stage) {
+        if (!context(p, &ctx)) return false;
+        hvir_terminal_result code = stage == 3
+          ? hvir_terminal_query_resolve_begin(p->host, p->id, p->query, occurrence, true, &ctx, &out)
+          : hvir_terminal_range_begin(p->host, p->id, 1, p->query, occurrence, &ctx, &out);
+        NEED(code == HVIR_OK && out.cursor && !out.stale, "acquire-before-transition");
+        p->cursor = out.cursor;
+        if (stage >= 2) {
+          uint8_t bytes[HVIR_TERMINAL_SELECTION_CHUNK];
+          const uint64_t deadline = clock_ms() + 15000;
+          do { if (!next(p, bytes, sizeof(bytes), &out)) return false; }
+          while (!out.done && clock_ms() < deadline);
+          NEED(out.done, "read-completes-before-transition-finish");
+        }
+      }
+      if (!feed(p, roundtrip)) return false;
+      if (!stage) {
+        hvir_terminal_query_page_result page = {0};
+        NEED(hvir_terminal_query_page(p->host, p->id, p->query, status.revision, 0, &match, 1, &page) == HVIR_BUSY &&
+          page.stale && !page.length, "ABA-page-before-step-stale");
+        if (!stale_match(p, occurrence)) return false;
+        NEED(hvir_terminal_query_step(p->host, p->id, p->query, &status) == HVIR_BUSY && status.stale,
+          "ABA-query-step-stale");
+      } else if (stage == 1) {
+        uint8_t bytes[16];
+        NEED(hvir_terminal_extract_next(p->host, p->id, p->cursor, bytes, sizeof(bytes), &out) == HVIR_BUSY &&
+          out.stale && !out.length && !out.resolved && !out.revealed, "ABA-read-next-stale");
+        if (!close_cursor(p)) return false;
+      } else {
+        hvir_terminal_result code = hvir_terminal_extract_finish(p->host, p->id, p->cursor, &out);
+        p->cursor = 0;
+        NEED(code == HVIR_BUSY && out.stale && !out.length && !out.resolved && !out.revealed,
+          "ABA-finish-refuses-late-copy-and-highlight");
+      }
+      p->cases++;
+    }
+    const char *fresh[] = {"target"};
+    if (!query_golden(p, "target", true, fresh, 1, NULL, NULL) || !healthy_key(p) || !destroy(p)) return false;
+  }
+  return true;
 }
 static bool identity_and_foreign(probe *p) {
   if (!create(p) || !feed(p, "target tail\r\nsecond target") || !begin_query(p, "target", true)) return false;
@@ -855,7 +914,7 @@ static bool semantic_large(probe *p) {
 static void *run(void *data) {
   probe *p = data;
   if (!check(p, hvir_terminal_open(p->library, NULL, &p->host) == HVIR_OK, "open-real-native-host")) return NULL;
-  if (!matching_goldens(p) || !wrapping_and_alt(p) || !identity_and_foreign(p) ||
+  if (!matching_goldens(p) || !wrapping_and_alt(p) || !screen_transition_lifetimes(p) || !identity_and_foreign(p) ||
       !resolver_query_lifetime(p) || !selected_highlight_refresh(p) || !held_resolver_layout_race(p) || !post_cutoff_live_candidate(p) || !high_match_stream(p) || !eviction_and_reflow(p) || !semantic_current_and_stale(p) ||
       !semantic_cursor_and_blank(p) || !empty_busy_cancel_reset(p) || !semantic_large(p)) goto cleanup;
 cleanup:
@@ -867,7 +926,9 @@ cleanup:
   check(p, hvir_terminal_close(p->host) == HVIR_OK, "close-real-native-host");
   return NULL;
 }
+int hvir_query_highlight_probe(const char *library);
 int main(int argc, char **argv) {
+  if (argc == 3 && !strcmp(argv[2], "--highlight-transitions")) return hvir_query_highlight_probe(argv[1]);
   if (argc != 2) return 2;
   probe p = {.library = argv[1], .copy_digest = UINT64_C(14695981039346656037)};
   pthread_t worker;

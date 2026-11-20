@@ -180,11 +180,11 @@ describe('native retained pane adapter', () => {
     await rejected
     expect(f.pane.selection).not.toBe(capability)
   })
-  it('restores authenticated semantic metadata before newer attach-time events', async () => {
+  it('routes live semantic batches and restores authenticated metadata before newer attach-time batches', async () => {
     const metadata =
       deferred<import('../src/shared/native-terminal-effects').NativeTerminalMetadata>()
     let accept!: (
-      value: import('../src/shared/native-terminal-effects').NativeTerminalProductEffect,
+      value: import('../src/shared/native-terminal-effects').NativeTerminalProductEvent,
     ) => void
     const f = fixture({
       metadata: () => metadata.promise,
@@ -208,14 +208,14 @@ describe('native retained pane adapter', () => {
       },
     })
     f.port.attach.mockImplementationOnce(() => {
-      accept(event(1))
+      accept({ effects: [event(1)] })
       return Promise.resolve({ viewId: 'native-view', instanceId: 'instance' })
     })
     const listener = vi.fn<(event: TerminalEvent) => void>()
     f.pane.onEffect(listener)
     const binding = f.pane.bind('session')
     await vi.waitFor(() => expect(f.port.attach).toHaveBeenCalled())
-    accept(event(3))
+    accept({ effects: [event(2), event(3)] })
     metadata.resolve({
       instanceId: 'instance',
       semanticSnapshot: { throughSerial: 2, effects: [event(1), event(2)] },
@@ -231,6 +231,12 @@ describe('native retained pane adapter', () => {
         value.type === 'semantic' ? value.provenance.id : undefined,
       ),
     ).toEqual([1, 2, 3])
+    accept({ effects: [event(3), event(4)] })
+    expect(
+      listener.mock.calls.map(([value]) =>
+        value.type === 'semantic' ? value.provenance.id : undefined,
+      ),
+    ).toEqual([1, 2, 3, 4])
   })
 
   it('cancels a native query begin on reparent and closes a late acquired query without starting reads', async () => {

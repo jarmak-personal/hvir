@@ -55,7 +55,7 @@ implementation cannot pass by skipping the row or returning a no-op.
 | Input/TUIs | Submit/newline/provider overrides, Unicode, navigation, controls, paste, focus, alternate-screen/mouse scrolling and shortcuts. `test/ghostty-terminal-keyboard.test.ts`, `test/terminal-wheel.test.tsx`, `test/terminal-runtime.test.tsx` | Public key/mouse/paste/focus encoders are useful; current-mode reads must use the authoritative parser. DOM IME/dead-key/input host remains an adapter. | M8: actual Electron keyboard/composition/mouse paths, exactly one intended write, stale attachment refusal; platform IME/manual harness recipe. Do not claim unresolved #64 behavior is an existing guarantee. |
 | Geometry/rendering | Real pane/window/split fit, latest font/palette during initialization. `test/ghostty-terminal-fit.test.ts`, `test/terminal-layout-controls.test.tsx`, `test/terminal-output-parity.test.tsx` | Private native facade needs applied geometry serial before PTY SIGWINCH; renderer completion/export and platform scaling require patches/adapters. | M3/M5/M6/M7/M12: same-size and superseded resize, font/DPI change, stale-frame rejection, real shared-texture presentation and no routine GPU readback. |
 | Scroll/selection | Scroll position, drag/word/line/select-all, exact copy and clear/reset; search reveal preserves selection. `test/terminal-wheel.test.tsx`, `test/terminal-context-menu.test.tsx`, `test/ghostty-terminal-search-identity.test.tsx` | Public selection/gesture, grid references and formatter algorithms can serve the same native state through the facade; DOM hit testing and current input lease need adapters. | M8/M9/M10: scrollback and TUI scrolling, exact wrapped/Unicode whitespace selection, resize/reflow and stale/evicted selection; Electron/context-menu and manual drag evidence. |
-| Search/semantic navigation | Live literal/case-sensitive matching, ordering/count/high-match bounds, exact authenticated extraction and stale rejection. `test/terminal-search-controller.test.ts`, `test/ghostty-terminal-search-identity.test.tsx`, `test/terminal-semantic-navigation.test.tsx`, `test/terminal-semantic-regions.test.ts` | Inspected public search folds ASCII case; case-sensitive matching needs bounded adapter/patch. Tracked references alone do not authenticate an overwritten occurrence. Preserve half-open extraction over native inclusive selections. | M10/M11: same-state query/cancellation, high-match/streaming fixture, provenance across screen/reset/eviction/reflow; no full text mirror or second parser. |
+| Search/semantic navigation | Live literal/case-sensitive matching, ordering/count/high-match bounds, exact authenticated extraction and stale rejection. Native search uses retained normal history when normal is displayed and current alternate contents when alternate is displayed, per [ADR-094](adr/ADR-094-current-buffer-native-search.md); screen transitions invalidate and restart the query. `test/terminal-search-controller.test.ts`, `test/ghostty-terminal-search-identity.test.tsx`, `test/terminal-semantic-navigation.test.tsx`, `test/terminal-semantic-regions.test.ts` | Inspected public search folds ASCII case; case-sensitive matching needs bounded adapter/patch. Tracked references alone do not authenticate an overwritten occurrence, and screen keys alone do not authenticate a buffer activation. Preserve half-open extraction over native inclusive selections and the distinct semantic-range lifetime. | M10/M11: same-state query/cancellation, high-match/streaming fixture, active-buffer search and transition invalidation, provenance across screen/reset/eviction/reflow; no full text mirror or second parser. |
 | Clipboard/paste | Explicit text/file/image targeting and original fallback bytes; bounded authorized OSC 52 writes, no terminal reads. `test/terminal-clipboard-file-paste.test.ts`, `test/terminal-clipboard-write.test.tsx`, `test/terminal-clipboard-osc.test.ts`, `test/clipboard-ipc.test.ts` | Public encoders/effects supply data, not clipboard authority. Retain protocol/selector/encoded-size provenance when normalizing decoded callbacks; do not enable iTerm2/Kitty writes silently. Preserve strict UTF-8/size/liveness checks and deny OSC 5522 reads too. | M9/M11/M13: exact live PTY/provider bindings, local/SSH fallback/staging/revocation, no submit or stale write; platform clipboard and approved remote image tests. |
 | Links/metadata/attention | User-activated host-correct file/web/loopback links, titles/cwd/bell/notification/progress, focus-clears and distinct Working. `test/ghostty-terminal-hyperlink.test.tsx`, `test/terminal-file-link.test.ts`, `test/terminal-path-activation.test.ts`, `test/terminal-attention.test.ts`, `test/terminal-event-router.test.ts` | Native stream effects/action callbacks need copied bounded events and parser provenance. Disable native open/config/window/split actions and file/shared-memory media. | M11: exact explicit activation and host, bounded malformed effects, replay/trailing-output rejection and palette/reply attribution; actual Electron link and attention tests. |
 | Workspace/Sessions | Retain one state/PTY across hiding, handoff, splits/focus mode and workspace moves; at most one input owner. `test/terminal-surface-attachment.test.ts`, `test/terminal-sessions-surface-owner.test.tsx`, `test/terminal-workspace-move-coordinator.test.ts`, `test/sessions-terminal-ssh.test.tsx` | New state/attachment ports replace DOM-local ownership. Native show/hide and fresh attachment serial cannot destroy or duplicate session state. | M7/M13: real surfaces and renderer generation changes, rapid move/resize/reparent, hidden output/reveal, close with pending jobs, no duplicate PTY/input. |
@@ -208,3 +208,80 @@ GPU acceptance requires real native resources without routine CPU readback on ma
 least one actual Linux hardware desktop. Record Wayland/X11, Mesa/NVIDIA, multi-GPU, scale
 and architecture coverage individually; untested combinations remain explicit. No build,
 Xvfb/software run, unsupported-platform diagnostic, or CPU pixel fallback supplies that proof.
+
+## Reproducing desktop qualification
+
+Use the pushed candidate commit in a clean checkout, Node 24+, and the native build
+prerequisites in [native-terminal-build.md](native-terminal-build.md). Run on the real desktop
+with its ordinary GPU driver, display, power mode and fonts. Keep builds, tests and other
+qualification processes stopped during measurements. These commands do not sign anything.
+For Ubuntu x86-64, build one candidate and its matching bindings:
+
+```bash
+npm ci
+qualification_root=$(mktemp -d "${TMPDIR:-/tmp}/hvir-desktop-qualification.XXXXXX")
+npm run native:build -- linux-x64 "$qualification_root/sdk"
+npm run native:bindings -- linux-x64 "$qualification_root/sdk/artifact" "$qualification_root/bindings"
+npm run build:smoke
+printf '%s\n' "$qualification_root"
+```
+
+Preserve that directory. Record `git rev-parse HEAD`, OS/kernel, CPU, GPU and driver, desktop
+session (Wayland/X11), monitor refresh rate, display scale and power mode alongside its
+manifests. The supplied SDK's manifest and every runtime frontend/binding file are also
+validated and recorded by the comparison launcher; a different SDK source commit is visible
+provenance, never silently relabeled as the workbench commit. A missing manifest fails closed.
+For macOS, substitute `macos-arm64` and `libghostty.dylib` in these commands.
+
+Run the independent full canonical gate first; this retains the existing twelve live actors,
+then the separate twenty-record recovery phase and all high-match search checks:
+
+```bash
+HVIR_NATIVE_TERMINAL_LIBRARY="$qualification_root/sdk/artifact/ghostty-internal.so" \
+  bash scripts/phase8-gauntlet.sh > "$qualification_root/gauntlet.log" 2>&1
+```
+
+Keep its actual exit status and failed log. The controlled comparison uses the same smoke
+build in eight fresh processes and does not rebuild between them. Replace `60` below with
+the actual refresh rate reported by the desktop; an unknown or different actual rate fails.
+Set the window backend explicitly for both engines if testing a particular Linux backend:
+
+```bash
+HVIR_NATIVE_TERMINAL_OZONE=x11 npm run performance:terminal-comparison -- \
+  --output "$qualification_root/comparison-1" \
+  --native-library "$qualification_root/sdk/artifact/ghostty-internal.so" \
+  --refresh-hz 60
+```
+
+Use `wayland` for a Wayland run. On macOS omit `HVIR_NATIVE_TERMINAL_OZONE`. The output path
+must be a new directory outside the checkout. The launcher preserves every scheduled slot,
+raw per-process receipt, capture request/resolution interval and summary, including failures
+and interrupted pending slots. It refuses a dirty checkout, changed runtime artifacts,
+DevTools/diagnostic selectors or a CPU-pixel presentation as GPU comparison evidence. The
+common compositor witness observes synthetic terminal pixels; its completion is an upper
+bound on compositor observation and does not establish physical display latency. The smoke build and its existing `--no-sandbox` launch flag are recorded as
+measurement confounders; they do not qualify production package sandboxing. Instrumented
+readback is separately labeled and does not prove the production path has zero CPU readback.
+
+The paired load reuses twelve steady live actors: the tagged producer occupies the original
+visible actor, and the other eleven retain their existing plain/ANSI/synchronized roles.
+Temporary readiness probes retain their existing create/close lifecycle. The window is
+predeclared at 1283×800 DIP, yielding a shared 820 DIP pane with the ordinary layout; font
+size and actual grid must match. Both engines' canvas dimensions, padding and cell metrics
+remain recorded separately. A platform/font/layout mismatch fails before measured samples;
+qualify a revised common configuration in a new labeled attempt rather than tuning one mode.
+
+These automated results do not replace installed-package, actual SSH/OS-PTY, paused-exit,
+manual harness/IME/clipboard/search/paste/split/resize, large-display compatibility or shared
+resource lifetime acceptance. Report NVIDIA, Intel and AMD individually. Xvfb/Mesa software
+results cannot qualify a hardware desktop. Keep fault-stage tracing in separate workbench
+runs; `HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW=1` must be absent from paired timing runs.
+
+The v3 comparison observer completes a scroll only when the requested whole-page
+state and the tagged compositor pixels agree. For web this includes the actual
+public fractional viewport reaching its integer target. For native it includes the
+original wheel completion's exact mutation, both IO/frame fences, current view
+grant, and the expected historical row pixels. The first matching visible-frame
+timestamp is retained separately; it can precede committed scroll state. Earlier
+rounded-frame attempts are retained as failed, incomparable observer attempts.
+Readiness uses the canonical `baseline` and `loaded` input labels and bursts.

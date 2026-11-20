@@ -10,13 +10,13 @@ import {
 } from '../scripts/native-terminal/run-electron-probe.mts'
 
 const directories: string[] = []
-async function fixture(mode: string) {
+async function fixture(mode: string, presentationProof?: Record<string, unknown>) {
   const directory = await mkdtemp(join(tmpdir(), 'hvir-native-probe-process-'))
   directories.push(directory)
   const entry = join(directory, 'fixture.cjs')
   const library = join(directory, 'configuration.json')
   const pids = join(directory, 'pids.json')
-  await writeFile(library, JSON.stringify({ mode, pids }))
+  await writeFile(library, JSON.stringify({ mode, pids, presentationProof }))
   await writeFile(
     entry,
     `
@@ -28,7 +28,9 @@ const proof = { nativeUtilityBoundary: 'passed', mainPid: process.pid, utilityPi
   receiverSandboxed: true, receiverContextIsolated: true, realGhostty: true,
   receivedOzone: process.argv.filter(v=>v.startsWith('--ozone-platform=')),
   receivedNoSandbox: process.argv.includes('--no-sandbox'),
+  receivedLargeViewport: process.argv.includes('--large-viewport'),
   selectedOzoneEnvironment: process.env.HVIR_NATIVE_TERMINAL_OZONE };
+Object.assign(proof, config.presentationProof || {});
 if (config.mode === 'hang' || config.mode === 'orphan') {
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 1, 2] });
   fs.writeFileSync(config.pids, JSON.stringify({ parent: process.pid, child: child.pid }));
@@ -90,6 +92,23 @@ afterEach(async () => {
   }
 })
 describe('native Electron probe process containment', () => {
+  it.each(['missing', 'directory'] as const)(
+    'rejects %s entry before spawning an error-dialog process',
+    async (kind) => {
+      const files = await fixture('hang')
+      if (kind === 'missing') await rm(files.entry)
+      const entry = kind === 'missing' ? files.entry : join(files.entry, '..')
+      await expect(
+        runNativeElectronProbe(files.library, {
+          binary: process.execPath,
+          entry,
+          timeoutMs: 75000,
+        }),
+      ).rejects.toThrow('regular built entry required')
+      await expect(readFile(files.pids)).rejects.toMatchObject({ code: 'ENOENT' })
+    },
+  )
+
   it.each(['hang', 'orphan'])(
     'bounds %s and kills only the owned process group',
     async (mode) => {
@@ -257,9 +276,217 @@ describe('native presenter receipt mode fidelity', () => {
     mode: 'native-pixels',
     frameCopies: 2,
     routineGpuReadbacks: null,
-    compatibilityBoundRefused: true,
-    maximumCompatibilityUploadBytes: 16 * 1024 * 1024,
+    compatibilityInvalidExtentRefused: true,
+    compatibilitySampleUploadBytes: 2050 * 2048 * 4,
+    compatibilityExtent: {
+      byteLength: 2050 * 2048 * 4,
+      stride: 2050 * 4,
+      grant: {
+        width: 2050,
+        height: 2048,
+        backingScale: 2,
+        geometrySerial: 3,
+        nativeEpoch: 'epoch',
+        attachment: 1,
+      },
+      drawn: { geometrySerial: 3, nativeEpoch: 'epoch', attachment: 1 },
+      invalidExtent: {
+        code: 'native-presentation-geometry-invalid',
+        frameCopiesBefore: 2,
+        frameCopiesAfter: 2,
+      },
+      parserProgress: true,
+      sameActorRecovered: true,
+    },
   }
+  const recovery = {
+    stage: 'complete',
+    outcome: 'drawn',
+    error: null,
+    observation: 'presenter-compositor-colors',
+    pixels: { redTop: 200, blueBottom: 200 },
+    facts: { geometry: { width: 320, height: 192 }, failure: 0, rendererHealth: 0 },
+  }
+  const largeViewportDiagnostic = {
+    observationOwner: 'presenter',
+    uiShrinkRecoveryQualified: false,
+    physicalDisplayQualified: false,
+    cases: [
+      [3840, 2160],
+      [5120, 2880],
+    ].map(([width, height], index) => ({
+      actor: 'presenter-first',
+      instance: 'presenter-first-instance',
+      view: 'view',
+      stage: 'complete',
+      outcome: 'drawn',
+      sameActor: true,
+      applied: { width, height, backingScale: 1, serial: index + 4 },
+      grant: {
+        viewId: 'view',
+        width,
+        height,
+        backingScale: 1,
+        geometrySerial: index + 4,
+        nativeEpoch: 'epoch',
+        attachment: 1,
+      },
+      upload: {
+        grant: {
+          viewId: 'view',
+          width,
+          height,
+          backingScale: 1,
+          geometrySerial: index + 4,
+          nativeEpoch: 'epoch',
+          attachment: 1,
+        },
+        stride: width! * 4,
+        byteLength: width! * height! * 4,
+      },
+      drawn: { geometrySerial: index + 4, nativeEpoch: 'epoch', attachment: 1 },
+      canvas: { width, height },
+      pixels: { redTop: 200, blueBottom: 200 },
+      before: { frameCopies: index + 1 },
+      after: {
+        frameCopies: index + 2,
+        failure: 0,
+        rendererHealth: 0,
+        ioAppliedMutation: 8,
+        ioAppliedSequence: 8,
+      },
+      parserAfter: {
+        failure: 0,
+        rendererHealth: 0,
+        ioAppliedMutation: 8,
+        ioAppliedSequence: 9,
+      },
+      parserProgress: true,
+      initial: recovery,
+      shrink: recovery,
+      hideReveal: recovery,
+    })),
+  }
+  it('forwards the explicit large viewport selector and requires its own receipt', async () => {
+    const proof = {
+      ...pixels,
+      requestedPresentation: 'pixels',
+      orientationQualified: true,
+      largeViewportDiagnostic,
+    }
+    const files = await fixture('success', proof)
+    const result = await runNativeElectronProbe(
+      files.library,
+      {
+        binary: process.execPath,
+        entry: files.entry,
+        timeoutMs: 2000,
+      },
+      'pixels',
+      undefined,
+      true,
+    )
+    expect(result.receivedLargeViewport).toBe(true)
+    expect(result.receivedNoSandbox).toBe(false)
+    expect(result.largeViewportDiagnostic).toEqual(largeViewportDiagnostic)
+  })
+  it('refuses a large viewport request without explicit compatibility before launch', async () => {
+    const files = await fixture('success')
+    await expect(
+      runNativeElectronProbe(
+        files.library,
+        {
+          binary: process.execPath,
+          entry: files.entry,
+          timeoutMs: 2000,
+        },
+        'gpu',
+        undefined,
+        true,
+      ),
+    ).rejects.toThrow('requires explicit pixels')
+  })
+  it.each([
+    undefined,
+    { ...largeViewportDiagnostic, uiShrinkRecoveryQualified: true },
+    { ...largeViewportDiagnostic, cases: largeViewportDiagnostic.cases.slice(0, 1) },
+    {
+      ...largeViewportDiagnostic,
+      cases: largeViewportDiagnostic.cases.map((row) => ({
+        ...row,
+        parserProgress: false,
+      })),
+    },
+    { ...largeViewportDiagnostic, cases: [...largeViewportDiagnostic.cases].reverse() },
+    ...[
+      { failure: { code: 'native-pixel-bound' } },
+      { stage: 'large-demand' },
+      { outcome: 'submitted' },
+      { sameActor: false },
+      { upload: undefined },
+      {
+        upload: {
+          ...largeViewportDiagnostic.cases[0]!.upload,
+          byteLength: 320 * 192 * 4,
+        },
+      },
+      { drawn: { ...largeViewportDiagnostic.cases[0]!.drawn, geometrySerial: 2 } },
+      { canvas: { width: 320, height: 192 } },
+      {
+        parserAfter: {
+          failure: 0,
+          rendererHealth: 0,
+          ioAppliedMutation: 8,
+          ioAppliedSequence: 8,
+        },
+      },
+      { after: { frameCopies: 1, failure: 0, rendererHealth: 0 } },
+      { shrink: { outcome: 'submitted' } },
+      { pixels: { redTop: 200, blueBottom: 0 } },
+    ].map((change) => ({
+      ...largeViewportDiagnostic,
+      cases: largeViewportDiagnostic.cases.map((row, index) =>
+        index === 0 ? { ...row, ...change } : row,
+      ),
+    })),
+  ])('refuses incomplete or relabelled large viewport evidence %j', (diagnostic) => {
+    expect(
+      nativePresenterReceiptMatches(
+        {
+          ...pixels,
+          requestedPresentation: 'pixels',
+          largeViewportDiagnostic: diagnostic,
+        },
+        'pixels',
+        'linux',
+        true,
+      ),
+    ).toBe(false)
+  })
+  it.each([
+    { compatibilitySampleUploadBytes: 16 * 1024 * 1024 },
+    { compatibilityExtent: undefined },
+    {
+      compatibilityExtent: {
+        ...pixels.compatibilityExtent,
+        byteLength: 16 * 1024 * 1024,
+      },
+    },
+    { compatibilityExtent: { ...pixels.compatibilityExtent, sameActorRecovered: false } },
+    {
+      compatibilityExtent: {
+        ...pixels.compatibilityExtent,
+        invalidExtent: { code: 'native-pixel-bound' },
+      },
+    },
+  ])(
+    'rejects former-cap, assigned-size or incomplete compatibility evidence %j',
+    (change) => {
+      expect(
+        nativePresenterReceiptMatches({ ...pixels, ...change }, 'auto', 'linux'),
+      ).toBe(false)
+    },
+  )
   it('accepts actual Linux compatibility under auto without relabelling it GPU', () => {
     expect(nativePresenterReceiptMatches(pixels, 'auto', 'linux')).toBe(true)
     expect(nativePresenterReceiptMatches(pixels, 'auto', 'darwin')).toBe(false)
@@ -275,7 +502,7 @@ describe('native presenter receipt mode fidelity', () => {
     ).toBe(false)
     expect(
       nativePresenterReceiptMatches(
-        { ...pixels, compatibilityBoundRefused: false },
+        { ...pixels, compatibilityInvalidExtentRefused: false },
         'auto',
         'linux',
       ),
@@ -344,24 +571,27 @@ describe('contained native qualification Ozone forwarding', () => {
       ),
     ).rejects.toThrow('Ozone must be x11|wayland')
   })
-  it('refuses an arbitrary smoke backend before acquiring resources', () => {
-    const result = spawnSync(
-      'bash',
-      [fileURLToPath(new URL('../scripts/run-smoke.sh', import.meta.url))],
-      {
-        env: {
-          ...process.env,
-          HVIR_SMOKE_SCENARIO: 'native-terminal-workbench',
-          HVIR_NATIVE_TERMINAL_OZONE: 'headless',
+  it.each(['native-terminal-workbench', 'capacity'])(
+    'refuses an arbitrary %s backend before acquiring resources',
+    (scenario) => {
+      const result = spawnSync(
+        'bash',
+        [fileURLToPath(new URL('../scripts/run-smoke.sh', import.meta.url))],
+        {
+          env: {
+            ...process.env,
+            HVIR_SMOKE_SCENARIO: scenario,
+            HVIR_NATIVE_TERMINAL_OZONE: 'headless',
+          },
+          timeout: 2000,
+          maxBuffer: 65536,
+          encoding: 'utf8',
         },
-        timeout: 2000,
-        maxBuffer: 65536,
-        encoding: 'utf8',
-      },
-    )
-    expect(result.status).toBe(1)
-    expect(result.stderr).toContain(
-      'requires Linux native-terminal-workbench and x11|wayland',
-    )
-  })
+      )
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain(
+        'requires Linux native-terminal-workbench|capacity and x11|wayland',
+      )
+    },
+  )
 })

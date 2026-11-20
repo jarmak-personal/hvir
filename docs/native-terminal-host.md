@@ -55,8 +55,11 @@ premultiplication and format. A completed producer lease remains immutable until
 Electron's `allReferencesReleased` callback. A renderer acknowledgement or closing
 one VideoFrame is insufficient. Indeterminate import or send failures retain the immutable source, received OS
 reference, main import (if one was returned), and one of the three import credits
-for the application lifetime. Presentation becomes unavailable and its grant is
-revoked. The same parser continues accepting authoritative output, readback, and
+for the application lifetime. An exact producer writer-retirement fence may release
+only the original producer hold while the independently retained immutable receipt,
+import and credit remain quarantined (ADR-093). Pending, failed or unknown fences
+retain the source; joined actor-ended cleanup is never same-parser recovery.
+Presentation becomes unavailable and its grant is revoked. The same parser continues accepting authoritative output, readback, and
 acknowledged geometry; presentation failure does not destroy the terminal state.
 A destroyed receiver or the old high-level callback is insufficient to reclaim
 these resources: Electron 43.8.1 can create a late consumer after its send timeout
@@ -123,9 +126,13 @@ The currently exposed native configuration is opaque; translucent native setting
 remain unqualified rather than being inferred from opaque color tests.
 
 Native pixel compatibility explicitly copies a completed held IOSurface on the
-designated engine worker. The copy is bounded to 16 MiB (2048×2048 packed RGBA),
-one request per view and three outstanding uploads application-wide, paced to at
-most one accepted upload per 67 ms. Worker normalization converts BGRA premultiplied
+designated engine worker. Packed storage follows the authenticated held frame
+dimensions, with exact stride/byte-length checks and the existing backing extent
+guard. One request per view and three reserved uploads application-wide are admitted
+before copying, paced to at most one accepted upload per 67 ms. The independently
+owned worker output transfers its exact ArrayBuffer to the utility; later Electron
+IPC remains copying transport. The five-second receiver deadline begins at send.
+Worker normalization converts BGRA premultiplied
 pixels to straight RGBA/top-left without changing their color-space interpretation.
 The receiver uploads to WebGL, or to an sRGB 2D canvas when browser GPU use is
 unavailable. The ImageData retains the actual source P3 tag, so Canvas2D performs
@@ -139,13 +146,18 @@ unavailable view even when no frame demand is active. Cleanup hide remains valid
 for its exact old attachment after renderer revocation; showing still requires
 current renderer authority. A late quarantine is keyed to the prepared handle
 and native epoch and also revokes a replacement that attached before the failure
-became known. A layout update cannot reactivate such a blocked producer.
+became known. A layout update alone cannot reactivate such a blocked producer.
+Only exact writer retirement plus successful original source release removes its
+matching fault reason; newer faults and other epochs are unaffected. Fresh current
+grant/draw precedes input and owner-visible frame scheduling resumption. Hidden,
+disposed and failed-receiver views retain their ordinary authority/rebind rules.
 
-The 16 MiB compatibility limit does not cover every historically supported large
-viewport. Initial engine selection must retain the necessary legacy path when
-native presentation cannot support the requested configuration; a live bound
-failure reports unavailable rather than switching engines from partial replay.
-M15/M16 must cover or explicitly accept this limit before removing that legacy path.
+A backing extent within the arithmetic guard still needs actual device, memory and
+latency qualification. Large-viewport proofs must observe exact source/current-grant
+geometry, full packed upload, compositor content, parser continuity and cleanup.
+Presenter-level recovery does not establish ordinary window-shrink recovery. Failed
+native presentation reports unavailable; retained parser state does not authorize
+switching engines from partial replay.
 
 ## Reproducing the boundary proofs
 

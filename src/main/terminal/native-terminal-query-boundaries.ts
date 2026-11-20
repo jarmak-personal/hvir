@@ -3,6 +3,8 @@ import { NativeTerminalSemanticRetirement } from './native-terminal-semantic-ret
 import type { NativeTerminalSession } from '../../shared/native-terminal'
 import {
   NATIVE_TERMINAL_EFFECT_LIMITS,
+  nativeTerminalSemanticPayloadBytes,
+  type NativeTerminalSemanticEffect,
   type NativeTerminalEffectBatch,
   type NativeTerminalProductEffect,
   type NativeTerminalSemanticSnapshot,
@@ -46,7 +48,7 @@ export class NativeTerminalQueryBoundaries {
     closeNative: (source: NativeBoundarySource, token: string) => Promise<void>,
     private readonly publish: (
       session: NativeTerminalSession,
-      effect: NativeTerminalProductEffect,
+      effects: readonly NativeTerminalSemanticEffect[],
     ) => void,
   ) {
     this.retirement = new NativeTerminalSemanticRetirement(closeNative, (source) => {
@@ -61,6 +63,10 @@ export class NativeTerminalQueryBoundaries {
   ): Promise<void> {
     source.assertCurrent()
     let surface: RetainedBoundaries | undefined
+    const emissions: NativeTerminalSemanticEffect[] = []
+    const emit = (effect: NativeTerminalSemanticEffect): void => {
+      emissions.push(effect)
+    }
     try {
       for (const effect of batch.effects) {
         if (effect.kind === 'semantic' && effect.boundary)
@@ -77,8 +83,7 @@ export class NativeTerminalQueryBoundaries {
         source.assertCurrent()
         surface.droppedEffects = Math.max(surface.droppedEffects, batch.droppedEffects)
         surface.generation = Math.max(surface.generation, batch.semanticGeneration)
-        if (surface.controlCutoff === controlCutoff)
-          this.publish(source.session, this.gap(surface))
+        if (surface.controlCutoff === controlCutoff) emit(this.gap(surface))
       }
       for (const effect of batch.effects) {
         source.assertCurrent()
@@ -95,7 +100,7 @@ export class NativeTerminalQueryBoundaries {
           effect.kind === 'screen' &&
           (effect.action === 'reset' || effect.action === 'clear')
         ) {
-          this.applyControl(source, effect.eventSerial)
+          this.applyControl(source, effect.eventSerial, emit)
           source.assertCurrent()
         }
         if (effect.kind !== 'semantic') {
@@ -106,7 +111,7 @@ export class NativeTerminalQueryBoundaries {
           this.clear(surface)
           source.assertCurrent()
           surface.throughSerial = Math.max(surface.throughSerial, effect.eventSerial)
-          this.publish(source.session, this.gap(surface))
+          emit(this.gap(surface))
           continue
         }
         const id = randomUUID()
@@ -152,8 +157,7 @@ export class NativeTerminalQueryBoundaries {
           this.clear(surface)
           source.assertCurrent()
           surface.throughSerial = Math.max(surface.throughSerial, effect.eventSerial)
-          if (surface.controlCutoff === controlCutoff)
-            this.publish(source.session, this.gap(surface))
+          if (surface.controlCutoff === controlCutoff) emit(this.gap(surface))
           continue
         }
         const record = { id, native: effect.boundary, effect: published, bytes }
@@ -161,7 +165,7 @@ export class NativeTerminalQueryBoundaries {
         this.handles.set(id, { surface, record })
         surface.bytes += bytes
         surface.throughSerial = effect.eventSerial
-        this.publish(source.session, published)
+        emit(published)
       }
     } catch {
       for (const effect of batch.effects) {
@@ -171,7 +175,14 @@ export class NativeTerminalQueryBoundaries {
       if (surface) {
         for (const effect of batch.effects)
           surface.throughSerial = Math.max(surface.throughSerial, effect.eventSerial)
-        this.invalidate(surface)
+        this.invalidate(surface, emit)
+      }
+    }
+    if (emissions.length) {
+      try {
+        this.publish(source.session, emissions)
+      } catch {
+        if (surface) this.invalidate(surface)
       }
     }
     return Promise.resolve()
@@ -183,7 +194,12 @@ export class NativeTerminalQueryBoundaries {
     return Promise.resolve()
   }
 
-  private applyControl(source: NativeBoundarySource, cutoff: number): void {
+  private applyControl(
+    source: NativeBoundarySource,
+    cutoff: number,
+    emit: (effect: NativeTerminalSemanticEffect) => void = (effect) =>
+      this.publish(source.session, [effect]),
+  ): void {
     if (!Number.isSafeInteger(cutoff) || cutoff <= 0)
       throw new Error('native-boundary-control-cutoff-invalid')
     const current = this.surfaces.get(source.session.instanceId)
@@ -204,12 +220,12 @@ export class NativeTerminalQueryBoundaries {
     )
     for (const record of obsolete) this.retire(surface, record)
     try {
-      this.publish(source.session, {
+      emit({
         ...this.gap(surface, cutoff),
         effect: { kind: 'semantic-gap', controlCutoff: cutoff },
       })
     } catch {
-      this.invalidate(surface)
+      this.invalidate(surface, emit)
     }
     source.assertCurrent()
   }
@@ -312,11 +328,15 @@ export class NativeTerminalQueryBoundaries {
     surface.retiredThrough = Math.max(surface.retiredThrough, surface.throughSerial)
     for (const record of surface.records.values()) this.retire(surface, record)
   }
-  private invalidate(surface: RetainedBoundaries): void {
+  private invalidate(
+    surface: RetainedBoundaries,
+    emit: (effect: NativeTerminalSemanticEffect) => void = (effect) =>
+      this.publish(surface.source.session, [effect]),
+  ): void {
     this.clear(surface)
     // Publishing metadata cannot turn a cleanup failure into a PTY failure.
     try {
-      this.publish(surface.source.session, this.gap(surface))
+      emit(this.gap(surface))
     } catch {
       /* Authority is already revoked. */
     }
@@ -324,7 +344,7 @@ export class NativeTerminalQueryBoundaries {
   private gap(
     surface: RetainedBoundaries,
     eventSerial = surface.throughSerial,
-  ): NativeTerminalProductEffect {
+  ): NativeTerminalSemanticEffect {
     return {
       id: surface.source.session.sessionId,
       instanceId: surface.source.session.instanceId,
@@ -332,15 +352,9 @@ export class NativeTerminalQueryBoundaries {
       effect: { kind: 'semantic-gap' },
     }
   }
-  private bytes(effect: NativeTerminalProductEffect): number {
-    return (
-      Buffer.byteLength(effect.id) +
-      Buffer.byteLength(effect.instanceId) +
-      (effect.effect.kind === 'semantic'
-        ? Buffer.byteLength(effect.effect.boundaryId) +
-          Buffer.byteLength(effect.effect.options) +
-          Buffer.byteLength(effect.effect.screen)
-        : 0)
-    )
+  private bytes(effect: NativeTerminalSemanticEffect): number {
+    const bytes = nativeTerminalSemanticPayloadBytes(effect, Infinity)
+    if (bytes === undefined) throw new Error('native-boundary-payload')
+    return bytes
   }
 }

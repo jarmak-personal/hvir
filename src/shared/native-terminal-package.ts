@@ -1,5 +1,5 @@
 /** Packaged native code has a fixed layout; manifest data never selects a path. */
-export const NATIVE_TERMINAL_PACKAGE_ABI = 10
+export const NATIVE_TERMINAL_PACKAGE_ABI = 12
 export const NATIVE_TERMINAL_PACKAGE_VERSION = '1.4.1-dev'
 export const NATIVE_TERMINAL_PACKAGE_VT_VERSION = '1.0.1'
 export const NATIVE_TERMINAL_BINDING_FILES = {

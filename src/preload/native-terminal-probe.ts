@@ -29,6 +29,7 @@ interface ProbeFrame {
 type Held = { frame: ProbeFrame; texture: Electron.SharedTextureImported }
 const held = new Set<Held>()
 let hold = false
+let holdOnce = false
 interface Readback {
   bytes: number
   hash: number
@@ -143,6 +144,7 @@ sharedTexture.setSharedTextureReceiver(
       if (hold) {
         if (held.size >= 3) throw new Error('native-probe-held-bound')
         held.add({ frame, texture })
+        if (holdOnce) hold = false
         retained = true
       }
       ipcRenderer.send('native-probe-frame', { metadata, ...metrics, beats })
@@ -156,7 +158,8 @@ sharedTexture.setSharedTextureReceiver(
     }
   },
 )
-ipcRenderer.on('native-probe-hold', () => {
+ipcRenderer.on('native-probe-hold', (_event, options?: { once?: true }) => {
+  holdOnce = options?.once === true
   hold = true
   ipcRenderer.send('native-probe-held-armed', true)
 })

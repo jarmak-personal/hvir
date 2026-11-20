@@ -34,6 +34,9 @@ struct terminal_state {
   hvir_terminal_frame frame;
   bool frame_available, frame_taken;
   uint64_t last_released;
+  uint64_t retirement_lease, retirement_request;
+  uint32_t retirement_status;
+  bool retirement_requested, surface_ended;
   hvir_terminal_renderer_info renderer_info;
   uint64_t requested_mutation, io_applied_mutation;
   uint32_t input_failure;
@@ -54,6 +57,7 @@ struct hvir_terminal_host {
   uint32_t initial_presentation_mode;
   bool closing;
   uint64_t next_id, next_lease, next_cursor;
+  uint64_t next_retirement_request;
   int (*init)(uintptr_t, char **);
   ghostty_config_t (*config_new)(void);
   void (*config_free)(ghostty_config_t);
@@ -68,6 +72,7 @@ struct hvir_terminal_host {
   uint32_t (*external_input)(ghostty_surface_t, const hvir_ghostty_input_event *, uint64_t, bool, size_t, hvir_ghostty_input_result *);
   bool (*external_feed)(ghostty_surface_t, const uint8_t *, size_t, uint64_t);
   bool (*external_frame_release)(ghostty_surface_t);
+  bool (*external_frame_retire)(ghostty_surface_t, uint64_t);
   bool (*external_presentation_mode)(ghostty_surface_t, uint32_t);
   bool (*external_appearance)(ghostty_surface_t, const hvir_ghostty_appearance *, bool, uint64_t);
   bool (*external_resize)(ghostty_surface_t, uint32_t, uint32_t, uint64_t, double);

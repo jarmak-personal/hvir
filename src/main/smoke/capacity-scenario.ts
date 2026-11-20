@@ -8,6 +8,43 @@ import {
   runCapacityLoadSmoke,
   runCapacityRecoverySmoke,
 } from './capacity'
+import { diagnoseCapacityFrameObservation } from './capacity-frame-observation'
+import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
+import { diagnoseCapacityTerminalTags } from './capacity-terminal-fixture'
+import {
+  capacityLargeViewportSelected,
+  qualifyCapacityNativeLargeViewport,
+} from './capacity-native-large-viewport'
+import {
+  diagnoseCapacityNativePairedProcess,
+  runCapacityTerminalComparisonScenario,
+} from './capacity-terminal-scenario'
+
+/** Select the existing canonical workload with an explicitly software Electron compositor. */
+export function capacityCompatibilityCanonicalSelected(
+  environment: NodeJS.ProcessEnv,
+  platform: string,
+  argv: readonly string[],
+): boolean {
+  if (environment['HVIR_CAPACITY_OBSERVATION'] !== 'compatibility-canonical') return false
+  if (
+    platform !== 'darwin' ||
+    environment['HVIR_SMOKE_SCENARIO'] !== 'capacity' ||
+    !argv.includes('--disable-gpu') ||
+    (environment['HVIR_CAPACITY_PERFORMANCE_GATE'] !== undefined &&
+      environment['HVIR_CAPACITY_PERFORMANCE_GATE'] !== 'controlled') ||
+    Object.keys(environment).some((key) => key.startsWith('HVIR_CAPACITY_COMPARISON_')) ||
+    [
+      'HVIR_NATIVE_IMPORT_DIAGNOSTICS',
+      'HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW',
+      'HVIR_NATIVE_TERMINAL_TRACE_CONFIG',
+      'HVIR_NATIVE_TERMINAL_PRESENTATION',
+      'HVIR_CAPACITY_DIAGNOSTIC_OUTPUT',
+    ].some((key) => environment[key] !== undefined)
+  )
+    throw new Error('capacity-compatibility-canonical-invocation')
+  return true
+}
 
 export async function verifyCapacityScenario(
   win: BrowserWindow,
@@ -16,10 +53,83 @@ export async function verifyCapacityScenario(
   liveReloadPath: HostPath,
   providerId: HarnessProviderId,
   sessions: Awaited<ReturnType<typeof createSmokeTerminalSessionStore>>,
+  native?: NativeTerminalApplication,
 ): Promise<void> {
-  await runCapacityLoadSmoke(win, supervisor, host, liveReloadPath)
-  sessions.set(capacityRecoverySessions(supervisor, providerId))
-  // End load fixtures before the separately owned synthetic recovery contract.
-  supervisor.disposeSessions()
-  await runCapacityRecoverySmoke(win, supervisor)
+  if (capacityLargeViewportSelected(process.env, process.platform)) {
+    await qualifyCapacityNativeLargeViewport(
+      win,
+      supervisor,
+      host,
+      liveReloadPath,
+      native,
+    )
+    console.log('HVIR_SMOKE_OK')
+    return
+  }
+  const compatibility = capacityCompatibilityCanonicalSelected(
+    process.env,
+    process.platform,
+    process.argv,
+  )
+  if (compatibility && !native)
+    throw new Error('capacity-compatibility-canonical-native-required')
+  const comparison = await runCapacityTerminalComparisonScenario(
+    win,
+    supervisor,
+    host,
+    liveReloadPath,
+    native,
+  )
+  if (!comparison) {
+    const observation = process.env['HVIR_CAPACITY_OBSERVATION']
+    if (observation !== undefined && !compatibility) {
+      if (
+        ![
+          'diagnostic',
+          'tagged-diagnostic',
+          'sequence-diagnostic',
+          'native-paired-diagnostic',
+          'native-effects-diagnostic',
+        ].includes(observation) ||
+        process.env['HVIR_CAPACITY_PERFORMANCE_GATE'] !== undefined
+      )
+        throw new Error('capacity-observation-requires-separate-diagnostic-run')
+    }
+    if (observation === 'native-effects-diagnostic' && !native?.effects)
+      throw new Error('capacity-native-effects-diagnostic-requires-native')
+    if (
+      observation !== undefined &&
+      observation !== 'native-effects-diagnostic' &&
+      !compatibility
+    ) {
+      if (observation === 'native-paired-diagnostic')
+        await diagnoseCapacityNativePairedProcess(
+          win,
+          supervisor,
+          host,
+          liveReloadPath,
+          native,
+        )
+      else if (
+        observation === 'tagged-diagnostic' ||
+        observation === 'sequence-diagnostic'
+      )
+        await diagnoseCapacityTerminalTags(
+          win,
+          supervisor,
+          host,
+          liveReloadPath,
+          native,
+          observation === 'sequence-diagnostic',
+        )
+      else await diagnoseCapacityFrameObservation(win, supervisor, native)
+    } else {
+      await runCapacityLoadSmoke(win, supervisor, host, liveReloadPath, native)
+      sessions.set(capacityRecoverySessions(supervisor, providerId))
+      // End load fixtures before the separately owned synthetic recovery contract.
+      supervisor.disposeSessions()
+      await runCapacityRecoverySmoke(win, supervisor)
+    }
+  }
+  console.log('HVIR_SMOKE_OK')
 }

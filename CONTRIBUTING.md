@@ -243,6 +243,9 @@ recovery never dispatches CI, merges PRs, closes issues or rewrites history.
 ## Develop locally
 
 Development requires Node 24 or newer; release CI uses Node 24.
+Native terminal branch setup and Ubuntu prerequisites are documented in
+[Native terminal development](docs/native-terminal-development.md). `npm ci` prepares
+the native dependency; `npm run dev` selects it automatically.
 
 ```sh
 npm ci

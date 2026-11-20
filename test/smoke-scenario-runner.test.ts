@@ -807,10 +807,6 @@ describe('Electron smoke command contracts', () => {
     expect(capacityTerminalScenario).toContain('JSON.stringify(current)')
     expect(capacityTerminalScenario).toContain('current.surfaces === expected')
     expect(capacityTerminalScenario).toContain('actionStartedAtMs.push(Date.now())')
-    expect(capacityTerminalScenario).toContain('ready-awaiting-input:%s')
-    expect(capacityTerminalScenario).toContain('output.includes(awaitingInputMarker)')
-    expect(capacityTerminalScenario).toContain('ready-input:%s')
-    expect(capacityTerminalScenario).toContain('countOccurrences(output, marker) !== 1')
   })
 
   it('treats large-file frame latency as evidence beside a semantic preview contract', () => {

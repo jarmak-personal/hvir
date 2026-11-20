@@ -7,7 +7,7 @@
     "sha256": "2c276d3e62cb15fb38f0d7f621f199029d1d4df86538096c6bec2a107cad7159",
     "applicationVersion": "1.4.1-dev",
     "vtVersion": "1.0.1",
-    "embedAbi": 10
+    "embedAbi": 12
   },
   "zig": {
     "version": "0.17.0",
@@ -85,6 +85,16 @@
       "file": "patches/0011-linux-dependency-isolation.patch.txt",
       "sha256": "31412fefe39f1fe5289f5552501eede8c44daa4cce44570f646988a9a3357638",
       "purpose": "Localize Linux full-library bundled dependency definitions and internal calls through an anonymous export map while preserving Ghostty public/private exports and the existing embedding ABI; force LLVM/LLD so the map is enforced."
+    },
+    {
+      "file": "patches/0012-external-frame-retirement.patch.txt",
+      "sha256": "9186d1bd09f68fc98991df92098cec73a757061bdb371fa439749c862a0377b6",
+      "purpose": "Private render-thread producer-write retirement with exact request completion, GPU completion and callback-tail join, and destruction of all writable target aliases while preserving the held source lease. No product recovery, importer credit or fallback policy."
+    },
+    {
+      "file": "patches/0013-current-buffer-query.patch.txt",
+      "sha256": "acce71f3a9193c0b67472cd5fe2f5fc1aaf87680c71cc3928ead6892d83774e7",
+      "purpose": "Search the currently displayed native buffer with parser-owned screen-transition epochs, screen-qualified bounded query scans and certified reads, and renderer-owned selected-highlight revocation. Normal history, native cell identity, work bounds, and independent semantic/selection contracts remain unchanged."
     }
   ],
   "targets": {

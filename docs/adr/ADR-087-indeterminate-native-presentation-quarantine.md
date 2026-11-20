@@ -1,7 +1,8 @@
 # ADR-087: Preserve terminal state through indeterminate presentation failures
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-086](ADR-086-native-terminal-state-and-presentation.md) | partial | Native presentation failure recovery and resource lifetime after indeterminate texture import or delivery.
+> Superseded by: [ADR-093](ADR-093-native-producer-retirement-and-consumer-quarantine.md) | partial | Conditional producer-lease release after a proved writer-retirement fence while consumer resources remain quarantined.
 
 ## Context
 

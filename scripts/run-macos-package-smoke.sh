@@ -185,14 +185,16 @@ if [[ "${HVIR_NATIVE_PACKAGE_ACCEPTANCE:-}" == '1' ]]; then
 fi
 printf '%s\n' 'remove-during-package-upgrade' \
   >"$old_root/hvir.app/Contents/Resources/hvir-previous-only.txt"
-codesign \
-  --force \
-  --deep \
-  --sign - \
-  --options runtime \
-  --entitlements build/entitlements.mac.plist \
-  "$old_root/hvir.app"
-codesign --verify --deep --strict --verbose=2 "$old_root/hvir.app"
+if [[ "$package_mode" == 'signed' ]]; then
+  codesign \
+    --force \
+    --deep \
+    --sign - \
+    --options runtime \
+    --entitlements build/entitlements.mac.plist \
+    "$old_root/hvir.app"
+  codesign --verify --deep --strict --verbose=2 "$old_root/hvir.app"
+fi
 pkgbuild --analyze --root "$old_root" "$old_component_plist"
 plutil -replace '0.BundleIsRelocatable' -bool false "$old_component_plist"
 plutil -replace '0.BundleIsVersionChecked' -bool true "$old_component_plist"

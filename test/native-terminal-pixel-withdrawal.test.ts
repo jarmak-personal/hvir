@@ -100,6 +100,8 @@ describe('real presentation target pixel withdrawal', () => {
     expect(f.targets.drawn(id, f.frame)).toEqual({
       screen: 0,
       geometrySerial: resumed!.geometrySerial,
+      nativeEpoch: resumed!.nativeEpoch,
+      attachment: resumed!.attachment,
     })
     expect(f.host.attach).toHaveBeenCalledOnce()
     expect(f.statuses).toEqual([

@@ -618,6 +618,14 @@ async function verifyExtensionPlacementRenderResume(
       placement(false)
       await display(false)
       await wait('real frozen dispatch held', () => !!release)
+      // Observe browser-applied hidden state without executing the held guest.
+      await wait('native hide before visible layout', () => {
+        if (guest.isDestroyed()) return false
+        const frame = guest.mainFrame
+        return (
+          !frame.isDestroyed() && !frame.detached && frame.visibilityState === 'hidden'
+        )
+      })
       await display(true)
       fixture.focus()
       await wait('native foreground before visible placement', () =>

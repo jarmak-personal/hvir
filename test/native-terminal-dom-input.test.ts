@@ -325,6 +325,31 @@ describe('native browser input transactions', () => {
     expect(f.ops()).toEqual([{ kind: 'paste', text }])
     expect(paste.defaultPrevented).toBe(true)
   })
+  it('keeps the text receiver focused when the native surface takes focus internally', async () => {
+    const f = fixture()
+    const surface = document.createElement('div')
+    surface.tabIndex = 0
+    f.root.appendChild(surface)
+    f.input.focus()
+    await f.settle()
+
+    surface.focus()
+    expect(document.activeElement).toBe(f.text)
+    document.activeElement?.dispatchEvent(
+      new InputEvent('beforeinput', {
+        data: 'é',
+        inputType: 'insertText',
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+    await f.settle()
+
+    expect(f.ops().filter((operation) => operation.kind === 'focus')).toEqual([
+      { kind: 'focus', focused: true },
+    ])
+    expect(f.port.accepted).toHaveBeenCalledExactlyOnceWith('é')
+  })
   it('places the real textarea using native CSS caret coordinates without a second DPR transform', async () => {
     const f = fixture()
     f.port.input.mockResolvedValue({

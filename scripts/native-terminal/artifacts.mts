@@ -198,6 +198,88 @@ export function validAppearanceProof(value: unknown): boolean {
   )
 }
 
+/** Optional real Mac writer-retirement proof; never a headless-build prerequisite. */
+export function validFrameRetirementProof(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const proof = value as { schema?: unknown; summary?: unknown; cases?: unknown }
+  if (
+    proof.schema !== 1 ||
+    !proof.summary ||
+    typeof proof.summary !== 'object' ||
+    !Array.isArray(proof.cases) ||
+    proof.cases.length !== 6
+  )
+    return false
+  const summary = proof.summary as Record<string, unknown>
+  if (
+    summary.kind !== 'native-frame-retirement' ||
+    summary.passed !== true ||
+    summary.cases !== 6 ||
+    summary.realIOSurfaceTransport !== true ||
+    summary.callbackTailBarrierExercised !== true ||
+    summary.productionRecoveryQualified !== false ||
+    summary.linuxHardwareQualified !== false
+  )
+    return false
+  const names = [
+    'stable',
+    'resize-before-fence',
+    'resize-after-fence',
+    'hidden-before-fence',
+    'hidden-after-fence',
+    'joined-actor-ended',
+  ]
+  return proof.cases.every((candidate: unknown, index: number) => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate))
+      return false
+    const row = candidate as Record<string, unknown>
+    return (
+      row.kind === 'native-frame-retirement-case' &&
+      row.case === names[index] &&
+      row.passed === true &&
+      row.authenticatedReceiptA === true &&
+      row.retainedAPackedByteComparison === true &&
+      row.childExit === 0 &&
+      row.childReaped === true &&
+      row.resourceCleanup === true &&
+      (index === 5
+        ? row.retirementStatus === 4 &&
+          row.freshFrames === 0 &&
+          row.joinedActorEnded === true &&
+          row.sameParserContinued === false
+        : row.retirementStatus === 2 &&
+          row.freshFrames === 6 &&
+          row.sameParserContinued === true &&
+          row.observedThreeTargetReuseCycle === true &&
+          typeof row.retainedAUnchangedChecks === 'number' &&
+          row.retainedAUnchangedChecks >= 8) &&
+      (index !== 0 ||
+        (row.callbackTailHeld === true && row.pendingReleaseRefused === true))
+    )
+  })
+}
+
+/** Actual frame readback for a committed highlight crossing an ABA screen switch.
+ * This diagnostic is separate from the query oracle's zero-frame proof. */
+export function validQueryHighlightProof(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const proof = value as Record<string, unknown>
+  return (
+    proof.kind === 'native-query-highlight' &&
+    proof.passed === true &&
+    typeof proof.checks === 'number' &&
+    Number.isSafeInteger(proof.checks) &&
+    proof.checks >= 20 &&
+    typeof proof.frameAcquisitions === 'number' &&
+    Number.isSafeInteger(proof.frameAcquisitions) &&
+    proof.frameAcquisitions >= 3 &&
+    proof.highlightPixelsDiffer === true &&
+    proof.abaRestoresBaseline === true &&
+    proof.cleanupChecked === true &&
+    proof.hardwareGpuQualified === false
+  )
+}
+
 /** Closed numerical proof from the maintained real-Surface query executable. */
 export function validQueryProof(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
@@ -358,6 +440,7 @@ export async function verifyArtifact(
       'selection-proof.json',
       'query-probe',
       'query-proof.json',
+      'query-highlight-proof.json',
       'appearance-probe',
       'appearance-proof.json',
       'frame-metadata-probe',
@@ -375,6 +458,22 @@ export async function verifyArtifact(
     ].every((n) => names.has(n))
   )
     throw new Error('native-artifact: missing required file')
+  if (
+    m.build.retirementProbe !== undefined &&
+    typeof m.build.retirementProbe !== 'boolean'
+  )
+    throw new Error('native-artifact: invalid retirement proof selector')
+  if (m.build.retirementProbe === true) {
+    if (
+      selected.platform !== 'darwin' ||
+      !names.has('frame-retirement-probe') ||
+      !names.has('frame-retirement-proof.json') ||
+      !validFrameRetirementProof(
+        JSON.parse(await readFile(join(root, 'frame-retirement-proof.json'), 'utf8')),
+      )
+    )
+      throw new Error('native-artifact: invalid retirement proof')
+  }
   if (selected.platform === 'linux') {
     let parsedFont: unknown
     try {
@@ -418,6 +517,16 @@ export async function verifyArtifact(
     if (!validFontCaseProof(cases))
       throw new Error('native-artifact: invalid font cases proof')
   }
+  let highlight: unknown
+  try {
+    highlight = JSON.parse(
+      await readFile(join(root, 'query-highlight-proof.json'), 'utf8'),
+    )
+  } catch {
+    throw new Error('native-artifact: invalid query highlight proof')
+  }
+  if (!validQueryHighlightProof(highlight))
+    throw new Error('native-artifact: invalid query highlight proof')
   let appearance: unknown
   try {
     appearance = JSON.parse(await readFile(join(root, 'appearance-proof.json'), 'utf8'))

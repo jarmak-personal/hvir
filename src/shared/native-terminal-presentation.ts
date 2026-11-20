@@ -52,13 +52,30 @@ export type NativeTerminalPresentationAcknowledgement =
       readonly grant: NativeTerminalViewGrant
       readonly screen: 0 | 1
     }
+/** Packed image arithmetic follows the existing maximum backing extent. Actual
+ * terminal grants still require32..8192; tiny images remain valid for normalization. */
+export function nativeTerminalPackedPixelLayout(
+  width: number,
+  height: number,
+): { stride: number; byteLength: number } | undefined {
+  if (
+    ![width, height].every(
+      (value) => Number.isInteger(value) && value >= 1 && value <= 8192,
+    )
+  )
+    return
+  const stride = width * 4,
+    byteLength = stride * height
+  if (!Number.isSafeInteger(stride) || !Number.isSafeInteger(byteLength)) return
+  return { stride, byteLength }
+}
+
 export const NATIVE_TERMINAL_PRESENTATION = {
   grantChannel: 'native-terminal:presentation-grant',
   pixelsChannel: 'native-terminal:presentation-pixels',
   statusChannel: 'native-terminal:presentation-status',
   acknowledgementChannel: 'native-terminal:presentation-ack',
   maximumViews: 32,
-  maximumPixelBytes: 16 * 1024 * 1024,
   compatibilityIntervalMs: 67,
 } as const
 

@@ -18,7 +18,9 @@ import {
   pinPath,
   verifyArtifact,
   validQueryProof,
+  validQueryHighlightProof,
   validAppearanceProof,
+  validFrameRetirementProof,
   withAppearanceFontFixture,
   qualifyNativeFontCases,
   type NativeArtifact,
@@ -80,6 +82,17 @@ function fontCaseProofFixture() {
   }
 }
 
+const queryHighlightProof = {
+  kind: 'native-query-highlight',
+  passed: true,
+  checks: 30,
+  frameAcquisitions: 3,
+  highlightPixelsDiffer: true,
+  abaRestoresBaseline: true,
+  cleanupChecked: true,
+  hardwareGpuQualified: false,
+}
+
 let root: string
 let manifest: NativeArtifact
 beforeEach(async () => {
@@ -101,6 +114,7 @@ beforeEach(async () => {
     'selection-proof.json',
     'query-probe',
     'query-proof.json',
+    'query-highlight-proof.json',
     'appearance-probe',
     'appearance-proof.json',
     'frame-metadata-probe',
@@ -108,17 +122,19 @@ beforeEach(async () => {
   ]) {
     await writeFile(
       join(root, name),
-      name === 'appearance-proof.json'
-        ? JSON.stringify({
-            kind: 'native-appearance',
-            passed: true,
-            checks: 100,
-            ligaturePixelsDiffer: true,
-            cursorPolicyCases: 3,
-            applicationCursorOverrides: 2,
-            hardwareQualified: false,
-          })
-        : `artifact ${name}`,
+      name === 'query-highlight-proof.json'
+        ? JSON.stringify(queryHighlightProof)
+        : name === 'appearance-proof.json'
+          ? JSON.stringify({
+              kind: 'native-appearance',
+              passed: true,
+              checks: 100,
+              ligaturePixelsDiffer: true,
+              cursorPolicyCases: 3,
+              applicationCursorOverrides: 2,
+              hardwareQualified: false,
+            })
+          : `artifact ${name}`,
     )
     files.push({
       path: name,
@@ -151,6 +167,33 @@ describe('native artifact admission before loader execution', () => {
     expect((await verifyArtifact(root, 'macos-arm64')).source).toBe(manifest.source)
   })
   it.each([
+    'not-json',
+    JSON.stringify({ ...queryHighlightProof, abaRestoresBaseline: false }),
+  ])(
+    'rejects a malformed or incomplete highlight receipt with matching manifest bytes',
+    async (contents) => {
+      const path = 'query-highlight-proof.json'
+      await writeFile(join(root, path), contents)
+      await save({
+        ...manifest,
+        files: await Promise.all(
+          manifest.files.map(async (file) =>
+            file.path === path
+              ? {
+                  ...file,
+                  sha256: await digest(join(root, path)),
+                  bytes: Buffer.byteLength(contents),
+                }
+              : file,
+          ),
+        ),
+      })
+      await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow(
+        'invalid query highlight proof',
+      )
+    },
+  )
+  it.each([
     'target',
     'applicationVersion',
     'vtVersion',
@@ -172,6 +215,7 @@ describe('native artifact admission before loader execution', () => {
     'selection-proof.json',
     'query-probe',
     'query-proof.json',
+    'query-highlight-proof.json',
     'appearance-probe',
     'appearance-proof.json',
     'frame-metadata-probe',
@@ -446,6 +490,31 @@ describe('real query probe numerical receipt admission', () => {
   })
 })
 
+describe('native query highlight readback proof admission', () => {
+  it('admits actual readback separately from hardware qualification', () => {
+    expect(validQueryHighlightProof(queryHighlightProof)).toBe(true)
+  })
+  it.each([
+    ['kind', 'native-query'],
+    ['passed', false],
+    ['checks', 19],
+    ['checks', NaN],
+    ['frameAcquisitions', 2],
+    ['frameAcquisitions', 3.5],
+    ['highlightPixelsDiffer', false],
+    ['abaRestoresBaseline', false],
+    ['cleanupChecked', false],
+    ['hardwareGpuQualified', true],
+  ] as const)('rejects absent or invalid %s evidence', (field, value) => {
+    expect(validQueryHighlightProof({ ...queryHighlightProof, [field]: value })).toBe(
+      false,
+    )
+    const missing: Record<string, unknown> = { ...queryHighlightProof }
+    delete missing[field]
+    expect(validQueryHighlightProof(missing)).toBe(false)
+  })
+})
+
 describe('native appearance proof admission', () => {
   const complete = {
     kind: 'native-appearance',
@@ -590,4 +659,65 @@ describe('native font case configuration authority', () => {
       }
     }
   })
+})
+
+// Recorded C/resource wire example; parser fixtures do not rerun GPU qualification.
+async function retirementProof() {
+  return JSON.parse(
+    await readFile(
+      new URL('./fixtures/native-terminal-frame-retirement-proof.json', import.meta.url),
+      'utf8',
+    ),
+  ) as {
+    schema: number
+    summary: Record<string, unknown>
+    cases: Record<string, unknown>[]
+  }
+}
+it('admits the complete real retirement wire and rejects partial/actor-ended recovery claims', async () => {
+  const proof = await retirementProof()
+  expect(validFrameRetirementProof(proof)).toBe(true)
+  expect(validFrameRetirementProof({ ...proof, cases: proof.cases.slice(1) })).toBe(false)
+  const ended = structuredClone(proof)
+  ended.cases[0]!.retirementStatus = 4
+  expect(validFrameRetirementProof(ended)).toBe(false)
+  const incomplete = structuredClone(proof)
+  incomplete.cases[0]!.freshFrames = 2
+  expect(validFrameRetirementProof(incomplete)).toBe(false)
+  const early = structuredClone(proof)
+  early.cases[0]!.pendingReleaseRefused = false
+  expect(validFrameRetirementProof(early)).toBe(false)
+})
+it('validates an opted-in artifact retirement proof without making it mandatory for ordinary artifacts', async () => {
+  const proof = await retirementProof()
+  await writeFile(join(root, 'frame-retirement-probe'), 'recorded-probe-placeholder')
+  await writeFile(join(root, 'frame-retirement-proof.json'), JSON.stringify(proof))
+  const extra = await Promise.all(
+    ['frame-retirement-probe', 'frame-retirement-proof.json'].map(async (path) => ({
+      path,
+      sha256: await digest(join(root, path)),
+      bytes: (await readFile(join(root, path))).length,
+    })),
+  )
+  await save({
+    ...manifest,
+    build: { ...manifest.build, retirementProbe: true },
+    files: [...manifest.files, ...extra],
+  })
+  await expect(verifyArtifact(root, 'macos-arm64')).resolves.toBeDefined()
+  proof.cases.pop()
+  await writeFile(join(root, 'frame-retirement-proof.json'), JSON.stringify(proof))
+  extra[1] = {
+    path: 'frame-retirement-proof.json',
+    sha256: await digest(join(root, 'frame-retirement-proof.json')),
+    bytes: (await readFile(join(root, 'frame-retirement-proof.json'))).length,
+  }
+  await save({
+    ...manifest,
+    build: { ...manifest.build, retirementProbe: true },
+    files: [...manifest.files, ...extra],
+  })
+  await expect(verifyArtifact(root, 'macos-arm64')).rejects.toThrow(
+    'invalid retirement proof',
+  )
 })

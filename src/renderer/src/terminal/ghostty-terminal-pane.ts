@@ -242,6 +242,11 @@ class GhosttyTerminalPane implements TerminalPane {
     this.mounted = true
     const surface = document.createElement('div')
     surface.className = 'terminal-engine-host'
+    if (typeof __HVIR_SMOKE_BUILD__ !== 'undefined' && __HVIR_SMOKE_BUILD__)
+      Object.defineProperty(surface, '__hvirTerminalViewport', {
+        configurable: true,
+        get: () => ({ viewportY: this.disposed ? null : this.terminal.getViewportY() }),
+      })
     // Read-only smoke/capacity telemetry. Keep it on the concrete adapter so
     // the engine-neutral TerminalPane seam does not learn ghostty counters.
     Object.defineProperty(surface, '__hvirTerminalPerformance', {

@@ -891,8 +891,9 @@ and [compatibility inventory](native-terminal-compatibility.md).
 
 ### [ADR-087 — Preserve terminal state through indeterminate presentation failures](adr/ADR-087-indeterminate-native-presentation-quarantine.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
 > Supersedes: [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) | partial | Native presentation failure recovery and resource lifetime after indeterminate texture import or delivery.
+> Superseded by: [ADR-093](adr/ADR-093-native-producer-retirement-and-consumer-quarantine.md) | partial | Conditional producer-lease release after a proved writer-retirement fence while consumer resources remain quarantined.
 
 Keep authoritative terminal state alive when texture import or delivery cannot prove
 physical completion. Retain bounded immutable resources through application shutdown;
@@ -930,7 +931,8 @@ clipboard/navigation owners.
 
 ### [ADR-091 — Native retained query authority](adr/ADR-091-native-retained-query-authority.md)
 
-> Lifecycle: Active
+> Lifecycle: Partially superseded
+> Superseded by: [ADR-094](adr/ADR-094-current-buffer-native-search.md) | partial | Search source selection and query lifetime across normal/alternate screen transitions.
 
 Native retained queries own bounded search, occurrence identity and exact reads;
 parser-origin semantic boundaries retain current-body meaning through asynchronous
@@ -942,6 +944,31 @@ pane capabilities without a renderer transcript or complete result mirror.
 
 Existing settings feed bounded native configuration with applied serials, palette-preserving
 lifetimes and measured typography geometry before PTY notification.
+
+### [ADR-093 — Retire producer writes independently of quarantined consumers](adr/ADR-093-native-producer-retirement-and-consumer-quarantine.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-087](adr/ADR-087-indeterminate-native-presentation-quarantine.md) | partial | Conditional producer-lease release after a proved writer-retirement fence while consumer resources remain quarantined.
+
+An exact completed writer-retirement fence may release the producer's held lease while
+independently owned immutable consumer resources and import credits remain quarantined.
+Only a fresh authorized frame can restore visible presentation and input availability.
+
+### [ADR-094 — Search the current native terminal buffer](adr/ADR-094-current-buffer-native-search.md)
+
+> Lifecycle: Active
+> Supersedes: [ADR-091](adr/ADR-091-native-retained-query-authority.md) | partial | Search source selection and query lifetime across normal/alternate screen transitions.
+
+Native search uses retained normal history or current alternate-screen contents according
+to the displayed buffer. Parser-owned activation epochs revoke old queries, reads and
+highlights across screen transitions; the existing controller restarts current search intent.
+
+### [ADR-095 — Native terminal development setup](adr/ADR-095-native-terminal-development-setup.md)
+
+> Lifecycle: Active
+
+Contributor installation prepares pinned native dependencies; the development launcher validates
+and selects them without changing packaged cutover or runtime ownership.
 
 ## 5. Architecture
 

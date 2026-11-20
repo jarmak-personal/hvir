@@ -47,7 +47,6 @@ export interface Frame {
   planeCount: number
   surface?: Buffer
   planes: { fd: number; stride: number; offset: number; size: bigint }[]
-  pixels?: Buffer
 }
 export interface Host {
   readonly nativeTerminalHost: unique symbol
@@ -95,7 +94,7 @@ export interface ExtractionChunk extends Result {
 export interface QueryMatch {
   occurrence: bigint
   index: number
-  screen: 0
+  screen: 0 | 1
   row: number
   column: number
   endRow: number
@@ -277,7 +276,7 @@ declare const engine: {
     id: bigint,
     lease: bigint,
     capacity: number,
-  ): Result & { data?: Buffer; stride?: number }
+  ): Result & { data?: Uint8Array; stride?: number }
   inspect(host: Host, id: bigint): Result & { status?: Status }
   read(host: Host, id: bigint, capacity: number): Result & { data?: Buffer }
   drain(host: Host, id: bigint, capacity: number): Result & { data?: Buffer }
@@ -335,6 +334,13 @@ declare const engine: {
   ): Result & { data?: Buffer }
   takeFrame(host: Host, id: bigint): Result & { frame?: Frame }
   releaseFrame(host: Host, id: bigint, lease: bigint): Result
+  retireFrameBegin(host: Host, id: bigint, lease: bigint): Result & { request?: bigint }
+  retireFrameStatus(
+    host: Host,
+    id: bigint,
+    lease: bigint,
+    request: bigint,
+  ): Result & { status?: number }
   destroy(host: Host, id: bigint): Result
   close(host: Host): Result
 }

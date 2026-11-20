@@ -23,7 +23,7 @@ import {
 import type { NativeTerminalQueryOperation } from '../../shared/native-terminal-query-operations'
 import type {
   NativeTerminalEffectBatch,
-  NativeTerminalProductEffect,
+  NativeTerminalSemanticEffect,
 } from '../../shared/native-terminal-effects'
 import {
   NativeTerminalQueryBoundaries,
@@ -83,7 +83,7 @@ export class NativeTerminalQuery {
     ) => void,
     publishEffect: (
       session: NativeTerminalSession,
-      effect: NativeTerminalProductEffect,
+      effects: readonly NativeTerminalSemanticEffect[],
     ) => void,
   ) {
     this.boundaries = new NativeTerminalQueryBoundaries(

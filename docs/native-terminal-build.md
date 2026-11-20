@@ -3,11 +3,15 @@
 The native dependency owner builds the **full pinned Ghostty source**, including its renderer.
 The stable libghostty-vt archive alone cannot produce this artifact. The application source is
 `108cacb17ed8990840cd14abfce43d8ed8503ca1` (`1.4.1-dev`); its VT release is `1.0.1`.
-The private embedding-hook ABI is `10`. These are independent identities.
+The private embedding-hook ABI is `12`. These are independent identities.
 
 This tooling produces libraries, maintained C bridge inputs, a separate-process loader probe,
 and provenance. It creates no terminal, PTY, provider, renderer attachment or application host.
 [ADR-086](adr/ADR-086-native-terminal-state-and-presentation.md) owns those later boundaries.
+
+For ordinary branch testing, use the [development setup](native-terminal-development.md):
+`npm ci` prepares the dependency and `npm run dev` selects it. The commands below
+remain the explicit dependency-owner build/inspection interface.
 
 ## Build and inspect
 
@@ -36,7 +40,7 @@ npm run native:check -- macos-arm64 /tmp/hvir-native-build-1/artifact
 Use a **new** work directory for every attempt. The build obtains the pinned compiler and full
 source from their immutable inputs, verifies archive digests, applies each recorded patch with
 zero fuzz, fetches hash-checked upstream dependencies, and builds offline. Compilation is bounded
-to two jobs. Interrupted/failed attempts remain available for diagnosis and are never overwritten.
+to two jobs by default. Interrupted/failed attempts remain available for diagnosis and are never overwritten.
 The output is `WORK/artifact`; sources and caches remain outside the maintained repository tree.
 
 For prepared inputs, the build also accepts `--zig PATH`, `--source-archive PATH`, and
@@ -46,6 +50,13 @@ Builds record the compiler binary digest and all three prepared-input flags. Exp
 paths and supplied package caches are contributor inputs and always mark the artifact
 `development`; use the verified official compiler/dependency preparation for release builds.
 A supplied source archive remains digest-verified against the accepted source pin.
+For a resource-bounded development build, `--jobs 1` and `--local-cache EXISTING`
+reuse a validated existing compiler cache; both require explicit prepared `--zig`
+and `--packages` inputs. The artifact records the actual arguments and cache reuse.
+Default builds retain two jobs and a fresh local cache. `--retirement-probe 1`
+opts a Darwin build into the real C/resource writer-retirement proof; it does not
+add a mandatory GPU requirement to ordinary headless builds. These build and
+qualification commands do not invoke signing or notarization.
 
 The upstream `nix/build-support/fetch-zig-cache.sh` and `deps/packages.txt` cover the full source.
 Do not substitute `deps/libghostty-vt.txt`. Run that script with pinned Zig on PATH and a dedicated

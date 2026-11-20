@@ -184,7 +184,11 @@ renderer destruction preserve each ownership obligation without overwriting in-u
 [ADR-087](adr/ADR-087-indeterminate-native-presentation-quarantine.md) distinguishes
 successful-transfer completion from uncertain import/delivery: the latter revokes
 presentation while retaining its immutable source, OS reference, returned import,
-and credit through application shutdown. Do not claim physical reclamation from
+and credit through application shutdown. [ADR-093](adr/ADR-093-native-producer-retirement-and-consumer-quarantine.md)
+permits only the producer hold to end after an exact completed writer-retirement fence
+and original source release; the independently retained immutable consumer resource and
+credit stay quarantined. Fresh presentation must retain the same live parser and pass
+current view/geometry authority. Do not claim physical reclamation from
 receiver destruction or an incomplete late-consumer callback. The parser remains
 available for authoritative feed, read, and geometry; only explicit terminal close
 may retire it independently.
@@ -241,47 +245,23 @@ reports any failed stage without terminal contents, private paths, or credential
 
 ## Development workbench runtime
 
-The development runtime is opt-in through the main-process environment:
-`HVIR_NATIVE_TERMINAL_LIBRARY=/absolute/path/to/libghostty.dylib npm run dev`.
-Build matching contributor bindings first with
-`npm run native:bindings -- macos-arm64 ARTIFACT_DIR NEW_SCRATCH_DIR --development`.
-On Linux the library is `ghostty-internal.so`. Trusted main accepts
-`HVIR_NATIVE_TERMINAL_DEVICE=default` or an exact local `/dev/dri/renderD<number>` node,
-and `HVIR_NATIVE_TERMINAL_PRESENTATION=auto|pixels`. Device selection applies before
-the native epoch opens its shared EGL device; changing the environment does not switch
-a live epoch. Explicit `pixels` applies before its first export. It preserves the same
+Ordinary branch testing uses the [native development setup](native-terminal-development.md):
+`npm ci` prepares the pinned native library and bindings; `npm run dev` validates and
+selects them automatically. That guide is the authoritative Ubuntu setup, launch and
+credential-free runtime qualification path. `npm run dev:legacy` explicitly selects the
+web engine. Existing build/inspection commands remain available to dependency owners.
+
+An explicit `HVIR_NATIVE_TERMINAL_LIBRARY=/absolute/trusted/library` retains the existing
+contributor override. On Linux the library is `ghostty-internal.so`; on macOS it is
+`libghostty.dylib`. Trusted main accepts `HVIR_NATIVE_TERMINAL_DEVICE=default` or an exact
+local `/dev/dri/renderD<number>` node, and `HVIR_NATIVE_TERMINAL_PRESENTATION=auto|pixels`.
+Device selection applies before the native epoch opens its shared EGL device; changing
+the environment does not switch a live epoch. Explicit `pixels` preserves the same
 native parser and reports compatibility rather than GPU presentation.
 
-From a clean pushed checkout on the Linux desktop, this single copyable sequence reuses
-the maintained build, binding, qualification and interactive workbench owners:
-
-```bash
-set -euo pipefail
-case "$(uname -m)" in
-  x86_64) target=linux-x64 ;;
-  aarch64) target=linux-arm64 ;;
-  *) echo 'Unsupported native architecture' >&2; exit 1 ;;
-esac
-qualification_work=$(mktemp -d /tmp/hvir-linux-qualification.XXXXXX)
-printf 'Retain qualification artifacts: %s\n' "$qualification_work"
-git rev-parse HEAD
-cat /etc/os-release
-uname -r
-if command -v nvidia-smi >/dev/null; then nvidia-smi --query-gpu=name,pci.bus_id,driver_version --format=csv || echo "NVIDIA diagnostic unavailable"; fi
-test -z "$(git status --porcelain)"
-node --version
-pkg-config --modversion egl
-npm ci
-npm run native:build -- "$target" "$qualification_work/native"
-npm run native:check -- "$target" "$qualification_work/native/artifact"
-npm run native:bindings -- "$target" "$qualification_work/native/artifact" "$qualification_work/bindings"
-sha256sum "$qualification_work/native/artifact/manifest.json" "$qualification_work/native/artifact/ghostty-internal.so" packages/native-terminal/build/Release/bindings.json
-export HVIR_NATIVE_TERMINAL_LIBRARY="$qualification_work/native/artifact/ghostty-internal.so"
-export HVIR_NATIVE_TERMINAL_DEVICE="${HVIR_NATIVE_TERMINAL_DEVICE:-default}"
-export HVIR_NATIVE_TERMINAL_PRESENTATION="${HVIR_NATIVE_TERMINAL_PRESENTATION:-auto}"
-npm run smoke:native-terminal
-npm run dev
-```
+For the existing standalone probe commands below, set `HVIR_NATIVE_TERMINAL_LIBRARY`
+to the prepared library or an explicitly trusted dependency-owner artifact. They remain
+lower-level qualification commands rather than ordinary development prerequisites.
 
 For separate explicit backend qualification on an available desktop, use the closed
 `HVIR_NATIVE_TERMINAL_OZONE=x11|wayland` selector with the existing contained commands:

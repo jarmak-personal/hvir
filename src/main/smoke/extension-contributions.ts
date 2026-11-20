@@ -12,6 +12,7 @@ import type { ExtensionApplicationRuntime } from '../extensions/extension-applic
 import { verifyExtensionRailGeometry } from './extension-presentation-geometry'
 import { focusSmokeWindow } from './window-focus'
 import { smokeScriptValue } from './script-value'
+import { verifyExtensionViewerUpdaterRenewal } from './extension-viewer-updater'
 
 interface ContributionControls {
   click(name: string): Promise<void>
@@ -244,6 +245,7 @@ export async function verifyExtensionContributions(
   await new Promise((resolve) => setTimeout(resolve, 2200))
   if (observation()!.observedAt !== frozen)
     throw new Error('No-demand updater continued publishing')
+  await focusSmokeWindow(win, 'window')
   await controls.click('Restore terminal rail')
   try {
     await controls.wait(
@@ -258,7 +260,6 @@ export async function verifyExtensionContributions(
   if (guests.snapshot(renderer).filter((view) => view.role === 'updater').length !== 1)
     throw new Error('Restore duplicated updater')
 
-  console.log('[smoke] shared visible updater pause/renew OK')
   await controls.click('Reference workspace')
   await controls.wait(
     () => guests.snapshot(renderer).some((view) => view.context?.surface === 'left'),
@@ -572,47 +573,15 @@ export async function verifyExtensionContributions(
   )
   await subscribed(detailGuest, 'viewer')
 
-  if (
-    !(await dom(
-      'document.querySelector(\'button[aria-label="Restore terminal rail"]\') !== null',
-    ))
-  )
-    throw new Error(
-      'Visible-viewer independent demand lacked compact-rail positive control',
-    )
-  const viewerObserved = observation()!.observedAt!
-  try {
-    await controls.wait(
-      () => (observation()?.observedAt ?? 0) > viewerObserved,
-      'visible viewer refresh with compact rail',
-    )
-  } catch (error) {
-    logUpdaterDemandFailure('viewer updater refresh state', viewerObserved, detail.id)
-    throw error
-  }
-  await controls.click('Sessions')
-  await controls.wait(
-    () =>
-      observation()?.availability === 'stale' &&
-      dom(
-        `document.querySelector('[data-extension-view="${detail.id}"]')?.hidden === true`,
-      ),
-    'last ordinary contribution hidden with compact rail',
-  )
-  await new Promise((resolve) => setTimeout(resolve, 1200))
-  const viewerFrozen = observation()!.observedAt
-  await new Promise((resolve) => setTimeout(resolve, 2200))
-  if (observation()!.observedAt !== viewerFrozen)
-    throw new Error('Hidden last viewer retained updater refresh')
-  await win.webContents.executeJavaScript(
-    "document.querySelector('.project-tab-main').click()",
-  )
-  await controls.wait(
-    () =>
-      observation()?.availability === 'current' &&
-      observation()!.observedAt! > viewerFrozen!,
-    'visible ordinary viewer demand renewed',
-  )
+  await verifyExtensionViewerUpdaterRenewal({
+    win,
+    viewerId: detail.id,
+    controls,
+    dom,
+    observation,
+    failure: (baseline) =>
+      logUpdaterDemandFailure('viewer updater refresh state', baseline, detail.id),
+  })
   if (
     guests.snapshot(renderer).find((view) => view.role === 'updater')?.id !== updater.id
   )

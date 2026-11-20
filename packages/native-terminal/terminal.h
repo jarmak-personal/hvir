@@ -24,7 +24,18 @@ typedef enum {
 #define HVIR_TERMINAL_TEXT_MAX 1048576u
 #define HVIR_TERMINAL_SELECTION_CHUNK 65536u
 #define HVIR_TERMINAL_SELECTION_VISITS 8192u
-#define HVIR_TERMINAL_PIXEL_MAX 16777216u
+/* Packed image arithmetic follows the existing backing-dimension envelope.
+ * This is not an aggregate allocation or process-memory budget. */
+#define HVIR_TERMINAL_PIXEL_DIMENSION_MAX 8192u
+#define HVIR_TERMINAL_PIXEL_MAX (HVIR_TERMINAL_PIXEL_DIMENSION_MAX * HVIR_TERMINAL_PIXEL_DIMENSION_MAX * 4u)
+static inline bool hvir_terminal_packed_pixel_bytes(uint32_t width, uint32_t height,
+                                                    size_t *bytes) {
+  if (!width || !height || width > HVIR_TERMINAL_PIXEL_DIMENSION_MAX ||
+      height > HVIR_TERMINAL_PIXEL_DIMENSION_MAX ||
+      height > SIZE_MAX / ((size_t)width * 4)) return false;
+  *bytes = (size_t)width * 4 * height;
+  return true;
+}
 #define HVIR_TERMINAL_INFO_MAX 256u
 #define HVIR_TERMINAL_INPUT_SMALL_MAX 65536u
 #define HVIR_TERMINAL_INPUT_WHEEL_MAX (20u * 1024u * 1024u)
@@ -248,8 +259,22 @@ hvir_terminal_result hvir_terminal_take_frame(hvir_terminal_host *, hvir_termina
 hvir_terminal_result hvir_terminal_copy_frame(hvir_terminal_host *, hvir_terminal_id,
                                               uint64_t lease, uint8_t *out, size_t capacity,
                                               size_t *written, uint32_t *stride);
+typedef enum {
+  HVIR_FRAME_RETIRE_PENDING = 1,
+  HVIR_FRAME_RETIRE_RETIRED = 2,
+  HVIR_FRAME_RETIRE_FAILED = 3,
+  HVIR_FRAME_RETIRE_ACTOR_ENDED = 4
+} hvir_terminal_frame_retirement_status;
+/* OK records a request, not a GPU fence. Only RETIRED proves same-actor
+ * retirement; ACTOR_ENDED permits cleanup after joined Surface destruction. */
+hvir_terminal_result hvir_terminal_retire_frame_begin(hvir_terminal_host *, hvir_terminal_id,
+                                                      uint64_t lease, uint64_t *out_request);
+hvir_terminal_result hvir_terminal_retire_frame_status(hvir_terminal_host *, hvir_terminal_id,
+                                                       uint64_t lease, uint64_t request,
+                                                       uint32_t *out_status);
 /* PRESENTATION means the resource was released but rearming drawing failed.
- * Parser state remains usable; duplicate release remains harmless. */
+ * Parser state remains usable; duplicate release remains harmless. A requested
+ * retirement remains BUSY until exact RETIRED or joined ACTOR_ENDED cleanup. */
 hvir_terminal_result hvir_terminal_release_frame(hvir_terminal_host *, hvir_terminal_id,
                                                  uint64_t lease);
 /* Destroy revokes admission immediately. BUSY retains state until its outstanding

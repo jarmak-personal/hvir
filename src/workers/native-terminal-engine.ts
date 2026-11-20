@@ -6,9 +6,10 @@ import {
 } from '../shared/native-terminal-query-operations'
 import type { NativeQueryEngineResult } from './native-terminal-query'
 /** One real caller thread. This entry never imports Electron or project capabilities. */
-import { parentPort, workerData } from 'node:worker_threads'
+import { isMarkedAsUntransferable, parentPort, workerData } from 'node:worker_threads'
 import engine, { type Host } from '@hvir/native-terminal/engine'
 import { normalizeNativeTerminalPixels } from './native-terminal-pixels'
+import { nativeTerminalPackedPixelLayout } from '../shared/native-terminal-presentation'
 import {
   validNativeTerminalLinuxOptions,
   validNativeTerminalExportMode,
@@ -43,6 +44,7 @@ parentPort.on(
     try {
       const { operation, args } = request
       let value: unknown
+      let pixelsTransfer: ArrayBuffer | undefined
       switch (operation) {
         case 'query':
           value = invokeNativeQueryEngine(host, BigInt(String(args[0])), args[1])
@@ -184,19 +186,33 @@ parentPort.on(
         case 'renderer-info':
           value = engine.rendererInfo(host, BigInt(String(args[0])))
           break
-        case 'pixels':
-          value = engine.copyFrame(
+        case 'pixels': {
+          const layout = nativeTerminalPackedPixelLayout(Number(args[3]), Number(args[4]))
+          if (!layout) throw new Error('native-pixel-format')
+          const copied = engine.copyFrame(
             host,
             BigInt(String(args[0])),
             BigInt(String(args[1])),
-            16 * 1024 * 1024,
+            layout.byteLength,
           )
-          {
-            const copied = value as { result: number; data?: Buffer; stride?: number }
-            if (!copied.result && copied.data && copied.stride)
-              normalizeNativeTerminalPixels(copied.data, copied.stride, Number(args[2]))
+          if (!copied.result) {
+            const data = copied.data
+            if (
+              !(data instanceof Uint8Array) ||
+              !(data.buffer instanceof ArrayBuffer) ||
+              isMarkedAsUntransferable(data.buffer) ||
+              data.byteOffset !== 0 ||
+              data.byteLength !== data.buffer.byteLength ||
+              data.byteLength !== layout.byteLength ||
+              copied.stride !== layout.stride
+            )
+              throw new Error('native-pixel-format')
+            normalizeNativeTerminalPixels(data, layout.stride, Number(args[2]))
+            pixelsTransfer = data.buffer
           }
+          value = copied
           break
+        }
         case 'inspect':
           value = engine.inspect(host, BigInt(String(args[0])))
           break
@@ -246,6 +262,23 @@ parentPort.on(
             BigInt(String(args[1])),
           )
           break
+        case 'retire-frame-begin':
+          value = engine.retireFrameBegin(
+            host,
+            BigInt(String(args[0])),
+            BigInt(String(args[1])),
+          )
+          break
+        case 'retire-frame-status': {
+          const retired = engine.retireFrameStatus(
+            host,
+            BigInt(String(args[0])),
+            BigInt(String(args[1])),
+            BigInt(String(args[2])),
+          )
+          value = { result: retired.result, retirementStatus: retired.status }
+          break
+        }
         case 'destroy':
           value = engine.destroy(host, BigInt(String(args[0])))
           break
@@ -255,7 +288,9 @@ parentPort.on(
         default:
           throw new Error('Unknown native terminal operation')
       }
-      parentPort?.postMessage({ id: request.id, value })
+      if (pixelsTransfer)
+        parentPort?.postMessage({ id: request.id, value }, [pixelsTransfer])
+      else parentPort?.postMessage({ id: request.id, value })
     } catch {
       // Allocation may fail after native mutation. Never pretend the job was unapplied.
       parentPort?.postMessage({ id: request.id, fatal: true })

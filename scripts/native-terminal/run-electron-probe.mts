@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import { isAbsolute, resolve, join, dirname } from 'node:path'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
@@ -19,7 +19,10 @@ export async function runNativeElectronProbe(
   launch?: ProbeLaunch,
   presentation?: 'gpu' | 'pixels',
   ozone?: 'x11' | 'wayland',
+  largeViewport = false,
 ): Promise<Record<string, unknown>> {
+  if (typeof largeViewport !== 'boolean' || (largeViewport && presentation !== 'pixels'))
+    throw new Error('native-electron-probe: large viewport requires explicit pixels')
   const selectedOzone: string | undefined =
     ozone ?? process.env['HVIR_NATIVE_TERMINAL_OZONE']
   if (
@@ -38,21 +41,34 @@ export async function runNativeElectronProbe(
   const timeoutMs = launch?.timeoutMs ?? 75_000
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 75_000)
     throw new Error('native-electron-probe: invalid deadline')
+  const entry =
+    launch?.entry ??
+    resolve(
+      repository,
+      presentation
+        ? 'out/main/native-terminal-presenter-probe.js'
+        : 'out/main/native-terminal-probe.js',
+    )
+  let entryIsFile = false
+  try {
+    entryIsFile = (await stat(entry)).isFile()
+  } catch {
+    // A missing build entry must not open Electron's blocking error dialog.
+  }
+  if (!entryIsFile)
+    throw new Error(
+      'native-electron-probe: regular built entry required; build mode native-terminal-probe',
+    )
   const started = performance.now()
   const profile = await mkdtemp(join(tmpdir(), 'hvir-native-electron-'))
   const child = spawn(
     binary,
     [
-      launch?.entry ??
-        resolve(
-          repository,
-          presentation
-            ? 'out/main/native-terminal-presenter-probe.js'
-            : 'out/main/native-terminal-probe.js',
-        ),
+      entry,
       `--library=${library}`,
       `--user-data-dir=${profile}`,
       ...(presentation === 'pixels' ? ['--compatibility'] : []),
+      ...(largeViewport ? ['--large-viewport'] : []),
       ...(selectedOzone ? [`--ozone-platform=${selectedOzone}`] : []),
     ],
     {
@@ -315,6 +331,7 @@ export async function runNativeElectronProbe(
           ? 'pixels'
           : 'auto',
         process.platform,
+        largeViewport,
       )
     )
       throw new Error('native-electron-probe: invalid presenter receipt')
@@ -348,11 +365,15 @@ export function nativePresenterReceiptMatches(
   proof: Record<string, unknown>,
   requested: 'auto' | 'pixels',
   platform: string,
+  largeViewport = false,
 ): boolean {
   if (
     proof.nativePresenter !== 'passed' ||
     proof.finalUtilityExit !== true ||
-    proof.requestedPresentation !== requested
+    proof.requestedPresentation !== requested ||
+    (largeViewport &&
+      (requested !== 'pixels' ||
+        !largeViewportReceiptMatches(proof.largeViewportDiagnostic)))
   )
     return false
   if (proof.mode === 'native-gpu')
@@ -368,8 +389,154 @@ export function nativePresenterReceiptMatches(
     typeof proof.frameCopies === 'number' &&
     proof.frameCopies > 0 &&
     proof.routineGpuReadbacks === null &&
-    proof.compatibilityBoundRefused === true &&
-    proof.maximumCompatibilityUploadBytes === 16 * 1024 * 1024
+    proof.compatibilityInvalidExtentRefused === true &&
+    proof.compatibilitySampleUploadBytes === 2050 * 2048 * 4 &&
+    compatibilityExtentMatches(proof.compatibilityExtent)
+  )
+}
+
+function presenterFields(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+}
+
+function compatibilityExtentMatches(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const row = presenterFields(value),
+    grant = presenterFields(row.grant),
+    drawn = presenterFields(row.drawn),
+    invalid = presenterFields(row.invalidExtent)
+  return (
+    row.byteLength === 2050 * 2048 * 4 &&
+    row.stride === 2050 * 4 &&
+    grant.width === 2050 &&
+    grant.height === 2048 &&
+    grant.backingScale === 2 &&
+    drawn.geometrySerial === grant.geometrySerial &&
+    Number.isSafeInteger(grant.geometrySerial) &&
+    Number(grant.geometrySerial) > 0 &&
+    drawn.nativeEpoch === grant.nativeEpoch &&
+    drawn.attachment === grant.attachment &&
+    typeof grant.nativeEpoch === 'string' &&
+    grant.nativeEpoch.length > 0 &&
+    Number.isSafeInteger(grant.attachment) &&
+    Number(grant.attachment) > 0 &&
+    row.parserProgress === true &&
+    row.sameActorRecovered === true &&
+    invalid.code === 'native-presentation-geometry-invalid' &&
+    Number.isSafeInteger(invalid.frameCopiesBefore) &&
+    Number(invalid.frameCopiesBefore) > 0 &&
+    invalid.frameCopiesAfter === invalid.frameCopiesBefore
+  )
+}
+
+/** Bare presenter successes do not qualify workbench UI, memory or physical displays. */
+function largeViewportReceiptMatches(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const report = value as Record<string, unknown>
+  return (
+    report.observationOwner === 'presenter' &&
+    report.uiShrinkRecoveryQualified === false &&
+    report.physicalDisplayQualified === false &&
+    Array.isArray(report.cases) &&
+    report.cases.length === 2 &&
+    report.cases.every((value: unknown, index: number) => {
+      if (!value || typeof value !== 'object') return false
+      const row = value as Record<string, unknown>
+      const applied = row.applied as Record<string, unknown> | undefined
+      const grant = row.grant as Record<string, unknown> | undefined
+      const upload = presenterFields(row.upload),
+        uploadedGrant = presenterFields(upload.grant)
+      const drawn = row.drawn as Record<string, unknown> | undefined
+      const after = row.after as Record<string, unknown> | undefined
+      const parserAfter = presenterFields(row.parserAfter)
+      const before = row.before as Record<string, unknown> | undefined
+      const pixels = row.pixels as Record<string, number> | undefined
+      const canvas = row.canvas as Record<string, number> | undefined
+      const width = [3840, 5120][index]!,
+        height = [2160, 2880][index]!
+      const recovered = (value: unknown): boolean => {
+        if (!value || typeof value !== 'object') return false
+        const recovery = presenterFields(value),
+          pixels = presenterFields(recovery.pixels),
+          facts = presenterFields(recovery.facts),
+          geometry = presenterFields(facts.geometry)
+        return (
+          recovery.stage === 'complete' &&
+          recovery.outcome === 'drawn' &&
+          recovery.error === null &&
+          recovery.observation === 'presenter-compositor-colors' &&
+          Number.isFinite(pixels.redTop) &&
+          Number(pixels.redTop) > 100 &&
+          Number.isFinite(pixels.blueBottom) &&
+          Number(pixels.blueBottom) > 100 &&
+          geometry.width === 320 &&
+          geometry.height === 192 &&
+          facts.failure === 0 &&
+          facts.rendererHealth === 0
+        )
+      }
+      return (
+        row.actor === 'presenter-first' &&
+        row.instance === 'presenter-first-instance' &&
+        typeof row.view === 'string' &&
+        row.view.length > 0 &&
+        row.stage === 'complete' &&
+        row.outcome === 'drawn' &&
+        row.sameActor === true &&
+        row.failure === undefined &&
+        row.error === undefined &&
+        !!applied &&
+        applied.width === width &&
+        applied.height === height &&
+        applied.backingScale === 1 &&
+        Number.isSafeInteger(applied.serial) &&
+        Number(applied.serial) > 0 &&
+        grant?.viewId === row.view &&
+        grant?.width === width &&
+        grant?.height === height &&
+        grant?.backingScale === 1 &&
+        grant?.geometrySerial === applied.serial &&
+        typeof grant?.nativeEpoch === 'string' &&
+        grant.nativeEpoch.length > 0 &&
+        Number.isSafeInteger(grant?.attachment) &&
+        Number(grant?.attachment) > 0 &&
+        upload.stride === width * 4 &&
+        upload.byteLength === width * height * 4 &&
+        uploadedGrant.viewId === row.view &&
+        uploadedGrant.geometrySerial === applied.serial &&
+        uploadedGrant.width === width &&
+        uploadedGrant.height === height &&
+        uploadedGrant.backingScale === 1 &&
+        uploadedGrant.attachment === grant?.attachment &&
+        uploadedGrant.nativeEpoch === grant?.nativeEpoch &&
+        drawn?.geometrySerial === applied.serial &&
+        drawn?.attachment === grant?.attachment &&
+        drawn?.nativeEpoch === grant?.nativeEpoch &&
+        canvas?.width === width &&
+        canvas?.height === height &&
+        !!before &&
+        !!after &&
+        Number.isSafeInteger(before.frameCopies) &&
+        Number.isSafeInteger(after.frameCopies) &&
+        Number(after.frameCopies) > Number(before.frameCopies) &&
+        after.failure === 0 &&
+        after.rendererHealth === 0 &&
+        parserAfter.failure === 0 &&
+        parserAfter.rendererHealth === 0 &&
+        Number.isSafeInteger(after.ioAppliedSequence) &&
+        Number.isSafeInteger(parserAfter.ioAppliedSequence) &&
+        Number(parserAfter.ioAppliedSequence) > Number(after.ioAppliedSequence) &&
+        !!pixels &&
+        Number.isFinite(pixels.redTop) &&
+        pixels.redTop! > 100 &&
+        Number.isFinite(pixels.blueBottom) &&
+        pixels.blueBottom! > 100 &&
+        row.parserProgress === true &&
+        recovered(row.initial) &&
+        recovered(row.shrink) &&
+        recovered(row.hideReveal)
+      )
+    })
   )
 }
 
@@ -378,6 +545,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const argument = args.find((value) => value.startsWith('--library='))
   const presenter = args.includes('--presenter')
   const compatibility = args.includes('--compatibility')
+  const largeViewport = args.includes('--large-viewport')
   const ozoneArgument = args.find((value) => value.startsWith('--ozone-platform='))
   const ozone = ozoneArgument?.slice('--ozone-platform='.length)
   if (ozone !== undefined && ozone !== 'x11' && ozone !== 'wayland')
@@ -391,11 +559,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (
     !argument ||
     args.length !==
-      1 + Number(presenter) + Number(compatibility) + Number(Boolean(ozoneArgument)) ||
-    (compatibility && !presenter)
+      1 +
+        Number(presenter) +
+        Number(compatibility) +
+        Number(largeViewport) +
+        Number(Boolean(ozoneArgument)) ||
+    (compatibility && !presenter) ||
+    (largeViewport && !compatibility)
   )
     throw new Error(
-      'Usage: run-electron-probe.mts --library=ABS_PATH [--presenter [--compatibility]] [--ozone-platform=x11|wayland]',
+      'Usage: run-electron-probe.mts --library=ABS_PATH [--presenter [--compatibility [--large-viewport]]] [--ozone-platform=x11|wayland]',
     )
   const library = argument.slice('--library='.length)
   const source = (
@@ -434,5 +607,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     undefined,
     presenter ? (compatibility ? 'pixels' : 'gpu') : undefined,
     ozone,
+    largeViewport,
   )
 }

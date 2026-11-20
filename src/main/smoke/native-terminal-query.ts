@@ -14,6 +14,7 @@ import {
   paneScript,
 } from './native-terminal-selection-browser'
 import { NATIVE_READONLY_SELECTION } from './native-terminal-selection-fixture'
+import { reportNativeQueryFailure } from './native-terminal-query-failure'
 import {
   terminalSearchEvictionProducer,
   terminalSearchStreamProducer,
@@ -66,8 +67,23 @@ export async function verifyNativeTerminalQuery(
   }
   await browser.focus()
   await browser.menu('Clear Screen and Scrollback')
-  await win.webContents.executeJavaScript(clipboardInstall(false))
+  await win.webContents.executeJavaScript(clipboardInstall(false, diagnostics))
+  const phaseTiming: { phase: string; atEpochMs: number }[] = []
+  let phaseTimingUnavailable = !diagnostics
   let phase = 'initial-query'
+  const setPhase = (next: string): void => {
+    phase = next
+    if (!diagnostics) return
+    try {
+      const stamp = { phase, atEpochMs: performance.timeOrigin + performance.now() }
+      if (phaseTiming.length < 11) phaseTiming.push(stamp)
+      console.log('HVIR_NATIVE_QUERY_PHASE ' + JSON.stringify(stamp))
+    } catch {
+      phaseTimingUnavailable = true
+      /* Diagnostic stamps never replace the qualification result. */
+    }
+  }
+  setPhase(phase)
   try {
     await evaluate(
       `input.dispatchEvent(new KeyboardEvent('keydown',{key:'f',code:'KeyF',shiftKey:true,...(/Mac/.test(navigator.platform)?{metaKey:true}:{ctrlKey:true}),bubbles:true,cancelable:true}));`,
@@ -113,7 +129,7 @@ export async function verifyNativeTerminalQuery(
         ),
       false,
     )
-    phase = 'selected-movement'
+    setPhase('selected-movement')
     // True row movement preserves the selected occurrence; no navigation/reveal
     // action occurs between the parser edit and observing its native pixels.
     await ptys.writeConfirmed(
@@ -134,7 +150,7 @@ export async function verifyNativeTerminalQuery(
       false,
     )
     await click('Close terminal search')
-    phase = 'streaming-setup'
+    setPhase('streaming-setup')
     // Match the existing streaming fixture: selected occurrences are already
     // retained history before the producer and acquisition clock begin.
     let setupOutput = ''
@@ -160,7 +176,7 @@ export async function verifyNativeTerminalQuery(
     } finally {
       await detachSetup()
     }
-    phase = 'streaming-evidence'
+    setPhase('streaming-evidence')
     // The unchanged canonical streaming clock includes its own fresh acquisition.
     const streamingStarted = performance.now(),
       streamingDeadline = streamingStarted + 2500
@@ -333,7 +349,7 @@ export async function verifyNativeTerminalQuery(
       await streamDetach()
     }
     await click('Close terminal search')
-    phase = 'semantic-query'
+    setPhase('semantic-query')
     // Genuine parser boundaries, current-body extraction, and native viewport reveal.
     await browser.menu('Clear Screen and Scrollback')
     await ptys.writeConfirmed(
@@ -388,7 +404,7 @@ export async function verifyNativeTerminalQuery(
         ),
       false,
     )
-    phase = 'high-match-setup'
+    setPhase('high-match-setup')
     // Broad native metadata stays indexed while a finite 50 Hz producer continues.
     let output = '',
       completed = false
@@ -489,7 +505,7 @@ export async function verifyNativeTerminalQuery(
           { cause },
         )
       }
-      phase = 'high-match-selection'
+      setPhase('high-match-selection')
       await click('Next terminal match')
       await browser.wait(
         async () => (await status()) === '2 of 12000',
@@ -498,7 +514,7 @@ export async function verifyNativeTerminalQuery(
       await evaluate(
         `window.nativeSelectionProbe.retainedSearch=panel.querySelector('.terminal-search');`,
       )
-      phase = 'high-match-producer'
+      setPhase('high-match-producer')
       // Ignore any synchronous replay/setup output before this producer starts.
       output = ''
       completed = false
@@ -514,7 +530,7 @@ export async function verifyNativeTerminalQuery(
         managed.ownerGeneration,
       )
       highProducer.writeAckAtMs = performance.now() - highProducerStarted
-      phase = 'high-match-observation'
+      setPhase('high-match-observation')
       let observedReducedCount = 0,
         observedAtMs = 0
       const highMatchStarted = performance.now()
@@ -572,13 +588,13 @@ export async function verifyNativeTerminalQuery(
     } finally {
       await detach()
     }
-    phase = 'post-query-cleanup'
+    setPhase('post-query-cleanup')
     await click('Close terminal search')
     // Clear this destructive fixture before M9 creates its original READY marker.
     // Productive copy remains uncapped; the existing diagnostic reader is unchanged.
     await browser.menu('Clear Screen and Scrollback')
     await browser.ready()
-    phase = 'query-frame-proof'
+    setPhase('query-frame-proof')
     const proof = await browser.proof()
     const performanceEvidence = nativeWorkbenchPerformanceEvidence(
       performanceMode,
@@ -600,6 +616,8 @@ export async function verifyNativeTerminalQuery(
         'HVIR_NATIVE_QUERY_RESPONSIVENESS ' +
           JSON.stringify({
             phase: 'query',
+            phaseTiming,
+            phaseTimingUnavailable,
             ...proof,
             captureTiming: browser.captureTiming(),
           }),
@@ -611,6 +629,8 @@ export async function verifyNativeTerminalQuery(
     return {
       performance: performanceEvidence,
       actualNative: true,
+      phaseTiming,
+      phaseTimingUnavailable,
       matches: 3,
       exactCopy: copy,
       pixelFixture,
@@ -634,35 +654,20 @@ export async function verifyNativeTerminalQuery(
   } catch (cause) {
     if (diagnostics) {
       const owner = { id: managed.ownerId, generation: managed.ownerGeneration }
-      const [producer, renderer, ui] = await Promise.all([
-        native.inspectRetained(managed.id, owner).catch(() => undefined),
-        native.rendererInfo(managed.id, owner).catch(() => undefined),
-        evaluate<{ status: string; unavailable: boolean }>(
-          `return {status:panel.querySelector('.terminal-search-status')?.textContent?.trim()??'',unavailable:!!panel.querySelector('.terminal-search-unavailable')};`,
-        ).catch(() => undefined),
-      ])
-      console.error('HVIR_NATIVE_QUERY_FAILURE_FACTS', {
-        phase,
-        ui,
-        geometry: producer?.geometry,
-        ioAppliedSequence: producer?.ioAppliedSequence,
-        ioAppliedMutation: producer?.ioAppliedMutation,
-        producerFailure: producer?.failure,
-        rendererHealth: producer?.rendererHealth,
-        presentationFailure: producer?.presentationFailure,
-        nativeLastFrame: renderer?.lastFrame && {
-          screen: renderer.lastFrame.screen,
-          streamSequence: renderer.lastFrame.streamSequence,
-          snapshotMutation: renderer.lastFrame.snapshotMutation,
-          geometrySerial: renderer.lastFrame.geometrySerial,
-          kind: renderer.lastFrame.kind,
-          width: renderer.lastFrame.width,
-          height: renderer.lastFrame.height,
-          colorSpace: renderer.lastFrame.colorSpace,
-          origin: renderer.lastFrame.origin,
-          premultiplied: renderer.lastFrame.premultiplied,
+      await reportNativeQueryFailure(
+        {
+          producer: () => native.inspectRetained(managed.id, owner),
+          renderer: () => native.rendererInfo(managed.id, owner),
+          ui: () =>
+            evaluate<{ status: string; unavailable: boolean }>(
+              `return {status:panel.querySelector('.terminal-search-status')?.textContent?.trim()??'',unavailable:!!panel.querySelector('.terminal-search-unavailable')};`,
+            ),
+          proof: browser.proof,
+          captureTiming: browser.captureTiming,
+          output: (line) => console.error(line),
         },
-      })
+        { phase, phaseTiming, phaseTimingUnavailable },
+      )
     }
     throw new Error('native-query-phase ' + phase, { cause })
   } finally {

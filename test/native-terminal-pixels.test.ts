@@ -15,12 +15,22 @@ describe('off-thread compatibility pixel normalization', () => {
       Uint8Array.of(255, 0, 0, 255, 0, 0, 255, 255),
     )
   })
+  it('preserves the independently owned packed allocation when normalizing', () => {
+    const storage = new ArrayBuffer(16),
+      bytes = new Uint8Array(storage)
+    bytes.set([0, 0, 255, 255, 255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 0, 0])
+    expect(normalizeNativeTerminalPixels(bytes, 8, 2)).toBe(bytes)
+    expect(bytes.buffer).toBe(storage)
+    expect(bytes).toEqual(
+      Uint8Array.of(0, 255, 0, 255, 0, 0, 0, 0, 255, 0, 0, 255, 0, 0, 255, 255),
+    )
+  })
   it('rejects malformed layouts, oversize copies and shared mutable storage', () => {
     for (const [bytes, stride, origin] of [
       [new Uint8Array(3), 4, 1],
       [new Uint8Array(4), 3, 1],
       [new Uint8Array(4), 4, 3],
-      [new Uint8Array(16 * 1024 * 1024 + 4), 4, 1],
+      [new Uint8Array(8193 * 4), 4, 1],
       [new Uint8Array(new SharedArrayBuffer(4)), 4, 1],
     ] as const)
       expect(() => normalizeNativeTerminalPixels(bytes, stride, origin)).toThrow()

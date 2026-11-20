@@ -10,7 +10,13 @@ import {
 } from '../../shared'
 import { LocalHost } from '../project-host'
 import type { PtySupervisor } from '../pty/pty-supervisor'
+import type { NativeTerminalApplication } from '../terminal/native-terminal-application'
+import {
+  createNativeCapacityTerminals,
+  type NativeCapacityActivityReport,
+} from './capacity-native-terminals'
 import { startCapacityOutputFixtures } from './capacity-output-fixtures'
+import { observeCapacityNativeEffects } from './capacity-native-effects-observation'
 import { verifyCapacityLivePresentationUpdate } from './capacity-live-presentation'
 import {
   CAPACITY_REFLOW_HEIGHT,
@@ -20,7 +26,6 @@ import {
 import {
   activateCapacityTerminal,
   addCapacityTerminals,
-  measureAdditionalTerminalReadiness,
   readTerminalPresentation,
   verifyHiddenPresentationSettles,
   verifyCapacityTerminalSearch,
@@ -28,8 +33,11 @@ import {
   verifyCapacityPaletteUpdate,
   verifyTerminalActivity,
   type TerminalActivityReport,
-  type TerminalReadinessSampleReport,
 } from './capacity-terminals'
+import {
+  measureAdditionalTerminalReadiness,
+  type TerminalReadinessSampleReport,
+} from './capacity-terminal-readiness'
 import {
   median,
   sampleElectronProcessMetrics,
@@ -77,6 +85,7 @@ interface CapacitySmokeReport {
   readonly idleCpu?: CapacityCpuComparison
   readonly terminalReadiness?: CapacityTerminalReadinessComparison
   readonly terminalActivity?: TerminalActivityReport
+  readonly nativeTerminalActivity?: NativeCapacityActivityReport
 }
 
 interface CapacitySourceEvidence {
@@ -233,7 +242,31 @@ export async function runCapacityLoadSmoke(
   supervisor: PtySupervisor,
   host: LocalHost,
   churnPath: HostPath,
-): Promise<void> {
+  native?: NativeTerminalApplication,
+) {
+  const nativeCapacity = native && createNativeCapacityTerminals(win, supervisor, native)
+  try {
+    return await runCapacityLoad(
+      win,
+      supervisor,
+      host,
+      churnPath,
+      nativeCapacity,
+      native?.effects,
+    )
+  } finally {
+    nativeCapacity?.dispose()
+  }
+}
+
+async function runCapacityLoad(
+  win: BrowserWindow,
+  supervisor: PtySupervisor,
+  host: LocalHost,
+  churnPath: HostPath,
+  native?: ReturnType<typeof createNativeCapacityTerminals>,
+  effects?: NativeTerminalApplication['effects'],
+) {
   const performanceMode = parseCapacityPerformanceMode(
     process.env[CAPACITY_PERFORMANCE_GATE_ENV],
   )
@@ -262,42 +295,69 @@ export async function runCapacityLoadSmoke(
     )
   }
   await activateCapacityTerminal(win, 0)
-  await verifyHiddenPresentationSettles(win)
-  const sessionsCapacity = await verifyCapacitySessionsTerminalDetail(win, supervisor)
-  console.log(
-    `[smoke:capacity:contract] one Sessions surface among twelve live terminals OK ` +
-      `(${sessionsCapacity.ghosttyInstances} constant Ghostty instances · ` +
-      `${sessionsCapacity.sessionsPresented} presented · quiet release)`,
-  )
-  const paletteCapacity = await verifyCapacityPaletteUpdate(win)
-  console.log(
-    `[smoke:capacity:contract] 12 retained palette updates + hidden paint suppression OK ` +
-      `(${paletteCapacity.synchronousMs.toFixed(1)}ms sync · ` +
-      `${paletteCapacity.eventLoopDelayMs.toFixed(1)}ms event loop · ` +
-      `${paletteCapacity.hiddenPanes} hidden · ${paletteCapacity.visibleFrames} visible frames)`,
-  )
+  if (native) await native.hiddenSettles()
+  else await verifyHiddenPresentationSettles(win)
+  if (native) {
+    console.log(
+      '[smoke:capacity:native-sessions] ' + JSON.stringify(await native.sessions()),
+    )
+    console.log(
+      '[smoke:capacity:native-appearance] ' + JSON.stringify(await native.appearance()),
+    )
+  } else {
+    const sessionsCapacity = await verifyCapacitySessionsTerminalDetail(win, supervisor)
+    console.log(
+      `[smoke:capacity:contract] one Sessions surface among twelve live terminals OK ` +
+        `(${sessionsCapacity.ghosttyInstances} constant Ghostty instances · ` +
+        `${sessionsCapacity.sessionsPresented} presented · quiet release)`,
+    )
+    const paletteCapacity = await verifyCapacityPaletteUpdate(win)
+    console.log(
+      `[smoke:capacity:contract] 12 retained palette updates + hidden paint suppression OK ` +
+        `(${paletteCapacity.synchronousMs.toFixed(1)}ms sync · ` +
+        `${paletteCapacity.eventLoopDelayMs.toFixed(1)}ms event loop · ` +
+        `${paletteCapacity.hiddenPanes} hidden · ${paletteCapacity.visibleFrames} visible frames)`,
+    )
+  }
   const twelveTerminalCpu = await sampleCapacityCpuSeries(
     win,
     'one-visible-eleven-hidden',
   )
   const idleCpu = compareCapacityCpu(baselineCpu, twelveTerminalCpu)
   console.log(`[smoke:performance:sample:idle-cpu] ${JSON.stringify(idleCpu)}`)
-  const presentationCapacity = await verifyCapacityLivePresentationUpdate(win, supervisor)
-  console.log(
-    `[smoke:capacity:contract] 12 retained cursor/shaping updates + hidden reveal OK ` +
-      `(${presentationCapacity.synchronousMs.toFixed(1)}ms sync · ` +
-      `${presentationCapacity.eventLoopDelayMs.toFixed(1)}ms event loop · ` +
-      `${presentationCapacity.hiddenPanes} hidden · ` +
-      `${presentationCapacity.shapedRuns} runs/${presentationCapacity.shapedCells} cells · ` +
-      `max ${presentationCapacity.maxRunCells})`,
-  )
+  if (!native) {
+    const presentationCapacity = await verifyCapacityLivePresentationUpdate(
+      win,
+      supervisor,
+    )
+    console.log(
+      `[smoke:capacity:contract] 12 retained cursor/shaping updates + hidden reveal OK ` +
+        `(${presentationCapacity.synchronousMs.toFixed(1)}ms sync · ` +
+        `${presentationCapacity.eventLoopDelayMs.toFixed(1)}ms event loop · ` +
+        `${presentationCapacity.hiddenPanes} hidden · ` +
+        `${presentationCapacity.shapedRuns} runs/${presentationCapacity.shapedCells} cells · ` +
+        `max ${presentationCapacity.maxRunCells})`,
+    )
+  }
   if (reflow) {
     await activateCapacityTerminal(win, 0)
     win.setContentSize(CAPACITY_REFLOW_WIDTHS[0], CAPACITY_REFLOW_HEIGHT)
-    const retained = await verifyCapacityTerminalSearch(win, supervisor, true)
+    const retained = native
+      ? await native.retainedHistory(true)
+      : await verifyCapacityTerminalSearch(win, supervisor, true)
     console.log(`[smoke:capacity:reflow-history] ${JSON.stringify(retained)}`)
   }
-  const outputFixtures = startCapacityOutputFixtures(supervisor)
+  const effectObservation =
+    process.env['HVIR_CAPACITY_OBSERVATION'] === 'native-effects-diagnostic' && effects
+      ? observeCapacityNativeEffects(effects)
+      : undefined
+  let outputFixtures: ReturnType<typeof startCapacityOutputFixtures>
+  try {
+    outputFixtures = startCapacityOutputFixtures(supervisor)
+  } catch (error) {
+    effectObservation?.stop()
+    throw error
+  }
   let churning = true
   const watchChurn = (async (): Promise<void> => {
     let generation = 0
@@ -311,12 +371,24 @@ export async function runCapacityLoadSmoke(
   let loadFailure: unknown
   let loadFailed = false
   try {
-    const loadedReadiness = await measureAdditionalTerminalReadiness(
-      win,
-      supervisor,
-      'loaded',
-      TERMINAL_READINESS_SAMPLE_COUNT,
-    )
+    let loadedReadiness: TerminalReadinessSampleReport
+    try {
+      loadedReadiness = await measureAdditionalTerminalReadiness(
+        win,
+        supervisor,
+        'loaded',
+        TERMINAL_READINESS_SAMPLE_COUNT,
+      )
+    } finally {
+      if (effectObservation) {
+        const observed = effectObservation.stop()
+        try {
+          console.log('HVIR_CAPACITY_NATIVE_EFFECTS ' + JSON.stringify(observed))
+        } catch {
+          /* Diagnostics must preserve readiness failure and cleanup. */
+        }
+      }
+    }
     const terminalReadiness = compareTerminalReadiness(baselineReadiness, loadedReadiness)
     console.log(
       `[smoke:performance:sample:terminal-readiness] ${JSON.stringify(terminalReadiness)}`,
@@ -327,7 +399,8 @@ export async function runCapacityLoadSmoke(
         `${baselineReadiness.p95Ms.toFixed(1)}ms · max ${loadedReadiness.maxMs.toFixed(1)}ms)`,
     )
     await activateCapacityTerminal(win, 0)
-    const presentationBefore = await readTerminalPresentation(win)
+    const nativeBefore = native ? await native.snapshot() : undefined
+    const presentationBefore = native ? undefined : await readTerminalPresentation(win)
     const [rendererResult, processResult, reflowResult] = await Promise.allSettled([
       withTimeout(
         win.webContents.executeJavaScript(`
@@ -399,7 +472,9 @@ export async function runCapacityLoadSmoke(
         win.webContents.getOSProcessId(),
         CPU_SAMPLE_DURATION_MS,
       ),
-      reflow ? measureCapacityReflow(win) : Promise.resolve(undefined),
+      reflow
+        ? measureCapacityReflow(win, native ? () => native.columns() : undefined)
+        : Promise.resolve(undefined),
     ])
     // Let every finite measurement release its resources before load cleanup.
     if (rendererResult.status === 'rejected') throw rendererResult.reason
@@ -410,21 +485,27 @@ export async function runCapacityLoadSmoke(
     if (reflowResult.value) {
       console.log(`[smoke:capacity:reflow] ${JSON.stringify(reflowResult.value)}`)
     }
-    const presentationAfter = await readTerminalPresentation(win)
-    const terminalActivity = verifyTerminalActivity(
-      presentationBefore,
-      presentationAfter,
-      supervisor
-        .list()
-        .slice(1)
-        .map((terminal) => terminal.id),
-    )
+    const fixtureIds = supervisor
+      .list()
+      .slice(1)
+      .map((terminal) => terminal.id)
+    const nativeTerminalActivity = native
+      ? native.activity(nativeBefore!, await native.snapshot(), fixtureIds)
+      : undefined
+    const terminalActivity = native
+      ? undefined
+      : verifyTerminalActivity(
+          presentationBefore!,
+          await readTerminalPresentation(win),
+          fixtureIds,
+        )
     report = {
       ...rendererReport,
       processMetrics,
       idleCpu,
       terminalReadiness,
       terminalActivity,
+      nativeTerminalActivity,
       memoryStartKiB: processMetrics.memoryStartKiB,
       memoryEndKiB: processMetrics.memoryEndKiB,
       memoryPeakKiB: processMetrics.memoryPeakKiB,
@@ -463,22 +544,43 @@ export async function runCapacityLoadSmoke(
   console.log('[smoke:capacity:contract] 12 output producers acknowledged shutdown')
 
   if (!report) throw new Error('capacity report was not produced')
-  const capacitySearch = await verifyCapacityTerminalSearch(win, supervisor)
-  console.log(
-    `[smoke:capacity:terminal-search] 10MB retained cap · ` +
-      `${capacitySearch.retainedRows} retained rows · 12 live terminals · ` +
-      `${capacitySearch.durationMs.toFixed(1)}ms`,
-  )
+  if (native) {
+    console.log(
+      '[smoke:capacity:native-retained-history] ' +
+        JSON.stringify(await native.retainedHistory(false)),
+    )
+    console.log(
+      '[smoke:capacity:native-query] ' +
+        JSON.stringify(await native.search(performanceMode)),
+    )
+    console.log(
+      '[smoke:capacity:native-synchronized-output] ' +
+        JSON.stringify(await native.synchronizedOutput()),
+    )
+  } else {
+    const capacitySearch = await verifyCapacityTerminalSearch(win, supervisor)
+    console.log(
+      `[smoke:capacity:terminal-search] 10MB retained cap · ` +
+        `${capacitySearch.retainedRows} retained rows · 12 live terminals · ` +
+        `${capacitySearch.durationMs.toFixed(1)}ms`,
+    )
+  }
   const evidence = capacityPerformanceEvidence(report, performanceMode, source)
   console.log(`[smoke:performance:evidence] ${JSON.stringify(evidence)}`)
-  console.log(
-    `[smoke:capacity:contracts] load passed ` +
-      `(${report.terminalActivity!.hiddenPanes} hidden panes · ` +
-      `${report.terminalActivity!.nativeDataEvents} native events → ` +
-      `${report.terminalActivity!.deliveryCallbacks} bounded deliveries · ` +
-      `${report.terminalActivity!.peakBufferedBytes} byte peak buffer · ` +
-      `${report.terminalActivity!.synchronizedPanes} synchronized panes)`,
-  )
+  if (report.nativeTerminalActivity) {
+    console.log(
+      '[smoke:capacity:native-contracts] ' +
+        JSON.stringify(report.nativeTerminalActivity),
+    )
+  } else
+    console.log(
+      `[smoke:capacity:contracts] load passed ` +
+        `(${report.terminalActivity!.hiddenPanes} hidden panes · ` +
+        `${report.terminalActivity!.nativeDataEvents} native events → ` +
+        `${report.terminalActivity!.deliveryCallbacks} bounded deliveries · ` +
+        `${report.terminalActivity!.peakBufferedBytes} byte peak buffer · ` +
+        `${report.terminalActivity!.synchronizedPanes} synchronized panes)`,
+    )
   if (performanceMode === 'controlled' && evidence.violations.length > 0) {
     throw new Error(
       `controlled capacity performance gate failed: ${evidence.violations
@@ -491,9 +593,12 @@ export async function runCapacityLoadSmoke(
       ? '[smoke:performance:gate] controlled budgets passed'
       : `[smoke:performance:gate] evidence only; run npm run performance:capacity on a controlled machine to enforce ${evidence.violations.length} observed crossing(s)`,
   )
+  return evidence
 }
 
-async function sampleCapacityCpuSeries(
+export type CapacityLoadEvidence = Awaited<ReturnType<typeof runCapacityLoadSmoke>>
+
+export async function sampleCapacityCpuSeries(
   win: BrowserWindow,
   label: string,
 ): Promise<readonly ElectronProcessMetricReport[]> {
@@ -515,7 +620,7 @@ async function sampleCapacityCpuSeries(
   return samples
 }
 
-function compareCapacityCpu(
+export function compareCapacityCpu(
   baseline: readonly ElectronProcessMetricReport[],
   twelveTerminals: readonly ElectronProcessMetricReport[],
 ): CapacityCpuComparison {
@@ -540,7 +645,7 @@ function compareCapacityCpu(
   }
 }
 
-function compareTerminalReadiness(
+export function compareTerminalReadiness(
   baseline: TerminalReadinessSampleReport,
   loaded: TerminalReadinessSampleReport,
 ): CapacityTerminalReadinessComparison {
@@ -564,7 +669,7 @@ function capacityPerformanceEvidence(
   if (
     !report.idleCpu ||
     !report.terminalReadiness ||
-    !report.terminalActivity ||
+    (!report.terminalActivity && !report.nativeTerminalActivity) ||
     !report.processMetrics
   ) {
     throw new Error('capacity performance evidence was incomplete')

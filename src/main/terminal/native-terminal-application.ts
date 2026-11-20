@@ -17,7 +17,10 @@ import type {
 import type { NativeTerminalEffectBatch } from '../../shared/native-terminal-effects'
 import type { NativeTerminalSession } from '../../shared/native-terminal'
 import { NativeTerminalEffectPolicy } from './native-terminal-effect-policy'
-import type { NativeTerminalProductEffect } from '../../shared/native-terminal-effects'
+import {
+  publishNativeTerminalEffects,
+  type NativeTerminalProductPublication,
+} from './native-terminal-product-effects'
 import {
   NativeTerminalInput,
   type NativeTerminalInputContext,
@@ -67,6 +70,10 @@ export async function createNativeTerminalApplication(
   ptys: PtySupervisor,
   isCurrent: (owner: RendererOwner) => boolean,
   systemClipboard: { writeText(text: string): void } = clipboard,
+  createImports = (
+    ...args: ConstructorParameters<typeof NativeTerminalFrameImports>
+  ): Pick<NativeTerminalFrameImports, 'acquire'> =>
+    new NativeTerminalFrameImports(...args),
 ): Promise<NativeTerminalApplication | undefined> {
   const library = await nativeTerminalLibraryForStartup(app.isPackaged)
   if (!library) return
@@ -95,8 +102,9 @@ export async function createNativeTerminalApplication(
   const targets = new NativeTerminalPresentationTargets()
   const presenter = new NativeTerminalPresenter(
     host,
-    new NativeTerminalFrameImports(processOwner, sharedTexture),
+    createImports(processOwner, sharedTexture),
     linux?.presentationMode,
+    (viewId) => application.resumePresentation(viewId),
   )
   const application: NativeTerminalApplication = new NativeTerminalApplication(
     sessions,
@@ -372,39 +380,15 @@ export class NativeTerminalApplication {
   }
   publishEffect(
     session: import('../../shared/native-terminal').NativeTerminalSession,
-    effect: NativeTerminalProductEffect,
+    effect: NativeTerminalProductPublication,
   ): void {
-    for (const view of this.views.values()) {
-      if (
-        view.sessionId !== session.sessionId ||
-        view.detaching ||
-        view.instanceId !== session.instanceId ||
-        view.owner.id !== session.ownerId ||
-        view.owner.generation !== session.ownerGeneration ||
-        !this.isCurrent(view.owner) ||
-        view.frame.isDestroyed()
-      )
-        continue
-      const current = this.sessions.get(session.sessionId)
-      if (
-        !current ||
-        current.retiring ||
-        current.session.instanceId !== session.instanceId ||
-        current.session.ownerId !== session.ownerId ||
-        current.session.ownerGeneration !== session.ownerGeneration ||
-        (!['title', 'semantic', 'semantic-gap'].includes(effect.effect.kind) &&
-          (current.readonly ||
-            current.inputClosed ||
-            current.unavailable ||
-            current.inputUnavailable))
-      )
-        continue
-      try {
-        view.frame.send('native-terminal:effect', effect)
-      } catch {
-        // Renderer delivery cannot invalidate already retained parser facts.
-      }
-    }
+    publishNativeTerminalEffects(
+      session,
+      effect,
+      this.views.values(),
+      () => this.sessions.get(session.sessionId),
+      (owner) => this.isCurrent(owner),
+    )
   }
   async attach(id: string, owner: RendererOwner, frame: WebFrameMain): Promise<string> {
     const record = this.requireSession(id, owner)
@@ -538,6 +522,20 @@ export class NativeTerminalApplication {
         owner.generation,
       )
   }
+  /** Main-owned recovery reuses current layout/geometry and PTY acknowledgement. */
+  async resumePresentation(viewId: string): Promise<boolean> {
+    const view = this.views.get(viewId)
+    if (
+      !view ||
+      !view.visible ||
+      !view.layout?.visible ||
+      view.detaching ||
+      !this.isCurrent(view.owner)
+    )
+      return false
+    await this.update(viewId, view.owner, view.layout)
+    return this.views.get(viewId) === view && view.visible && !!view.layout?.visible
+  }
   async demand(viewId: string, owner: RendererOwner): Promise<boolean> {
     this.requireView(viewId, owner)
     return this.presenter.demand(viewId)
@@ -623,6 +621,7 @@ export class NativeTerminalApplication {
       throw new Error('native-view-stale')
     if (record.retiring || view.detaching) throw new Error('native-view-stale')
     const revision = view.revision
+    const drawn = captured ? undefined : this.targets.drawn(viewId, view.frame)
     const readOnly =
       record.readonly ||
       record.inputClosed ||
@@ -632,7 +631,9 @@ export class NativeTerminalApplication {
       handle: record.handle,
       instanceId: view.instanceId,
       geometrySerial: view.geometrySerial,
-      selectionContext: captured ? undefined : this.targets.drawn(viewId, view.frame),
+      selectionContext: drawn
+        ? { screen: drawn.screen, geometrySerial: drawn.geometrySerial }
+        : undefined,
       state: view.input,
       inputSettled: () => this.sessions.inputSettled(view.sessionId, view.instanceId),
       retainInput: (pending) =>
@@ -842,7 +843,7 @@ export class NativeTerminalApplication {
             !this.presenter.isInputCurrent(viewId)
           )
             throw new Error('native-query-not-drawn')
-          return drawn
+          return { screen: drawn.screen, geometrySerial: drawn.geometrySerial }
         }
         const value = nativeQueryResult(
           await this.host.query(
@@ -920,7 +921,7 @@ export class NativeTerminalApplication {
       handle: record.handle,
       instanceId: view.instanceId,
       workspaceRoot: session.workspaceRoot,
-      geometry,
+      geometry: { screen: geometry.screen, geometrySerial: geometry.geometrySerial },
       retainControl: (pending: Promise<unknown>) =>
         this.sessions.retainInput(view.sessionId, view.instanceId, pending),
       controlApplied: (_action: 'clear' | 'reset', cutoff: number, mutation: number) =>

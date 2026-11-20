@@ -185,8 +185,15 @@ jobs:
             }
             else {
               assert(proof.frameCopies > 0);
-              assert.equal(proof.maximumCompatibilityUploadBytes, 16 * 1024 * 1024);
-              assert.equal(proof.compatibilityBoundRefused, true);
+              const extent = proof.compatibilityExtent;
+              assert(extent && extent.grant);
+              assert.equal(extent.grant.width, 2050);
+              assert.equal(extent.grant.height, 2048);
+              assert.equal(extent.stride, extent.grant.width * 4);
+              assert.equal(extent.byteLength, extent.stride * extent.grant.height);
+              assert.equal(proof.compatibilitySampleUploadBytes, extent.byteLength);
+              assert(proof.compatibilitySampleUploadBytes > 16 * 1024 * 1024);
+              assert.equal(proof.compatibilityInvalidExtentRefused, true);
             }
           }
           NODE
@@ -206,8 +213,9 @@ jobs:
           if (proof.gpuImport === 'passed') {
             assert.equal(proof.appLifetimeQuarantines, 1);
             assert.equal(proof.quarantineReclaimedBeforeExit, false);
-            assert.equal(proof.timeoutQuarantine, 'passed-app-lifetime-held-late-consumer-parser-retained');
-            assert.equal(proof.releasedReceipts, 3);
+            assert.equal(proof.timeoutQuarantine, 'passed-producer-retired-with-late-consumer-quarantined');
+            assert.deepEqual(proof.producerRetirementRecovery, {freshFrames: 6, retainedConsumerChecks: 6, frameCopies: 0, sameNativeEpoch: true});
+            assert.equal(proof.releasedReceipts, 9);
           }
           assert(Array.isArray(proof.frames));
           for (const frame of proof.frames) {
@@ -240,6 +248,8 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
           # Synthetic fixtures only: retain actual native primary-face INFO diagnostics.
           GHOSTTY_LOG: stderr
+          # Fault-window stages are diagnostic evidence, never paired timing samples.
+          HVIR_NATIVE_IMPORT_DIAGNOSTIC_WINDOW: '1'
         run: |
           npm run build:smoke
           # Keep diagnostic stderr out of the machine-readable proof stream.

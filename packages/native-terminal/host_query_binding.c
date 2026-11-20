@@ -62,7 +62,7 @@ static napi_value query_result(napi_env env, hvir_terminal_result code, bool sta
   return put(env, value, "stale", boolean(env, stale)) ? value : NULL;
 }
 static napi_value match_value(napi_env env, const hvir_terminal_query_match *match) {
-  if (!match->occurrence || match->screen != 0) { metadata_error(env); return NULL; }
+  if (!match->occurrence || match->screen > 1) { metadata_error(env); return NULL; }
   napi_value value = object(env);
   return put(env, value, "occurrence", big(env, match->occurrence)) &&
     put(env, value, "index", count_value(env, match->index)) &&

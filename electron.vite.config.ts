@@ -158,6 +158,13 @@ export default defineConfig(({ mode }) => {
         : 'release'
   return {
     ...baseConfig,
+    renderer: {
+      ...baseConfig.renderer,
+      define: {
+        ...baseConfig.renderer?.define,
+        __HVIR_SMOKE_BUILD__: JSON.stringify(smokeBuild),
+      },
+    },
     main: {
       ...baseConfig.main,
       build: {

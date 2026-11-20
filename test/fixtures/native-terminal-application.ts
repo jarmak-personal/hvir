@@ -123,14 +123,16 @@ export function nativeTerminalApplicationFixture() {
     send: frameSend,
   }
   const frame = framePort as WebFrameMain
+  const sendPixels = vi.fn(() => Promise.resolve(undefined))
   const target = {
+    reservePixels: vi.fn(() => ({ send: sendPixels, cancel: vi.fn() })),
     frame,
     ready: true,
     isCurrent: () => true,
     onUnavailable: vi.fn(() => () => undefined),
     publishGrant: vi.fn(),
     publishStatus: vi.fn(),
-    sendPixels: vi.fn(() => Promise.resolve(undefined)),
+    sendPixels,
   }
   const targets = {
     create: vi.fn(() => target),
@@ -140,8 +142,20 @@ export function nativeTerminalApplicationFixture() {
       (
         id: string,
         frame: WebFrameMain,
-      ) => { screen: 0 | 1; geometrySerial: number } | undefined
-    >(() => ({ screen: 0, geometrySerial: grant.geometrySerial })),
+      ) =>
+        | {
+            screen: 0 | 1
+            geometrySerial: number
+            nativeEpoch: string
+            attachment: number
+          }
+        | undefined
+    >(() => ({
+      screen: 0,
+      geometrySerial: grant.geometrySerial,
+      nativeEpoch: grant.nativeEpoch,
+      attachment: grant.attachment,
+    })),
   }
   const grant = {
     viewId: 'view',

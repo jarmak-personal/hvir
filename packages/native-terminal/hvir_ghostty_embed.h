@@ -5,7 +5,7 @@
 #include <stdint.h>
 /* Pinned full-core hooks, separate from stable libghostty-vt. Local pointers/FDs
  * belong to this process; M4 must transfer real OS rights across processes. */
-#define HVIR_GHOSTTY_EMBED_ABI 10u
+#define HVIR_GHOSTTY_EMBED_ABI 12u
 typedef uint32_t (*hvir_ghostty_embed_abi_fn)(void);
 /* Generic native config values; never arbitrary configuration text. */
 typedef struct {
@@ -105,5 +105,6 @@ typedef struct {
   bool (*input)(void *, uint32_t origin, const uint8_t *, size_t);
   void (*mutation_applied)(void *, uint64_t);
   void (*feed_applied)(void *, uint64_t);
+  void (*frame_retired)(void *, uint64_t, uint32_t);
 } hvir_ghostty_external_config;
 #endif
